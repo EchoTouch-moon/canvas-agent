@@ -2,6 +2,19 @@
 
 The remote repository is the coordination point. The two implementers never exchange uncommitted folders.
 
+## Status — 2026-08-06
+
+| Owner | Task | Branch | Status |
+|---|---|---|---|
+| DeepSeek V4 Flash | DS-001 persistence foundation | `agent/deepseek-ds-001-persistence` | ✅ reviewed, merged into `main` (`50d4c1f`) |
+| DeepSeek V4 Flash | DS-002 isolated Worker runtime | `agent/deepseek-ds-002-worker-runtime` | ✅ reviewed, merged into `main` (`2bf86e8`) |
+| GPT-5.6 Luna | UI-001 UI foundation | `agent/luna-ui-001-foundation` | ⏳ not started — see `docs/tasks/luna/LUNA-READY-2026-08-06.md` |
+| GPT-5.6 Luna | UI-002 core flow prototype | `agent/luna-ui-002-core-flow` | ⏳ after UI-001 is merged — see `docs/tasks/luna/LUNA-READY-2026-08-06.md` |
+
+Wave 1 and Wave 2 are no longer gated on each other: the DeepSeek side is fully
+integrated, so Luna may branch UI-001 from current `main` and run UI-001 → UI-002
+sequentially.
+
 ## Wave 1 — start in parallel from the foundation commit
 
 | Owner | Task | Branch | Exclusive file ownership |
