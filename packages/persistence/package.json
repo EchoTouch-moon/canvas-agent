@@ -1,0 +1,25 @@
+{
+  "name": "@canvas-agent/persistence",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@canvas-agent/contracts": "workspace:*",
+    "@canvas-agent/domain": "workspace:*",
+    "drizzle-orm": "1.0.0-rc.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "drizzle-kit": "1.0.0-rc.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}
