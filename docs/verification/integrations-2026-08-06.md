@@ -18,6 +18,7 @@ The repository is **integration-gate ready** for UI-002.
 | DS-001 SQLite persistence foundation | `50d4c1f` | `packages/persistence/**` |
 | DS-002 isolated Worker runtime | `2bf86e8` | `packages/worker-runtime/**` |
 | UI-001 UI foundation | `c54e15c` | `apps/desktop/src/renderer/**` |
+| UI-002 core flow prototype | `79ad0a5` | `apps/desktop/src/renderer/**` |
 | Task board / readiness coordination | `ca1452f` | `docs/tasks/**` |
 
 Each merge used `--no-ff`; reviewers confirmed the exclusive-ownership file scope for
@@ -40,7 +41,7 @@ pnpm install --frozen-lockfile  PASS
 pnpm check                      PASS (format / lint / typecheck / test / build)
 ```
 
-Total: 58 tests across 5 packages. No regression from the foundation baseline.
+Total: 63 tests across 5 packages (domain 5, contracts 2, desktop 7, persistence 33, worker-runtime 16). No regression from the foundation baseline.
 
 ## Acceptance-criterion coverage
 
@@ -74,7 +75,22 @@ Total: 58 tests across 5 packages. No regression from the foundation baseline.
 - `app-sidebar.tsx` hardcodes a user avatar (`JD` / `Jane Developer`) and a Tasks nav count (`6`); Luna was asked to remove/fixture-drive these before UI-002 lands.
 - Screenshot evidence (1440×1080 and 1180×820, both themes) is captured locally by Luna per task; screenshot files are not committed.
 
+## UI-002 acceptance-criterion coverage
+
+The core-flow prototype (typed fixture service + `coreFlowReducer` command reducer)
+models every formal transition as a separate explicit command:
+
+1. Dashboard distinguishes objective, non-goals, targets, criteria, current Snapshot and Runs — `core-flow-workspace.tsx` dashboard screen.
+2. Optional context items add/remove updates count, order and token budget; required items stay pinned — `core-flow-reducer.test.ts`.
+3. Conflict or token overflow blocks Freeze with a specific message and the Snapshot stays Draft — `core-flow-reducer.test.ts`.
+4. A frozen Snapshot is read-only; starting a Run is a separate `START_RUN` command — `core-flow-reducer.test.ts`.
+5. A succeeded Run leaves the Task in `WAITING_REVIEW` until acceptance evaluation and completion are explicit — `core-flow-reducer.test.ts`.
+6. Task completion leaves the Baseline Draft until a separate `ACTIVATE_BASELINE` confirmation — `core-flow-reducer.test.ts`.
+
+The reducer uses `@canvas-agent/domain` invariants (`assertTaskTransition`,
+`assertRunTransition`, `assertBaselineTransition`, `assertRunState`).
+
 ## Open verification
 
-- UI-002 core-flow prototype — in progress by Luna on `agent/luna-ui-002-core-flow`.
 - Complete Canvas / multi-worker / real-time collaboration — deferred per `docs/product/scope-register.md`.
+- Real Agent adapters and final RunEvent/ToolInvocation/Checkpoint/Artifact lifecycles — deferred pending the worker prototype's observed data.

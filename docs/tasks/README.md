@@ -9,7 +9,11 @@ The remote repository is the coordination point. The two implementers never exch
 | DeepSeek V4 Flash | DS-001 persistence foundation | `agent/deepseek-ds-001-persistence` | ✅ reviewed, merged into `main` (`50d4c1f`) |
 | DeepSeek V4 Flash | DS-002 isolated Worker runtime | `agent/deepseek-ds-002-worker-runtime` | ✅ reviewed, merged into `main` (`2bf86e8`) |
 | GPT-5.6 Luna | UI-001 UI foundation | `agent/luna-ui-001-foundation` | ✅ reviewed, merged into `main` (`c54e15c`) |
-| GPT-5.6 Luna | UI-002 core flow prototype | `agent/luna-ui-002-core-flow` | ⏳ unblocked — two minor sidebar cleanups then start |
+| GPT-5.6 Luna | UI-002 core flow prototype | `agent/luna-ui-002-core-flow` | ✅ reviewed, merged into `main` (`79ad0a5`) |
+
+Wave 1 and Wave 2 are complete and fully integrated. All four cross-computer tasks
+(DS-001, DS-002, UI-001, UI-002) are merged into `main`. Future work is tracked in
+`docs/product/scope-register.md` (deferred Canvas, multi-worker, collaboration).
 
 Wave 1 and Wave 2 are no longer gated on each other: the DeepSeek side is fully
 integrated, so Luna may branch UI-001 from current `main` and run UI-001 → UI-002
