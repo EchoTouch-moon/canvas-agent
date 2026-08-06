@@ -3,6 +3,7 @@ import type {
   RunOutcome,
   RunStatus,
   SnapshotFreshness,
+  SnapshotStatus,
   TaskStatus
 } from '@canvas-agent/domain'
 import type { LucideIcon } from 'lucide-react'
@@ -26,7 +27,8 @@ import {
   XCircle
 } from 'lucide-react'
 
-export type StatusValue = TaskStatus | RunStatus | RunOutcome | BaselineStatus | SnapshotFreshness
+export type StatusValue =
+  TaskStatus | RunStatus | RunOutcome | BaselineStatus | SnapshotFreshness | SnapshotStatus
 export type StatusTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info'
 
 const statusTones: Record<StatusValue, StatusTone> = {
@@ -54,7 +56,8 @@ const statusTones: Record<StatusValue, StatusTone> = {
   SUPERSEDED: 'neutral',
   CURRENT: 'success',
   STALE: 'warning',
-  DIVERGED: 'danger'
+  DIVERGED: 'danger',
+  FROZEN: 'accent'
 }
 
 const statusIcons: Record<StatusValue, LucideIcon> = {
@@ -82,7 +85,8 @@ const statusIcons: Record<StatusValue, LucideIcon> = {
   SUPERSEDED: GitBranch,
   CURRENT: CheckCircle2,
   STALE: TriangleAlert,
-  DIVERGED: XCircle
+  DIVERGED: XCircle,
+  FROZEN: ShieldCheck
 }
 
 export function toneForStatus(status: StatusValue): StatusTone {

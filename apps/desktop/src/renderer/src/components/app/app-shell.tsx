@@ -27,6 +27,8 @@ interface AppShellProps {
   readonly title?: string
   readonly description?: string
   readonly projectName?: string
+  readonly activeItem?: string
+  readonly onNavigate?: (label: string) => void
 }
 
 const commandItems: readonly CommandItem[] = [
@@ -93,10 +95,12 @@ export function AppShell({
   sectionLabel = 'MUSICDB / Overview',
   title = 'Project Dashboard',
   description,
-  projectName = 'MUSICDB'
+  projectName = 'MUSICDB',
+  activeItem: controlledActiveItem,
+  onNavigate
 }: AppShellProps): React.JSX.Element {
   const [theme, setTheme] = useState<Theme>(initialTheme)
-  const [activeItem, setActiveItem] = useState('Dashboard')
+  const [internalActiveItem, setInternalActiveItem] = useState('Dashboard')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(isCompactViewport)
   const [inspectorCollapsed, setInspectorCollapsed] = useState(isCompactViewport)
   const [inspectorWidth, setInspectorWidth] = useState(312)
@@ -134,23 +138,6 @@ export function AppShell({
     setInspectorWidth((current) => Math.min(420, Math.max(260, current - delta)))
   }, [])
 
-  const handleCommandSelect = useCallback((command: CommandItem): void => {
-    const navigation: Record<string, string> = {
-      dashboard: 'Dashboard',
-      tasks: 'Tasks',
-      context: 'Context',
-      runs: 'Runs',
-      baselines: 'Baselines',
-      settings: 'Settings'
-    }
-    if (command.id === 'theme') {
-      setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
-    } else if (navigation[command.id]) {
-      setActiveItem(navigation[command.id])
-    }
-    setCommandPaletteOpen(false)
-  }, [])
-
   const commandItemsWithTheme = useMemo(
     () =>
       commandItems.map((command) =>
@@ -159,13 +146,42 @@ export function AppShell({
     [theme]
   )
 
+  const activeItem = controlledActiveItem ?? internalActiveItem
+  const handleNavigate = useCallback(
+    (label: string): void => {
+      if (controlledActiveItem === undefined) setInternalActiveItem(label)
+      onNavigate?.(label)
+    },
+    [controlledActiveItem, onNavigate]
+  )
+
+  const handleCommandSelect = useCallback(
+    (command: CommandItem): void => {
+      const navigation: Record<string, string> = {
+        dashboard: 'Dashboard',
+        tasks: 'Tasks',
+        context: 'Context',
+        runs: 'Runs',
+        baselines: 'Baselines',
+        settings: 'Settings'
+      }
+      if (command.id === 'theme') {
+        setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
+      } else if (navigation[command.id]) {
+        handleNavigate(navigation[command.id])
+      }
+      setCommandPaletteOpen(false)
+    },
+    [handleNavigate]
+  )
+
   return (
     <>
       <Resizable className="h-screen w-screen overflow-hidden bg-background text-foreground">
         <AppSidebar
           collapsed={sidebarCollapsed}
           activeItem={activeItem}
-          onNavigate={setActiveItem}
+          onNavigate={handleNavigate}
           onToggle={() => setSidebarCollapsed((current) => !current)}
           projectName={projectName}
         />
