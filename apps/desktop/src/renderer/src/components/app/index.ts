@@ -1,5 +1,6 @@
 export * from './app-sidebar'
 export * from './app-shell'
+export * from './core-flow-workspace'
 export * from './command-palette'
 export * from './empty-state'
 export * from './error-state'

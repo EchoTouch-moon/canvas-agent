@@ -16,7 +16,6 @@ import {
   Settings2,
   Workflow
 } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -24,14 +23,13 @@ import { cn } from '@/lib/utils'
 export interface SidebarItem {
   readonly label: string
   readonly icon: LucideIcon
-  readonly badge?: string
 }
 
 const workspaceItems: readonly SidebarItem[] = [
   { label: 'Dashboard', icon: LayoutDashboard },
   { label: 'Outline', icon: Braces },
   { label: 'Nodes', icon: Network },
-  { label: 'Tasks', icon: ListChecks, badge: '6' },
+  { label: 'Tasks', icon: ListChecks },
   { label: 'Context', icon: Boxes },
   { label: 'Runs', icon: Workflow },
   { label: 'Artifacts', icon: FileCheck2 },
@@ -150,11 +148,6 @@ export function AppSidebar({
                   <span className={cn('min-w-0 flex-1 truncate', collapsed && 'sr-only')}>
                     {item.label}
                   </span>
-                  {item.badge && !collapsed ? (
-                    <Badge className="h-4 min-w-4 justify-center px-1 text-[9px]">
-                      {item.badge}
-                    </Badge>
-                  ) : null}
                 </button>
               </Tooltip>
             </li>
@@ -180,15 +173,7 @@ export function AppSidebar({
           </button>
         </Tooltip>
         {!collapsed ? (
-          <div className="mt-3 flex items-center gap-2 px-2 pb-1">
-            <span className="grid size-7 place-items-center rounded-full bg-primary/12 text-[11px] font-semibold text-primary">
-              JD
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-[11px] font-medium">Jane Developer</p>
-              <p className="truncate text-[10px] text-muted-foreground">Local workspace</p>
-            </div>
-          </div>
+          <p className="mt-3 px-2 pb-1 text-[10px] text-muted-foreground">Local workspace</p>
         ) : null}
       </div>
     </aside>

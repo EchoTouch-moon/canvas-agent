@@ -8,6 +8,7 @@ describe('toneForStatus', () => {
     expect(toneForStatus('FAILED')).toBe('danger')
     expect(toneForStatus('DIVERGED')).toBe('danger')
     expect(toneForStatus('SUCCEEDED')).toBe('success')
+    expect(toneForStatus('FROZEN')).toBe('accent')
   })
 
   it('keeps status meaning visible beyond color', () => {
