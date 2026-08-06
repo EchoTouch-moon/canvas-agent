@@ -4,8 +4,20 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  main: {},
-  preload: {},
+  main: {
+    build: {
+      externalizeDeps: {
+        exclude: ['@canvas-agent/contracts', '@canvas-agent/domain']
+      }
+    }
+  },
+  preload: {
+    build: {
+      externalizeDeps: {
+        exclude: ['@canvas-agent/contracts', '@canvas-agent/domain']
+      }
+    }
+  },
   renderer: {
     resolve: {
       alias: {
