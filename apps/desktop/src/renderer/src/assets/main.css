@@ -11,6 +11,9 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-workspace: var(--workspace);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-active: var(--surface-active);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
@@ -30,77 +33,101 @@
   --color-ring: var(--ring);
   --color-sidebar: var(--sidebar);
   --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-foreground: var(--sidebar-foreground);
   --color-status-success: var(--status-success);
   --color-status-warning: var(--status-warning);
   --color-status-danger: var(--status-danger);
   --color-status-info: var(--status-info);
+  --color-status-stale: var(--status-stale);
+  --color-status-diverged: var(--status-diverged);
 }
 
 :root {
   color-scheme: light;
-  --background: oklch(0.985 0.004 268);
+  --background: oklch(0.982 0.004 268);
   --foreground: oklch(0.205 0.035 266);
-  --workspace: oklch(0.973 0.005 268);
-  --card: oklch(1 0 0);
+  --workspace: oklch(0.966 0.005 268);
+  --surface-raised: oklch(0.998 0.002 268);
+  --surface-subtle: oklch(0.955 0.006 268);
+  --surface-active: oklch(0.94 0.026 274);
+  --card: var(--surface-raised);
   --card-foreground: var(--foreground);
-  --popover: oklch(1 0 0);
+  --popover: var(--surface-raised);
   --popover-foreground: var(--foreground);
-  --primary: oklch(0.535 0.205 274);
+  --primary: oklch(0.53 0.205 274);
   --primary-foreground: oklch(0.985 0.005 268);
-  --secondary: oklch(0.955 0.007 268);
+  --secondary: oklch(0.95 0.007 268);
   --secondary-foreground: oklch(0.28 0.025 266);
-  --muted: oklch(0.955 0.006 268);
-  --muted-foreground: oklch(0.51 0.025 266);
-  --accent: oklch(0.948 0.022 274);
+  --muted: var(--surface-subtle);
+  --muted-foreground: oklch(0.48 0.025 266);
+  --accent: oklch(0.944 0.026 274);
   --accent-foreground: oklch(0.35 0.12 274);
-  --destructive: oklch(0.58 0.215 25);
+  --destructive: oklch(0.56 0.21 25);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.895 0.011 268);
-  --input: oklch(0.895 0.011 268);
-  --ring: oklch(0.535 0.205 274);
-  --sidebar: oklch(0.99 0.003 268);
-  --sidebar-accent: oklch(0.948 0.022 274);
-  --status-success: oklch(0.515 0.145 155);
-  --status-warning: oklch(0.63 0.145 72);
-  --status-danger: oklch(0.58 0.215 25);
-  --status-info: oklch(0.54 0.17 255);
-  --radius-panel: 10px;
-  --radius-control: 7px;
+  --border: oklch(0.88 0.011 268);
+  --input: oklch(0.83 0.015 268);
+  --ring: oklch(0.53 0.205 274);
+  --sidebar: oklch(0.988 0.003 268);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-accent: oklch(0.944 0.026 274);
+  --status-success: oklch(0.48 0.145 155);
+  --status-warning: oklch(0.6 0.145 72);
+  --status-danger: oklch(0.56 0.21 25);
+  --status-info: oklch(0.5 0.17 255);
+  --status-stale: oklch(0.6 0.145 72);
+  --status-diverged: oklch(0.56 0.21 25);
+  --radius-panel: 8px;
+  --radius-control: 6px;
   --radius-badge: 5px;
+  --sidebar-width: 248px;
+  --inspector-width: 312px;
+  --header-height: 58px;
+  --control-height: 34px;
+  --z-dropdown: 30;
+  --z-modal: 50;
+  --z-tooltip: 60;
 }
 
 .dark {
   color-scheme: dark;
-  --background: oklch(0.19 0.018 267);
+  --background: oklch(0.18 0.018 267);
   --foreground: oklch(0.93 0.01 268);
-  --workspace: oklch(0.165 0.014 267);
-  --card: oklch(0.22 0.018 267);
+  --workspace: oklch(0.15 0.014 267);
+  --surface-raised: oklch(0.215 0.018 267);
+  --surface-subtle: oklch(0.245 0.016 267);
+  --surface-active: oklch(0.29 0.055 274);
+  --card: var(--surface-raised);
   --card-foreground: var(--foreground);
-  --popover: oklch(0.22 0.018 267);
+  --popover: oklch(0.225 0.02 267);
   --popover-foreground: var(--foreground);
-  --primary: oklch(0.68 0.17 274);
+  --primary: oklch(0.69 0.17 274);
   --primary-foreground: oklch(0.17 0.02 267);
-  --secondary: oklch(0.27 0.016 267);
+  --secondary: oklch(0.255 0.016 267);
   --secondary-foreground: oklch(0.9 0.01 268);
-  --muted: oklch(0.265 0.015 267);
-  --muted-foreground: oklch(0.69 0.02 268);
-  --accent: oklch(0.3 0.055 274);
+  --muted: var(--surface-subtle);
+  --muted-foreground: oklch(0.72 0.02 268);
+  --accent: oklch(0.29 0.055 274);
   --accent-foreground: oklch(0.88 0.04 274);
   --destructive: oklch(0.66 0.195 25);
   --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.32 0.016 267);
-  --input: oklch(0.32 0.016 267);
-  --ring: oklch(0.68 0.17 274);
-  --sidebar: oklch(0.205 0.017 267);
-  --sidebar-accent: oklch(0.3 0.055 274);
-  --status-success: oklch(0.7 0.15 155);
-  --status-warning: oklch(0.78 0.14 78);
+  --border: oklch(0.31 0.016 267);
+  --input: oklch(0.38 0.018 267);
+  --ring: oklch(0.69 0.17 274);
+  --sidebar: oklch(0.195 0.017 267);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-accent: oklch(0.29 0.055 274);
+  --status-success: oklch(0.72 0.15 155);
+  --status-warning: oklch(0.8 0.14 78);
   --status-danger: oklch(0.72 0.17 25);
   --status-info: oklch(0.72 0.13 252);
+  --status-stale: oklch(0.8 0.14 78);
+  --status-diverged: oklch(0.72 0.17 25);
 }
 
 * {
   border-color: var(--border);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 38%, transparent) transparent;
 }
 
 html,
@@ -111,9 +138,9 @@ body,
 
 body {
   margin: 0;
-  min-width: 1080px;
+  min-width: 1024px;
   min-height: 100vh;
-  overflow: auto;
+  overflow: hidden;
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
@@ -123,10 +150,34 @@ body {
 }
 
 button,
-a {
+a,
+input,
+textarea,
+select {
   -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 ::selection {
   background: color-mix(in oklab, var(--primary) 24%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
