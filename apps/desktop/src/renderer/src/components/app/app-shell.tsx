@@ -1,149 +1,225 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { RuntimeInfo } from '@canvas-agent/contracts'
 import {
-  Bell,
   Boxes,
-  Braces,
-  ChevronDown,
-  CircleGauge,
-  Command,
-  Database,
-  FileCheck2,
-  GitBranch,
   History,
   LayoutDashboard,
+  Layers3,
   ListChecks,
-  Network,
-  PanelLeftClose,
-  Settings2
+  Moon,
+  Settings2,
+  Sun
 } from 'lucide-react'
-import type { RuntimeInfo } from '@canvas-agent/contracts'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { AppSidebar } from './app-sidebar'
+import { CommandPalette, type CommandItem } from './command-palette'
+import { InspectorPanel } from './inspector-panel'
+import { WorkspaceHeader } from './workspace-header'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Resizable, ResizableHandle, ResizablePanel } from '@/components/ui/resizable'
 
-const navigation = [
-  { label: 'Dashboard', icon: LayoutDashboard, current: true },
-  { label: 'Outline', icon: Braces, current: false },
-  { label: 'Tasks', icon: ListChecks, current: false },
-  { label: 'Context', icon: Boxes, current: false },
-  { label: 'Runs', icon: History, current: false },
-  { label: 'Artifacts', icon: FileCheck2, current: false },
-  { label: 'Relations', icon: Network, current: false }
-] as const
+type Theme = 'light' | 'dark'
 
 interface AppShellProps {
   readonly runtimeInfo: RuntimeInfo | null
   readonly inspector: React.ReactNode
   readonly children: React.ReactNode
+  readonly sectionLabel?: string
+  readonly title?: string
+  readonly description?: string
+  readonly projectName?: string
 }
 
-export function AppShell({ runtimeInfo, inspector, children }: AppShellProps): React.JSX.Element {
+const commandItems: readonly CommandItem[] = [
+  {
+    id: 'dashboard',
+    label: 'Go to dashboard',
+    hint: 'Project health and next actions',
+    shortcut: 'G D',
+    icon: LayoutDashboard
+  },
+  {
+    id: 'tasks',
+    label: 'Open tasks',
+    hint: 'Review active work and acceptance criteria',
+    shortcut: 'G T',
+    icon: ListChecks
+  },
+  {
+    id: 'context',
+    label: 'Open context composer',
+    hint: 'Prepare a snapshot for a task',
+    shortcut: 'G C',
+    icon: Boxes
+  },
+  {
+    id: 'runs',
+    label: 'Open run timeline',
+    hint: 'Inspect execution evidence',
+    shortcut: 'G R',
+    icon: History
+  },
+  {
+    id: 'baselines',
+    label: 'Review baselines',
+    hint: 'See immutable project anchors',
+    shortcut: 'G B',
+    icon: Layers3
+  },
+  {
+    id: 'settings',
+    label: 'Open settings',
+    hint: 'Configure this local workspace',
+    shortcut: 'G S',
+    icon: Settings2
+  },
+  { id: 'theme', label: 'Toggle theme', hint: 'Switch between light and dark surfaces', icon: Moon }
+]
+
+function initialTheme(): Theme {
+  if (typeof window === 'undefined') return 'light'
+  const stored = window.localStorage.getItem('canvas-agent-theme')
+  if (stored === 'light' || stored === 'dark') return stored
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+function isCompactViewport(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(max-width: 1180px)').matches
+}
+
+export function AppShell({
+  runtimeInfo,
+  inspector,
+  children,
+  sectionLabel = 'MUSICDB / Overview',
+  title = 'Project Dashboard',
+  description,
+  projectName = 'MUSICDB'
+}: AppShellProps): React.JSX.Element {
+  const [theme, setTheme] = useState<Theme>(initialTheme)
+  const [activeItem, setActiveItem] = useState('Dashboard')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(isCompactViewport)
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(isCompactViewport)
+  const [inspectorWidth, setInspectorWidth] = useState(312)
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 1180px)')
+    const handleCompactChange = (event: MediaQueryListEvent): void => {
+      if (!event.matches) return
+      setSidebarCollapsed(true)
+      setInspectorCollapsed(true)
+    }
+    media.addEventListener('change', handleCompactChange)
+    return () => media.removeEventListener('change', handleCompactChange)
+  }, [])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    window.localStorage.setItem('canvas-agent-theme', theme)
+  }, [theme])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setCommandPaletteOpen(true)
+      }
+      if (event.key === 'Escape') setCommandPaletteOpen(false)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  const handleResize = useCallback((delta: number): void => {
+    setInspectorWidth((current) => Math.min(420, Math.max(260, current - delta)))
+  }, [])
+
+  const handleCommandSelect = useCallback((command: CommandItem): void => {
+    const navigation: Record<string, string> = {
+      dashboard: 'Dashboard',
+      tasks: 'Tasks',
+      context: 'Context',
+      runs: 'Runs',
+      baselines: 'Baselines',
+      settings: 'Settings'
+    }
+    if (command.id === 'theme') {
+      setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
+    } else if (navigation[command.id]) {
+      setActiveItem(navigation[command.id])
+    }
+    setCommandPaletteOpen(false)
+  }, [])
+
+  const commandItemsWithTheme = useMemo(
+    () =>
+      commandItems.map((command) =>
+        command.id === 'theme' ? { ...command, icon: theme === 'dark' ? Sun : Moon } : command
+      ),
+    [theme]
+  )
+
   return (
-    <div className="grid min-h-screen grid-cols-[240px_minmax(0,1fr)_280px] bg-background text-foreground max-[1180px]:grid-cols-[72px_minmax(0,1fr)]">
-      <aside className="flex min-h-screen flex-col border-r border-border bg-sidebar max-[1180px]:items-center">
-        <div className="flex h-14 items-center gap-2 border-b border-border px-4 max-[1180px]:px-2">
-          <span className="grid size-7 place-items-center rounded-[7px] bg-primary text-primary-foreground shadow-[inset_0_0_0_1px_rgb(255_255_255/0.18)]">
-            <CircleGauge className="size-4" />
-          </span>
-          <span className="text-[15px] font-semibold tracking-[-0.02em] max-[1180px]:hidden">
-            Canvas Agent
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Collapse navigation"
-            className="ml-auto max-[1180px]:hidden"
+    <>
+      <Resizable className="h-screen w-screen overflow-hidden bg-background text-foreground">
+        <AppSidebar
+          collapsed={sidebarCollapsed}
+          activeItem={activeItem}
+          onNavigate={setActiveItem}
+          onToggle={() => setSidebarCollapsed((current) => !current)}
+          projectName={projectName}
+        />
+        <section className="flex min-w-0 flex-1 flex-col bg-workspace">
+          <WorkspaceHeader
+            runtimeInfo={runtimeInfo}
+            sectionLabel={sectionLabel}
+            title={title}
+            description={description}
+            theme={theme}
+            inspectorCollapsed={inspectorCollapsed}
+            onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+            onToggleTheme={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
+            onToggleInspector={() => setInspectorCollapsed((current) => !current)}
+          />
+          <ScrollArea className="min-h-0 flex-1" viewportClassName="h-full">
+            <main className="mx-auto w-full max-w-[1240px] p-5 lg:p-6">{children}</main>
+          </ScrollArea>
+        </section>
+        {!inspectorCollapsed ? (
+          <ResizableHandle
+            value={inspectorWidth}
+            min={260}
+            max={420}
+            label="Resize inspector"
+            onResize={handleResize}
+          />
+        ) : null}
+        <ResizablePanel
+          basis={inspectorCollapsed ? 0 : inspectorWidth}
+          minSize={inspectorCollapsed ? 0 : 260}
+          className={
+            inspectorCollapsed
+              ? 'w-0 overflow-hidden'
+              : 'overflow-hidden border-l border-border bg-background'
+          }
+        >
+          <InspectorPanel
+            collapsed={inspectorCollapsed}
+            onToggle={() => setInspectorCollapsed(true)}
+            title="Project inspector"
           >
-            <PanelLeftClose className="size-4" />
-          </Button>
-        </div>
-
-        <div className="p-3 max-[1180px]:px-2">
-          <Button
-            variant="outline"
-            className="w-full justify-start gap-2 bg-sidebar max-[1180px]:size-9 max-[1180px]:px-0"
-          >
-            <Database className="size-4 text-primary" />
-            <span className="max-[1180px]:hidden">MUSICDB</span>
-            <ChevronDown className="ml-auto size-3.5 max-[1180px]:hidden" />
-          </Button>
-        </div>
-
-        <nav aria-label="Project navigation" className="flex-1 px-2 py-1">
-          <p className="px-2 pb-2 pt-3 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase max-[1180px]:sr-only">
-            Workspace
-          </p>
-          <ul className="space-y-0.5">
-            {navigation.map(({ label, icon: Icon, current }) => (
-              <li key={label}>
-                <button
-                  type="button"
-                  aria-current={current ? 'page' : undefined}
-                  className={cn(
-                    'flex h-8 w-full cursor-pointer items-center gap-2 rounded-[var(--radius-control)] px-2 text-left text-[13px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/45 max-[1180px]:size-9 max-[1180px]:justify-center max-[1180px]:px-0',
-                    current
-                      ? 'bg-sidebar-accent text-primary'
-                      : 'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground'
-                  )}
-                >
-                  <Icon className="size-4 shrink-0" />
-                  <span className="max-[1180px]:sr-only">{label}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </nav>
-
-        <div className="border-t border-border p-2">
-          <button
-            type="button"
-            className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-[var(--radius-control)] px-2 text-[13px] text-muted-foreground hover:bg-sidebar-accent hover:text-foreground max-[1180px]:justify-center"
-          >
-            <Settings2 className="size-4" />
-            <span className="max-[1180px]:sr-only">Settings</span>
-          </button>
-          <a
-            href="https://deerflow.tech"
-            target="_blank"
-            rel="noreferrer"
-            className="mt-2 block px-2 text-[9px] tracking-[0.08em] text-muted-foreground/60 hover:text-muted-foreground max-[1180px]:sr-only"
-          >
-            Created by Deerflow
-          </a>
-        </div>
-      </aside>
-
-      <section className="min-w-0 bg-workspace">
-        <header className="flex h-14 items-center border-b border-border bg-background/95 px-6 backdrop-blur">
-          <div>
-            <p className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
-              MUSICDB / Overview
-            </p>
-            <h1 className="text-[17px] font-semibold tracking-[-0.02em]">Project Dashboard</h1>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <Badge tone={runtimeInfo?.connected ? 'success' : 'neutral'}>
-              <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-              {runtimeInfo?.connected ? 'Local runtime' : 'Connecting'}
-            </Badge>
-            {runtimeInfo ? <Badge>v{runtimeInfo.appVersion}</Badge> : null}
-            <Button variant="outline" size="icon" aria-label="Open command palette">
-              <Command className="size-4" />
-            </Button>
-            <Button variant="outline" size="icon" aria-label="View notifications">
-              <Bell className="size-4" />
-            </Button>
-          </div>
-        </header>
-        <main className="mx-auto max-w-[1060px] p-6">{children}</main>
-      </section>
-
-      <aside className="min-h-screen border-l border-border bg-background max-[1180px]:hidden">
-        <div className="flex h-14 items-center border-b border-border px-4">
-          <GitBranch className="mr-2 size-4 text-muted-foreground" />
-          <h2 className="text-[13px] font-semibold">Project inspector</h2>
-        </div>
-        <div className="p-3">{inspector}</div>
-      </aside>
-    </div>
+            {inspector}
+          </InspectorPanel>
+        </ResizablePanel>
+      </Resizable>
+      <CommandPalette
+        open={commandPaletteOpen}
+        commands={commandItemsWithTheme}
+        onOpenChange={setCommandPaletteOpen}
+        onSelect={handleCommandSelect}
+      />
+    </>
   )
 }
+
+export type { AppShellProps, Theme }
