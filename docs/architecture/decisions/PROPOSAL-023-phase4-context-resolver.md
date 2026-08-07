@@ -68,22 +68,48 @@ type SourceReference =
   | { kind: 'NODE_VERSION'; nodeVersionId: string }
 ```
 
-Future kinds (`REPOSITORY_CONTENT`, `ARTIFACT`, `USER_INPUT`) are documented here,
-**not schema-valid**. Add one, implement one. In particular:
+Phase 4 #2 (implemented) adds the third:
 
-- `REPOSITORY_CONTENT` shape is not frozen (its revision must come from the
-  resolution scope, not be embedded — `expectedRepositoryRevisionId` already
-  exists, and RepositoryRevision is baseCommit+treeHash+workingTreePatchHash, not
-  a bare commit).
-- `USER_INPUT` is not a reference; if ever needed it will be a persisted entity
-  reference or an explicit `InlineUntrustedContent` with
-  `authority: UNTRUSTED_CONTENT`.
-- `ARTIFACT` waits for Artifact persistence.
+```ts
+  | { kind: 'REPOSITORY_CONTENT'; path: string }  // repo-root-relative POSIX path
+```
 
-### Decision 3 — `context.resolve` is deferred
+`REPOSITORY_CONTENT` resolves the file at `scope.expectedRepositoryRevisionId`'s
+`baseCommit` only; a dirty revision (`workingTreePatchHash !== null`) is rejected
+(`repository_content_dirty_revision_unsupported`) — the baseCommit content never
+masquerades as the full pinned revision. Future `ARTIFACT` / `USER_INPUT` kinds
+remain documented, not schema-valid. Add one, implement one.
 
-Deferred to the RepositoryContent packet, when the renderer needs to preview
-content it does not already have in `ProjectStateView`.
+### Decision 3 — `context.resolve` (Phase 4 #2)
+
+Added as a preview-only command sharing the full `ContextResolutionScope` and the
+same `SourceReference[]` union (including `TASK_SPEC_VERSION` with the exact
+pinned binding):
+
+```ts
+context.resolve({ projectId, taskId, taskSpecVersionId, baseBaselineId,
+                   expectedRepositoryRevisionId, selections: SourceReference[] })
+  → { items: ResolvedContextItem[] }
+```
+
+`context.resolve` is always a preview: the renderer never feeds the returned item
+back into `snapshot.freeze`. Freeze only accepts `SourceReference` selections
+(`NODE_VERSION | REPOSITORY_CONTENT`) and Main re-resolves them authoritatively
+(invariant A).
+
+## Phase 4 #2 hardening notes
+
+- Repository paths are canonical repo-root-relative POSIX paths (no absolute,
+  `..`, `//`, `\`, NUL; never silently normalized).
+- `repo://` encoding is segment-wise `encodeURIComponent`; parsing decodes,
+  validates and re-encodes with an exact-match requirement.
+- Repository content is UTF-8 text only, capped at 512 KiB; oversized or
+  non-UTF-8 reads fail closed (`repository_content_too_large` /
+  `repository_content_not_utf8`), never freezing truncated content.
+- Authority/priority: `REPOSITORY_CONTENT → REFERENCE / P2`.
+- TODO (not in this packet): dirty-repository content requires persisting a
+  `workingTreePatchBlob` / full workspace delta — `workingTreePatchHash` alone
+  cannot reconstruct untracked/modified content.
 
 ## Invariants (A–F)
 
