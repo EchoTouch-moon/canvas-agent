@@ -119,7 +119,7 @@ export class UtilityProcessWorkerHost implements WorkerHost {
     }
     await new Promise<void>((resolve) => {
       this.disposeResolve = resolve
-      child.postMessage({ protocolVersion: 1, type: 'dispose' })
+      this.postFrame({ protocolVersion: 1, type: 'dispose' })
       this.disposeTimer = setTimeout(() => resolve(), this.disposeTimeoutMs)
     })
     this.disposeResolve = null
@@ -164,7 +164,7 @@ export class UtilityProcessWorkerHost implements WorkerHost {
       await new Promise<void>((resolve, reject) => {
         this.initResolve = resolve
         this.initReject = reject
-        child.postMessage({
+        this.postFrame({
           protocolVersion: 1,
           type: 'init',
           sourceRepositoryPath: this.appConfig.sourceRepositoryPath,
@@ -313,19 +313,18 @@ export class UtilityProcessWorkerHost implements WorkerHost {
     }
     return new Promise<unknown>((resolve, reject) => {
       this.pending.set(messageId, { kind, executionRequestId, resolve, reject })
-      const parsed = workerHostRequestSchema.safeParse(frame)
-      if (!parsed.success) {
-        this.pending.delete(messageId)
-        reject(new Error('invalid worker host request frame'))
-        return
-      }
       try {
-        child.postMessage(parsed.data)
+        this.postFrame(frame)
       } catch (error) {
         this.pending.delete(messageId)
         reject(error instanceof Error ? error : new Error(String(error)))
       }
     })
+  }
+
+  private postFrame(frame: unknown): void {
+    const parsed = workerHostRequestSchema.parse(frame)
+    this.child?.postMessage(parsed)
   }
 
   private nextMessageId(): string {
