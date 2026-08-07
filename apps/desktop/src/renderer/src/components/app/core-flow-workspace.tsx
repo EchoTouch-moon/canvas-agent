@@ -1,4 +1,4 @@
-import { useMemo, useReducer, useState } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { Dispatch, ReactNode } from 'react'
 import type { RuntimeInfo } from '@canvas-agent/contracts'
 import type { LucideIcon } from 'lucide-react'
@@ -21,7 +21,6 @@ import {
   Layers3,
   LockKeyhole,
   Play,
-  Plus,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -94,17 +93,6 @@ const sidebarRoutes: Readonly<Record<string, FlowRoute>> = {
   Baselines: 'baseline'
 }
 
-const routeOrder: readonly FlowRoute[] = [
-  'dashboard',
-  'outline',
-  'node',
-  'task',
-  'context',
-  'run',
-  'artifact',
-  'baseline'
-]
-
 const artifactTone: Record<ArtifactReviewStatus, StatusTone> = {
   READY: 'info',
   ACCEPTED: 'success',
@@ -155,6 +143,7 @@ const noticeTitleZh: Record<string, string> = {
   'Run succeeded': '运行成功',
   'Artifact applied': '产物已应用',
   'Artifact accepted': '产物已接受',
+  'Artifact already accepted': '产物已被接受',
   'Artifact rejected': '产物已拒绝',
   'Changes requested': '已请求变更',
   'Acceptance evaluated': '已评估验收',
@@ -177,6 +166,10 @@ const noticeMessageZh: Record<string, string> = {
   'Advance the mock Run until it is executing.': '请推进模拟运行，直到其进入执行状态。',
   'The Task cannot enter review from its current status.': '任务无法从当前状态进入审核。',
   'Apply is available after a succeeded Run.': '运行成功后才可应用。',
+  'Accept is available after a succeeded Run.': '运行成功后才可接受。',
+  'This artifact has already been accepted.': '该产物已被接受。',
+  'The patch is applied and human review is recorded. Task completion remains a separate explicit action.':
+    '补丁已应用并记录人工审核。完成任务仍是独立的显式操作。',
   'The patch is applied to the mock workspace; it is not accepted yet.':
     '补丁已应用到模拟工作区，但尚未被接受。',
   'Apply the reviewed artifact before accepting it.': '在接受前请先应用已审核的产物。',
@@ -325,37 +318,6 @@ function Stat({
       <p className="mt-1 truncate text-[16px] font-semibold tabular-nums">{value}</p>
       <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{detail}</p>
     </div>
-  )
-}
-
-function RouteBreadcrumb({ state, dispatch }: FlowScreenProps): React.JSX.Element {
-  const { t } = useI18n()
-  return (
-    <nav
-      aria-label={t('inspector.details')}
-      className="flex min-w-0 items-center gap-1 overflow-x-auto pb-1"
-    >
-      {routeOrder.map((route, index) => (
-        <div key={route} className="flex shrink-0 items-center gap-1">
-          {index > 0 ? (
-            <ChevronRight className="size-3 text-muted-foreground/60" aria-hidden="true" />
-          ) : null}
-          <button
-            type="button"
-            aria-current={state.route === route ? 'page' : undefined}
-            className={cn(
-              'rounded-[var(--radius-control)] px-2 py-1 text-[10px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
-              state.route === route
-                ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            )}
-            onClick={() => dispatch({ type: 'NAVIGATE', route })}
-          >
-            {t(`flow.${route}.label`)}
-          </button>
-        </div>
-      ))}
-    </nav>
   )
 }
 
@@ -714,11 +676,29 @@ function OutlineScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
 
 function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
   const { t } = useI18n()
+  const gatesRef = useRef<HTMLDivElement>(null)
+  const previousEvaluated = useRef(state.task.acceptanceEvaluated)
   const passedCriteria = state.task.criteria.filter((criterion) => criterion.passed).length
   const canComplete =
-    state.task.status === 'WAITING_REVIEW' &&
-    state.artifact.reviewStatus === 'ACCEPTED' &&
-    state.task.acceptanceEvaluated
+    state.task.status === 'WAITING_REVIEW' && state.artifact.reviewStatus === 'ACCEPTED'
+
+  useEffect(() => {
+    if (state.task.acceptanceEvaluated && !previousEvaluated.current) {
+      gatesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+    previousEvaluated.current = state.task.acceptanceEvaluated
+  }, [state.task.acceptanceEvaluated])
+
+  const gateBlock = (() => {
+    if (state.run.outcome !== 'SUCCEEDED') {
+      return { message: t('gates.hintRunFirst'), route: 'run' as FlowRoute | null }
+    }
+    if (state.artifact.reviewStatus !== 'ACCEPTED') {
+      return { message: t('gates.hintAcceptFirst'), route: 'artifact' as FlowRoute | null }
+    }
+    return null
+  })()
+  const gateRoute = gateBlock?.route
 
   return (
     <div className="space-y-5">
@@ -894,49 +874,45 @@ function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
         </Section>
       </div>
 
-      <Section
-        title={t('task.reviewGates')}
-        icon={ShieldCheck}
-        eyebrow={t('task.separateCommands')}
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => dispatch({ type: 'NAVIGATE', route: 'artifact' })}
-            disabled={state.run.outcome !== 'SUCCEEDED'}
-          >
-            {t('task.reviewArtifact')}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => dispatch({ type: 'EVALUATE_ACCEPTANCE' })}
-            disabled={
-              state.artifact.reviewStatus !== 'ACCEPTED' || state.task.status !== 'WAITING_REVIEW'
-            }
-          >
-            {t('task.evaluateAcceptance')}
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => dispatch({ type: 'COMPLETE_TASK' })}
-            disabled={!canComplete}
-          >
-            {t('task.completeTask')}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => dispatch({ type: 'NAVIGATE', route: 'baseline' })}
-          >
-            {t('task.reviewBaselineDraft')} <ArrowRight className="size-3.5" aria-hidden="true" />
-          </Button>
-        </div>
-        <p className="mt-3 text-[10px] leading-4 text-muted-foreground">
-          {canComplete ? t('task.completionReady') : t('task.completionHint')}
-        </p>
-      </Section>
+      <div ref={gatesRef} className="scroll-mt-4">
+        <Section
+          title={t('task.completeTask')}
+          icon={ShieldCheck}
+          eyebrow={t('task.separateCommands')}
+        >
+          {gateBlock ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] border border-status-warning/30 bg-status-warning/8 px-3 py-2">
+              <TriangleAlert className="size-3.5 shrink-0 text-status-warning" aria-hidden="true" />
+              <span className="text-[11px] text-foreground/80">{gateBlock.message}</span>
+              {gateRoute ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded text-[11px] font-semibold text-status-warning outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+                  onClick={() => dispatch({ type: 'NAVIGATE', route: gateRoute })}
+                >
+                  {t('progress.go')} <ArrowRight className="size-3" aria-hidden="true" />
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-[11px] leading-5 text-muted-foreground">
+                {t('task.completeHint', { run: state.run.id })}
+              </p>
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  onClick={() => dispatch({ type: 'COMPLETE_TASK' })}
+                  disabled={!canComplete}
+                >
+                  <Check className="size-3.5" aria-hidden="true" />
+                  {t('task.completeTask')}
+                </Button>
+              </div>
+            </div>
+          )}
+        </Section>
+      </div>
     </div>
   )
 }
@@ -1262,6 +1238,16 @@ function RunScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
   const canAdvance = state.run.status === 'QUEUED' || state.run.status === 'PREPARING'
   const canFinish = state.run.status === 'RUNNING'
 
+  useEffect(() => {
+    if (state.run.status === 'QUEUED' || state.run.status === 'PREPARING') {
+      const timer = window.setTimeout(() => {
+        dispatch({ type: 'ADVANCE_RUN' })
+      }, 900)
+      return () => window.clearTimeout(timer)
+    }
+    return undefined
+  }, [dispatch, state.run.status])
+
   return (
     <div className="space-y-5">
       <PageToolbar
@@ -1462,10 +1448,7 @@ function isArtifactTab(value: string): value is ArtifactTab {
 function ArtifactScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
   const { t } = useI18n()
   const canReview = state.run.outcome === 'SUCCEEDED'
-  const canAccept =
-    canReview &&
-    state.artifact.applicationStatus === 'APPLIED' &&
-    state.artifact.reviewStatus !== 'ACCEPTED'
+  const canAccept = canReview && state.artifact.reviewStatus !== 'ACCEPTED'
 
   return (
     <div className="space-y-5">
@@ -1584,15 +1567,6 @@ function ArtifactScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
         eyebrow={t('artifact.noAutomaticChain')}
       >
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => dispatch({ type: 'APPLY_ARTIFACT' })}
-            disabled={!canReview || state.artifact.applicationStatus === 'APPLIED'}
-          >
-            <Plus className="size-3.5" aria-hidden="true" />
-            {t('artifact.applyArtifact')}
-          </Button>
           <Button
             size="sm"
             onClick={() => dispatch({ type: 'ACCEPT_ARTIFACT' })}
@@ -1873,7 +1847,6 @@ export function CoreFlowWorkspace({
     >
       <div className="space-y-3">
         <FlowProgress state={state} dispatch={dispatch} />
-        <RouteBreadcrumb state={state} dispatch={dispatch} />
         <Notice notice={state.notice} />
         <FlowScreen state={state} dispatch={dispatch} />
       </div>

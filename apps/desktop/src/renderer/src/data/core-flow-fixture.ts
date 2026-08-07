@@ -53,6 +53,7 @@ export interface CoreFlowTask {
   readonly status: TaskStatus
   readonly criteria: readonly TaskCriterion[]
   readonly acceptanceEvaluated: boolean
+  readonly completionRunId: string | null
 }
 
 export interface ContextCandidate {
@@ -286,7 +287,8 @@ export function createInitialCoreFlowState(locale: Locale = 'en'): CoreFlowState
           passed: true
         }
       ],
-      acceptanceEvaluated: false
+      acceptanceEvaluated: false,
+      completionRunId: null
     },
     contextItems: [
       {

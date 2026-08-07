@@ -1,10 +1,10 @@
 import type { Dispatch } from 'react'
-import { ArrowRight, Flag } from 'lucide-react'
+import { ArrowRight, Check, Flag } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/lib/i18n'
 import type { CoreFlowState } from '@/data/core-flow-fixture'
 import type { CoreFlowCommand } from '@/state/core-flow-reducer'
-import { getFlowStage } from '@/state/flow-stage'
+import { getFlowStage, STAGE_ORDER, STAGE_ROUTES } from '@/state/flow-stage'
 import { cn } from '@/lib/utils'
 
 interface FlowProgressProps {
@@ -49,28 +49,38 @@ export function FlowProgress({ state, dispatch }: FlowProgressProps): React.JSX.
           )}
         </div>
       </div>
-      <div
-        className="mt-2 flex gap-1"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={stage.total}
-        aria-valuenow={stage.index}
-        aria-label={t('progress.title')}
-      >
-        {Array.from({ length: stage.total }, (_, index) => {
+      <nav aria-label={t('progress.title')} className="mt-2 flex flex-wrap gap-1">
+        {STAGE_ORDER.map((key, index) => {
           const isDone = index < stage.index - 1
           const isCurrent = index === stage.index - 1
+          const stepRoute = STAGE_ROUTES[key]
           return (
-            <span
-              key={index}
+            <button
+              key={key}
+              type="button"
+              aria-current={isCurrent ? 'step' : undefined}
               className={cn(
-                'h-1 flex-1 rounded-full transition-colors',
-                isDone ? 'bg-status-success' : isCurrent ? 'bg-primary' : 'bg-muted'
+                'flex items-center gap-1.5 rounded-[var(--radius-control)] border px-2 py-1 text-[10px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+                isCurrent
+                  ? 'border-primary/40 bg-accent text-foreground'
+                  : isDone
+                    ? 'border-border bg-background text-foreground hover:bg-muted'
+                    : 'border-border bg-muted/40 text-muted-foreground/70 hover:bg-muted'
               )}
-            />
+              onClick={() => dispatch({ type: 'NAVIGATE', route: stepRoute })}
+            >
+              {isDone ? (
+                <Check className="size-3 shrink-0 text-status-success" aria-hidden="true" />
+              ) : (
+                <span className="grid size-3 shrink-0 place-items-center text-[9px] font-semibold">
+                  {index + 1}
+                </span>
+              )}
+              <span className="truncate">{t(`progress.${key}`)}</span>
+            </button>
           )
         })}
-      </div>
+      </nav>
     </section>
   )
 }

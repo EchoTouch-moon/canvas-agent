@@ -1,8 +1,7 @@
 import type { TParams } from '@/lib/i18n'
 import type { CoreFlowState, FlowRoute } from '@/data/core-flow-fixture'
 
-export type StageKey =
-  'context' | 'start' | 'run' | 'artifact' | 'evaluate' | 'complete' | 'baseline'
+export type StageKey = 'context' | 'start' | 'run' | 'artifact' | 'complete' | 'baseline'
 
 export interface FlowStage {
   readonly index: number
@@ -15,10 +14,28 @@ export interface FlowStage {
 
 export type TFunc = (key: string, params?: TParams) => string
 
+export const STAGE_ORDER: readonly StageKey[] = [
+  'context',
+  'start',
+  'run',
+  'artifact',
+  'complete',
+  'baseline'
+]
+
+export const STAGE_ROUTES: Record<StageKey, FlowRoute> = {
+  context: 'context',
+  start: 'run',
+  run: 'run',
+  artifact: 'artifact',
+  complete: 'task',
+  baseline: 'baseline'
+}
+
 const RUNNING_STATUSES: readonly string[] = ['QUEUED', 'PREPARING', 'RUNNING']
 
 export function getFlowStage(state: CoreFlowState, t: TFunc): FlowStage {
-  const total = 7
+  const total = 6
   const runNext =
     state.run.status === 'QUEUED'
       ? 'nextRunQueued'
@@ -57,14 +74,8 @@ export function getFlowStage(state: CoreFlowState, t: TFunc): FlowStage {
       route: 'artifact'
     },
     {
-      key: 'evaluate',
-      when: state.artifact.reviewStatus === 'ACCEPTED' && !state.task.acceptanceEvaluated,
-      nextKey: 'nextEvaluate',
-      route: 'task'
-    },
-    {
       key: 'complete',
-      when: state.task.acceptanceEvaluated && state.task.status !== 'COMPLETED',
+      when: state.artifact.reviewStatus === 'ACCEPTED' && state.task.status !== 'COMPLETED',
       nextKey: 'nextComplete',
       route: 'task'
     },

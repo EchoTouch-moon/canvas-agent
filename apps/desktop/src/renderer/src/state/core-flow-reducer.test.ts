@@ -102,29 +102,36 @@ describe('core flow command interactions', () => {
     expect(queued.run.status).toBe('QUEUED')
   })
 
-  it('keeps Task review separate from a succeeded Run and Artifact acceptance', () => {
+  it('keeps Task review separate from a succeeded Run until one explicit completion', () => {
     const succeeded = createSucceededRunState()
-    const applied = reduce(succeeded, { type: 'APPLY_ARTIFACT' })
-    const accepted = reduce(applied, { type: 'ACCEPT_ARTIFACT' })
-    const evaluated = reduce(accepted, { type: 'EVALUATE_ACCEPTANCE' })
+    const accepted = reduce(succeeded, { type: 'ACCEPT_ARTIFACT' })
+    const completed = reduce(accepted, { type: 'COMPLETE_TASK' })
 
     expect(succeeded.run.outcome).toBe('SUCCEEDED')
     expect(succeeded.task.status).toBe('WAITING_REVIEW')
+    expect(succeeded.task.acceptanceEvaluated).toBe(false)
     expect(accepted.artifact.reviewStatus).toBe('ACCEPTED')
+    expect(accepted.artifact.applicationStatus).toBe('APPLIED')
     expect(accepted.task.status).toBe('WAITING_REVIEW')
-    expect(evaluated.task.status).toBe('WAITING_REVIEW')
-    expect(evaluated.task.acceptanceEvaluated).toBe(true)
+    expect(completed.task.status).toBe('COMPLETED')
+    expect(completed.task.acceptanceEvaluated).toBe(true)
+    expect(completed.task.completionRunId).toBe('RUN-009')
+    expect(completed.task.criteria.every((criterion) => criterion.passed)).toBe(true)
+  })
+
+  it('rejects completion before the Artifact is accepted', () => {
+    const succeeded = createSucceededRunState()
+    const blocked = reduce(succeeded, { type: 'COMPLETE_TASK' })
+    expect(blocked.task.status).toBe('WAITING_REVIEW')
+    expect(blocked.notice?.title).toBe('Task completion blocked')
   })
 
   it('requires explicit completion before Baseline activation', () => {
-    const evaluated = reduce(reduce(createSucceededRunState(), { type: 'APPLY_ARTIFACT' }), {
-      type: 'ACCEPT_ARTIFACT'
-    })
-    const evaluatedWithCriteria = reduce(evaluated, { type: 'EVALUATE_ACCEPTANCE' })
-    const completed = reduce(evaluatedWithCriteria, { type: 'COMPLETE_TASK' })
+    const accepted = reduce(createSucceededRunState(), { type: 'ACCEPT_ARTIFACT' })
+    const completed = reduce(accepted, { type: 'COMPLETE_TASK' })
     const activated = reduce(completed, { type: 'ACTIVATE_BASELINE' })
 
-    expect(evaluatedWithCriteria.baseline.status).toBe('DRAFT')
+    expect(accepted.baseline.status).toBe('DRAFT')
     expect(completed.task.status).toBe('COMPLETED')
     expect(completed.baseline.status).toBe('DRAFT')
     expect(activated.baseline.status).toBe('ACTIVE')

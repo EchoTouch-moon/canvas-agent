@@ -52,13 +52,12 @@ export const en = {
       'Every formal action is explicit: nothing is frozen, accepted, completed or activated automatically.',
     stepsTitle: 'The core loop, in order',
     getStarted: 'Get started',
-    step1: 'Dashboard — spot exceptions and the next suggested action.',
-    step2: 'Task — read the immutable TaskSpecVersion and its acceptance criteria.',
-    step3: 'Context — pick evidence, resolve conflicts and freeze a Snapshot.',
-    step4: 'Run — start, advance and finish the worker Run.',
-    step5: 'Artifact — apply, accept, reject or request changes on the patch.',
-    step6: 'Complete — evaluate acceptance, then complete the Task.',
-    step7: 'Baseline — confirm activation of a Draft Baseline separately.'
+    step1: 'Context — pick evidence, resolve conflicts and freeze a Snapshot.',
+    step2: 'Run — start the worker; it prepares and executes on its own.',
+    step3: 'Run progress — finish the Run to produce review evidence.',
+    step4: 'Artifact — accept or reject the patch after review.',
+    step5: 'Complete — one explicit action evaluates the criteria and completes the Task.',
+    step6: 'Baseline — confirm activation of a Draft Baseline separately.'
   },
   palette: {
     title: 'Command palette',
@@ -169,7 +168,9 @@ export const en = {
     ofTokens: (p: TParams) => `of ${p.n}`,
     readOnlyReminder: 'Read-only reminder',
     readOnlyReminderDesc:
-      'Freeze, accept, complete and activate are separate commands. A successful Run never skips a review gate.'
+      'Freeze, accept, complete and activate are separate commands. A successful Run never skips a review gate.',
+    hintRunFirst: 'Complete the Run before review.',
+    hintAcceptFirst: 'Accept the Artifact before completing.'
   },
   artifactLabel: {
     ready: 'Ready for review',
@@ -251,12 +252,9 @@ export const en = {
     reviewGates: 'Review gates',
     separateCommands: 'Separate commands',
     reviewArtifact: 'Review artifact',
-    evaluateAcceptance: 'Evaluate acceptance',
     completeTask: 'Complete task',
-    reviewBaselineDraft: 'Review baseline draft',
-    completionReady: 'All completion prerequisites are recorded.',
-    completionHint:
-      'Complete becomes available only after the Artifact is accepted and acceptance criteria are evaluated.'
+    completeHint: (p: TParams) =>
+      `Completing evaluates all acceptance criteria and records ${p.run} as the completion run.`
   },
   context: {
     eyebrow: 'Context composer / Snapshot draft 04',
@@ -395,7 +393,6 @@ export const en = {
     start: 'Start the run',
     run: 'Run in progress',
     artifact: 'Review the artifact',
-    evaluate: 'Evaluate acceptance',
     complete: 'Complete the task',
     baseline: 'Activate baseline',
     done: 'Completed',
@@ -404,9 +401,8 @@ export const en = {
     nextRunQueued: 'Advance the Run: prepare the worker.',
     nextRunPreparing: 'Advance the Run: start execution.',
     nextRunRunning: 'Finish the Run to produce evidence.',
-    nextArtifact: 'Review the Artifact: apply, accept, evaluate.',
-    nextEvaluate: 'Evaluate the acceptance criteria.',
-    nextComplete: 'Complete the Task.',
+    nextArtifact: 'Accept or reject the Artifact after review.',
+    nextComplete: 'Complete the Task (evaluates criteria and records the completion run).',
     nextBaseline: 'Confirm Baseline activation separately.'
   },
   status: {
@@ -485,13 +481,12 @@ export const zh: Messages = {
     principle: '每个正式动作都需要显式确认：系统不会自动冻结、接受、完成或激活任何东西。',
     stepsTitle: '核心流程（按顺序）',
     getStarted: '开始使用',
-    step1: '仪表盘——发现异常与下一步建议。',
-    step2: '任务——阅读不可变的 TaskSpecVersion 与验收标准。',
-    step3: '上下文——挑选证据、解决冲突并冻结快照。',
-    step4: '运行——启动、推进并完成 Worker 运行。',
-    step5: '产物——对补丁进行应用、接受、拒绝或请求变更。',
-    step6: '完成——评估验收，然后完成任务。',
-    step7: '基线——单独确认草稿基线的激活。'
+    step1: '上下文——挑选证据、解决冲突并冻结快照。',
+    step2: '运行——启动 Worker，它会自行准备并执行。',
+    step3: '运行进度——完成运行以产出审核证据。',
+    step4: '产物——审核后接受或拒绝补丁。',
+    step5: '完成——一次显式操作评估标准并完成任务。',
+    step6: '基线——单独确认草稿基线的激活。'
   },
   palette: {
     title: '命令面板',
@@ -601,7 +596,9 @@ export const zh: Messages = {
     tokens: 'Token',
     ofTokens: (p: TParams) => `共 ${p.n}`,
     readOnlyReminder: '只读提醒',
-    readOnlyReminderDesc: '冻结、接受、完成与激活都是独立命令。成功的运行从不跳过审核门槛。'
+    readOnlyReminderDesc: '冻结、接受、完成与激活都是独立命令。成功的运行从不跳过审核门槛。',
+    hintRunFirst: '请先完成运行。',
+    hintAcceptFirst: '完成前请先接受产物。'
   },
   artifactLabel: {
     ready: '可审核',
@@ -678,11 +675,8 @@ export const zh: Messages = {
     reviewGates: '审核门槛',
     separateCommands: '独立命令',
     reviewArtifact: '审核产物',
-    evaluateAcceptance: '评估验收',
     completeTask: '完成任务',
-    reviewBaselineDraft: '审核基线草稿',
-    completionReady: '所有完成前提均已记录。',
-    completionHint: '只有产物被接受且验收标准被评估后，完成按钮才可用。'
+    completeHint: (p: TParams) => `完成任务将评估全部验收标准，并记录由 ${p.run} 完成。`
   },
   context: {
     eyebrow: '上下文编排器 / 快照草稿 04',
@@ -814,7 +808,6 @@ export const zh: Messages = {
     start: '启动运行',
     run: '运行进行中',
     artifact: '审核产物',
-    evaluate: '评估验收',
     complete: '完成任务',
     baseline: '激活基线',
     done: '已完成',
@@ -823,9 +816,8 @@ export const zh: Messages = {
     nextRunQueued: '推进运行：准备 Worker。',
     nextRunPreparing: '推进运行：开始执行。',
     nextRunRunning: '完成运行以产出证据。',
-    nextArtifact: '审核产物：应用、接受并评估。',
-    nextEvaluate: '评估验收标准。',
-    nextComplete: '完成任务。',
+    nextArtifact: '审核后接受或拒绝产物。',
+    nextComplete: '完成任务（评估标准并记录完成运行）。',
     nextBaseline: '单独确认激活基线。'
   },
   status: {

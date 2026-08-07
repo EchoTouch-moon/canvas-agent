@@ -27,7 +27,6 @@ export type CoreFlowCommand =
   | { readonly type: 'ACCEPT_ARTIFACT' }
   | { readonly type: 'REJECT_ARTIFACT' }
   | { readonly type: 'REQUEST_CHANGES' }
-  | { readonly type: 'EVALUATE_ACCEPTANCE' }
   | { readonly type: 'COMPLETE_TASK' }
   | { readonly type: 'ACTIVATE_BASELINE' }
   | { readonly type: 'CLEAR_NOTICE' }
@@ -327,7 +326,7 @@ export function coreFlowReducer(state: CoreFlowState, command: CoreFlowCommand):
         ...state,
         task: { ...state.task, status: 'WAITING_REVIEW' },
         run: nextRun,
-        route: 'run',
+        route: 'artifact',
         notice: notice(
           'success',
           'Run succeeded',
@@ -358,20 +357,32 @@ export function coreFlowReducer(state: CoreFlowState, command: CoreFlowCommand):
       }
 
     case 'ACCEPT_ARTIFACT':
-      if (state.artifact.applicationStatus !== 'APPLIED') {
+      if (state.run.outcome !== 'SUCCEEDED') {
         return runCommandFailure(
           state,
-          'Apply is separate from accept',
-          'Apply the reviewed artifact before accepting it.'
+          'Run evidence required',
+          'Accept is available after a succeeded Run.'
+        )
+      }
+      if (state.artifact.reviewStatus === 'ACCEPTED') {
+        return runCommandFailure(
+          state,
+          'Artifact already accepted',
+          'This artifact has already been accepted.'
         )
       }
       return {
         ...state,
-        artifact: { ...state.artifact, reviewStatus: 'ACCEPTED' },
+        route: 'task',
+        artifact: {
+          ...state.artifact,
+          applicationStatus: 'APPLIED',
+          reviewStatus: 'ACCEPTED'
+        },
         notice: notice(
           'success',
           'Artifact accepted',
-          'Task completion remains a separate explicit action.'
+          'The patch is applied and human review is recorded. Task completion remains a separate explicit action.'
         )
       }
 
@@ -400,28 +411,6 @@ export function coreFlowReducer(state: CoreFlowState, command: CoreFlowCommand):
         )
       }
 
-    case 'EVALUATE_ACCEPTANCE':
-      if (state.task.status !== 'WAITING_REVIEW' || state.artifact.reviewStatus !== 'ACCEPTED') {
-        return runCommandFailure(
-          state,
-          'Acceptance evaluation is gated',
-          'Accept the Artifact while the Task is Waiting review before evaluating criteria.'
-        )
-      }
-      return {
-        ...state,
-        task: {
-          ...state.task,
-          acceptanceEvaluated: true,
-          criteria: state.task.criteria.map((criterion) => ({ ...criterion, passed: true }))
-        },
-        notice: notice(
-          'success',
-          'Acceptance evaluated',
-          'All six criteria are recorded as passed; completing the Task is still separate.'
-        )
-      }
-
     case 'COMPLETE_TASK':
       if (state.task.status !== 'WAITING_REVIEW') {
         return runCommandFailure(
@@ -430,11 +419,18 @@ export function coreFlowReducer(state: CoreFlowState, command: CoreFlowCommand):
           'A succeeded Run must enter Waiting review first.'
         )
       }
-      if (state.artifact.reviewStatus !== 'ACCEPTED' || !state.task.acceptanceEvaluated) {
+      if (state.run.outcome !== 'SUCCEEDED') {
+        return runCommandFailure(
+          state,
+          'Run evidence required',
+          'A succeeded Run is required to complete the Task.'
+        )
+      }
+      if (state.artifact.reviewStatus !== 'ACCEPTED') {
         return runCommandFailure(
           state,
           'Task completion blocked',
-          'Accept the Artifact and evaluate acceptance before completing the Task.'
+          'Accept the Artifact before completing the Task.'
         )
       }
       if (!canTaskTransition(state.task.status, 'COMPLETED')) {
@@ -446,11 +442,18 @@ export function coreFlowReducer(state: CoreFlowState, command: CoreFlowCommand):
       }
       return {
         ...state,
-        task: { ...state.task, status: 'COMPLETED' },
+        task: {
+          ...state.task,
+          status: 'COMPLETED',
+          acceptanceEvaluated: true,
+          completionRunId: state.run.id,
+          criteria: state.task.criteria.map((criterion) => ({ ...criterion, passed: true }))
+        },
+        route: 'baseline',
         notice: notice(
           'success',
           'Task completed',
-          'Baseline 1.1 remains Draft until its own activation confirmation.'
+          'Acceptance evaluated and the Task is completed. Baseline 1.1 remains Draft until its own activation confirmation.'
         )
       }
 

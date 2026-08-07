@@ -2,7 +2,7 @@ import { CheckCircle2, Sparkles, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/lib/i18n'
 
-const guideSteps = ['step1', 'step2', 'step3', 'step4', 'step5', 'step6', 'step7'] as const
+const guideSteps = ['step1', 'step2', 'step3', 'step4', 'step5', 'step6'] as const
 
 interface FlowGuideProps {
   readonly open: boolean
