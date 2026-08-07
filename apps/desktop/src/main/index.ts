@@ -8,6 +8,7 @@ import { resolveAppConfig } from './config'
 import { openWorkspaceDatabase, closeWorkspaceDatabase } from './database'
 import { GitRevisionReader } from './git-revision-reader'
 import { WorkspaceService } from './workspace-service'
+import { ExecutionCoordinator } from './execution-coordinator'
 import { UnavailableWorkerHost } from './worker-host'
 import { UtilityProcessWorkerHost } from './utility-process-worker-host'
 import { runWorkerSmoke } from './worker-smoke'
@@ -124,9 +125,11 @@ app.whenReady().then(async () => {
   }
   const workerHost =
     appConfig !== null ? new UtilityProcessWorkerHost(appConfig) : new UnavailableWorkerHost()
+  const coordinator =
+    persistence !== null ? new ExecutionCoordinator(persistence, workerHost) : null
 
   registerRuntimeInfoHandler()
-  registerCommandRouter({ workspace, worker: workerHost })
+  registerCommandRouter({ workspace, coordinator, worker: workerHost })
 
   if (process.env['CANVAS_AGENT_SMOKE'] === '1' && appConfig !== null) {
     void runWorkerSmoke(appConfig, workerHost)

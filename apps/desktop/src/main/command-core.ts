@@ -5,12 +5,12 @@ import {
   type CommandError,
   type CommandInput,
   type CommandResponse,
-  type ExecutionRequestContract,
   type WorkspaceCommand
 } from '@canvas-agent/contracts'
 import { mapCommandError, WorkspaceUnavailableError } from './command-errors'
 import type { WorkspaceService } from './workspace-service'
 import type { WorkerHost } from './worker-host'
+import type { ExecutionCoordinator } from './execution-coordinator'
 
 export interface CommandRoute {
   execute: (payload: unknown) => Promise<unknown>
@@ -18,6 +18,7 @@ export interface CommandRoute {
 
 export interface CommandDeps {
   workspace: WorkspaceService | null
+  coordinator: ExecutionCoordinator | null
   worker: WorkerHost
 }
 
@@ -40,8 +41,24 @@ export function buildRoutes(deps: CommandDeps): Record<string, CommandRoute> {
     }
   }
 
+  const coordinatorRoute = <K extends WorkspaceCommand>(
+    name: K,
+    run: (coordinator: ExecutionCoordinator, payload: CommandInput<K>) => unknown
+  ): void => {
+    routes[name] = {
+      execute: async (payload: unknown) => {
+        if (!deps.coordinator) {
+          throw new WorkspaceUnavailableError('Workspace is not configured (set CANVAS_AGENT_REPO)')
+        }
+        return run(deps.coordinator, payload as CommandInput<K>)
+      }
+    }
+  }
+
   workspaceRoute('project.create', (ws, payload) => ws.createProject(payload))
   workspaceRoute('project.get', (ws, payload) => ws.getProject(payload))
+  workspaceRoute('project.list', (ws) => ws.listProjects())
+  workspaceRoute('project.state', (ws, payload) => ws.projectState(payload.projectId))
   workspaceRoute('node.create', (ws, payload) => ws.createNode(payload))
   workspaceRoute('nodeDraft.upsert', (ws, payload) => ws.upsertNodeDraft(payload))
   workspaceRoute('nodeVersion.publish', (ws, payload) => ws.publishNodeVersion(payload))
@@ -51,16 +68,8 @@ export function buildRoutes(deps: CommandDeps): Record<string, CommandRoute> {
   workspaceRoute('baseline.activate', (ws, payload) => ws.activateBaseline(payload))
   workspaceRoute('revision.current', (ws) => ws.revisionCurrent())
   workspaceRoute('snapshot.freeze', (ws, payload) => ws.freezeSnapshot(payload))
-
-  routes['worker.dispatch'] = {
-    execute: (payload) => deps.worker.dispatch(payload as ExecutionRequestContract)
-  }
-  routes['worker.cancel'] = {
-    execute: async (payload) => {
-      const { executionRequestId } = payload as { executionRequestId: string }
-      return { cancelled: await deps.worker.cancel(executionRequestId) }
-    }
-  }
+  coordinatorRoute('execution.dispatch', (coordinator, payload) => coordinator.dispatch(payload))
+  coordinatorRoute('execution.cancel', (coordinator, payload) => coordinator.cancel(payload))
 
   return routes
 }

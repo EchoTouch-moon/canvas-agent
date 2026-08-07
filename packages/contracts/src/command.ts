@@ -3,6 +3,8 @@ import {
   BASELINE_STATUSES,
   CONTEXT_AUTHORITIES,
   CONTEXT_ITEM_TYPES,
+  EDGE_STATUSES,
+  EDGE_TYPES,
   NODE_LIFECYCLES,
   NODE_TYPES,
   SNAPSHOT_FRESHNESS,
@@ -10,7 +12,6 @@ import {
   TASK_STATUSES,
   TASK_TYPES
 } from '@canvas-agent/domain'
-import { executionRequestSchema, type ExecutionRequestContract } from './execution-request'
 
 const idSchema = z.string().min(1)
 const isoDateTime = z.string().min(1)
@@ -373,8 +374,88 @@ export const dispatchResultSchema = z
   .strict()
 export type DispatchResult = z.infer<typeof dispatchResultSchema>
 
-const workerCancelSchema = z.object({ executionRequestId: idSchema }).strict()
-const workerCancelResultSchema = z.object({ cancelled: z.boolean() }).strict()
+// --- Project state / execution coordination ---------------------------------
+
+const projectListRequestSchema = z.object({}).strict()
+
+const projectStateRequestSchema = z.object({ projectId: idSchema }).strict()
+
+const executionDispatchRequestSchema = z
+  .object({
+    executionRequestId: idSchema,
+    contextSnapshotId: idSchema
+  })
+  .strict()
+
+const executionCancelSchema = z.object({ executionRequestId: idSchema }).strict()
+
+const cancelResultSchema = z.object({ cancelled: z.boolean() }).strict()
+
+// Response-only schemas for the persisted read model (never reused as input).
+
+const edgeSchema = z
+  .object({
+    id: idSchema,
+    projectId: idSchema,
+    sourceNodeId: idSchema,
+    targetNodeId: idSchema,
+    type: z.enum(EDGE_TYPES),
+    status: z.enum(EDGE_STATUSES),
+    anchoredNodeVersionId: idSchema.nullable(),
+    note: z.string().nullable(),
+    createdAt: isoDateTime,
+    updatedAt: isoDateTime
+  })
+  .strict()
+
+const taskTargetSchema = z
+  .object({
+    id: idSchema,
+    taskSpecVersionId: idSchema,
+    nodeId: idSchema.nullable(),
+    nodeVersionId: idSchema.nullable(),
+    position: z.number().int().nonnegative()
+  })
+  .strict()
+
+const baselineItemSchema = z
+  .object({
+    id: idSchema,
+    baselineId: idSchema,
+    nodeVersionId: idSchema,
+    position: z.number().int().nonnegative()
+  })
+  .strict()
+
+const taskSpecAggregateSchema = z
+  .object({
+    spec: taskSpecSchema,
+    targets: z.array(taskTargetSchema),
+    criteria: z.array(acceptanceCriterionSchema)
+  })
+  .strict()
+
+const baselineAggregateSchema = z
+  .object({
+    baseline: baselineSchema,
+    items: z.array(baselineItemSchema)
+  })
+  .strict()
+
+const projectStateViewSchema = z
+  .object({
+    project: projectSchema,
+    nodes: z.array(nodeSchema),
+    nodeDrafts: z.array(nodeDraftSchema),
+    nodeVersions: z.array(nodeVersionSchema),
+    edges: z.array(edgeSchema),
+    tasks: z.array(taskSchema),
+    taskSpecs: z.array(taskSpecAggregateSchema),
+    baselines: z.array(baselineAggregateSchema),
+    activeBaseline: baselineSchema.nullable()
+  })
+  .strict()
+export type ProjectStateView = z.infer<typeof projectStateViewSchema>
 
 // --- Command error (command failure, not dispatch outcome) ------------------
 
@@ -404,6 +485,8 @@ export type CommandError = z.infer<typeof commandErrorSchema>
 export interface CommandMap {
   'project.create': { request: z.infer<typeof projectCreateSchema>; response: z.infer<typeof projectSchema> }
   'project.get': { request: z.infer<typeof projectGetSchema>; response: z.infer<typeof projectSchema> }
+  'project.list': { request: z.infer<typeof projectListRequestSchema>; response: z.infer<typeof projectSchema>[] }
+  'project.state': { request: z.infer<typeof projectStateRequestSchema>; response: z.infer<typeof projectStateViewSchema> }
   'node.create': { request: z.infer<typeof nodeCreateSchema>; response: z.infer<typeof nodeSchema> }
   'nodeDraft.upsert': { request: z.infer<typeof nodeDraftUpsertSchema>; response: z.infer<typeof nodeDraftSchema> }
   'nodeVersion.publish': { request: z.infer<typeof nodeVersionPublishSchema>; response: z.infer<typeof nodeVersionSchema> }
@@ -413,8 +496,8 @@ export interface CommandMap {
   'baseline.activate': { request: z.infer<typeof baselineActivateSchema>; response: z.infer<typeof baselineActivateResultSchema> }
   'revision.current': { request: z.infer<typeof emptyObjectSchema>; response: z.infer<typeof repositoryRevisionRowSchema> }
   'snapshot.freeze': { request: z.infer<typeof snapshotFreezeSchema>; response: z.infer<typeof snapshotFreezeResultSchema> }
-  'worker.dispatch': { request: ExecutionRequestContract; response: z.infer<typeof dispatchResultSchema> }
-  'worker.cancel': { request: z.infer<typeof workerCancelSchema>; response: z.infer<typeof workerCancelResultSchema> }
+  'execution.dispatch': { request: z.infer<typeof executionDispatchRequestSchema>; response: DispatchResult }
+  'execution.cancel': { request: z.infer<typeof executionCancelSchema>; response: z.infer<typeof cancelResultSchema> }
 }
 
 export type WorkspaceCommand = keyof CommandMap
@@ -448,6 +531,8 @@ function commandRequestMember<K extends WorkspaceCommand>(
 export const commandRequestSchema = z.discriminatedUnion('command', [
   commandRequestMember('project.create', projectCreateSchema),
   commandRequestMember('project.get', projectGetSchema),
+  commandRequestMember('project.list', projectListRequestSchema),
+  commandRequestMember('project.state', projectStateRequestSchema),
   commandRequestMember('node.create', nodeCreateSchema),
   commandRequestMember('nodeDraft.upsert', nodeDraftUpsertSchema),
   commandRequestMember('nodeVersion.publish', nodeVersionPublishSchema),
@@ -457,8 +542,8 @@ export const commandRequestSchema = z.discriminatedUnion('command', [
   commandRequestMember('baseline.activate', baselineActivateSchema),
   commandRequestMember('revision.current', emptyObjectSchema),
   commandRequestMember('snapshot.freeze', snapshotFreezeSchema),
-  commandRequestMember('worker.dispatch', executionRequestSchema),
-  commandRequestMember('worker.cancel', workerCancelSchema)
+  commandRequestMember('execution.dispatch', executionDispatchRequestSchema),
+  commandRequestMember('execution.cancel', executionCancelSchema)
 ])
 
 // --- Response schemas (command-correlated, no z.unknown data) ----------------
@@ -491,6 +576,8 @@ function commandResponseMember<K extends WorkspaceCommand>(
 export const commandResponseSchemas = {
   'project.create': commandResponseMember('project.create', projectSchema),
   'project.get': commandResponseMember('project.get', projectSchema),
+  'project.list': commandResponseMember('project.list', z.array(projectSchema)),
+  'project.state': commandResponseMember('project.state', projectStateViewSchema),
   'node.create': commandResponseMember('node.create', nodeSchema),
   'nodeDraft.upsert': commandResponseMember('nodeDraft.upsert', nodeDraftSchema),
   'nodeVersion.publish': commandResponseMember('nodeVersion.publish', nodeVersionSchema),
@@ -500,8 +587,8 @@ export const commandResponseSchemas = {
   'baseline.activate': commandResponseMember('baseline.activate', baselineActivateResultSchema),
   'revision.current': commandResponseMember('revision.current', repositoryRevisionRowSchema),
   'snapshot.freeze': commandResponseMember('snapshot.freeze', snapshotFreezeResultSchema),
-  'worker.dispatch': commandResponseMember('worker.dispatch', dispatchResultSchema),
-  'worker.cancel': commandResponseMember('worker.cancel', workerCancelResultSchema)
+  'execution.dispatch': commandResponseMember('execution.dispatch', dispatchResultSchema),
+  'execution.cancel': commandResponseMember('execution.cancel', cancelResultSchema)
 } as const
 
 // --- Runtime route-registry skeleton (main process fills `execute`) ----------
@@ -509,6 +596,8 @@ export const commandResponseSchemas = {
 export const commandSchemas = {
   'project.create': { input: projectCreateSchema, output: projectSchema },
   'project.get': { input: projectGetSchema, output: projectSchema },
+  'project.list': { input: projectListRequestSchema, output: z.array(projectSchema) },
+  'project.state': { input: projectStateRequestSchema, output: projectStateViewSchema },
   'node.create': { input: nodeCreateSchema, output: nodeSchema },
   'nodeDraft.upsert': { input: nodeDraftUpsertSchema, output: nodeDraftSchema },
   'nodeVersion.publish': { input: nodeVersionPublishSchema, output: nodeVersionSchema },
@@ -518,6 +607,6 @@ export const commandSchemas = {
   'baseline.activate': { input: baselineActivateSchema, output: baselineActivateResultSchema },
   'revision.current': { input: emptyObjectSchema, output: repositoryRevisionRowSchema },
   'snapshot.freeze': { input: snapshotFreezeSchema, output: snapshotFreezeResultSchema },
-  'worker.dispatch': { input: executionRequestSchema, output: dispatchResultSchema },
-  'worker.cancel': { input: workerCancelSchema, output: workerCancelResultSchema }
+  'execution.dispatch': { input: executionDispatchRequestSchema, output: dispatchResultSchema },
+  'execution.cancel': { input: executionCancelSchema, output: cancelResultSchema }
 }

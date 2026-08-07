@@ -6,7 +6,19 @@ import {
   createTask,
   defaultServices,
   freezeContextSnapshot,
+  getActiveBaseline,
   getProject,
+  listBaselineItems,
+  listBaselines,
+  listCriteria,
+  listEdges,
+  listNodeDrafts,
+  listNodes,
+  listNodeVersions,
+  listProjects,
+  listTaskSpecVersions,
+  listTasks,
+  listTaskTargets,
   NotFoundError,
   publishNodeVersion,
   publishTaskSpecVersion,
@@ -26,7 +38,7 @@ import {
   type SystemServices,
   type TaskRow
 } from '@canvas-agent/persistence'
-import type { CommandInput } from '@canvas-agent/contracts'
+import type { CommandInput, ProjectStateView } from '@canvas-agent/contracts'
 import { GitRevisionReader } from './git-revision-reader'
 
 export class WorkspaceService {
@@ -54,6 +66,41 @@ export class WorkspaceService {
       throw new NotFoundError('Project', payload.projectId)
     }
     return project
+  }
+
+  listProjects(): ProjectRow[] {
+    return listProjects(this.p)
+  }
+
+  projectState(projectId: string): ProjectStateView {
+    const project = getProject(this.p, projectId)
+    if (project === undefined) {
+      throw new NotFoundError('Project', projectId)
+    }
+    const tasks = listTasks(this.p, projectId)
+    const taskSpecs = tasks.flatMap((task) =>
+      listTaskSpecVersions(this.p, task.id).map((spec) => ({
+        spec,
+        targets: listTaskTargets(this.p, spec.id),
+        criteria: listCriteria(this.p, spec.id)
+      }))
+    )
+    const baselines = listBaselines(this.p, projectId).map((baseline) => ({
+      baseline,
+      items: listBaselineItems(this.p, baseline.id)
+    }))
+
+    return {
+      project,
+      nodes: listNodes(this.p, projectId),
+      nodeDrafts: listNodeDrafts(this.p, projectId),
+      nodeVersions: listNodeVersions(this.p, projectId),
+      edges: listEdges(this.p, projectId),
+      tasks,
+      taskSpecs,
+      baselines,
+      activeBaseline: getActiveBaseline(this.p, projectId) ?? null
+    }
   }
 
   createNode(payload: CommandInput<'node.create'>): NodeRow {

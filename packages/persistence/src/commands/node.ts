@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { asc, desc, eq, inArray } from 'drizzle-orm'
 import type { Persistence } from '../db'
 import { ConcurrencyError, NotFoundError } from '../errors'
 import { nodeDraftTable, nodeTable, nodeVersionTable } from '../schema'
@@ -46,6 +46,41 @@ export function createNode(p: Persistence, input: CreateNodeInput): NodeRow {
 
 export function getNode(p: Persistence, id: string): NodeRow | undefined {
   return p.drizzle.select().from(nodeTable).where(eq(nodeTable.id, id)).get()
+}
+
+export function listNodes(p: Persistence, projectId: string): NodeRow[] {
+  return p.drizzle
+    .select()
+    .from(nodeTable)
+    .where(eq(nodeTable.projectId, projectId))
+    .orderBy(asc(nodeTable.createdAt), asc(nodeTable.id))
+    .all()
+}
+
+export function listNodeDrafts(p: Persistence, projectId: string): NodeDraftRow[] {
+  const projectNodeIds = p.drizzle
+    .select({ id: nodeTable.id })
+    .from(nodeTable)
+    .where(eq(nodeTable.projectId, projectId))
+  return p.drizzle
+    .select()
+    .from(nodeDraftTable)
+    .where(inArray(nodeDraftTable.nodeId, projectNodeIds))
+    .orderBy(asc(nodeDraftTable.nodeId))
+    .all()
+}
+
+export function listNodeVersions(p: Persistence, projectId: string): NodeVersionRow[] {
+  const projectNodeIds = p.drizzle
+    .select({ id: nodeTable.id })
+    .from(nodeTable)
+    .where(eq(nodeTable.projectId, projectId))
+  return p.drizzle
+    .select()
+    .from(nodeVersionTable)
+    .where(inArray(nodeVersionTable.nodeId, projectNodeIds))
+    .orderBy(asc(nodeVersionTable.nodeId), asc(nodeVersionTable.sequence))
+    .all()
 }
 
 export function requireNode(p: Persistence, id: string): NodeRow {

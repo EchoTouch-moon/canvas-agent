@@ -21,20 +21,23 @@ project.state (IPC)
 
 ## Checklist (by module)
 
-| # | Function | Signature | Queries | Status |
-|---|---|---|---|---|
-| 1 | `listProjects` | `(p: Persistence) => ProjectRow[]` | `project` all | **new** |
-| 2 | `listNodes` | `(p, projectId) => NodeRow[]` | `node` where project | **new** |
-| 3 | `listNodeDrafts` | `(p, projectId) => NodeDraftRow[]` | `node_draft` join `node` by project | **new** |
-| 4 | `listNodeVersions` | `(p, projectId) => NodeVersionRow[]` | `node_version` join `node` by project, order by sequence | **new** |
-| 5 | `listEdges` | `(p, projectId) => EdgeRow[]` | `edge` where project | **new** |
-| 6 | `listTasks` | `(p, projectId) => TaskRow[]` | `task` where project | **new** |
-| 7 | `listTaskSpecVersions` | `(p, taskId) => TaskSpecVersionRow[]` | `task_spec_version` where task, order by sequence | **new** |
-| 8 | `listTaskTargets` | `(p, taskSpecVersionId) => TaskTargetRow[]` | `task_target` where spec, order by position | **new** |
-| 9 | `listCriteria` | `(p, taskSpecVersionId) => AcceptanceCriterionRow[]` | `acceptance_criterion` where spec | ✅ exists (`commands/task.ts`) |
-| 10 | `listBaselines` | `(p, projectId) => ProjectBaselineRow[]` | `project_baseline` where project | **new** |
-| 11 | `listBaselineItems` | `(p, baselineId) => BaselineItemRow[]` | `baseline_item` where baseline, order by position | ✅ exists (`commands/baseline.ts`) |
-| 12 | `getActiveBaseline` | `(p, projectId) => ProjectBaselineRow \| undefined` | `project_baseline` where project + status ACTIVE | ✅ exists |
+| # | Function | Signature | Queries | Sort (deterministic) | Status |
+|---|---|---|---|---|---|
+| 1 | `listProjects` | `(p: Persistence) => ProjectRow[]` | `project` all | `createdAt ASC, id ASC` | **new** |
+| 2 | `listNodes` | `(p, projectId) => NodeRow[]` | `node` where project | `createdAt ASC, id ASC` | **new** |
+| 3 | `listNodeDrafts` | `(p, projectId) => NodeDraftRow[]` | `node_draft` join `node` by project | `nodeId ASC` | **new** |
+| 4 | `listNodeVersions` | `(p, projectId) => NodeVersionRow[]` | `node_version` join `node` by project | `nodeId ASC, sequence ASC` | **new** |
+| 5 | `listEdges` | `(p, projectId) => EdgeRow[]` | `edge` where project | `createdAt ASC, id ASC` | **new** |
+| 6 | `listTasks` | `(p, projectId) => TaskRow[]` | `task` where project | `createdAt ASC, id ASC` | **new** |
+| 7 | `listTaskSpecVersions` | `(p, taskId) => TaskSpecVersionRow[]` | `task_spec_version` where task | `sequence ASC` | **new** |
+| 8 | `listTaskTargets` | `(p, taskSpecVersionId) => TaskTargetRow[]` | `task_target` where spec | `position ASC, id ASC` | **new** |
+| 9 | `listCriteria` | `(p, taskSpecVersionId) => AcceptanceCriterionRow[]` | `acceptance_criterion` where spec | `position ASC, id ASC` | ✅ exists (`commands/task.ts`) |
+| 10 | `listBaselines` | `(p, projectId) => ProjectBaselineRow[]` | `project_baseline` where project | `createdAt ASC, id ASC` | **new** |
+| 11 | `listBaselineItems` | `(p, baselineId) => BaselineItemRow[]` | `baseline_item` where baseline | `position ASC, id ASC` | ✅ exists (`commands/baseline.ts`) |
+| 12 | `getActiveBaseline` | `(p, projectId) => ProjectBaselineRow \| undefined` | `project_baseline` where project + status ACTIVE | — | ✅ exists (`commands/baseline.ts`) |
+
+**Reused:** `getProject` (project.ts), `listCriteria`, `listBaselineItems`,
+`getActiveBaseline` — **4 reused, 9 new**.
 
 ## Placement
 
@@ -43,8 +46,11 @@ project.state (IPC)
 - **Add** the remaining `list*`/`get*` functions in the owning command module
   (`node.ts`, `edge.ts`, `task.ts`, `baseline.ts`, `project.ts`), each returning
   schema rows and using `orderBy` where ordering matters.
-- **Aggregate** in `WorkspaceService.projectState()` (desktop main) — not in
-  persistence — into `ProjectStateView` (project nullable, arrays, activeBaseline).
+- **Aggregate** in `WorkspaceService.projectState(projectId)` (desktop main) — not
+  in persistence — into `ProjectStateView` (project required, arrays,
+  activeBaseline). `ExecutionCoordinator` (Main) owns the `execution.*` routes;
+  it reads the frozen snapshot + pinned revision directly, never via a UI
+  projection.
 
 ## Determinism & conventions
 

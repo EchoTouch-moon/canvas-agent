@@ -44,6 +44,14 @@ export const taskSpecVersionTable = sqliteTable(
   (t) => [unique('task_spec_version_task_sequence').on(t.taskId, t.sequence)]
 )
 
+export const VERIFICATION_METHODS = [
+  'AUTOMATED_TEST',
+  'MANUAL_REVIEW',
+  'ARTIFACT_CHECK',
+  'STRUCTURED_ASSERTION'
+] as const
+export type VerificationMethod = (typeof VERIFICATION_METHODS)[number]
+
 export const acceptanceCriterionTable = sqliteTable(
   'acceptance_criterion',
   {
@@ -53,7 +61,10 @@ export const acceptanceCriterionTable = sqliteTable(
       .references(() => taskSpecVersionTable.id),
     position: integer('position').notNull(),
     description: text('description').notNull(),
-    verificationMethod: text('verification_method').notNull().default('MANUAL_REVIEW')
+    verificationMethod: text('verification_method')
+      .$type<VerificationMethod>()
+      .notNull()
+      .default('MANUAL_REVIEW')
   },
   (t) => [unique('acceptance_criterion_position').on(t.taskSpecVersionId, t.position)]
 )

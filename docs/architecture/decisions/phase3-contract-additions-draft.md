@@ -1,12 +1,14 @@
 # Phase 3 contract additions — draft (for shape freeze)
 
-- **Status:** Draft — pending architecture shape freeze before implementation
+- **Status:** Final shape (approved with required changes; `project.list` +
+  `project.state({ projectId })` ruled; `ExecutionCoordinator` split ruled)
 - **Author:** DeepSeek V4 Flash
 - **Date:** 2026-08-07
 - **Basis:** PROPOSAL-022 (approved with required changes, `3007368`)
-- **Intended commit scope:** `packages/contracts/src/command.ts` +
-  `packages/contracts/tests/command.test.ts` (+ the minimal Main/`command-core`
-  adaptation required to keep `pnpm check` green — see "Ripple").
+- **Intended commit scope:** `packages/contracts/**` +
+  `apps/desktop/src/main/{command-core,execution-coordinator,workspace-service}.ts`
+  + `packages/persistence` read helpers — one green slice (every commit
+  `pnpm check` green).
 
 > This is a **draft**, not code. Implementation waits until the shape below is
 > frozen.
@@ -57,7 +59,7 @@ const baselineAggregateSchema = z.object({
 }).strict()
 
 const projectStateViewSchema = z.object({
-  project: projectSchema.nullable(),
+  project: projectSchema,           // non-nullable — project.state requires projectId
   nodes: z.array(nodeSchema),
   nodeDrafts: z.array(nodeDraftSchema),
   nodeVersions: z.array(nodeVersionSchema),
@@ -75,7 +77,9 @@ never from a live Git read.
 ## 2. New request schemas
 
 ```ts
-const projectStateRequestSchema = z.object({}).strict()
+const projectListRequestSchema = z.object({}).strict()
+
+const projectStateRequestSchema = z.object({ projectId: idSchema }).strict()
 
 const executionDispatchRequestSchema = z.object({
   executionRequestId: idSchema,
@@ -92,25 +96,22 @@ const executionCancelRequestSchema = z.object({
 **Add:**
 
 ```ts
-'project.state':     { request: z.infer<typeof projectStateRequestSchema>;      response: z.infer<typeof projectStateViewSchema> }
+'project.list':      { request: z.infer<typeof projectListRequestSchema>;      response: Project[] }
+'project.state':     { request: z.infer<typeof projectStateRequestSchema>;     response: ProjectStateView }  // project required
 'execution.dispatch':{ request: z.infer<typeof executionDispatchRequestSchema>; response: DispatchResult }
-'execution.cancel':  { request: z.infer<typeof executionCancelRequestSchema>;   response: z.infer<typeof workerCancelResultSchema> }  // { cancelled }
+'execution.cancel':  { request: z.infer<typeof executionCancelRequestSchema>;   response: { cancelled: boolean } }
 ```
 
-**Remove (Renderer-facing CommandMap only):**
-
-```ts
-'worker.dispatch'
-'worker.cancel'
-```
-
-This closes the Renderer path to constructing an `ExecutionRequest`; `execution.*`
-is the only Renderer-facing Worker coordination surface.
+- `ProjectStateView.project` is **non-nullable** (`project.state` requires a
+  `projectId`; missing → `NotFoundError`).
+- **Remove** `worker.dispatch` / `worker.cancel` from the Renderer-facing
+  CommandMap — the Renderer cannot construct an `ExecutionRequest`.
 
 ## 4. Where each addition lands in `command.ts`
 
 | Item | `CommandMap` | `commandRequestSchema` | `commandResponseSchemas` | `commandSchemas` |
 |---|---|---|---|---|
+| `project.list` | ✅ | ✅ member | ✅ | ✅ |
 | `project.state` | ✅ | ✅ member | ✅ | ✅ |
 | `execution.dispatch` | ✅ | ✅ member | ✅ | ✅ |
 | `execution.cancel` | ✅ | ✅ member | ✅ | ✅ |
@@ -119,9 +120,10 @@ is the only Renderer-facing Worker coordination surface.
 
 ## 5. Tests (`command.test.ts`)
 
-- `project.state` parses an empty request; response validates a full
-  `ProjectStateView` (project null and project-present variants; non-empty
-  edges/taskSpecs/baselines arrays).
+- `project.list` parses an empty request; response validates `Project[]`.
+- `project.state` parses `{ projectId }`; response validates a full
+  `ProjectStateView` (non-empty edges/taskSpecs/baselines arrays; `project` null
+  is rejected).
 - `execution.dispatch` parses `{ executionRequestId, contextSnapshotId }`; a
   malformed payload (missing id / extra field) is rejected.
 - `execution.cancel` parses `{ executionRequestId }`.
@@ -132,28 +134,23 @@ is the only Renderer-facing Worker coordination surface.
 
 ## 6. Ripple — keeping `pnpm check` green
 
-Removing `worker.*` from the Renderer-facing surface breaks references that must
-be adapted in the **same commit** (contracts + minimal Main), otherwise the repo
-is red:
+Removing `worker.*` from the Renderer-facing surface requires a single green
+slice (contracts + Main + persistence reads together):
 
 - `apps/desktop/src/main/command-core.ts`: drop `worker.dispatch` /
-  `worker.cancel` routes; add `execution.dispatch` / `execution.cancel` routes.
-  `execution.dispatch` calls a new `WorkspaceService.executionDispatch(payload)`
-  that **builds the ExecutionRequest from the frozen snapshot** (see §7).
-- `apps/desktop/src/main/command-core.test.ts` end-to-end: replace
-  `worker.dispatch(workerRequest(...))` with
-  `execution.dispatch({ executionRequestId, contextSnapshotId })`; the
-  `execution.cancel` route replaces the old `worker.cancel`.
-- `worker-host.test.ts` / `worker-service.test.ts`: unaffected (they exercise
-  `WorkerHost`/`WorkerService` directly, not the Renderer CommandMap).
+  `worker.cancel` routes; add `project.list`, `project.state` and
+  `execution.dispatch` / `execution.cancel` routes.
+- **`execution.dispatch` is routed to a new Main-only `ExecutionCoordinator`
+  (`apps/desktop/src/main/execution-coordinator.ts`)** — not `WorkspaceService`
+  (keeps WorkspaceService free of WorkerHost).
+- `WorkspaceService.projectState(projectId)` composes the persistence read helpers.
+- `apps/desktop/src/main/command-core.test.ts`: end-to-end uses
+  `execution.dispatch({ executionRequestId, contextSnapshotId })`.
+- `worker-host.test.ts` / `worker-service.test.ts`: unaffected (direct `WorkerHost`
+  / `WorkerService`).
 - Phase 2 smoke calls `WorkerHost` directly — unaffected.
 
-If the Main implementation (§7) is not in this commit, then either
-(a) sequence it as an immediately-following commit, or (b) land the contract
-change together with the `WorkspaceService.executionDispatch` + routes so the repo
-stays green at every commit.
-
-## 7. `execution.dispatch` Main semantics (for the Main packet)
+## 7. `execution.dispatch` Main semantics (`ExecutionCoordinator`)
 
 Fixed order — **never calls `revision.current()`**:
 
@@ -161,8 +158,8 @@ Fixed order — **never calls `revision.current()`**:
 contextSnapshotId
   → getSnapshot()
   → assert status === 'FROZEN'
-  → load TaskSpecVersion (from snapshot.taskSpecVersionId)
-  → load snapshot.expectedRepositoryRevisionId → requireRepositoryRevision()
+  → requireTaskSpecVersion(snapshot.taskSpecVersionId)
+  → requireRepositoryRevision(snapshot.expectedRepositoryRevisionId)
   → build ExecutionRequest (runId/attempt generated, requestHash computed)
   → WorkerHost.dispatch(request)
 ```

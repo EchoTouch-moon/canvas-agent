@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import type { Persistence } from '../db'
 import { CycleError, SelfEdgeError } from '../errors'
 import { edgeTable } from '../schema'
@@ -6,6 +6,15 @@ import type { EdgeRow } from '../schema'
 import type { EdgeStatus, EdgeType } from '@canvas-agent/domain'
 import { appendAudit } from './audit'
 import { requireNode, requireNodeVersion } from './node'
+
+export function listEdges(p: Persistence, projectId: string): EdgeRow[] {
+  return p.drizzle
+    .select()
+    .from(edgeTable)
+    .where(eq(edgeTable.projectId, projectId))
+    .orderBy(asc(edgeTable.createdAt), asc(edgeTable.id))
+    .all()
+}
 
 export interface CreateEdgeInput {
   id: string

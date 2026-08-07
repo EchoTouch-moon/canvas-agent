@@ -157,12 +157,21 @@ export function getActiveBaseline(p: Persistence, projectId: string): ProjectBas
     .get()
 }
 
+export function listBaselines(p: Persistence, projectId: string): ProjectBaselineRow[] {
+  return p.drizzle
+    .select()
+    .from(projectBaselineTable)
+    .where(eq(projectBaselineTable.projectId, projectId))
+    .orderBy(asc(projectBaselineTable.createdAt), asc(projectBaselineTable.id))
+    .all()
+}
+
 export function listBaselineItems(p: Persistence, baselineId: string): BaselineItemRow[] {
   return p.drizzle
     .select()
     .from(baselineItemTable)
     .where(eq(baselineItemTable.baselineId, baselineId))
-    .orderBy(asc(baselineItemTable.position))
+    .orderBy(asc(baselineItemTable.position), asc(baselineItemTable.id))
     .all()
 }
 

@@ -7,41 +7,7 @@ import {
   type CommandResponse
 } from '../src'
 
-const HASH = 'a'.repeat(64)
 const COMMIT = 'b'.repeat(40)
-
-function workerPayload() {
-  return {
-    executionRequestId: 'req_01',
-    runId: 'run_01',
-    workerAttemptNumber: 1,
-    taskSpecVersionId: 'spec_01',
-    contextSnapshotId: 'snap_01',
-    expectedRepositoryRevision: {
-      baseCommit: COMMIT,
-      treeHash: COMMIT,
-      workingTreePatchHash: null
-    },
-    checkpointId: null,
-    requiredCapabilities: ['git', 'node'],
-    agentConfiguration: { provider: 'local-cli', model: 'configured' },
-    toolPolicy: {
-      allowedTools: ['read_file', 'write_file'],
-      deniedPaths: ['.env'],
-      allowNetwork: false,
-      allowShell: true
-    },
-    workspaceStrategy: 'ISOLATED_WORKTREE',
-    resourceBudget: {
-      maxDurationMs: 900_000,
-      maxToolCalls: 120,
-      maxDiskBytes: 2_000_000_000
-    },
-    schemaVersion: 1,
-    requestHash: HASH,
-    expiresAt: '2099-01-01T00:00:00.000Z'
-  }
-}
 
 function request(command: string, payload: unknown): CommandRequest {
   return { requestId: 'req_t', schemaVersion: 1, command: command as never, payload: payload as never }
@@ -92,20 +58,48 @@ describe('command envelope', () => {
     ).toThrow()
   })
 
-  it('validates worker.dispatch and worker.cancel payloads', () => {
+  it('validates execution.dispatch and execution.cancel payloads', () => {
     const dispatch = commandRequestSchema.parse(
-      request('worker.dispatch', workerPayload())
-    ) as CommandRequest<'worker.dispatch'>
-    expect(dispatch.command).toBe('worker.dispatch')
+      request('execution.dispatch', {
+        executionRequestId: 'req_01',
+        contextSnapshotId: 'snap_01'
+      })
+    ) as CommandRequest<'execution.dispatch'>
+    expect(dispatch.command).toBe('execution.dispatch')
+    expect(dispatch.payload).toEqual({
+      executionRequestId: 'req_01',
+      contextSnapshotId: 'snap_01'
+    })
 
     expect(() =>
-      commandRequestSchema.parse(request('worker.dispatch', { ...workerPayload(), requestHash: 'zz' }))
+      commandRequestSchema.parse(
+        request('execution.dispatch', { executionRequestId: 'req_01' })
+      )
     ).toThrow()
 
     const cancel = commandRequestSchema.parse(
-      request('worker.cancel', { executionRequestId: 'req_01' })
-    ) as CommandRequest<'worker.cancel'>
+      request('execution.cancel', { executionRequestId: 'req_01' })
+    ) as CommandRequest<'execution.cancel'>
     expect(cancel.payload).toEqual({ executionRequestId: 'req_01' })
+  })
+
+  it('validates project.list and project.state payloads', () => {
+    const list = commandRequestSchema.parse(request('project.list', {})) as CommandRequest<
+      'project.list'
+    >
+    expect(list.payload).toEqual({})
+
+    const state = commandRequestSchema.parse(
+      request('project.state', { projectId: 'proj_1' })
+    ) as CommandRequest<'project.state'>
+    expect(state.payload).toEqual({ projectId: 'proj_1' })
+  })
+
+  it('rejects worker.dispatch / worker.cancel as renderer commands', () => {
+    expect(() => commandRequestSchema.parse(request('worker.dispatch', {}))).toThrow()
+    expect(() =>
+      commandRequestSchema.parse(request('worker.cancel', { executionRequestId: 'x' }))
+    ).toThrow()
   })
 
   it('exposes revision.current but not revision.upsert to the renderer', () => {
@@ -128,16 +122,16 @@ describe('command response correlation', () => {
       requestId: 'req_t',
       schemaVersion: 1,
       ok: true,
-      command: 'worker.dispatch',
+      command: 'execution.dispatch',
       data: {
         outcome: 'REVISION_MISMATCH',
         claimGranted: true,
         revisionMismatch: { field: 'baseCommit', expected: COMMIT, actual: 'c'.repeat(40) }
       }
     }
-    const parsed = commandResponseSchemas['worker.dispatch'].parse(
+    const parsed = commandResponseSchemas['execution.dispatch'].parse(
       response
-    ) as Extract<CommandResponse<'worker.dispatch'>, { ok: true }>
+    ) as Extract<CommandResponse<'execution.dispatch'>, { ok: true }>
     expect(parsed.ok).toBe(true)
     expect(parsed.data.outcome).toBe('REVISION_MISMATCH')
   })
@@ -147,8 +141,7 @@ describe('command response correlation', () => {
       requestId: 'req_t',
       schemaVersion: 1,
       ok: false,
-      command: 'nodeDraft.upsert',
-      error: { name: 'ConcurrencyError', message: 'stale revision' }
+      command: 'nodeDraft.upsert',      error: { name: 'ConcurrencyError', message: 'stale revision' }
     }
     const parsed = commandResponseSchemas['nodeDraft.upsert'].parse(
       response
@@ -187,6 +180,42 @@ describe('command response correlation', () => {
         data: { id: 'proj_1', name: 'X' }
       })
     ).toThrow()
+  })
+
+  it('validates a full project.state projection', () => {
+    const now = '2026-08-07T00:00:00.000Z'
+    const project = {
+      id: 'proj_1',
+      name: 'MUSICDB',
+      description: null,
+      createdAt: now,
+      updatedAt: now
+    }
+    const response = {
+      requestId: 'req_t',
+      schemaVersion: 1,
+      ok: true,
+      command: 'project.state',
+      data: {
+        project,
+        nodes: [],
+        nodeDrafts: [],
+        nodeVersions: [],
+        edges: [],
+        tasks: [],
+        taskSpecs: [],
+        baselines: [],
+        activeBaseline: null
+      }
+    }
+    const parsed = commandResponseSchemas['project.state'].parse(
+      response
+    ) as Extract<CommandResponse<'project.state'>, { ok: true }>
+    expect(parsed.data.project.id).toBe('proj_1')
+    expect(parsed.data.activeBaseline).toBeNull()
+
+    const bad = { ...response, data: { ...response.data, project: null } }
+    expect(() => commandResponseSchemas['project.state'].parse(bad)).toThrow()
   })
 })
 

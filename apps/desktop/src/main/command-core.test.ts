@@ -2,17 +2,15 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { computeRequestHash } from '@canvas-agent/worker-runtime'
 import { openWorkspaceDatabase, closeWorkspaceDatabase } from './database'
 import { GitRevisionReader } from './git-revision-reader'
 import { WorkspaceService } from './workspace-service'
+import { ExecutionCoordinator } from './execution-coordinator'
 import { UnavailableWorkerHost } from './worker-host'
 import { InProcessWorkerHost } from './testing/in-process-worker-host'
 import { buildRoutes, handleCommand } from './command-core'
 import { cleanupTempDirs, createTempGitRepo, trackTempDir } from './testing/git-fixture'
-import type { CommandRequest, ExecutionRequestContract } from '@canvas-agent/contracts'
-
-const FUTURE = '2099-01-01T00:00:00.000Z'
+import type { CommandRequest } from '@canvas-agent/contracts'
 
 function request(command: string, payload: unknown): CommandRequest {
   return {
@@ -23,47 +21,23 @@ function request(command: string, payload: unknown): CommandRequest {
   }
 }
 
-function workerRequest(revision: {
-  baseCommit: string
-  treeHash: string
-  workingTreePatchHash: string | null
-}): ExecutionRequestContract {
-  const request: Omit<ExecutionRequestContract, 'requestHash'> = {
-    executionRequestId: 'req_1',
-    runId: 'run_1',
-    workerAttemptNumber: 1,
-    taskSpecVersionId: 'spec_1',
-    contextSnapshotId: 'snap_1',
-    expectedRepositoryRevision: revision,
-    checkpointId: null,
-    requiredCapabilities: ['git', 'node'],
-    agentConfiguration: { provider: 'fixture', model: 'deterministic' },
-    toolPolicy: {
-      allowedTools: ['write_file', 'run_command'],
-      deniedPaths: [],
-      allowNetwork: false,
-      allowShell: true
-    },
-    workspaceStrategy: 'ISOLATED_WORKTREE',
-    resourceBudget: { maxDurationMs: 30_000, maxToolCalls: 20, maxDiskBytes: 1_000_000_000 },
-    schemaVersion: 1,
-    expiresAt: FUTURE
-  }
-  return { ...request, requestHash: computeRequestHash(request) }
-}
-
 describe('CommandRouter (command-core)', () => {
   afterEach(async () => {
     await cleanupTempDirs()
   })
 
   it('rejects malformed and unknown commands at the transport boundary', async () => {
-    const routes = buildRoutes({ workspace: null, worker: new UnavailableWorkerHost() })
+    const routes = buildRoutes({
+      workspace: null,
+      coordinator: null,
+      worker: new UnavailableWorkerHost()
+    })
 
     await expect(
       handleCommand(routes, { requestId: 'r', command: 'project.create' })
     ).rejects.toThrow()
     await expect(handleCommand(routes, request('nope.create', {}))).rejects.toThrow()
+    await expect(handleCommand(routes, request('worker.dispatch', {}))).rejects.toThrow()
   })
 
   it('rejects handler output that fails the command response schema', async () => {
@@ -76,13 +50,24 @@ describe('CommandRouter (command-core)', () => {
   })
 
   it('reports workspace commands as HostUnavailableError when unconfigured', async () => {
-    const routes = buildRoutes({ workspace: null, worker: new UnavailableWorkerHost() })
+    const routes = buildRoutes({
+      workspace: null,
+      coordinator: null,
+      worker: new UnavailableWorkerHost()
+    })
     const result = await handleCommand(routes, request('project.create', { name: 'X' }))
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.name).toBe('HostUnavailableError')
+
+    const dispatch = await handleCommand(
+      routes,
+      request('execution.dispatch', { executionRequestId: 'e', contextSnapshotId: 's' })
+    )
+    expect(dispatch.ok).toBe(false)
+    if (!dispatch.ok) expect(dispatch.error.name).toBe('HostUnavailableError')
   })
 
-  it('runs a full workspace flow through the router and dispatch outcome as ok data', async () => {
+  it('runs a full workspace flow including project.state and execution.dispatch', async () => {
     const repoDir = await createTempGitRepo()
     const runtimeDir = trackTempDir(await mkdtemp(join(tmpdir(), 'ca-main-runtime-')))
     const p = openWorkspaceDatabase(':memory:')
@@ -94,12 +79,17 @@ describe('CommandRouter (command-core)', () => {
       sourceRepositoryPath: repoDir,
       runtimeDirectory: runtimeDir
     })
-    const routes = buildRoutes({ workspace: service, worker })
+    const coordinator = new ExecutionCoordinator(p, worker)
+    const routes = buildRoutes({ workspace: service, coordinator, worker })
 
     const created = await handleCommand(routes, request('project.create', { name: 'MUSICDB' }))
     expect(created.ok).toBe(true)
     if (!created.ok) throw new Error('expected ok')
     const projectId = (created.data as { id: string }).id
+
+    const listed = await handleCommand(routes, request('project.list', {}))
+    expect(listed.ok).toBe(true)
+    if (!listed.ok) throw new Error('expected ok')
 
     const node = await handleCommand(
       routes,
@@ -174,27 +164,33 @@ describe('CommandRouter (command-core)', () => {
     )
     expect(frozen.ok).toBe(true)
     if (!frozen.ok) throw new Error('expected ok')
+    const snapshotId = (frozen.data as { snapshot: { id: string } }).snapshot.id
+
+    const state = await handleCommand(routes, request('project.state', { projectId }))
+    expect(state.ok).toBe(true)
+    if (!state.ok) throw new Error('expected ok')
+    const view = state.data as { nodes: unknown[]; taskSpecs: unknown[]; activeBaseline: unknown }
+    expect(view.nodes).toHaveLength(1)
+    expect(view.taskSpecs).toHaveLength(1)
+    expect(view.activeBaseline).not.toBeNull()
 
     const dispatch = await handleCommand(
       routes,
-      request(
-        'worker.dispatch',
-        workerRequest({
-          baseCommit: revisionRow.baseCommit,
-          treeHash: revisionRow.treeHash,
-          workingTreePatchHash: revisionRow.workingTreePatchHash
-        })
-      )
+      request('execution.dispatch', {
+        executionRequestId: 'exec-1',
+        contextSnapshotId: snapshotId
+      })
     )
     if (!dispatch.ok) {
       throw new Error(`dispatch failed: ${dispatch.error.name}: ${dispatch.error.message}`)
     }
     expect(dispatch.ok).toBe(true)
+    if (!dispatch.ok) throw new Error('expected ok')
     expect((dispatch.data as { outcome: string }).outcome).toBe('SUCCEEDED')
 
     const cancel = await handleCommand(
       routes,
-      request('worker.cancel', { executionRequestId: 'req_1' })
+      request('execution.cancel', { executionRequestId: 'exec-1' })
     )
     expect(cancel.ok).toBe(true)
     if (!cancel.ok) throw new Error('expected ok')
@@ -202,22 +198,5 @@ describe('CommandRouter (command-core)', () => {
 
     await worker.dispose()
     closeWorkspaceDatabase(p)
-  })
-
-  it('reports worker.dispatch as HostUnavailableError with the unavailable host', async () => {
-    const routes = buildRoutes({ workspace: null, worker: new UnavailableWorkerHost() })
-    const result = await handleCommand(
-      routes,
-      request(
-        'worker.dispatch',
-        workerRequest({
-          baseCommit: 'a'.repeat(40),
-          treeHash: 'b'.repeat(40),
-          workingTreePatchHash: null
-        })
-      )
-    )
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error.name).toBe('HostUnavailableError')
   })
 })

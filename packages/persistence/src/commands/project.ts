@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import type { Persistence } from '../db'
 import { projectTable } from '../schema'
 import type { ProjectRow } from '../schema'
@@ -41,4 +41,12 @@ export function createProject(p: Persistence, input: CreateProjectInput): Projec
 
 export function getProject(p: Persistence, id: string): ProjectRow | undefined {
   return p.drizzle.select().from(projectTable).where(eq(projectTable.id, id)).get()
+}
+
+export function listProjects(p: Persistence): ProjectRow[] {
+  return p.drizzle
+    .select()
+    .from(projectTable)
+    .orderBy(asc(projectTable.createdAt), asc(projectTable.id))
+    .all()
 }

@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { asc, desc, eq } from 'drizzle-orm'
 import type { Persistence } from '../db'
 import { withTransaction } from '../db'
 import { ConcurrencyError, CycleError, NotFoundError, ValidationError } from '../errors'
@@ -8,14 +8,16 @@ import {
   taskDraftTable,
   taskSpecVersionTable,
   taskTargetTable,
-  taskTable
+  taskTable,
+  type VerificationMethod
 } from '../schema'
 import type {
   AcceptanceCriterionRow,
   TaskDependencyRow,
   TaskDraftRow,
   TaskRow,
-  TaskSpecVersionRow
+  TaskSpecVersionRow,
+  TaskTargetRow
 } from '../schema'
 import { taskSpecContentHash } from '../services'
 import type { TaskType } from '@canvas-agent/domain'
@@ -150,7 +152,7 @@ export interface TaskTargetInput {
 
 export interface AcceptanceCriterionInput {
   description: string
-  verificationMethod?: string
+  verificationMethod?: VerificationMethod
   position: number
 }
 
@@ -354,12 +356,39 @@ export function requireTaskSpecVersion(p: Persistence, id: string): TaskSpecVers
   return row
 }
 
+export function listTasks(p: Persistence, projectId: string): TaskRow[] {
+  return p.drizzle
+    .select()
+    .from(taskTable)
+    .where(eq(taskTable.projectId, projectId))
+    .orderBy(asc(taskTable.createdAt), asc(taskTable.id))
+    .all()
+}
+
+export function listTaskSpecVersions(p: Persistence, taskId: string): TaskSpecVersionRow[] {
+  return p.drizzle
+    .select()
+    .from(taskSpecVersionTable)
+    .where(eq(taskSpecVersionTable.taskId, taskId))
+    .orderBy(asc(taskSpecVersionTable.sequence))
+    .all()
+}
+
+export function listTaskTargets(p: Persistence, taskSpecVersionId: string): TaskTargetRow[] {
+  return p.drizzle
+    .select()
+    .from(taskTargetTable)
+    .where(eq(taskTargetTable.taskSpecVersionId, taskSpecVersionId))
+    .orderBy(asc(taskTargetTable.position), asc(taskTargetTable.id))
+    .all()
+}
+
 export function listCriteria(p: Persistence, taskSpecVersionId: string): AcceptanceCriterionRow[] {
   return p.drizzle
     .select()
     .from(acceptanceCriterionTable)
     .where(eq(acceptanceCriterionTable.taskSpecVersionId, taskSpecVersionId))
-    .orderBy(acceptanceCriterionTable.position)
+    .orderBy(asc(acceptanceCriterionTable.position), asc(acceptanceCriterionTable.id))
     .all()
 }
 
