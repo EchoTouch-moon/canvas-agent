@@ -1,22 +1,26 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
   FileCheck2,
+  FolderOpen,
   Layers3,
   Loader2,
   LockKeyhole,
   Play,
+  Plus,
   RefreshCw,
+  Search,
   ShieldCheck,
   TestTube2,
   XCircle
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { RunOutcomeBadge } from '@/components/domain'
 import { buildContextCandidates, type ContextCandidate } from '@/lib/context-candidates'
 import { useWorkspace, type UseWorkspaceResult } from '@/hooks/use-workspace'
-import type { DispatchResult, FrozenSnapshotView } from '@/lib/workspace-types'
+import type { DispatchResult, FrozenSnapshotView, ResolvedContextItem } from '@/lib/workspace-types'
 
 interface RunState {
   readonly executionRequestId: string
@@ -202,18 +206,124 @@ function ComposerSection({
   )
 }
 
+function RepositorySection({
+  input,
+  busy,
+  preview,
+  selectedPaths,
+  onInputChange,
+  onResolve,
+  onAdd,
+  onRemove
+}: {
+  readonly input: string
+  readonly busy: boolean
+  readonly preview: ResolvedContextItem | null
+  readonly selectedPaths: readonly string[]
+  readonly onInputChange: (value: string) => void
+  readonly onResolve: () => void
+  readonly onAdd: (path: string) => void
+  readonly onRemove: (path: string) => void
+}): React.JSX.Element {
+  return (
+    <Section
+      eyebrow="context.resolve · pinned baseCommit only"
+      title="Repository content"
+      action={<Badge tone="accent">{selectedPaths.length} selected</Badge>}
+    >
+      <div className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Search
+            className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <Input
+            aria-label="Repository file path"
+            placeholder="e.g. src/foo.ts"
+            value={input}
+            onChange={(event) => onInputChange(event.target.value)}
+            className="h-7 pl-7 text-[11px]"
+          />
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy || input.trim().length === 0}
+          onClick={onResolve}
+        >
+          {busy ? (
+            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+          ) : (
+            <FolderOpen className="size-3.5" aria-hidden="true" />
+          )}
+          Resolve
+        </Button>
+      </div>
+
+      {preview ? (
+        <div className="mt-3 rounded-[var(--radius-control)] border border-border bg-muted/50 p-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="truncate font-mono text-[10px] font-semibold">{preview.sourceRef}</p>
+            <Badge tone="neutral">{preview.tokenEstimate} tokens</Badge>
+          </div>
+          <pre className="mt-1.5 max-h-28 overflow-auto whitespace-pre-wrap break-all text-[10px] leading-4 text-muted-foreground">
+            {preview.resolvedContent}
+          </pre>
+          <div className="mt-2 flex justify-end">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={selectedPaths.includes(preview.sourceRef.replace('repo://', ''))}
+              onClick={() => onAdd(preview.sourceRef.replace('repo://', ''))}
+            >
+              <Plus className="size-3.5" aria-hidden="true" />
+              Add to context
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedPaths.length > 0 ? (
+        <div className="mt-3 space-y-1.5">
+          {selectedPaths.map((path) => (
+            <div
+              key={path}
+              className="flex items-center justify-between gap-2 rounded-[var(--radius-control)] bg-muted/60 px-2.5 py-2 text-[10px]"
+            >
+              <span className="min-w-0 flex-1 truncate font-mono">{path}</span>
+              <button
+                type="button"
+                className="rounded p-0.5 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                aria-label={`Remove ${path}`}
+                onClick={() => onRemove(path)}
+              >
+                <XCircle className="size-3.5" aria-hidden="true" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </Section>
+  )
+}
+
 function FreezeSection({
   workspace,
   selectedIds,
+  selectedRepoPaths,
   frozen,
   onFreeze
 }: {
   readonly workspace: UseWorkspaceResult
   readonly selectedIds: readonly string[]
+  readonly selectedRepoPaths: readonly string[]
   readonly frozen: FrozenSnapshotView | null
   readonly onFreeze: () => void
 }): React.JSX.Element {
-  const canFreeze = workspace.workspace !== null && selectedIds.length > 0 && frozen === null
+  const canFreeze =
+    workspace.workspace !== null &&
+    (selectedIds.length > 0 || selectedRepoPaths.length > 0) &&
+    frozen === null
   return (
     <Section
       eyebrow="snapshot.freeze · real freeze"
@@ -336,6 +446,10 @@ export function LiveWorkspaceView(): React.JSX.Element {
   const view = workspace.workspace
   const candidates = useMemo(() => (view ? buildContextCandidates(view) : []), [view])
   const [selectedIds, setSelectedIds] = useState<readonly string[]>([])
+  const [repoPathInput, setRepoPathInput] = useState('')
+  const [repoPreview, setRepoPreview] = useState<ResolvedContextItem | null>(null)
+  const [selectedRepoPaths, setSelectedRepoPaths] = useState<readonly string[]>([])
+  const [repoBusy, setRepoBusy] = useState(false)
   const [frozen, setFrozen] = useState<FrozenSnapshotView | null>(null)
   const [run, setRun] = useState<RunState | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -344,6 +458,42 @@ export function LiveWorkspaceView(): React.JSX.Element {
     setSelectedIds((current) =>
       current.includes(id) ? current.filter((candidateId) => candidateId !== id) : [...current, id]
     )
+  }, [])
+
+  const handleResolveRepo = useCallback(async (): Promise<void> => {
+    setActionError(null)
+    const path = repoPathInput.trim()
+    if (path.length === 0 || view === null) return
+    const spec = view.taskSpecs[0]
+    const baseBaseline = view.activeBaseline ?? view.baselines[0]?.baseline ?? null
+    if (!spec || baseBaseline === null) {
+      setActionError('No task spec / baseline available to resolve against.')
+      return
+    }
+    setRepoBusy(true)
+    try {
+      const result = await workspace.resolveContext({
+        projectId: view.project.id,
+        taskId: spec.spec.taskId,
+        taskSpecVersionId: spec.spec.id,
+        baseBaselineId: baseBaseline.id,
+        selections: [{ kind: 'REPOSITORY_CONTENT', path }]
+      })
+      setRepoPreview(result.items[0] ?? null)
+    } catch (error) {
+      setRepoPreview(null)
+      setActionError(error instanceof Error ? error.message : 'Resolve failed')
+    } finally {
+      setRepoBusy(false)
+    }
+  }, [view, repoPathInput, workspace])
+
+  const addRepoSelection = useCallback((path: string): void => {
+    setSelectedRepoPaths((current) => (current.includes(path) ? current : [...current, path]))
+  }, [])
+
+  const removeRepoSelection = useCallback((path: string): void => {
+    setSelectedRepoPaths((current) => current.filter((item) => item !== path))
   }, [])
 
   const handleFreeze = useCallback(async (): Promise<void> => {
@@ -359,13 +509,19 @@ export function LiveWorkspaceView(): React.JSX.Element {
       setActionError('No baseline available to freeze against.')
       return
     }
-    const selections = candidates.flatMap((candidate) =>
-      !candidate.required &&
-      selectedIds.includes(candidate.id) &&
-      candidate.source.kind === 'NODE_VERSION'
-        ? [{ source: candidate.source, selectionReason: null }]
-        : []
-    )
+    const selections = [
+      ...candidates.flatMap((candidate) =>
+        !candidate.required &&
+        selectedIds.includes(candidate.id) &&
+        candidate.source.kind === 'NODE_VERSION'
+          ? [{ source: candidate.source, selectionReason: null }]
+          : []
+      ),
+      ...selectedRepoPaths.map((path) => ({
+        source: { kind: 'REPOSITORY_CONTENT' as const, path },
+        selectionReason: null
+      }))
+    ]
     try {
       const frozenSnapshot = await workspace.freeze({
         projectId: view.project.id,
@@ -378,7 +534,7 @@ export function LiveWorkspaceView(): React.JSX.Element {
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Freeze failed')
     }
-  }, [view, candidates, selectedIds, workspace])
+  }, [view, candidates, selectedIds, selectedRepoPaths, workspace])
 
   const handleDispatch = useCallback(async (): Promise<void> => {
     setActionError(null)
@@ -425,15 +581,28 @@ export function LiveWorkspaceView(): React.JSX.Element {
       <HydrationSection workspace={workspace} />
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <ComposerSection
-          candidates={candidates}
-          selectedIds={selectedIds}
-          onToggle={toggleCandidate}
-        />
+        <div className="space-y-4">
+          <ComposerSection
+            candidates={candidates}
+            selectedIds={selectedIds}
+            onToggle={toggleCandidate}
+          />
+          <RepositorySection
+            input={repoPathInput}
+            busy={repoBusy}
+            preview={repoPreview}
+            selectedPaths={selectedRepoPaths}
+            onInputChange={setRepoPathInput}
+            onResolve={() => void handleResolveRepo()}
+            onAdd={addRepoSelection}
+            onRemove={removeRepoSelection}
+          />
+        </div>
         <div className="space-y-4">
           <FreezeSection
             workspace={workspace}
             selectedIds={selectedIds}
+            selectedRepoPaths={selectedRepoPaths}
             frozen={frozen}
             onFreeze={() => void handleFreeze()}
           />

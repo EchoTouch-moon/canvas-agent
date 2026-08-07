@@ -76,9 +76,17 @@ async function main() {
     step('composer real candidates', true)
 
     await page.locator('input[type="checkbox"]:enabled').first().check()
+
+    // RepositoryContent: resolve a pinned file and add it to the context.
+    await page.getByLabel('Repository file path').fill('README.md')
+    await page.getByRole('button', { name: 'Resolve' }).click()
+    await page.getByText('repo://README.md').waitFor({ timeout: 10000 })
+    await page.getByRole('button', { name: 'Add to context' }).click()
+    step('repository content resolve -> add selection', true)
+
     await page.getByRole('button', { name: 'Freeze snapshot' }).click()
     await page.getByText('FROZEN', { exact: true }).waitFor({ timeout: 10000 })
-    step('real snapshot freeze', true)
+    step('real snapshot freeze (node version + repo content)', true)
 
     await page.getByRole('button', { name: 'Dispatch execution' }).click()
 
