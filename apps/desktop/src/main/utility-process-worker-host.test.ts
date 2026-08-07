@@ -4,7 +4,32 @@ import { HostUnavailableError } from './command-errors'
 import { UtilityProcessWorkerHost, type UtilityProcessLike } from './utility-process-worker-host'
 
 function request(id: string): ExecutionRequestContract {
-  return { executionRequestId: id } as ExecutionRequestContract
+  return {
+    executionRequestId: id,
+    runId: 'run-1',
+    workerAttemptNumber: 1,
+    taskSpecVersionId: 'spec-1',
+    contextSnapshotId: 'snap-1',
+    expectedRepositoryRevision: {
+      baseCommit: 'b'.repeat(40),
+      treeHash: 'c'.repeat(40),
+      workingTreePatchHash: null
+    },
+    checkpointId: null,
+    requiredCapabilities: ['git', 'node'],
+    agentConfiguration: { provider: 'fixture', model: 'deterministic' },
+    toolPolicy: {
+      allowedTools: ['write_file', 'run_command'],
+      deniedPaths: [],
+      allowNetwork: false,
+      allowShell: true
+    },
+    workspaceStrategy: 'ISOLATED_WORKTREE',
+    resourceBudget: { maxDurationMs: 30_000, maxToolCalls: 20, maxDiskBytes: 1_000_000_000 },
+    schemaVersion: 1,
+    requestHash: 'a'.repeat(64),
+    expiresAt: '2099-01-01T00:00:00.000Z'
+  }
 }
 
 class FakeChild implements UtilityProcessLike {
@@ -202,5 +227,127 @@ describe('UtilityProcessWorkerHost', () => {
     await flush()
     await host2.dispose()
     expect(child2.killed).toBe(true)
+  })
+
+  it('rejects only the correlated RPC on a worker error frame', async () => {
+    const child = new FakeChild()
+    const host = new UtilityProcessWorkerHost(CONFIG, () => child, { initTimeoutMs: 1000 })
+
+    const execA = host.dispatch(request('exec-a'))
+    const execB = host.dispatch(request('exec-b'))
+    child.emitMessage({ protocolVersion: 1, type: 'init:ack' })
+    await flush()
+
+    const frames = (
+      child.posted as Array<{ type: string; messageId: string; executionRequestId: string }>
+    ).filter((frame) => frame.type === 'dispatch')
+
+    child.emitMessage({
+      protocolVersion: 1,
+      type: 'error',
+      messageId: frames[0].messageId,
+      executionRequestId: 'exec-a',
+      code: 'SERVICE_FAILURE',
+      message: 'boom'
+    })
+    await expect(execA).rejects.toThrow()
+
+    child.emitMessage({
+      protocolVersion: 1,
+      type: 'dispatch:result',
+      messageId: frames[1].messageId,
+      executionRequestId: 'exec-b',
+      result: { outcome: 'SUCCEEDED', claimGranted: true }
+    })
+    await expect(execB).resolves.toMatchObject({ outcome: 'SUCCEEDED' })
+  })
+
+  it('recovers from an init timeout by restarting on the next dispatch', async () => {
+    const first = new FakeChild()
+    const second = new FakeChild()
+    let forks = 0
+    const host = new UtilityProcessWorkerHost(
+      CONFIG,
+      () => {
+        forks += 1
+        return forks === 1 ? first : second
+      },
+      { initTimeoutMs: 50, disposeTimeoutMs: 50 }
+    )
+
+    const firstDispatch = host.dispatch(request('exec-1'))
+    await expect(firstDispatch).rejects.toThrow(HostUnavailableError)
+    expect(first.killed).toBe(true)
+
+    const next = host.dispatch(request('exec-2'))
+    expect(forks).toBe(2)
+    second.emitMessage({ protocolVersion: 1, type: 'init:ack' })
+    await flush()
+    const frame = postedType(second, 'dispatch') as { messageId: string }
+    second.emitMessage({
+      protocolVersion: 1,
+      type: 'dispatch:result',
+      messageId: frame.messageId,
+      executionRequestId: 'exec-2',
+      result: { outcome: 'SUCCEEDED', claimGranted: true }
+    })
+    await expect(next).resolves.toMatchObject({ outcome: 'SUCCEEDED' })
+  })
+
+  it('ignores a late exit from a stale child generation', async () => {
+    const first = new FakeChild()
+    const second = new FakeChild()
+    let forks = 0
+    const host = new UtilityProcessWorkerHost(
+      CONFIG,
+      () => {
+        forks += 1
+        return forks === 1 ? first : second
+      },
+      { initTimeoutMs: 1000, disposeTimeoutMs: 1000 }
+    )
+
+    const firstDispatch = host.dispatch(request('exec-1'))
+    first.emitMessage({ protocolVersion: 1, type: 'init:ack' })
+    await flush()
+    first.emitExit(1)
+    await expect(firstDispatch).rejects.toThrow(HostUnavailableError)
+
+    const next = host.dispatch(request('exec-2'))
+    expect(forks).toBe(2)
+    second.emitMessage({ protocolVersion: 1, type: 'init:ack' })
+    await flush()
+
+    first.emitExit(1)
+
+    const frame = postedType(second, 'dispatch') as { messageId: string }
+    second.emitMessage({
+      protocolVersion: 1,
+      type: 'dispatch:result',
+      messageId: frame.messageId,
+      executionRequestId: 'exec-2',
+      result: { outcome: 'SUCCEEDED', claimGranted: true }
+    })
+    await expect(next).resolves.toMatchObject({ outcome: 'SUCCEEDED' })
+  })
+
+  it('rejects a dispatch while the host is disposing', async () => {
+    const child = new FakeChild()
+    const host = new UtilityProcessWorkerHost(CONFIG, () => child, {
+      initTimeoutMs: 1000,
+      disposeTimeoutMs: 1000
+    })
+
+    void host.dispatch(request('exec-1'))
+    child.emitMessage({ protocolVersion: 1, type: 'init:ack' })
+    await flush()
+
+    const dispose = host.dispose()
+    await expect(host.dispatch(request('exec-2'))).rejects.toThrow(HostUnavailableError)
+
+    child.emitMessage({ protocolVersion: 1, type: 'dispose:ack' })
+    await dispose
+    expect(child.killed).toBe(true)
+    await expect(host.dispatch(request('exec-3'))).rejects.toThrow(HostUnavailableError)
   })
 })

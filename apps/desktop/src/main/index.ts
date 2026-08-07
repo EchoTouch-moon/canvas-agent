@@ -138,11 +138,22 @@ app.whenReady().then(async () => {
       })
   }
 
-  app.on('before-quit', () => {
-    void workerHost.dispose()
-    if (persistence !== null) {
-      closeWorkspaceDatabase(persistence)
-    }
+  let shuttingDown = false
+  app.on('before-quit', (event) => {
+    if (shuttingDown) return
+    event.preventDefault()
+    shuttingDown = true
+    void (async () => {
+      try {
+        await workerHost.dispose()
+      } catch (error) {
+        console.error('[workspace] worker dispose failed', error)
+      }
+      if (persistence !== null) {
+        closeWorkspaceDatabase(persistence)
+      }
+      app.quit()
+    })()
   })
 
   createWindow()

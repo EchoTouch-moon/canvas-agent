@@ -108,6 +108,28 @@ describe('worker host protocol', () => {
         message: 'boom'
       })
     ).not.toThrow()
+    expect(() =>
+      workerHostResponseSchema.parse({
+        protocolVersion: 1,
+        type: 'error',
+        messageId: null,
+        executionRequestId: null,
+        code: 'INVALID_FRAME',
+        message: 'unattributable'
+      })
+    ).not.toThrow()
+  })
+
+  it('rejects a dispatch frame whose executionRequestId disagrees with the request', () => {
+    expect(() =>
+      workerHostRequestSchema.parse({
+        protocolVersion: 1,
+        type: 'dispatch',
+        messageId: 'msg-1',
+        executionRequestId: 'exec-A',
+        request: { ...requestPayload(), executionRequestId: 'exec-B' }
+      })
+    ).toThrow()
   })
 
   it('keeps messageId and executionRequestId distinct identities', () => {
@@ -116,7 +138,7 @@ describe('worker host protocol', () => {
       type: 'dispatch',
       messageId: 'msg-101',
       executionRequestId: 'exec-7',
-      request: requestPayload()
+      request: { ...requestPayload(), executionRequestId: 'exec-7' }
     }) as Extract<WorkerHostRequest, { type: 'dispatch' }>
     const cancel = workerHostRequestSchema.parse({
       protocolVersion: 1,

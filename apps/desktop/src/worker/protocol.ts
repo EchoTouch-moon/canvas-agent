@@ -22,7 +22,10 @@ export const workerHostRequestSchema = z.discriminatedUnion('type', [
       executionRequestId: executionIdSchema,
       request: executionRequestSchema
     })
-    .strict(),
+    .strict()
+    .refine((frame) => frame.executionRequestId === frame.request.executionRequestId, {
+      message: 'frame executionRequestId must match the request executionRequestId'
+    }),
   z
     .object({
       protocolVersion: protocolVersionSchema,
@@ -69,7 +72,7 @@ export const workerHostResponseSchema = z.discriminatedUnion('type', [
     .object({
       protocolVersion: protocolVersionSchema,
       type: z.literal('error'),
-      messageId: messageIdSchema,
+      messageId: messageIdSchema.nullable(),
       executionRequestId: executionIdSchema.nullable(),
       code: z.enum(['NOT_INITIALIZED', 'INVALID_FRAME', 'SERVICE_FAILURE']),
       message: z.string()

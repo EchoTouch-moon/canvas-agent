@@ -1,7 +1,11 @@
 import { utilityProcess } from 'electron'
 import { join } from 'node:path'
 import type { DispatchResult, ExecutionRequestContract } from '@canvas-agent/contracts'
-import { workerHostResponseSchema, type WorkerHostResponse } from '../worker/protocol'
+import {
+  workerHostRequestSchema,
+  workerHostResponseSchema,
+  type WorkerHostResponse
+} from '../worker/protocol'
 import type { AppConfig } from './config'
 import { HostUnavailableError } from './command-errors'
 import type { WorkerHost } from './worker-host'
@@ -19,12 +23,13 @@ function defaultProcessFactory(entry: string): UtilityProcessLike {
   return utilityProcess.fork(entry, [], { serviceName: 'canvas-agent-worker' })
 }
 
-type HostState = 'STOPPED' | 'STARTING' | 'READY' | 'DISPOSING'
+type HostState = 'STOPPED' | 'STARTING' | 'READY' | 'DISPOSING' | 'DISPOSED'
 
 type PendingKind = 'dispatch' | 'cancel'
 
 interface PendingRequest {
   kind: PendingKind
+  executionRequestId: string
   resolve: (value: unknown) => void
   reject: (error: Error) => void
 }
@@ -70,7 +75,7 @@ export class UtilityProcessWorkerHost implements WorkerHost {
     }
     this.submittedExecutionIds.add(request.executionRequestId)
     const messageId = this.nextMessageId()
-    return this.request(messageId, 'dispatch', {
+    return this.request(messageId, 'dispatch', request.executionRequestId, {
       protocolVersion: 1,
       type: 'dispatch',
       messageId,
@@ -82,7 +87,7 @@ export class UtilityProcessWorkerHost implements WorkerHost {
   async cancel(executionRequestId: string): Promise<boolean> {
     await this.ensureStarted()
     const messageId = this.nextMessageId()
-    const result = (await this.request(messageId, 'cancel', {
+    const result = (await this.request(messageId, 'cancel', executionRequestId, {
       protocolVersion: 1,
       type: 'cancel',
       messageId,
@@ -92,20 +97,24 @@ export class UtilityProcessWorkerHost implements WorkerHost {
   }
 
   async dispose(): Promise<void> {
+    if (this.state === 'DISPOSED') {
+      return
+    }
     if (this.state === 'STOPPED') {
+      this.state = 'DISPOSED'
       return
     }
     if (this.state === 'STARTING') {
       await this.ensureStarted()
     }
-    if (this.state === 'DISPOSING') {
+    if (this.state !== 'READY') {
       return
     }
 
     this.state = 'DISPOSING'
     const child = this.child
     if (!child) {
-      this.state = 'STOPPED'
+      this.state = 'DISPOSED'
       return
     }
     await new Promise<void>((resolve) => {
@@ -120,13 +129,16 @@ export class UtilityProcessWorkerHost implements WorkerHost {
     }
     child.kill()
     this.child = null
-    this.state = 'STOPPED'
+    this.state = 'DISPOSED'
     this.startPromise = null
   }
 
   private ensureStarted(): Promise<void> {
     if (this.state === 'READY') {
       return Promise.resolve()
+    }
+    if (this.state === 'DISPOSING' || this.state === 'DISPOSED') {
+      return Promise.reject(new HostUnavailableError('worker host is shutting down or disposed'))
     }
     if (this.state === 'STARTING' && this.startPromise !== null) {
       return this.startPromise
@@ -139,23 +151,33 @@ export class UtilityProcessWorkerHost implements WorkerHost {
   private async start(): Promise<void> {
     const child = this.processFactory(join(__dirname, 'worker.js'))
     this.child = child
-    child.on('message', (message) => this.handleMessage(message))
-    child.on('exit', (code) => this.handleExit(code))
-
-    await new Promise<void>((resolve, reject) => {
-      this.initResolve = resolve
-      this.initReject = reject
-      child.postMessage({
-        protocolVersion: 1,
-        type: 'init',
-        sourceRepositoryPath: this.appConfig.sourceRepositoryPath,
-        runtimeDirectory: this.appConfig.runtimeDirectory
-      })
-      this.initTimer = setTimeout(() => {
-        this.initReject = null
-        reject(new HostUnavailableError('worker init timed out'))
-      }, this.initTimeoutMs)
+    child.on('message', (message) => {
+      if (this.child !== child) return
+      this.handleMessage(message)
     })
+    child.on('exit', (code) => {
+      if (this.child !== child) return
+      this.handleExit(code)
+    })
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        this.initResolve = resolve
+        this.initReject = reject
+        child.postMessage({
+          protocolVersion: 1,
+          type: 'init',
+          sourceRepositoryPath: this.appConfig.sourceRepositoryPath,
+          runtimeDirectory: this.appConfig.runtimeDirectory
+        })
+        this.initTimer = setTimeout(() => {
+          reject(new HostUnavailableError('worker init timed out'))
+        }, this.initTimeoutMs)
+      })
+    } catch (error) {
+      this.abortStart(child)
+      throw error
+    }
 
     this.state = 'READY'
     this.startPromise = null
@@ -165,6 +187,19 @@ export class UtilityProcessWorkerHost implements WorkerHost {
       clearTimeout(this.initTimer)
       this.initTimer = null
     }
+  }
+
+  private abortStart(child: UtilityProcessLike): void {
+    this.child = null
+    this.state = 'STOPPED'
+    this.startPromise = null
+    this.initResolve = null
+    this.initReject = null
+    if (this.initTimer !== null) {
+      clearTimeout(this.initTimer)
+      this.initTimer = null
+    }
+    child.kill()
   }
 
   private handleMessage(raw: unknown): void {
@@ -188,7 +223,7 @@ export class UtilityProcessWorkerHost implements WorkerHost {
         this.settle(response.messageId, response)
         break
       case 'error':
-        this.rejectAll(new HostUnavailableError(response.message))
+        this.handleError(response)
         break
       case 'dispose:ack':
         if (this.disposeResolve !== null) {
@@ -196,6 +231,18 @@ export class UtilityProcessWorkerHost implements WorkerHost {
         }
         break
     }
+  }
+
+  private handleError(response: Extract<WorkerHostResponse, { type: 'error' }>): void {
+    if (response.messageId !== null) {
+      const pending = this.pending.get(response.messageId)
+      if (pending !== undefined) {
+        this.pending.delete(response.messageId)
+        pending.reject(this.mapErrorCode(response.code))
+      }
+      return
+    }
+    this.rejectAll(new HostUnavailableError('worker host reported an unattributable error'))
   }
 
   private handleExit(code: number): void {
@@ -220,6 +267,12 @@ export class UtilityProcessWorkerHost implements WorkerHost {
       console.error(`[worker-host] unknown messageId ${messageId}`)
       return
     }
+    if (pending.executionRequestId !== response.executionRequestId) {
+      console.error(`[worker-host] executionRequestId mismatch for ${messageId}`)
+      this.pending.delete(messageId)
+      pending.reject(new HostUnavailableError('response executionRequestId mismatch'))
+      return
+    }
     this.pending.delete(messageId)
     if (response.type === 'dispatch:result' && pending.kind === 'dispatch') {
       pending.resolve(response.result)
@@ -230,6 +283,17 @@ export class UtilityProcessWorkerHost implements WorkerHost {
     }
   }
 
+  private mapErrorCode(code: 'NOT_INITIALIZED' | 'INVALID_FRAME' | 'SERVICE_FAILURE'): Error {
+    switch (code) {
+      case 'NOT_INITIALIZED':
+        return new HostUnavailableError('worker is not initialized')
+      case 'INVALID_FRAME':
+        return new Error('worker protocol frame invalid')
+      case 'SERVICE_FAILURE':
+        return new Error('worker service failure')
+    }
+  }
+
   private rejectAll(error: Error): void {
     for (const pending of this.pending.values()) {
       pending.reject(error)
@@ -237,15 +301,26 @@ export class UtilityProcessWorkerHost implements WorkerHost {
     this.pending.clear()
   }
 
-  private request(messageId: string, kind: PendingKind, frame: unknown): Promise<unknown> {
+  private request(
+    messageId: string,
+    kind: PendingKind,
+    executionRequestId: string,
+    frame: unknown
+  ): Promise<unknown> {
     const child = this.child
     if (!child) {
       return Promise.reject(new HostUnavailableError('worker host is not started'))
     }
     return new Promise<unknown>((resolve, reject) => {
-      this.pending.set(messageId, { kind, resolve, reject })
+      this.pending.set(messageId, { kind, executionRequestId, resolve, reject })
+      const parsed = workerHostRequestSchema.safeParse(frame)
+      if (!parsed.success) {
+        this.pending.delete(messageId)
+        reject(new Error('invalid worker host request frame'))
+        return
+      }
       try {
-        child.postMessage(frame)
+        child.postMessage(parsed.data)
       } catch (error) {
         this.pending.delete(messageId)
         reject(error instanceof Error ? error : new Error(String(error)))

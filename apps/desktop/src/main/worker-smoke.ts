@@ -41,5 +41,10 @@ export async function runWorkerSmoke(appConfig: AppConfig, workerHost: WorkerHos
   if (!(result.patch ?? '').includes('docs/phase2.md')) {
     throw new Error('worker smoke patch did not contain the fixture file')
   }
-  console.error('[worker-smoke] PASSED (real patch evidence produced in the Utility Process)')
+  if (result.verificationResults?.[0]?.exitCode !== 0) {
+    throw new Error('worker smoke verification did not exit 0')
+  }
+  console.error(
+    '[worker-smoke] PASSED (real patch/verification evidence produced in the Utility Process)'
+  )
 }

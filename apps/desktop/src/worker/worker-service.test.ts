@@ -213,4 +213,17 @@ describe('WorkerService', () => {
     const ack = await transport.waitFor((response) => response.type === 'dispose:ack')
     expect(ack.type).toBe('dispose:ack')
   })
+
+  it('responds to a fully invalid frame with an unattributable INVALID_FRAME error', async () => {
+    const transport = new CapturingTransport()
+    const service = new WorkerService(transport)
+
+    await service.onRequest({ protocolVersion: 1, type: 'nope' })
+    const error = await transport.waitFor(
+      (response): response is Extract<WorkerHostResponse, { type: 'error' }> =>
+        response.type === 'error'
+    )
+    expect(error.code).toBe('INVALID_FRAME')
+    expect(error.messageId).toBeNull()
+  })
 })

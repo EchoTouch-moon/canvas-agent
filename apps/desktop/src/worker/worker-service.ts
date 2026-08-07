@@ -23,7 +23,7 @@ interface ExecutionEntry {
 type WorkerErrorCode = 'NOT_INITIALIZED' | 'INVALID_FRAME' | 'SERVICE_FAILURE'
 
 function frameError(
-  messageId: string,
+  messageId: string | null,
   executionRequestId: string | null,
   code: WorkerErrorCode,
   message: string
@@ -47,17 +47,7 @@ export class WorkerService {
   async onRequest(raw: unknown): Promise<void> {
     const parsed = workerHostRequestSchema.safeParse(raw)
     if (!parsed.success) {
-      const rawFrame = (typeof raw === 'object' && raw !== null ? raw : {}) as {
-        messageId?: unknown
-      }
-      this.transport.send(
-        frameError(
-          typeof rawFrame.messageId === 'string' ? rawFrame.messageId : '',
-          null,
-          'INVALID_FRAME',
-          'invalid worker host request'
-        )
-      )
+      this.transport.send(frameError(null, null, 'INVALID_FRAME', 'invalid worker host request'))
       return
     }
 
@@ -80,7 +70,7 @@ export class WorkerService {
     } catch (error) {
       this.transport.send(
         frameError(
-          'messageId' in request ? request.messageId : '',
+          'messageId' in request ? request.messageId : null,
           'executionRequestId' in request ? request.executionRequestId : null,
           'SERVICE_FAILURE',
           error instanceof Error ? error.message : String(error)
