@@ -54,3 +54,31 @@ Scope: `apps/desktop/src/renderer/**` only.
    strip for flow-oriented navigation.
 4. Disabled gate buttons must explain why and offer a "go there" link to remove
    bouncing between steps 4 and 5.
+
+## Follow-up release (commit `6682830`): single-action core flow
+
+All four decisions above are implemented and refined:
+
+- **Accept implies apply**: the Artifact screen exposes a single "接受产物"
+  action; accepting applies the patch and records human review in one command.
+- **One explicit completion**: `COMPLETE_TASK` now atomically evaluates all
+  acceptance criteria and records `completionRunId` (RUN-009), removing the
+  standalone `EVALUATE_ACCEPTANCE` command and its redundant intermediate click.
+  The Task screen bottom is a single "完成任务" confirmation card (criteria hint
+  + one button), with a blocking reason + go-link when prerequisites are unmet.
+- **Auto-navigation**: finish run → artifact; accept → task (completion);
+  complete → baseline; activate → done. The flow is a one-way conveyor.
+- **Run auto-advance**: the mock worker advances QUEUED → PREPARING → RUNNING
+  by itself (timeline lights up), so the user only clicks start and finish.
+- **`>` breadcrumb removed**: navigation moved to clickable numbered step pills
+  in the progress rail.
+- **6 stages** (context → start → run → artifact → complete → baseline) across
+  the progress rail, the quick-start guide and all i18n strings.
+
+### Verification
+- `pnpm check` green (exit 0): desktop 8/8 (reducer tests updated: accept implies
+  apply, complete implies evaluation, completion blocked until artifact accepted),
+  domain 5/5, contracts 2/2, persistence 33/33, worker-runtime 16/16.
+- Rebuilt `dist/mac-arm64/Canvas Agent.app` (signed, not notarized) and launched.
+- UI-002 acceptance criterion 5 still holds: the Task stays `WAITING_REVIEW`
+  until the single explicit completion action.
