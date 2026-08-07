@@ -9,7 +9,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "smoke": "tsx scripts/smoke-core-loop.ts"
   },
   "dependencies": {
     "@canvas-agent/contracts": "workspace:*",
@@ -17,7 +18,9 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@canvas-agent/persistence": "workspace:*",
     "@types/node": "^24.10.1",
+    "tsx": "^4.23.7",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   }
