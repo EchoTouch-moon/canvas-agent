@@ -12,6 +12,7 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@canvas-agent/domain": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -1,7 +1,9 @@
 import { z } from 'zod'
+import type { CommandRequest, CommandResponse } from './command'
 
 export const DESKTOP_CHANNELS = {
-  runtimeInfo: 'canvas-agent:runtime-info'
+  runtimeInfo: 'canvas-agent:runtime-info',
+  command: 'canvas-agent:command'
 } as const
 
 export const runtimeInfoSchema = z
@@ -17,4 +19,5 @@ export type RuntimeInfo = z.infer<typeof runtimeInfoSchema>
 
 export interface CanvasAgentDesktopApi {
   getRuntimeInfo(): Promise<RuntimeInfo>
+  command(request: CommandRequest): Promise<CommandResponse>
 }
