@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import { AppShell } from './app-shell'
 import { EmptyState } from './empty-state'
+import { FlowProgress } from './flow-progress'
 import { PageToolbar } from './page-toolbar'
 import {
   BaselineStatusBadge,
@@ -66,6 +67,7 @@ import {
   type CoreFlowCommand
 } from '@/state/core-flow-reducer'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/lib/i18n'
 
 interface FlowScreenProps {
   readonly state: CoreFlowState
@@ -79,49 +81,6 @@ interface SectionProps {
   readonly action?: ReactNode
   readonly className?: string
   readonly children: ReactNode
-}
-
-const routeMeta: Record<FlowRoute, { label: string; title: string; description: string }> = {
-  dashboard: {
-    label: 'Dashboard',
-    title: 'Project dashboard',
-    description: 'Exceptions and next actions for the MUSICDB core flow.'
-  },
-  outline: {
-    label: 'Outline',
-    title: 'Project outline',
-    description: 'Typed nodes make the task intent and constraints inspectable.'
-  },
-  node: {
-    label: 'Nodes',
-    title: 'Node workspace',
-    description: 'Review one versioned node before composing task context.'
-  },
-  task: {
-    label: 'Tasks',
-    title: 'Task workspace',
-    description: 'TaskSpecVersion, acceptance criteria, snapshot and Run evidence stay distinct.'
-  },
-  context: {
-    label: 'Context',
-    title: 'Context composer',
-    description: 'Order selected evidence, resolve conflicts and freeze a read-only snapshot.'
-  },
-  run: {
-    label: 'Runs',
-    title: 'Run result / timeline',
-    description: 'Run status and outcome are visible separately from Task review state.'
-  },
-  artifact: {
-    label: 'Artifacts',
-    title: 'Artifact review',
-    description: 'Apply, accept, reject and request changes are independent review actions.'
-  },
-  baseline: {
-    label: 'Baselines',
-    title: 'Baseline draft review',
-    description: 'A completed Task still requires a separate Baseline activation confirmation.'
-  }
 }
 
 const sidebarRoutes: Readonly<Record<string, FlowRoute>> = {
@@ -153,11 +112,11 @@ const artifactTone: Record<ArtifactReviewStatus, StatusTone> = {
   CHANGES_REQUESTED: 'warning'
 }
 
-const artifactLabel: Record<ArtifactReviewStatus, string> = {
-  READY: 'Ready for review',
-  ACCEPTED: 'Accepted',
-  REJECTED: 'Rejected',
-  CHANGES_REQUESTED: 'Changes requested'
+const artifactLabelKey: Record<ArtifactReviewStatus, string> = {
+  READY: 'ready',
+  ACCEPTED: 'accepted',
+  REJECTED: 'rejected',
+  CHANGES_REQUESTED: 'changesRequested'
 }
 
 const noticeIcon: Record<NoticeTone, LucideIcon> = {
@@ -165,6 +124,125 @@ const noticeIcon: Record<NoticeTone, LucideIcon> = {
   success: CheckCircle2,
   warning: TriangleAlert,
   danger: XCircle
+}
+
+const noticeTitleZh: Record<string, string> = {
+  'Node unavailable': '节点不可用',
+  'Context item unavailable': '上下文项不可用',
+  'Snapshot is read-only': '快照为只读',
+  'Required item is pinned': '必选项已固定',
+  'Snapshot is already frozen': '快照已冻结',
+  'Freeze required before Run': '运行前需要冻结',
+  'Run already started': '运行已开始',
+  'Run transition blocked': '运行流转被阻止',
+  'No mock step available': '没有可用的模拟步骤',
+  'Run is not ready to finish': '运行尚未准备完成',
+  'Task review gate unavailable': '任务审核门槛不可用',
+  'Run evidence required': '需要运行证据',
+  'Apply is separate from accept': '应用与接受相互独立',
+  'Acceptance evaluation is gated': '验收评估被限制',
+  'Task is not awaiting review': '任务不在待审核状态',
+  'Task completion blocked': '任务完成被阻止',
+  'Task transition blocked': '任务流转被阻止',
+  'Task completion required': '需要先完成任务',
+  'Baseline is not activatable': '基线不可激活',
+  'Context item removed': '已移除上下文项',
+  'Context item added': '已添加上下文项',
+  'Snapshot frozen': '快照已冻结',
+  'Run queued': '运行已排队',
+  'Worker preparing': 'Worker 准备中',
+  'Run executing': '运行执行中',
+  'Run succeeded': '运行成功',
+  'Artifact applied': '产物已应用',
+  'Artifact accepted': '产物已接受',
+  'Artifact rejected': '产物已拒绝',
+  'Changes requested': '已请求变更',
+  'Acceptance evaluated': '已评估验收',
+  'Task completed': '任务已完成',
+  'Baseline activated': '基线已激活',
+  'Freeze blocked': '冻结被阻止'
+}
+
+const noticeMessageZh: Record<string, string> = {
+  'That node is not present in the current fixture.': '该节点不在当前 fixture 中。',
+  'Choose an item from the fixture list.': '请从 fixture 列表中选择一项。',
+  'Frozen context cannot be changed. Create a new draft snapshot for another Run.':
+    '冻结的上下文不可更改。请为下一次运行创建新的草稿快照。',
+  'Starting a Run is a separate action.': '启动运行是独立操作。',
+  'Resolve ContextSnapshot blockers and freeze the selected context first.':
+    '请先解决上下文快照的阻止项并冻结所选上下文。',
+  'Continue the existing Run from its timeline.': '请从时间线继续现有运行。',
+  'The mock Run cannot enter the queue from its current state.': '模拟运行无法从当前状态进入队列。',
+  'Start or finish the Run from its current timeline state.': '请从当前时间线状态启动或完成运行。',
+  'Advance the mock Run until it is executing.': '请推进模拟运行，直到其进入执行状态。',
+  'The Task cannot enter review from its current status.': '任务无法从当前状态进入审核。',
+  'Apply is available after a succeeded Run.': '运行成功后才可应用。',
+  'The patch is applied to the mock workspace; it is not accepted yet.':
+    '补丁已应用到模拟工作区，但尚未被接受。',
+  'Apply the reviewed artifact before accepting it.': '在接受前请先应用已审核的产物。',
+  'Task completion remains a separate explicit action.': '任务完成仍是独立的显式操作。',
+  'The Task remains open and the Baseline stays Draft.': '任务保持开启，基线保持草稿状态。',
+  'The Run result remains evidence; a new attempt is required for review.':
+    '运行结果仍是证据；需要新的尝试才能进入审核。',
+  'Accept the Artifact while the Task is Waiting review before evaluating criteria.':
+    '在任务处于待审核状态时接受产物，再评估验收标准。',
+  'All six criteria are recorded as passed; completing the Task is still separate.':
+    '六项标准均已记录为通过；完成任务仍是独立操作。',
+  'A succeeded Run must enter Waiting review first.': '成功的运行必须先进入待审核状态。',
+  'Accept the Artifact and evaluate acceptance before completing the Task.':
+    '完成任务前请先接受产物并评估验收。',
+  'The domain transition does not allow completion here.': '域流转不允许在此处完成。',
+  'Baseline 1.1 remains Draft until its own activation confirmation.':
+    '基线 1.1 在自身激活确认前保持草稿状态。',
+  'Complete the accepted Task before activating a Baseline.': '激活基线前请先完成已被接受的任务。',
+  'Only a Draft Baseline can be activated once.': '只有草稿基线可以被激活一次。',
+  'Baseline 1.1 is now the active project anchor.': '基线 1.1 现在是当前项目锚点。',
+  'Worker preparation is visible in the timeline as a separate step.':
+    'Worker 准备在时间线中作为独立步骤可见。',
+  'The next explicit mock action starts execution.': '下一个显式模拟动作将开始执行。',
+  'RUN-009 is still separate from Task acceptance.': 'RUN-009 仍独立于任务验收。',
+  'Selected context is now read-only. Starting RUN-009 remains a separate action.':
+    '所选上下文现已只读。启动 RUN-009 仍是独立操作。'
+}
+
+function translateNoticeTitle(title: string): string {
+  return noticeTitleZh[title] ?? title
+}
+
+function translateNoticeMessage(title: string, message: string): string {
+  const exact = noticeMessageZh[message]
+  if (exact) return exact
+  if (title === 'Required item is pinned') {
+    const label = message.split(' is required')[0]
+    return `${label} 由 TaskSpecVersion 强制要求，不可移除。`
+  }
+  if (title === 'Context item added') {
+    const label = message.split(' is now selected')[0]
+    return `${label} 已加入快照草稿 04。`
+  }
+  if (title === 'Context item removed') {
+    const label = message.split(' is no longer selected')[0]
+    return `${label} 已从快照草稿 04 移除。`
+  }
+  if (title === 'Freeze blocked') {
+    const rest = message.replace('Snapshot stays Draft. ', '')
+    return `快照保持草稿状态。${rest}`
+  }
+  return message
+}
+
+function translateBlocker(blocker: string): string {
+  const conflict = /^(.+) conflicts with (.+)\.$/.exec(blocker)
+  if (conflict) {
+    return `${conflict[1]} 与 ${conflict[2]} 冲突。`
+  }
+  const overflow = /^Selected context uses (.+?) tokens, over the (.+?) token budget\.$/.exec(
+    blocker
+  )
+  if (overflow) {
+    return `所选上下文使用 ${overflow[1]} 个 Token，超出 ${overflow[2]} 的 Token 预算。`
+  }
+  return blocker
 }
 
 function Section({
@@ -200,6 +278,7 @@ function Section({
 }
 
 function Notice({ notice }: Pick<CoreFlowState, 'notice'>): React.JSX.Element | null {
+  const { locale } = useI18n()
   if (!notice) return null
   const Icon = noticeIcon[notice.tone]
   const toneClass = {
@@ -208,6 +287,9 @@ function Notice({ notice }: Pick<CoreFlowState, 'notice'>): React.JSX.Element | 
     warning: 'border-status-warning/30 bg-status-warning/8 text-status-warning',
     danger: 'border-status-danger/30 bg-status-danger/8 text-status-danger'
   }[notice.tone]
+  const title = locale === 'zh' ? translateNoticeTitle(notice.title) : notice.title
+  const message =
+    locale === 'zh' ? translateNoticeMessage(notice.title, notice.message) : notice.message
 
   return (
     <div
@@ -219,8 +301,8 @@ function Notice({ notice }: Pick<CoreFlowState, 'notice'>): React.JSX.Element | 
     >
       <Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
       <div className="min-w-0">
-        <p className="text-[12px] font-semibold">{notice.title}</p>
-        <p className="mt-0.5 text-[11px] leading-5 text-foreground/75">{notice.message}</p>
+        <p className="text-[12px] font-semibold">{title}</p>
+        <p className="mt-0.5 text-[11px] leading-5 text-foreground/75">{message}</p>
       </div>
     </div>
   )
@@ -247,9 +329,10 @@ function Stat({
 }
 
 function RouteBreadcrumb({ state, dispatch }: FlowScreenProps): React.JSX.Element {
+  const { t } = useI18n()
   return (
     <nav
-      aria-label="Core flow screens"
+      aria-label={t('inspector.details')}
       className="flex min-w-0 items-center gap-1 overflow-x-auto pb-1"
     >
       {routeOrder.map((route, index) => (
@@ -268,7 +351,7 @@ function RouteBreadcrumb({ state, dispatch }: FlowScreenProps): React.JSX.Elemen
             )}
             onClick={() => dispatch({ type: 'NAVIGATE', route })}
           >
-            {routeMeta[route].label}
+            {t(`flow.${route}.label`)}
           </button>
         </div>
       ))}
@@ -277,53 +360,58 @@ function RouteBreadcrumb({ state, dispatch }: FlowScreenProps): React.JSX.Elemen
 }
 
 function FlowInspector({ state }: { readonly state: CoreFlowState }): React.JSX.Element {
+  const { t } = useI18n()
   const selectedTokens = getSelectedContextTokens(state)
   const selectedCount = state.selectedContextItemIds.length
 
   return (
     <div className="space-y-3">
-      <Section title="Formal gates" icon={ShieldCheck} eyebrow="Explicit transitions">
+      <Section
+        title={t('gates.formalGates')}
+        icon={ShieldCheck}
+        eyebrow={t('gates.explicitTransitions')}
+      >
         <div className="space-y-2.5">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] text-muted-foreground">Snapshot</span>
+            <span className="text-[11px] text-muted-foreground">{t('gates.snapshot')}</span>
             <StatusBadge status={state.snapshot.status} />
           </div>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] text-muted-foreground">Run status</span>
+            <span className="text-[11px] text-muted-foreground">{t('gates.runStatus')}</span>
             <RunStatusBadge status={state.run.status} />
           </div>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] text-muted-foreground">Run outcome</span>
+            <span className="text-[11px] text-muted-foreground">{t('gates.runOutcome')}</span>
             {state.run.outcome ? (
               <RunOutcomeBadge outcome={state.run.outcome} />
             ) : (
-              <Badge>Pending</Badge>
+              <Badge>{t('gates.pending')}</Badge>
             )}
           </div>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] text-muted-foreground">Task</span>
+            <span className="text-[11px] text-muted-foreground">{t('gates.task')}</span>
             <TaskStatusBadge status={state.task.status} />
           </div>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] text-muted-foreground">Artifact</span>
+            <span className="text-[11px] text-muted-foreground">{t('gates.artifact')}</span>
             <Badge tone={artifactTone[state.artifact.reviewStatus]}>
-              {artifactLabel[state.artifact.reviewStatus]}
+              {t(`artifactLabel.${artifactLabelKey[state.artifact.reviewStatus]}`)}
             </Badge>
           </div>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] text-muted-foreground">Baseline</span>
+            <span className="text-[11px] text-muted-foreground">{t('gates.baseline')}</span>
             <BaselineStatusBadge status={state.baseline.status} />
           </div>
         </div>
       </Section>
 
-      <Section title="Context snapshot" icon={Layers3}>
+      <Section title={t('gates.contextSnapshot')} icon={Layers3}>
         <div className="grid grid-cols-2 gap-2">
-          <Stat label="Selected" value={`${selectedCount}`} detail="items" />
+          <Stat label={t('gates.selected')} value={`${selectedCount}`} detail={t('gates.items')} />
           <Stat
-            label="Tokens"
+            label={t('gates.tokens')}
             value={selectedTokens.toLocaleString()}
-            detail={`of ${state.snapshot.tokenBudget.toLocaleString()}`}
+            detail={t('gates.ofTokens', { n: state.snapshot.tokenBudget.toLocaleString() })}
           />
         </div>
         <div className="mt-3 flex items-center gap-2">
@@ -334,10 +422,9 @@ function FlowInspector({ state }: { readonly state: CoreFlowState }): React.JSX.
         </div>
       </Section>
 
-      <Section title="Read-only reminder" icon={LockKeyhole}>
+      <Section title={t('gates.readOnlyReminder')} icon={LockKeyhole}>
         <p className="text-[11px] leading-5 text-muted-foreground">
-          Freeze, accept, complete and activate are separate commands. A successful Run never skips
-          a review gate.
+          {t('gates.readOnlyReminderDesc')}
         </p>
       </Section>
     </div>
@@ -345,19 +432,20 @@ function FlowInspector({ state }: { readonly state: CoreFlowState }): React.JSX.
 }
 
 function DashboardScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
+  const { t } = useI18n()
   const passedCriteria = state.task.criteria.filter((criterion) => criterion.passed).length
   const previousRun = state.priorRuns[0]
 
   return (
     <div className="space-y-5">
       <PageToolbar
-        eyebrow="Project dashboard / core flow"
-        title="A clear path through review"
-        description="MUSICDB stays focused on the next exception while preserving each formal gate."
+        eyebrow={t('dashboard.eyebrow')}
+        title={t('dashboard.title')}
+        description={t('dashboard.description')}
         meta={
           <>
-            <Badge tone="accent">Typed fixture</Badge>
-            <Badge tone="neutral">Mock service</Badge>
+            <Badge tone="accent">{t('dashboard.typedFixture')}</Badge>
+            <Badge tone="neutral">{t('dashboard.mockService')}</Badge>
           </>
         }
         actions={
@@ -366,7 +454,7 @@ function DashboardScreen({ state, dispatch }: FlowScreenProps): React.JSX.Elemen
             size="sm"
             onClick={() => dispatch({ type: 'NAVIGATE', route: 'outline' })}
           >
-            Open outline <ArrowRight className="size-3.5" aria-hidden="true" />
+            {t('dashboard.openOutline')} <ArrowRight className="size-3.5" aria-hidden="true" />
           </Button>
         }
       />
@@ -379,27 +467,31 @@ function DashboardScreen({ state, dispatch }: FlowScreenProps): React.JSX.Elemen
           <div className="min-w-[220px] flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-[15px] font-semibold">{state.project.name}</h2>
-              <Badge tone="success">Workspace ready</Badge>
+              <Badge tone="success">{t('dashboard.workspaceReady')}</Badge>
             </div>
             <p className="mt-1 max-w-xl text-[12px] leading-5 text-muted-foreground">
               {state.project.description}
             </p>
           </div>
           <div className="grid min-w-[300px] flex-1 grid-cols-3 gap-4 sm:max-w-[420px]">
-            <Stat label="Task" value={state.task.id} detail={routeMeta.task.label} />
+            <Stat label={t('dashboard.task')} value={state.task.id} detail={t('flow.task.label')} />
             <Stat
-              label="Snapshot"
+              label={t('dashboard.snapshot')}
               value={`${state.selectedContextItemIds.length}`}
-              detail="selected items"
+              detail={t('dashboard.selectedItems')}
             />
-            <Stat label="Baseline" value={state.project.activeBaseline} detail="active anchor" />
+            <Stat
+              label={t('dashboard.baseline')}
+              value={state.project.activeBaseline}
+              detail={t('dashboard.activeAnchor')}
+            />
           </div>
         </div>
       </section>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Section
-          title="Active task"
+          title={t('dashboard.activeTask')}
           icon={FileClock}
           action={<TaskStatusBadge status={state.task.status} />}
         >
@@ -411,14 +503,17 @@ function DashboardScreen({ state, dispatch }: FlowScreenProps): React.JSX.Elemen
               </p>
             </div>
             <Button size="sm" onClick={() => dispatch({ type: 'NAVIGATE', route: 'task' })}>
-              Open task <ArrowRight className="size-3.5" aria-hidden="true" />
+              {t('dashboard.openTask')} <ArrowRight className="size-3.5" aria-hidden="true" />
             </Button>
           </div>
           <div className="mt-4 flex items-center gap-3 border-t border-border pt-3">
             <div
               className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
               role="progressbar"
-              aria-label={`${passedCriteria} of ${state.task.criteria.length} criteria passed`}
+              aria-label={t('dashboard.criteriaPassed', {
+                a: passedCriteria,
+                b: state.task.criteria.length
+              })}
               aria-valuemin={0}
               aria-valuemax={state.task.criteria.length}
               aria-valuenow={passedCriteria}
@@ -429,19 +524,19 @@ function DashboardScreen({ state, dispatch }: FlowScreenProps): React.JSX.Elemen
               />
             </div>
             <span className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground">
-              {passedCriteria}/{state.task.criteria.length} criteria
+              {t('dashboard.criteriaCount', { a: passedCriteria, b: state.task.criteria.length })}
             </span>
           </div>
         </Section>
 
         <Section
-          title="Latest exception"
+          title={t('dashboard.latestException')}
           icon={TriangleAlert}
           action={
             previousRun ? (
               <RunOutcomeBadge outcome={previousRun.outcome ?? 'PARTIAL'} />
             ) : (
-              <Badge>None</Badge>
+              <Badge>{t('dashboard.none')}</Badge>
             )
           }
         >
@@ -453,8 +548,7 @@ function DashboardScreen({ state, dispatch }: FlowScreenProps): React.JSX.Elemen
               <div className="min-w-0 flex-1">
                 <p className="font-mono text-[12px] font-medium">{previousRun.id}</p>
                 <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                  Previous evidence is partial. Review the failed compatibility test after producing
-                  a new result.
+                  {t('dashboard.previousEvidence')}
                 </p>
               </div>
               <Button
@@ -462,28 +556,29 @@ function DashboardScreen({ state, dispatch }: FlowScreenProps): React.JSX.Elemen
                 size="sm"
                 onClick={() => dispatch({ type: 'NAVIGATE', route: 'run' })}
               >
-                Review run
+                {t('dashboard.reviewRun')}
               </Button>
             </div>
           ) : (
             <EmptyState
-              title="No previous exception"
-              description="The fixture has no earlier Run evidence."
+              title={t('dashboard.noPreviousException')}
+              description={t('dashboard.noPreviousExceptionDesc')}
               compact
             />
           )}
         </Section>
       </div>
 
-      <Section title="Next suggested action" icon={Sparkles} eyebrow="No hidden automation">
+      <Section
+        title={t('dashboard.nextAction')}
+        icon={Sparkles}
+        eyebrow={t('dashboard.noHiddenAutomation')}
+      >
         <div className="flex flex-wrap items-start gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-[12px] font-medium">
-              Inspect the task, then compose a snapshot deliberately.
-            </p>
+            <p className="text-[12px] font-medium">{t('dashboard.inspectTask')}</p>
             <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-              Each screen exposes the next command without silently freezing context, accepting
-              evidence or changing the Baseline.
+              {t('dashboard.noSilentChain')}
             </p>
           </div>
           <Button
@@ -491,7 +586,7 @@ function DashboardScreen({ state, dispatch }: FlowScreenProps): React.JSX.Elemen
             size="sm"
             onClick={() => dispatch({ type: 'NAVIGATE', route: 'task' })}
           >
-            Continue task flow
+            {t('dashboard.continueTaskFlow')}
           </Button>
         </div>
       </Section>
@@ -536,23 +631,28 @@ function NodeRow({
 }
 
 function OutlineScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
+  const { t } = useI18n()
   const selectedNode =
     state.nodes.find((node) => node.id === state.selectedNodeId) ?? state.nodes[0]
 
   return (
     <div className="space-y-5">
       <PageToolbar
-        eyebrow="Project outline / typed graph"
-        title="Project outline"
-        description="Start from project meaning, then inspect the representative node that anchors TASK-011."
+        eyebrow={t('outline.eyebrow')}
+        title={t('outline.title')}
+        description={t('outline.description')}
         actions={
           <Button onClick={() => dispatch({ type: 'NAVIGATE', route: 'node' })}>
-            Open node workspace <ArrowRight className="size-3.5" aria-hidden="true" />
+            {t('outline.openNodeWorkspace')} <ArrowRight className="size-3.5" aria-hidden="true" />
           </Button>
         }
       />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
-        <Section title="MUSICDB node outline" icon={GitBranch} eyebrow="4 active versions">
+        <Section
+          title={t('outline.nodeOutline')}
+          icon={GitBranch}
+          eyebrow={t('outline.activeVersions')}
+        >
           <div className="space-y-2">
             {state.nodes.map((node) => (
               <NodeRow
@@ -565,7 +665,7 @@ function OutlineScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
           </div>
         </Section>
         <Section
-          title="Selected node"
+          title={t('outline.selectedNode')}
           icon={CircleDot}
           action={<NodeTypeBadge type={selectedNode.type} />}
         >
@@ -576,15 +676,15 @@ function OutlineScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
                 {selectedNode.summary}
               </p>
             </div>
-            <Badge tone="success">{selectedNode.lifecycle}</Badge>
+            <Badge tone="success">{t(`status.${selectedNode.lifecycle}`)}</Badge>
           </div>
           <Separator className="my-3" />
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
-            <dt className="text-muted-foreground">Node ID</dt>
+            <dt className="text-muted-foreground">{t('outline.nodeId')}</dt>
             <dd className="truncate text-right font-mono">{selectedNode.id}</dd>
-            <dt className="text-muted-foreground">Current version</dt>
+            <dt className="text-muted-foreground">{t('outline.currentVersion')}</dt>
             <dd className="text-right font-medium">{selectedNode.version}</dd>
-            <dt className="text-muted-foreground">Linked records</dt>
+            <dt className="text-muted-foreground">{t('outline.linkedRecords')}</dt>
             <dd className="text-right font-medium tabular-nums">{selectedNode.links.length}</dd>
           </dl>
           <div className="mt-4 flex flex-wrap gap-1.5">
@@ -600,10 +700,10 @@ function OutlineScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
               size="sm"
               onClick={() => dispatch({ type: 'NAVIGATE', route: 'task' })}
             >
-              View linked task
+              {t('outline.viewLinkedTask')}
             </Button>
             <Button size="sm" onClick={() => dispatch({ type: 'NAVIGATE', route: 'context' })}>
-              Compose context
+              {t('outline.composeContext')}
             </Button>
           </div>
         </Section>
@@ -613,6 +713,7 @@ function OutlineScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
 }
 
 function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
+  const { t } = useI18n()
   const passedCriteria = state.task.criteria.filter((criterion) => criterion.passed).length
   const canComplete =
     state.task.status === 'WAITING_REVIEW' &&
@@ -622,9 +723,9 @@ function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
   return (
     <div className="space-y-5">
       <PageToolbar
-        eyebrow="Task workspace / immutable TaskSpecVersion"
+        eyebrow={t('task.eyebrow')}
         title={state.task.title}
-        description="The Task objective, non-goals, targets, criteria, Snapshot and Runs remain separate records."
+        description={t('task.description')}
         meta={
           <>
             <TaskStatusBadge status={state.task.status} />
@@ -637,18 +738,18 @@ function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
             size="sm"
             onClick={() => dispatch({ type: 'NAVIGATE', route: 'context' })}
           >
-            Open context composer <ArrowRight className="size-3.5" aria-hidden="true" />
+            {t('task.openContextComposer')} <ArrowRight className="size-3.5" aria-hidden="true" />
           </Button>
         }
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-        <Section title="TaskSpecVersion" icon={ClipboardCheck} eyebrow={state.task.id}>
-          <p className="text-[13px] font-semibold">Objective</p>
+        <Section title={t('task.taskSpec')} icon={ClipboardCheck} eyebrow={state.task.id}>
+          <p className="text-[13px] font-semibold">{t('task.objective')}</p>
           <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{state.task.objective}</p>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <div>
-              <h3 className="text-[11px] font-semibold">Non-goals</h3>
+              <h3 className="text-[11px] font-semibold">{t('task.nonGoals')}</h3>
               <ul className="mt-2 space-y-1.5 text-[11px] text-muted-foreground">
                 {state.task.nonGoals.map((item) => (
                   <li key={item} className="flex gap-2">
@@ -662,7 +763,7 @@ function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
               </ul>
             </div>
             <div>
-              <h3 className="text-[11px] font-semibold">Targets</h3>
+              <h3 className="text-[11px] font-semibold">{t('task.targets')}</h3>
               <ul className="mt-2 space-y-1.5 text-[11px] text-muted-foreground">
                 {state.task.targets.map((item) => (
                   <li key={item} className="flex gap-2">
@@ -679,11 +780,11 @@ function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
         </Section>
 
         <Section
-          title="Acceptance criteria"
+          title={t('task.acceptanceCriteria')}
           icon={ClipboardCheck}
           action={
             <Badge tone={passedCriteria === state.task.criteria.length ? 'success' : 'warning'}>
-              {passedCriteria}/{state.task.criteria.length}
+              {t('dashboard.criteriaCount', { a: passedCriteria, b: state.task.criteria.length })}
             </Badge>
           }
         >
@@ -713,15 +814,14 @@ function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
             ))}
           </ol>
           <p className="mt-3 border-t border-border pt-3 text-[10px] leading-4 text-muted-foreground">
-            Criteria are evaluated explicitly after Artifact acceptance. Passing a Run does not
-            complete this Task.
+            {t('task.criteriaNote')}
           </p>
         </Section>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Section
-          title="Current Snapshot"
+          title={t('task.currentSnapshot')}
           icon={Layers3}
           action={<StatusBadge status={state.snapshot.status} />}
         >
@@ -734,25 +834,25 @@ function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
           </div>
           <div className="mt-3 grid grid-cols-3 gap-3 border-t border-border pt-3">
             <Stat
-              label="Selected"
+              label={t('gates.selected')}
               value={`${state.selectedContextItemIds.length}`}
-              detail="items"
+              detail={t('gates.items')}
             />
             <Stat
-              label="Tokens"
+              label={t('gates.tokens')}
               value={getSelectedContextTokens(state).toLocaleString()}
-              detail={`of ${state.snapshot.tokenBudget.toLocaleString()}`}
+              detail={t('gates.ofTokens', { n: state.snapshot.tokenBudget.toLocaleString() })}
             />
             <Stat
-              label="Frozen"
-              value={state.snapshot.frozenAt ?? 'Draft'}
-              detail="snapshot state"
+              label={t('task.frozen')}
+              value={state.snapshot.frozenAt ?? t('task.draft')}
+              detail={t('task.snapshotState')}
             />
           </div>
         </Section>
 
         <Section
-          title="Run evidence"
+          title={t('task.runEvidence')}
           icon={TestTube2}
           action={
             state.run.outcome ? (
@@ -766,7 +866,7 @@ function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
             <div className="min-w-0 flex-1">
               <p className="font-mono text-[12px] font-medium">{state.run.id}</p>
               <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                A Run result is evidence for review, not a Task completion command.
+                {t('task.runEvidenceNote')}
               </p>
             </div>
             <Button
@@ -774,7 +874,7 @@ function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
               size="sm"
               onClick={() => dispatch({ type: 'NAVIGATE', route: 'run' })}
             >
-              Open timeline
+              {t('task.openTimeline')}
             </Button>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
@@ -782,19 +882,23 @@ function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
             {state.task.acceptanceEvaluated ? (
               <Badge tone="success">
                 <Check className="size-3" aria-hidden="true" />
-                Acceptance evaluated
+                {t('task.acceptanceEvaluated')}
               </Badge>
             ) : (
               <Badge tone="warning">
                 <TriangleAlert className="size-3" aria-hidden="true" />
-                Evaluation pending
+                {t('task.evaluationPending')}
               </Badge>
             )}
           </div>
         </Section>
       </div>
 
-      <Section title="Review gates" icon={ShieldCheck} eyebrow="Separate commands">
+      <Section
+        title={t('task.reviewGates')}
+        icon={ShieldCheck}
+        eyebrow={t('task.separateCommands')}
+      >
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
@@ -802,7 +906,7 @@ function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
             onClick={() => dispatch({ type: 'NAVIGATE', route: 'artifact' })}
             disabled={state.run.outcome !== 'SUCCEEDED'}
           >
-            Review artifact
+            {t('task.reviewArtifact')}
           </Button>
           <Button
             variant="secondary"
@@ -812,27 +916,25 @@ function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
               state.artifact.reviewStatus !== 'ACCEPTED' || state.task.status !== 'WAITING_REVIEW'
             }
           >
-            Evaluate acceptance
+            {t('task.evaluateAcceptance')}
           </Button>
           <Button
             size="sm"
             onClick={() => dispatch({ type: 'COMPLETE_TASK' })}
             disabled={!canComplete}
           >
-            Complete task
+            {t('task.completeTask')}
           </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => dispatch({ type: 'NAVIGATE', route: 'baseline' })}
           >
-            Review baseline draft <ArrowRight className="size-3.5" aria-hidden="true" />
+            {t('task.reviewBaselineDraft')} <ArrowRight className="size-3.5" aria-hidden="true" />
           </Button>
         </div>
         <p className="mt-3 text-[10px] leading-4 text-muted-foreground">
-          {canComplete
-            ? 'All completion prerequisites are recorded.'
-            : 'Complete becomes available only after the Artifact is accepted and acceptance criteria are evaluated.'}
+          {canComplete ? t('task.completionReady') : t('task.completionHint')}
         </p>
       </Section>
     </div>
@@ -852,6 +954,7 @@ function ContextCandidateRow({
   readonly order: number | null
   readonly onToggle: () => void
 }): React.JSX.Element {
+  const { t, locale } = useI18n()
   return (
     <label
       className={cn(
@@ -864,7 +967,7 @@ function ContextCandidateRow({
         type="checkbox"
         checked={selected}
         disabled={readOnly || (item.required && selected)}
-        aria-label={`Include ${item.label}`}
+        aria-label={t('context.includeAria', { label: item.label })}
         className="mt-0.5 size-3.5 accent-[var(--primary)]"
         onChange={onToggle}
       />
@@ -872,9 +975,9 @@ function ContextCandidateRow({
         <span className="flex flex-wrap items-center gap-1.5">
           <span className="truncate text-[12px] font-semibold">{item.label}</span>
           {item.required ? (
-            <Badge tone="success">Required</Badge>
+            <Badge tone="success">{t('context.required')}</Badge>
           ) : (
-            <Badge tone="neutral">Optional</Badge>
+            <Badge tone="neutral">{t('context.optional')}</Badge>
           )}
           <Badge tone={item.priority === 'P0' ? 'warning' : 'neutral'}>{item.priority}</Badge>
         </span>
@@ -888,7 +991,7 @@ function ContextCandidateRow({
           {item.conflictsWith ? (
             <>
               <span aria-hidden="true">·</span>
-              <span className="text-status-danger">Conflicts</span>
+              <span className="text-status-danger">{locale === 'zh' ? '冲突' : 'Conflicts'}</span>
             </>
           ) : null}
         </span>
@@ -906,6 +1009,7 @@ function ContextCandidateRow({
 }
 
 function ContextScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
+  const { t, locale } = useI18n()
   const [query, setQuery] = useState('')
   const selectedItems = getSelectedContextItems(state)
   const blockers = getFreezeBlockers(state)
@@ -919,9 +1023,9 @@ function ContextScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
   return (
     <div className="space-y-5">
       <PageToolbar
-        eyebrow="Context composer / Snapshot draft 04"
-        title="Compose the evidence deliberately"
-        description="Required items stay pinned. Optional items change count, order and token budget until Freeze makes the Snapshot immutable."
+        eyebrow={t('context.eyebrow')}
+        title={t('context.title')}
+        description={t('context.description')}
         meta={
           <>
             <StatusBadge status={state.snapshot.status} />
@@ -935,15 +1039,15 @@ function ContextScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
             onClick={() => dispatch({ type: 'NAVIGATE', route: 'task' })}
           >
             <ArrowLeft className="size-3.5" aria-hidden="true" />
-            Back to task
+            {t('context.backToTask')}
           </Button>
         }
       />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
         <Section
-          title="Candidates"
+          title={t('context.candidates')}
           icon={Search}
-          eyebrow={`${filteredItems.length} available`}
+          eyebrow={t('context.available', { n: filteredItems.length })}
           action={
             <div className="relative w-44">
               <Search
@@ -951,8 +1055,8 @@ function ContextScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
                 aria-hidden="true"
               />
               <Input
-                aria-label="Filter context candidates"
-                placeholder="Filter candidates"
+                aria-label={t('context.filterAria')}
+                placeholder={t('context.filterCandidates')}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 className="h-7 pl-7 text-[11px]"
@@ -975,8 +1079,8 @@ function ContextScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
           {filteredItems.length === 0 ? (
             <EmptyState
               icon={Search}
-              title="No candidates match"
-              description="Try another filter term."
+              title={t('context.noCandidates')}
+              description={t('context.noCandidatesDesc')}
               compact
             />
           ) : null}
@@ -984,7 +1088,7 @@ function ContextScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
 
         <div className="space-y-4">
           <Section
-            title="Selection preview"
+            title={t('context.selectionPreview')}
             icon={Filter}
             action={
               <Badge tone={selectedTokens > state.snapshot.tokenBudget ? 'danger' : 'accent'}>
@@ -993,8 +1097,10 @@ function ContextScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
             }
           >
             <div className="flex items-center justify-between gap-3 text-[11px]">
-              <span className="text-muted-foreground">Selected context</span>
-              <span className="font-semibold tabular-nums">{selectedItems.length} items</span>
+              <span className="text-muted-foreground">{t('context.selectedContext')}</span>
+              <span className="font-semibold tabular-nums">
+                {t('context.selectedItemsCount', { n: selectedItems.length })}
+              </span>
             </div>
             <div className="mt-3 space-y-1.5">
               {selectedItems.map((item, index) => (
@@ -1009,13 +1115,13 @@ function ContextScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
                   {item.required ? (
                     <LockKeyhole
                       className="size-3.5 shrink-0 text-status-success"
-                      aria-label="Required item"
+                      aria-label={t('context.requiredItem')}
                     />
                   ) : (
                     <button
                       type="button"
                       className="rounded p-0.5 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-                      aria-label={`Remove ${item.label}`}
+                      aria-label={t('context.removeAria', { label: item.label })}
                       disabled={readOnly}
                       onClick={() => dispatch({ type: 'TOGGLE_CONTEXT_ITEM', itemId: item.id })}
                     >
@@ -1030,7 +1136,7 @@ function ContextScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
             </div>
           </Section>
 
-          <Section title="Freeze confirmation" icon={LockKeyhole}>
+          <Section title={t('context.freezeConfirmation')} icon={LockKeyhole}>
             {blockers.length > 0 && !readOnly ? (
               <div
                 className="rounded-[var(--radius-control)] border border-status-danger/30 bg-status-danger/8 p-3"
@@ -1038,19 +1144,17 @@ function ContextScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
               >
                 <p className="flex items-center gap-2 text-[11px] font-semibold text-status-danger">
                   <TriangleAlert className="size-3.5" aria-hidden="true" />
-                  Freeze blocked
+                  {t('context.freezeBlocked')}
                 </p>
                 <ul className="mt-2 space-y-1 text-[10px] leading-4 text-foreground/75">
                   {blockers.map((blocker) => (
-                    <li key={blocker}>{blocker}</li>
+                    <li key={blocker}>{locale === 'zh' ? translateBlocker(blocker) : blocker}</li>
                   ))}
                 </ul>
               </div>
             ) : null}
             <p className="text-[11px] leading-5 text-muted-foreground">
-              {readOnly
-                ? 'Selected items are read-only. Starting a Run is intentionally separate.'
-                : 'Freeze pins this exact selection to the Snapshot. It will not start a Run.'}
+              {readOnly ? t('context.readOnlyNote') : t('context.freezeNote')}
             </p>
             <div className="mt-3 flex flex-wrap justify-end gap-2">
               <Button
@@ -1058,7 +1162,7 @@ function ContextScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
                 size="sm"
                 onClick={() => dispatch({ type: 'NAVIGATE', route: 'task' })}
               >
-                Keep editing
+                {t('context.keepEditing')}
               </Button>
               {readOnly ? (
                 <Button
@@ -1067,12 +1171,12 @@ function ContextScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
                   disabled={state.run.status !== 'CREATED'}
                 >
                   <Play className="size-3.5" aria-hidden="true" />
-                  Start run
+                  {t('context.startRun')}
                 </Button>
               ) : (
                 <Button size="sm" onClick={() => dispatch({ type: 'FREEZE_SNAPSHOT' })}>
                   <LockKeyhole className="size-3.5" aria-hidden="true" />
-                  Freeze snapshot
+                  {t('context.freezeSnapshot')}
                 </Button>
               )}
             </div>
@@ -1083,12 +1187,15 @@ function ContextScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
   )
 }
 
-function runStepLabel(status: CoreFlowState['run']['status']): string {
-  if (status === 'CREATED') return 'Start run'
-  if (status === 'QUEUED') return 'Prepare worker'
-  if (status === 'PREPARING') return 'Start execution'
-  if (status === 'RUNNING') return 'Finish succeeded run'
-  return 'Run finished'
+function runStepLabel(
+  t: (key: string, params?: Record<string, string | number>) => string,
+  status: CoreFlowState['run']['status']
+): string {
+  if (status === 'CREATED') return t('run.startRun')
+  if (status === 'QUEUED') return t('run.prepareWorker')
+  if (status === 'PREPARING') return t('run.startExecution')
+  if (status === 'RUNNING') return t('run.finishSucceededRun')
+  return t('run.runFinished')
 }
 
 function RunTimeline({
@@ -1096,6 +1203,7 @@ function RunTimeline({
 }: {
   readonly events: CoreFlowState['run']['timeline']
 }): React.JSX.Element {
+  const { t } = useI18n()
   return (
     <ol className="space-y-3">
       {events.map((event) => {
@@ -1138,7 +1246,7 @@ function RunTimeline({
                       : 'neutral'
               }
             >
-              {event.state}
+              {t(`timelineState.${event.state}`)}
             </Badge>
           </li>
         )
@@ -1148,6 +1256,7 @@ function RunTimeline({
 }
 
 function RunScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
+  const { t } = useI18n()
   const previousRun = state.priorRuns[0]
   const canStart = state.snapshot.status === 'FROZEN' && state.run.status === 'CREATED'
   const canAdvance = state.run.status === 'QUEUED' || state.run.status === 'PREPARING'
@@ -1156,16 +1265,16 @@ function RunScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
   return (
     <div className="space-y-5">
       <PageToolbar
-        eyebrow="Run result / timeline"
-        title={`${state.run.id} execution evidence`}
-        description="This mock timeline makes worker progress, Run outcome and human review visible without collapsing them into Task state."
+        eyebrow={t('run.eyebrow')}
+        title={t('run.title', { id: state.run.id })}
+        description={t('run.description')}
         meta={
           <>
             <RunStatusBadge status={state.run.status} />
             {state.run.outcome ? (
               <RunOutcomeBadge outcome={state.run.outcome} />
             ) : (
-              <Badge tone="neutral">Outcome pending</Badge>
+              <Badge tone="neutral">{t('run.outcomePending')}</Badge>
             )}
           </>
         }
@@ -1176,40 +1285,40 @@ function RunScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
             onClick={() => dispatch({ type: 'NAVIGATE', route: 'context' })}
           >
             <ArrowLeft className="size-3.5" aria-hidden="true" />
-            Context snapshot
+            {t('run.contextSnapshotBack')}
           </Button>
         }
       />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <Section title="Run state" icon={Play} eyebrow="Status and outcome are separate">
+        <Section title={t('run.runState')} icon={Play} eyebrow={t('run.statusOutcomeSeparate')}>
           <div className="flex flex-wrap items-center gap-2">
             <RunStatusBadge status={state.run.status} />
             {state.run.outcome ? (
               <RunOutcomeBadge outcome={state.run.outcome} />
             ) : (
-              <Badge tone="neutral">No outcome yet</Badge>
+              <Badge tone="neutral">{t('run.noOutcomeYet')}</Badge>
             )}
           </div>
           <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 text-[11px]">
-            <dt className="text-muted-foreground">ContextSnapshot</dt>
+            <dt className="text-muted-foreground">{t('run.contextSnapshot')}</dt>
             <dd className="truncate text-right font-mono">{state.snapshot.id}</dd>
-            <dt className="text-muted-foreground">Started</dt>
-            <dd className="text-right">{state.run.startedAt ?? 'Not started'}</dd>
-            <dt className="text-muted-foreground">Task status</dt>
+            <dt className="text-muted-foreground">{t('run.started')}</dt>
+            <dd className="text-right">{state.run.startedAt ?? t('run.notStarted')}</dd>
+            <dt className="text-muted-foreground">{t('run.taskStatus')}</dt>
             <dd className="flex justify-end">
               <TaskStatusBadge status={state.task.status} />
             </dd>
-            <dt className="text-muted-foreground">Artifact review</dt>
+            <dt className="text-muted-foreground">{t('run.artifactReview')}</dt>
             <dd className="flex justify-end">
               <Badge tone={artifactTone[state.artifact.reviewStatus]}>
-                {artifactLabel[state.artifact.reviewStatus]}
+                {t(`artifactLabel.${artifactLabelKey[state.artifact.reviewStatus]}`)}
               </Badge>
             </dd>
           </dl>
           <div className="mt-4 flex flex-wrap justify-end gap-2">
             {state.run.status === 'FINISHED' ? (
               <Button onClick={() => dispatch({ type: 'NAVIGATE', route: 'artifact' })}>
-                Review artifact <ArrowRight className="size-3.5" aria-hidden="true" />
+                {t('run.reviewArtifact')} <ArrowRight className="size-3.5" aria-hidden="true" />
               </Button>
             ) : (
               <Button
@@ -1232,29 +1341,43 @@ function RunScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
                 ) : (
                   <RefreshCw className="size-3.5" aria-hidden="true" />
                 )}
-                {runStepLabel(state.run.status)}
+                {runStepLabel(t, state.run.status)}
               </Button>
             )}
           </div>
           {state.run.status === 'CREATED' && !canStart ? (
             <p className="mt-2 text-right text-[10px] text-status-warning">
-              Freeze the Snapshot before starting this Run.
+              {t('run.freezeBeforeRun')}
+            </p>
+          ) : state.run.status === 'QUEUED' ||
+            state.run.status === 'PREPARING' ||
+            state.run.status === 'RUNNING' ? (
+            <p className="mt-2 text-right text-[10px] text-muted-foreground">
+              {t(
+                state.run.status === 'QUEUED'
+                  ? 'progress.nextRunQueued'
+                  : state.run.status === 'PREPARING'
+                    ? 'progress.nextRunPreparing'
+                    : 'progress.nextRunRunning'
+              )}
             </p>
           ) : null}
         </Section>
 
-        <Section title="Execution timeline" icon={RefreshCw}>
+        <Section title={t('run.executionTimeline')} icon={RefreshCw}>
           <RunTimeline events={state.run.timeline} />
         </Section>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Section
-          title="Test evidence"
+          title={t('run.testEvidence')}
           icon={TestTube2}
           action={
             <Badge tone="success">
-              {state.run.tests.filter((test) => test.status === 'PASSED').length} passed
+              {t('run.testsPassed', {
+                n: state.run.tests.filter((test) => test.status === 'PASSED').length
+              })}
             </Badge>
           }
         >
@@ -1279,21 +1402,25 @@ function RunScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
           </ul>
           {state.run.outcome === 'SUCCEEDED' ? (
             <p className="mt-3 border-t border-border pt-3 text-[10px] leading-4 text-muted-foreground">
-              Run success is evidence only. The Task is still{' '}
-              {state.task.status === 'WAITING_REVIEW' ? 'Waiting review' : state.task.status}.
+              {t('run.runSuccessNote', {
+                status:
+                  state.task.status === 'WAITING_REVIEW'
+                    ? t('run.waitingReview')
+                    : t(`status.${state.task.status}`)
+              })}
             </p>
           ) : null}
         </Section>
 
         <Section
-          title="Previous partial evidence"
+          title={t('run.previousPartial')}
           icon={TriangleAlert}
           action={<RunOutcomeBadge outcome={previousRun?.outcome ?? 'PARTIAL'} />}
         >
           {previousRun ? (
             <details className="group rounded-[var(--radius-control)] border border-border bg-background p-3">
               <summary className="cursor-pointer list-none text-[11px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
-                Expand failed acceptance evidence
+                {t('run.expandFailedEvidence')}
                 <span className="float-right text-muted-foreground group-open:rotate-90">
                   <ChevronRight className="size-3.5" aria-hidden="true" />
                 </span>
@@ -1317,8 +1444,8 @@ function RunScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
             </details>
           ) : (
             <EmptyState
-              title="No previous run"
-              description="Earlier evidence will appear here."
+              title={t('run.noPreviousRun')}
+              description={t('run.noPreviousRunDesc')}
               compact
             />
           )}
@@ -1333,6 +1460,7 @@ function isArtifactTab(value: string): value is ArtifactTab {
 }
 
 function ArtifactScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
+  const { t } = useI18n()
   const canReview = state.run.outcome === 'SUCCEEDED'
   const canAccept =
     canReview &&
@@ -1342,16 +1470,18 @@ function ArtifactScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
   return (
     <div className="space-y-5">
       <PageToolbar
-        eyebrow="Artifact review / explicit actions"
+        eyebrow={t('artifact.eyebrow')}
         title={state.artifact.title}
-        description="Diff, tests and summary are review surfaces. Apply, accept, reject and request changes remain distinct commands."
+        description={t('artifact.description')}
         meta={
           <>
             <Badge tone={artifactTone[state.artifact.reviewStatus]}>
-              {artifactLabel[state.artifact.reviewStatus]}
+              {t(`artifactLabel.${artifactLabelKey[state.artifact.reviewStatus]}`)}
             </Badge>
             <Badge tone={state.artifact.applicationStatus === 'APPLIED' ? 'success' : 'neutral'}>
-              {state.artifact.applicationStatus === 'APPLIED' ? 'Applied' : 'Not applied'}
+              {state.artifact.applicationStatus === 'APPLIED'
+                ? t('artifactLabel.applied')
+                : t('artifactLabel.notApplied')}
             </Badge>
           </>
         }
@@ -1362,14 +1492,18 @@ function ArtifactScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
             onClick={() => dispatch({ type: 'NAVIGATE', route: 'run' })}
           >
             <ArrowLeft className="size-3.5" aria-hidden="true" />
-            Run timeline
+            {t('artifact.runTimelineBack')}
           </Button>
         }
       />
       <Section
-        title="Review evidence"
+        title={t('artifact.reviewEvidence')}
         icon={FileCheck2}
-        action={<Badge tone="neutral">{state.artifact.changedFiles.length} files</Badge>}
+        action={
+          <Badge tone="neutral">
+            {t('artifact.files', { n: state.artifact.changedFiles.length })}
+          </Badge>
+        }
       >
         <Tabs
           value={state.artifact.activeTab}
@@ -1378,14 +1512,14 @@ function ArtifactScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
           }}
         >
           <TabsList>
-            <TabsTrigger value="summary">Summary</TabsTrigger>
-            <TabsTrigger value="diff">Diff</TabsTrigger>
-            <TabsTrigger value="tests">Tests</TabsTrigger>
+            <TabsTrigger value="summary">{t('artifact.summaryTab')}</TabsTrigger>
+            <TabsTrigger value="diff">{t('artifact.diffTab')}</TabsTrigger>
+            <TabsTrigger value="tests">{t('artifact.testsTab')}</TabsTrigger>
           </TabsList>
           <TabsContent value="summary" className="pt-4">
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.8fr)]">
               <div>
-                <h3 className="text-[13px] font-semibold">What changed</h3>
+                <h3 className="text-[13px] font-semibold">{t('artifact.whatChanged')}</h3>
                 <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
                   {state.artifact.summary}
                 </p>
@@ -1400,11 +1534,10 @@ function ArtifactScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
               </div>
               <div className="rounded-[var(--radius-control)] border border-border bg-muted/40 p-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-                  Review distinction
+                  {t('artifact.reviewDistinction')}
                 </p>
                 <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
-                  Applying this patch changes the mock workspace. Accepting it records human review.
-                  Neither action completes TASK-011.
+                  {t('artifact.reviewDistinctionDesc')}
                 </p>
               </div>
             </div>
@@ -1445,7 +1578,11 @@ function ArtifactScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
         </Tabs>
       </Section>
 
-      <Section title="Review commands" icon={ShieldCheck} eyebrow="No automatic chain">
+      <Section
+        title={t('artifact.reviewCommands')}
+        icon={ShieldCheck}
+        eyebrow={t('artifact.noAutomaticChain')}
+      >
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="secondary"
@@ -1454,7 +1591,7 @@ function ArtifactScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
             disabled={!canReview || state.artifact.applicationStatus === 'APPLIED'}
           >
             <Plus className="size-3.5" aria-hidden="true" />
-            Apply artifact
+            {t('artifact.applyArtifact')}
           </Button>
           <Button
             size="sm"
@@ -1462,7 +1599,7 @@ function ArtifactScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
             disabled={!canAccept}
           >
             <Check className="size-3.5" aria-hidden="true" />
-            Accept artifact
+            {t('artifact.acceptArtifact')}
           </Button>
           <Button
             variant="outline"
@@ -1470,7 +1607,7 @@ function ArtifactScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
             onClick={() => dispatch({ type: 'REQUEST_CHANGES' })}
             disabled={!canReview}
           >
-            Request changes
+            {t('artifact.requestChanges')}
           </Button>
           <Button
             variant="destructive"
@@ -1478,17 +1615,19 @@ function ArtifactScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
             onClick={() => dispatch({ type: 'REJECT_ARTIFACT' })}
             disabled={!canReview}
           >
-            Reject artifact
+            {t('artifact.rejectArtifact')}
           </Button>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3 text-[10px] text-muted-foreground">
-          <span>Current state:</span>
+          <span>{t('artifact.currentState')}</span>
           <Badge tone={artifactTone[state.artifact.reviewStatus]}>
-            {artifactLabel[state.artifact.reviewStatus]}
+            {t(`artifactLabel.${artifactLabelKey[state.artifact.reviewStatus]}`)}
           </Badge>
           <span aria-hidden="true">·</span>
           <span>
-            {state.artifact.applicationStatus === 'APPLIED' ? 'Patch applied' : 'Patch not applied'}
+            {state.artifact.applicationStatus === 'APPLIED'
+              ? t('artifactLabel.patchApplied')
+              : t('artifactLabel.patchNotApplied')}
           </span>
         </div>
       </Section>
@@ -1498,7 +1637,8 @@ function ArtifactScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
           size="sm"
           onClick={() => dispatch({ type: 'NAVIGATE', route: 'task' })}
         >
-          Continue to task review <ArrowRight className="size-3.5" aria-hidden="true" />
+          {t('artifact.continueToTaskReview')}{' '}
+          <ArrowRight className="size-3.5" aria-hidden="true" />
         </Button>
       </div>
     </div>
@@ -1506,14 +1646,15 @@ function ArtifactScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
 }
 
 function BaselineScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
+  const { t } = useI18n()
   const canActivate = state.task.status === 'COMPLETED' && state.baseline.status === 'DRAFT'
 
   return (
     <div className="space-y-5">
       <PageToolbar
-        eyebrow="Baseline review / explicit activation"
+        eyebrow={t('baseline.eyebrow')}
         title={state.baseline.label}
-        description="The draft summarizes a completed Task but does not become the active project anchor until confirmed."
+        description={t('baseline.description')}
         meta={<BaselineStatusBadge status={state.baseline.status} />}
         actions={
           <Button
@@ -1522,12 +1663,12 @@ function BaselineScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
             onClick={() => dispatch({ type: 'NAVIGATE', route: 'task' })}
           >
             <ArrowLeft className="size-3.5" aria-hidden="true" />
-            Task workspace
+            {t('baseline.taskWorkspaceBack')}
           </Button>
         }
       />
       <div className="grid gap-4 xl:grid-cols-2">
-        <Section title="Current project anchor" icon={Layers3}>
+        <Section title={t('baseline.currentAnchor')} icon={Layers3}>
           <div className="flex items-center gap-3">
             <span className="grid size-9 place-items-center rounded-[var(--radius-control)] bg-muted">
               <ShieldCheck className="size-4 text-status-success" aria-hidden="true" />
@@ -1535,32 +1676,32 @@ function BaselineScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
             <div className="min-w-0 flex-1">
               <p className="text-[12px] font-semibold">{state.project.activeBaseline}</p>
               <p className="mt-0.5 text-[10px] text-muted-foreground">
-                Active on {state.project.branch}
+                {t('baseline.activeOn', { branch: state.project.branch })}
               </p>
             </div>
             <BaselineStatusBadge status="ACTIVE" />
           </div>
           <p className="mt-4 border-t border-border pt-3 text-[11px] leading-5 text-muted-foreground">
-            This existing anchor remains unchanged while Baseline 1.1 is Draft.
+            {t('baseline.anchorUnchanged')}
           </p>
         </Section>
         <Section
-          title="Candidate baseline"
+          title={t('baseline.candidateBaseline')}
           icon={ShieldCheck}
           action={<BaselineStatusBadge status={state.baseline.status} />}
         >
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
-            <dt className="text-muted-foreground">Source Task</dt>
+            <dt className="text-muted-foreground">{t('baseline.sourceTask')}</dt>
             <dd className="text-right font-mono">{state.baseline.sourceTaskId}</dd>
-            <dt className="text-muted-foreground">Revision</dt>
+            <dt className="text-muted-foreground">{t('baseline.revision')}</dt>
             <dd className="truncate text-right font-mono">{state.baseline.revision}</dd>
-            <dt className="text-muted-foreground">Artifact</dt>
+            <dt className="text-muted-foreground">{t('baseline.artifact')}</dt>
             <dd className="text-right">
               <Badge tone={artifactTone[state.artifact.reviewStatus]}>
-                {artifactLabel[state.artifact.reviewStatus]}
+                {t(`artifactLabel.${artifactLabelKey[state.artifact.reviewStatus]}`)}
               </Badge>
             </dd>
-            <dt className="text-muted-foreground">Task</dt>
+            <dt className="text-muted-foreground">{t('baseline.task')}</dt>
             <dd className="flex justify-end">
               <TaskStatusBadge status={state.task.status} />
             </dd>
@@ -1568,19 +1709,17 @@ function BaselineScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
         </Section>
       </div>
       <Section
-        title="Activation confirmation"
+        title={t('baseline.activationConfirmation')}
         icon={LockKeyhole}
-        eyebrow="Separate from Task completion"
+        eyebrow={t('baseline.separateFromCompletion')}
       >
         <div className="flex flex-wrap items-start gap-3">
           <div className="min-w-0 flex-1">
             <p className="text-[12px] font-medium">
-              {canActivate ? 'Ready to activate Baseline 1.1' : 'Activation is gated'}
+              {canActivate ? t('baseline.readyToActivate') : t('baseline.activationGated')}
             </p>
             <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-              {canActivate
-                ? 'This action changes the active project anchor and is intentionally explicit.'
-                : 'Complete TASK-011 before activating this Draft Baseline. Accepting an Artifact alone is not enough.'}
+              {canActivate ? t('baseline.activationReady') : t('baseline.activationHint')}
             </p>
           </div>
           <Button onClick={() => dispatch({ type: 'ACTIVATE_BASELINE' })} disabled={!canActivate}>
@@ -1589,7 +1728,9 @@ function BaselineScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element
             ) : (
               <ShieldCheck className="size-3.5" aria-hidden="true" />
             )}
-            {state.baseline.status === 'ACTIVE' ? 'Baseline active' : 'Activate baseline'}
+            {state.baseline.status === 'ACTIVE'
+              ? t('baseline.baselineActive')
+              : t('baseline.activateBaseline')}
           </Button>
         </div>
       </Section>
@@ -1619,27 +1760,28 @@ function FlowScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
 }
 
 function NodeWorkspaceScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
+  const { t } = useI18n()
   const node =
     state.nodes.find((candidate) => candidate.id === state.selectedNodeId) ?? state.nodes[0]
   if (!node)
     return (
       <EmptyState
         icon={Search}
-        title="No node selected"
-        description="Return to the Project Outline and select a node."
+        title={t('nodeWorkspace.noNode')}
+        description={t('nodeWorkspace.noNodeDesc')}
       />
     )
 
   return (
     <div className="space-y-5">
       <PageToolbar
-        eyebrow="Node workspace / versioned evidence"
+        eyebrow={t('nodeWorkspace.eyebrow')}
         title={node.title}
-        description="A representative node workspace keeps node meaning, version and linked Task context visible."
+        description={t('nodeWorkspace.description')}
         meta={
           <>
             <NodeTypeBadge type={node.type} />
-            <Badge tone="success">{node.lifecycle}</Badge>
+            <Badge tone="success">{t(`status.${node.lifecycle}`)}</Badge>
             <Badge tone="neutral">{node.version}</Badge>
           </>
         }
@@ -1650,24 +1792,23 @@ function NodeWorkspaceScreen({ state, dispatch }: FlowScreenProps): React.JSX.El
             onClick={() => dispatch({ type: 'NAVIGATE', route: 'outline' })}
           >
             <ArrowLeft className="size-3.5" aria-hidden="true" />
-            Project outline
+            {t('nodeWorkspace.projectOutlineBack')}
           </Button>
         }
       />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
-        <Section title="Node content" icon={Code2} eyebrow={node.id}>
+        <Section title={t('nodeWorkspace.nodeContent')} icon={Code2} eyebrow={node.id}>
           <p className="text-[16px] font-semibold">{node.summary}</p>
           <p className="mt-3 text-[11px] leading-5 text-muted-foreground">
-            This version is the selected project fact for the next context composition. It is not
-            silently added to the Snapshot.
+            {t('nodeWorkspace.nodeContentNote')}
           </p>
           <Separator className="my-4" />
           <div className="flex flex-wrap gap-2">
-            <Badge tone="success">Active version</Badge>
-            <Badge tone="neutral">Immutable fixture record</Badge>
+            <Badge tone="success">{t('nodeWorkspace.activeVersion')}</Badge>
+            <Badge tone="neutral">{t('nodeWorkspace.immutableRecord')}</Badge>
           </div>
         </Section>
-        <Section title="Linked work" icon={GitBranch}>
+        <Section title={t('nodeWorkspace.linkedWork')} icon={GitBranch}>
           <div className="space-y-2">
             {node.links.map((link) => (
               <button
@@ -1689,7 +1830,8 @@ function NodeWorkspaceScreen({ state, dispatch }: FlowScreenProps): React.JSX.El
           </div>
           <div className="mt-4 flex justify-end">
             <Button onClick={() => dispatch({ type: 'NAVIGATE', route: 'context' })}>
-              Compose context <ArrowRight className="size-3.5" aria-hidden="true" />
+              {t('nodeWorkspace.composeContext')}{' '}
+              <ArrowRight className="size-3.5" aria-hidden="true" />
             </Button>
           </div>
         </Section>
@@ -1703,9 +1845,16 @@ export function CoreFlowWorkspace({
 }: {
   readonly runtimeInfo: RuntimeInfo | null
 }): React.JSX.Element {
-  const service = useMemo(() => createCoreFlowFixtureService(), [])
+  const { t, locale } = useI18n()
+  const service = useMemo(() => createCoreFlowFixtureService(locale), [locale])
   const [state, dispatch] = useReducer(coreFlowReducer, undefined, service.load)
-  const meta = routeMeta[state.route]
+  const meta = state.route
+    ? {
+        label: t(`flow.${state.route}.label`),
+        title: t(`flow.${state.route}.title`),
+        description: t(`flow.${state.route}.description`)
+      }
+    : undefined
 
   const handleSidebarNavigate = (label: string): void => {
     const route = sidebarRoutes[label]
@@ -1716,13 +1865,14 @@ export function CoreFlowWorkspace({
     <AppShell
       runtimeInfo={runtimeInfo}
       inspector={<FlowInspector state={state} />}
-      sectionLabel={`MUSICDB / ${meta.label}`}
-      title={meta.title}
-      description={meta.description}
-      activeItem={meta.label}
+      sectionLabel={`MUSICDB / ${meta?.label ?? ''}`}
+      title={meta?.title ?? ''}
+      description={meta?.description ?? ''}
+      activeItem={meta?.label ?? ''}
       onNavigate={handleSidebarNavigate}
     >
       <div className="space-y-3">
+        <FlowProgress state={state} dispatch={dispatch} />
         <RouteBreadcrumb state={state} dispatch={dispatch} />
         <Notice notice={state.notice} />
         <FlowScreen state={state} dispatch={dispatch} />

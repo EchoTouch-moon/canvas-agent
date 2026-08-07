@@ -1,9 +1,19 @@
 import type { RuntimeInfo } from '@canvas-agent/contracts'
-import { Bell, Command, Moon, PanelRight, PanelRightClose, Sun } from 'lucide-react'
+import {
+  Bell,
+  Command,
+  HelpCircle,
+  Languages,
+  Moon,
+  PanelRight,
+  PanelRightClose,
+  Sun
+} from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip } from '@/components/ui/tooltip'
+import { useI18n, type Locale } from '@/lib/i18n'
 
 interface WorkspaceHeaderProps {
   readonly runtimeInfo: RuntimeInfo | null
@@ -12,9 +22,12 @@ interface WorkspaceHeaderProps {
   readonly description?: string
   readonly theme: 'light' | 'dark'
   readonly inspectorCollapsed: boolean
+  readonly locale: Locale
   readonly onOpenCommandPalette: () => void
   readonly onToggleTheme: () => void
   readonly onToggleInspector: () => void
+  readonly onToggleLanguage: () => void
+  readonly onOpenGuide: () => void
 }
 
 export function WorkspaceHeader({
@@ -24,10 +37,15 @@ export function WorkspaceHeader({
   description,
   theme,
   inspectorCollapsed,
+  locale,
   onOpenCommandPalette,
   onToggleTheme,
-  onToggleInspector
+  onToggleInspector,
+  onToggleLanguage,
+  onOpenGuide
 }: WorkspaceHeaderProps): React.JSX.Element {
+  const { t } = useI18n()
+
   return (
     <header className="flex min-h-[var(--header-height)] shrink-0 items-center border-b border-border bg-background/95 px-5 backdrop-blur">
       <div className="min-w-0">
@@ -40,29 +58,29 @@ export function WorkspaceHeader({
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         <Badge tone={runtimeInfo?.connected ? 'success' : 'warning'}>
           <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-          {runtimeInfo?.connected ? 'Connected' : 'Connecting'}
+          {runtimeInfo?.connected ? t('header.connected') : t('header.connecting')}
         </Badge>
         {runtimeInfo ? (
           <Badge tone="neutral">v{runtimeInfo.appVersion}</Badge>
         ) : (
-          <Badge tone="neutral">Local</Badge>
+          <Badge tone="neutral">{t('header.local')}</Badge>
         )}
         <Separator orientation="vertical" className="mx-1 h-5" />
-        <Tooltip content="Command palette (Ctrl/Cmd K)">
+        <Tooltip content={t('header.commandPaletteHint')}>
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Open command palette"
+            aria-label={t('header.openCommandPalette')}
             onClick={onOpenCommandPalette}
           >
             <Command className="size-4" aria-hidden="true" />
           </Button>
         </Tooltip>
-        <Tooltip content={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
+        <Tooltip content={theme === 'dark' ? t('header.switchLight') : t('header.switchDark')}>
           <Button
             variant="ghost"
             size="icon"
-            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            aria-label={theme === 'dark' ? t('header.switchLight') : t('header.switchDark')}
             onClick={onToggleTheme}
           >
             {theme === 'dark' ? (
@@ -72,16 +90,40 @@ export function WorkspaceHeader({
             )}
           </Button>
         </Tooltip>
-        <Tooltip content="Notifications">
-          <Button variant="ghost" size="icon" aria-label="View notifications">
+        <Tooltip content={locale === 'zh' ? 'English' : '中文'}>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={locale === 'zh' ? 'English' : '中文'}
+            onClick={onToggleLanguage}
+          >
+            <Languages className="size-4" aria-hidden="true" />
+          </Button>
+        </Tooltip>
+        <Tooltip content={t('header.guide')}>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={t('header.openGuide')}
+            onClick={onOpenGuide}
+          >
+            <HelpCircle className="size-4" aria-hidden="true" />
+          </Button>
+        </Tooltip>
+        <Tooltip content={t('header.notifications')}>
+          <Button variant="ghost" size="icon" aria-label={t('header.viewNotifications')}>
             <Bell className="size-4" aria-hidden="true" />
           </Button>
         </Tooltip>
-        <Tooltip content={inspectorCollapsed ? 'Open inspector' : 'Collapse inspector'}>
+        <Tooltip
+          content={inspectorCollapsed ? t('header.openInspector') : t('header.collapseInspector')}
+        >
           <Button
             variant="outline"
             size="icon"
-            aria-label={inspectorCollapsed ? 'Open inspector' : 'Collapse inspector'}
+            aria-label={
+              inspectorCollapsed ? t('header.openInspector') : t('header.collapseInspector')
+            }
             aria-pressed={!inspectorCollapsed}
             onClick={onToggleInspector}
           >

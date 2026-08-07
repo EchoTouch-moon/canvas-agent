@@ -4,6 +4,7 @@ import { ArrowRight, Command, Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/lib/i18n'
 
 export interface CommandItem {
   readonly id: string
@@ -26,6 +27,7 @@ export function CommandPalette({
   onOpenChange,
   onSelect
 }: CommandPaletteProps): React.JSX.Element | null {
+  const { t } = useI18n()
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLElement | null>(null)
   const filteredCommands = useMemo(() => {
@@ -61,7 +63,7 @@ export function CommandPalette({
         <div className="flex items-center gap-2 border-b border-border px-3">
           <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           <h2 id="command-palette-title" className="sr-only">
-            Command palette
+            {t('palette.title')}
           </h2>
           <Input
             ref={inputRef}
@@ -71,7 +73,7 @@ export function CommandPalette({
               if (event.key === 'Escape') onOpenChange(false)
               if (event.key === 'Enter' && filteredCommands[0]) onSelect(filteredCommands[0])
             }}
-            placeholder="Search commands..."
+            placeholder={t('palette.searchPlaceholder')}
             className="h-11 border-0 px-0 shadow-none focus-visible:ring-0"
           />
           <kbd className="hidden shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground sm:block">
@@ -80,7 +82,7 @@ export function CommandPalette({
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label="Close command palette"
+            aria-label={t('palette.close')}
             onClick={() => onOpenChange(false)}
           >
             <X className="size-4" aria-hidden="true" />
@@ -88,10 +90,10 @@ export function CommandPalette({
         </div>
         <div className="max-h-[min(460px,60vh)] overflow-y-auto p-2">
           <p className="px-2 pb-1.5 pt-1 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-            Commands
+            {t('palette.commands')}
           </p>
           {filteredCommands.length ? (
-            <ul className="space-y-0.5" role="listbox" aria-label="Commands">
+            <ul className="space-y-0.5" role="listbox" aria-label={t('palette.commands')}>
               {filteredCommands.map((command) => {
                 const Icon = command.icon
                 return (
@@ -129,17 +131,17 @@ export function CommandPalette({
             </ul>
           ) : (
             <p className={cn('px-2 py-8 text-center text-[12px] text-muted-foreground')}>
-              No matching commands
+              {t('palette.noMatches')}
             </p>
           )}
         </div>
         <div className="flex items-center gap-3 border-t border-border bg-muted/40 px-3 py-2 text-[10px] text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             <Command className="size-3" aria-hidden="true" />
-            Navigate
+            {t('palette.navigate')}
           </span>
-          <span>Enter to run</span>
-          <span>Esc to close</span>
+          <span>{t('palette.enterToRun')}</span>
+          <span>{t('palette.escToClose')}</span>
         </div>
       </section>
     </div>

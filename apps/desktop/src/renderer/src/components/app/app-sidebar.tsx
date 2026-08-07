@@ -19,6 +19,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Tooltip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/lib/i18n'
 
 export interface SidebarItem {
   readonly label: string
@@ -52,9 +53,11 @@ export function AppSidebar({
   onToggle,
   projectName = 'MUSICDB'
 }: AppSidebarProps): React.JSX.Element {
+  const { t } = useI18n()
+
   return (
     <aside
-      aria-label="Application navigation"
+      aria-label={t('app.navigation')}
       className={cn(
         'flex h-screen min-h-0 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200',
         collapsed ? 'w-[72px]' : 'w-[var(--sidebar-width)]'
@@ -75,13 +78,16 @@ export function AppSidebar({
             collapsed && 'sr-only'
           )}
         >
-          Canvas Agent
+          {t('app.name')}
         </span>
-        <Tooltip content={collapsed ? 'Expand navigation' : 'Collapse navigation'} side="right">
+        <Tooltip
+          content={collapsed ? t('app.expandNavigation') : t('app.collapseNavigation')}
+          side="right"
+        >
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+            aria-label={collapsed ? t('app.expandNavigation') : t('app.collapseNavigation')}
             aria-pressed={collapsed}
             className={cn('ml-auto text-muted-foreground', collapsed && 'ml-0')}
             onClick={onToggle}
@@ -96,10 +102,10 @@ export function AppSidebar({
       </div>
 
       <div className={cn('shrink-0 py-3', collapsed ? 'px-2' : 'px-3')}>
-        <Tooltip content={`Project: ${projectName}`} side="right">
+        <Tooltip content={t('app.currentProject', { name: projectName })} side="right">
           <Button
             variant="outline"
-            aria-label={`Current project: ${projectName}`}
+            aria-label={t('app.currentProject', { name: projectName })}
             className={cn(
               'w-full justify-start gap-2 bg-sidebar',
               collapsed && 'size-9 justify-center px-0'
@@ -116,7 +122,7 @@ export function AppSidebar({
       </div>
 
       <nav
-        aria-label="Project navigation"
+        aria-label={t('app.projectNavigation')}
         className={cn('min-h-0 flex-1 overflow-y-auto', collapsed ? 'px-2' : 'px-2')}
       >
         <p
@@ -125,41 +131,44 @@ export function AppSidebar({
             collapsed && 'sr-only'
           )}
         >
-          Workspace
+          {t('app.workspace')}
         </p>
         <ul className="space-y-0.5">
-          {workspaceItems.map((item) => (
-            <li key={item.label}>
-              <Tooltip content={item.label} side="right">
-                <button
-                  type="button"
-                  aria-current={activeItem === item.label ? 'page' : undefined}
-                  aria-label={item.label}
-                  className={cn(
-                    'flex h-9 w-full cursor-pointer items-center gap-2 rounded-[var(--radius-control)] px-2 text-left text-[13px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
-                    activeItem === item.label
-                      ? 'bg-sidebar-accent text-primary'
-                      : 'text-muted-foreground hover:bg-sidebar-accent/70 hover:text-foreground',
-                    collapsed && 'justify-center px-0'
-                  )}
-                  onClick={() => onNavigate(item.label)}
-                >
-                  <item.icon className="size-4 shrink-0" aria-hidden="true" />
-                  <span className={cn('min-w-0 flex-1 truncate', collapsed && 'sr-only')}>
-                    {item.label}
-                  </span>
-                </button>
-              </Tooltip>
-            </li>
-          ))}
+          {workspaceItems.map((item) => {
+            const localized = t(`nav.${item.label.toLowerCase()}`)
+            return (
+              <li key={item.label}>
+                <Tooltip content={localized} side="right">
+                  <button
+                    type="button"
+                    aria-current={activeItem === item.label ? 'page' : undefined}
+                    aria-label={localized}
+                    className={cn(
+                      'flex h-9 w-full cursor-pointer items-center gap-2 rounded-[var(--radius-control)] px-2 text-left text-[13px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+                      activeItem === item.label
+                        ? 'bg-sidebar-accent text-primary'
+                        : 'text-muted-foreground hover:bg-sidebar-accent/70 hover:text-foreground',
+                      collapsed && 'justify-center px-0'
+                    )}
+                    onClick={() => onNavigate(item.label)}
+                  >
+                    <item.icon className="size-4 shrink-0" aria-hidden="true" />
+                    <span className={cn('min-w-0 flex-1 truncate', collapsed && 'sr-only')}>
+                      {localized}
+                    </span>
+                  </button>
+                </Tooltip>
+              </li>
+            )
+          })}
         </ul>
       </nav>
 
       <div className={cn('shrink-0 border-t border-border py-2', collapsed ? 'px-2' : 'px-2')}>
-        <Tooltip content="Settings" side="right">
+        <Tooltip content={t('app.settings')} side="right">
           <button
             type="button"
-            aria-label="Settings"
+            aria-label={t('app.settings')}
             aria-current={activeItem === 'Settings' ? 'page' : undefined}
             className={cn(
               'flex h-9 w-full cursor-pointer items-center gap-2 rounded-[var(--radius-control)] px-2 text-left text-[13px] font-medium text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
@@ -169,11 +178,13 @@ export function AppSidebar({
             onClick={() => onNavigate('Settings')}
           >
             <Settings2 className="size-4 shrink-0" aria-hidden="true" />
-            <span className={cn(collapsed && 'sr-only')}>Settings</span>
+            <span className={cn(collapsed && 'sr-only')}>{t('app.settings')}</span>
           </button>
         </Tooltip>
         {!collapsed ? (
-          <p className="mt-3 px-2 pb-1 text-[10px] text-muted-foreground">Local workspace</p>
+          <p className="mt-3 px-2 pb-1 text-[10px] text-muted-foreground">
+            {t('app.localWorkspace')}
+          </p>
         ) : null}
       </div>
     </aside>

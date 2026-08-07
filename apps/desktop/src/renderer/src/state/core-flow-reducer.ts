@@ -486,6 +486,6 @@ export function coreFlowReducer(state: CoreFlowState, command: CoreFlowCommand):
       return { ...state, notice: null }
 
     case 'RESET_FLOW':
-      return createInitialCoreFlowState()
+      return createInitialCoreFlowState(state.locale)
   }
 }

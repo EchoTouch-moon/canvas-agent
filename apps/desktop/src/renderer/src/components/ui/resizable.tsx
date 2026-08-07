@@ -51,7 +51,10 @@ export function ResizablePanel({
       data-slot="resizable-panel"
       className={cn('min-h-0 min-w-0', className)}
       style={{
-        flex: basis ? `0 1 ${typeof basis === 'number' ? `${basis}px` : basis}` : '1 1 0%',
+        flex:
+          basis !== undefined
+            ? `0 1 ${typeof basis === 'number' ? `${basis}px` : basis}`
+            : '1 1 0%',
         minWidth: minSize,
         ...style
       }}

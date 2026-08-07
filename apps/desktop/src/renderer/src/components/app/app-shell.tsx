@@ -3,6 +3,7 @@ import type { RuntimeInfo } from '@canvas-agent/contracts'
 import {
   Boxes,
   History,
+  Languages,
   LayoutDashboard,
   Layers3,
   ListChecks,
@@ -12,10 +13,12 @@ import {
 } from 'lucide-react'
 import { AppSidebar } from './app-sidebar'
 import { CommandPalette, type CommandItem } from './command-palette'
+import { FlowGuide } from './flow-guide'
 import { InspectorPanel } from './inspector-panel'
 import { WorkspaceHeader } from './workspace-header'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Resizable, ResizableHandle, ResizablePanel } from '@/components/ui/resizable'
+import { useI18n } from '@/lib/i18n'
 
 type Theme = 'light' | 'dark'
 
@@ -30,52 +33,6 @@ interface AppShellProps {
   readonly activeItem?: string
   readonly onNavigate?: (label: string) => void
 }
-
-const commandItems: readonly CommandItem[] = [
-  {
-    id: 'dashboard',
-    label: 'Go to dashboard',
-    hint: 'Project health and next actions',
-    shortcut: 'G D',
-    icon: LayoutDashboard
-  },
-  {
-    id: 'tasks',
-    label: 'Open tasks',
-    hint: 'Review active work and acceptance criteria',
-    shortcut: 'G T',
-    icon: ListChecks
-  },
-  {
-    id: 'context',
-    label: 'Open context composer',
-    hint: 'Prepare a snapshot for a task',
-    shortcut: 'G C',
-    icon: Boxes
-  },
-  {
-    id: 'runs',
-    label: 'Open run timeline',
-    hint: 'Inspect execution evidence',
-    shortcut: 'G R',
-    icon: History
-  },
-  {
-    id: 'baselines',
-    label: 'Review baselines',
-    hint: 'See immutable project anchors',
-    shortcut: 'G B',
-    icon: Layers3
-  },
-  {
-    id: 'settings',
-    label: 'Open settings',
-    hint: 'Configure this local workspace',
-    shortcut: 'G S',
-    icon: Settings2
-  },
-  { id: 'theme', label: 'Toggle theme', hint: 'Switch between light and dark surfaces', icon: Moon }
-]
 
 function initialTheme(): Theme {
   if (typeof window === 'undefined') return 'light'
@@ -96,15 +53,29 @@ export function AppShell({
   title = 'Project Dashboard',
   description,
   projectName = 'MUSICDB',
-  activeItem: controlledActiveItem,
+  activeItem,
   onNavigate
 }: AppShellProps): React.JSX.Element {
+  const { t, locale, setLocale } = useI18n()
   const [theme, setTheme] = useState<Theme>(initialTheme)
-  const [internalActiveItem, setInternalActiveItem] = useState('Dashboard')
+  const [internalActive, setInternalActive] = useState('Dashboard')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(isCompactViewport)
   const [inspectorCollapsed, setInspectorCollapsed] = useState(isCompactViewport)
   const [inspectorWidth, setInspectorWidth] = useState(312)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [guideOpen, setGuideOpen] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      window.localStorage.getItem('canvas-agent-flow-guide-seen') !== '1'
+  )
+  const hasExternalNav = activeItem !== undefined && onNavigate !== undefined
+  const resolvedActive = hasExternalNav ? activeItem : internalActive
+  const handleNavigate = hasExternalNav ? onNavigate : setInternalActive
+
+  const closeGuide = useCallback(() => {
+    setGuideOpen(false)
+    window.localStorage.setItem('canvas-agent-flow-guide-seen', '1')
+  }, [])
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 1180px)')
@@ -138,21 +109,64 @@ export function AppShell({
     setInspectorWidth((current) => Math.min(420, Math.max(260, current - delta)))
   }, [])
 
-  const commandItemsWithTheme = useMemo(
-    () =>
-      commandItems.map((command) =>
-        command.id === 'theme' ? { ...command, icon: theme === 'dark' ? Sun : Moon } : command
-      ),
-    [theme]
-  )
-
-  const activeItem = controlledActiveItem ?? internalActiveItem
-  const handleNavigate = useCallback(
-    (label: string): void => {
-      if (controlledActiveItem === undefined) setInternalActiveItem(label)
-      onNavigate?.(label)
-    },
-    [controlledActiveItem, onNavigate]
+  const commandItems = useMemo<readonly CommandItem[]>(
+    () => [
+      {
+        id: 'dashboard',
+        label: t('paletteCommands.dashboard'),
+        hint: t('paletteCommands.dashboardHint'),
+        shortcut: 'G D',
+        icon: LayoutDashboard
+      },
+      {
+        id: 'tasks',
+        label: t('paletteCommands.tasks'),
+        hint: t('paletteCommands.tasksHint'),
+        shortcut: 'G T',
+        icon: ListChecks
+      },
+      {
+        id: 'context',
+        label: t('paletteCommands.context'),
+        hint: t('paletteCommands.contextHint'),
+        shortcut: 'G C',
+        icon: Boxes
+      },
+      {
+        id: 'runs',
+        label: t('paletteCommands.runs'),
+        hint: t('paletteCommands.runsHint'),
+        shortcut: 'G R',
+        icon: History
+      },
+      {
+        id: 'baselines',
+        label: t('paletteCommands.baselines'),
+        hint: t('paletteCommands.baselinesHint'),
+        shortcut: 'G B',
+        icon: Layers3
+      },
+      {
+        id: 'settings',
+        label: t('paletteCommands.settings'),
+        hint: t('paletteCommands.settingsHint'),
+        shortcut: 'G S',
+        icon: Settings2
+      },
+      {
+        id: 'theme',
+        label: t('paletteCommands.theme'),
+        hint: t('paletteCommands.themeHint'),
+        icon: Moon
+      },
+      {
+        id: 'language',
+        label: t('paletteCommands.language'),
+        hint: t('paletteCommands.languageHint'),
+        icon: Languages
+      }
+    ],
+    [t]
   )
 
   const handleCommandSelect = useCallback(
@@ -167,12 +181,22 @@ export function AppShell({
       }
       if (command.id === 'theme') {
         setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
+      } else if (command.id === 'language') {
+        setLocale(locale === 'zh' ? 'en' : 'zh')
       } else if (navigation[command.id]) {
         handleNavigate(navigation[command.id])
       }
       setCommandPaletteOpen(false)
     },
-    [handleNavigate]
+    [handleNavigate, locale, setLocale]
+  )
+
+  const commandItemsWithTheme = useMemo(
+    () =>
+      commandItems.map((command) =>
+        command.id === 'theme' ? { ...command, icon: theme === 'dark' ? Sun : Moon } : command
+      ),
+    [commandItems, theme]
   )
 
   return (
@@ -180,7 +204,7 @@ export function AppShell({
       <Resizable className="h-screen w-screen overflow-hidden bg-background text-foreground">
         <AppSidebar
           collapsed={sidebarCollapsed}
-          activeItem={activeItem}
+          activeItem={resolvedActive}
           onNavigate={handleNavigate}
           onToggle={() => setSidebarCollapsed((current) => !current)}
           projectName={projectName}
@@ -196,6 +220,9 @@ export function AppShell({
             onOpenCommandPalette={() => setCommandPaletteOpen(true)}
             onToggleTheme={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
             onToggleInspector={() => setInspectorCollapsed((current) => !current)}
+            onToggleLanguage={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
+            onOpenGuide={() => setGuideOpen(true)}
+            locale={locale}
           />
           <ScrollArea className="min-h-0 flex-1" viewportClassName="h-full">
             <main className="mx-auto w-full max-w-[1240px] p-5 lg:p-6">{children}</main>
@@ -206,7 +233,7 @@ export function AppShell({
             value={inspectorWidth}
             min={260}
             max={420}
-            label="Resize inspector"
+            label={t('header.collapseInspector')}
             onResize={handleResize}
           />
         ) : null}
@@ -222,7 +249,7 @@ export function AppShell({
           <InspectorPanel
             collapsed={inspectorCollapsed}
             onToggle={() => setInspectorCollapsed(true)}
-            title="Project inspector"
+            title={t('inspector.title')}
           >
             {inspector}
           </InspectorPanel>
@@ -234,6 +261,7 @@ export function AppShell({
         onOpenChange={setCommandPaletteOpen}
         onSelect={handleCommandSelect}
       />
+      <FlowGuide open={guideOpen} onClose={closeGuide} />
     </>
   )
 }
