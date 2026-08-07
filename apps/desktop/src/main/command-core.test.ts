@@ -6,7 +6,6 @@ import { openWorkspaceDatabase, closeWorkspaceDatabase } from './database'
 import { GitRevisionReader } from './git-revision-reader'
 import { WorkspaceService } from './workspace-service'
 import { ExecutionCoordinator } from './execution-coordinator'
-import { UnavailableWorkerHost } from './worker-host'
 import { InProcessWorkerHost } from './testing/in-process-worker-host'
 import { buildRoutes, handleCommand } from './command-core'
 import { cleanupTempDirs, createTempGitRepo, trackTempDir } from './testing/git-fixture'
@@ -27,11 +26,7 @@ describe('CommandRouter (command-core)', () => {
   })
 
   it('rejects malformed and unknown commands at the transport boundary', async () => {
-    const routes = buildRoutes({
-      workspace: null,
-      coordinator: null,
-      worker: new UnavailableWorkerHost()
-    })
+    const routes = buildRoutes({ workspace: null, coordinator: null })
 
     await expect(
       handleCommand(routes, { requestId: 'r', command: 'project.create' })
@@ -50,11 +45,7 @@ describe('CommandRouter (command-core)', () => {
   })
 
   it('reports workspace commands as HostUnavailableError when unconfigured', async () => {
-    const routes = buildRoutes({
-      workspace: null,
-      coordinator: null,
-      worker: new UnavailableWorkerHost()
-    })
+    const routes = buildRoutes({ workspace: null, coordinator: null })
     const result = await handleCommand(routes, request('project.create', { name: 'X' }))
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.name).toBe('HostUnavailableError')
@@ -80,7 +71,7 @@ describe('CommandRouter (command-core)', () => {
       runtimeDirectory: runtimeDir
     })
     const coordinator = new ExecutionCoordinator(p, worker)
-    const routes = buildRoutes({ workspace: service, coordinator, worker })
+    const routes = buildRoutes({ workspace: service, coordinator })
 
     const created = await handleCommand(routes, request('project.create', { name: 'MUSICDB' }))
     expect(created.ok).toBe(true)

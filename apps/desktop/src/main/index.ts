@@ -9,6 +9,7 @@ import { openWorkspaceDatabase, closeWorkspaceDatabase } from './database'
 import { GitRevisionReader } from './git-revision-reader'
 import { WorkspaceService } from './workspace-service'
 import { ExecutionCoordinator } from './execution-coordinator'
+import { seedDemoWorkspace } from './demo-seed'
 import { UnavailableWorkerHost } from './worker-host'
 import { UtilityProcessWorkerHost } from './utility-process-worker-host'
 import { runWorkerSmoke } from './worker-smoke'
@@ -128,8 +129,17 @@ app.whenReady().then(async () => {
   const coordinator =
     persistence !== null ? new ExecutionCoordinator(persistence, workerHost) : null
 
+  if (process.env['CANVAS_AGENT_DEMO_SEED'] === '1' && persistence !== null) {
+    try {
+      const demoProjectId = await seedDemoWorkspace(persistence)
+      console.error(`[workspace] demo seed ready at ${demoProjectId}`)
+    } catch (error) {
+      console.error('[workspace] demo seed failed', error)
+    }
+  }
+
   registerRuntimeInfoHandler()
-  registerCommandRouter({ workspace, coordinator, worker: workerHost })
+  registerCommandRouter({ workspace, coordinator })
 
   if (process.env['CANVAS_AGENT_SMOKE'] === '1' && appConfig !== null) {
     void runWorkerSmoke(appConfig, workerHost)

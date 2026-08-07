@@ -9,7 +9,6 @@ import {
 } from '@canvas-agent/contracts'
 import { mapCommandError, WorkspaceUnavailableError } from './command-errors'
 import type { WorkspaceService } from './workspace-service'
-import type { WorkerHost } from './worker-host'
 import type { ExecutionCoordinator } from './execution-coordinator'
 
 export interface CommandRoute {
@@ -19,7 +18,6 @@ export interface CommandRoute {
 export interface CommandDeps {
   workspace: WorkspaceService | null
   coordinator: ExecutionCoordinator | null
-  worker: WorkerHost
 }
 
 const INTERNAL_FAILURE = 'Internal command failure'
