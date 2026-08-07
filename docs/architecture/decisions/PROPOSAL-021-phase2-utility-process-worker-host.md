@@ -1,40 +1,72 @@
 # PROPOSAL-021: Phase 2 — UtilityProcess worker host
 
-- **Status:** Proposed (draft for architecture review)
+- **Status:** Approved with required changes (architecture review 2026-08-07)
 - **Drafted by:** DeepSeek V4 Flash
-- **Owner (implementation):** lead architect
+- **Owner (implementation):** lead architect (delegated: DeepSeek on request)
 - **Date:** 2026-08-07
 - **Depends on:** PROPOSAL-019/020 (Phase 0/1, merged through `9b9a94c`),
   ADR-018 (separate Utility Process worker host)
 
+## Review verdict
+
+PROPOSAL-021 is **approved with required changes**. The four open questions are
+ruled:
+
+| # | Question | Ruling |
+|---|---|---|
+| 1 | Lazy fork | **Lazy, single-flight** (started on first dispatch, guarded by `startPromise`) |
+| 2 | Adapter | **FixtureAgentAdapter** stays for Phase 2, but the runtime smoke must produce **real patch/verification evidence**, not a no-op |
+| 3 | Protocol location | **`apps/desktop/src/worker/protocol.ts`** (internal Electron shell detail, not `@canvas-agent/contracts`) |
+| 4 | Crash policy | **No automatic retry/replay** of a failed request; a fresh Utility Process may be lazily started for the **next independent dispatch** |
+
+Required changes before implementation (no further proposal needed):
+
+1. **Transport correlation uses `messageId`; `executionRequestId` is the domain
+   execution identity.** Main keeps `pending: Map<messageId, PendingRequest>`; the
+   worker keeps `executions: Map<executionRequestId, { controller, completion }>`.
+2. Add **`init:ack`**; `ensureStarted(): Promise<void>` becomes a single-flight
+   state machine (`STOPPED → STARTING → READY → DISPOSING`) with `startPromise`.
+3. **`dispose` aborts all per-execution controllers, waits for active executions
+   to drain, then acks**; the main side waits for `dispose:ack` with a timeout,
+   then kills the process.
+4. **Crash**: current request → `HostUnavailableError` (never replayed). The host
+   returns to a restartable state for the next independent dispatch.
+5. **Claim boundary documented**: the worker claim store is process-local; the host
+   guarantees no automatic replay of an `executionRequestId` across Utility Process
+   restarts. A retry must be a **new `ExecutionRequest`** (new id /
+   `workerAttemptNumber`). Durable cross-app-restart claims remain future work.
+6. **Fixed transport**: Electron Utility Process parent channel only
+   (`child.postMessage` / `process.parentPort`). **No `node:worker_threads`
+   `parentPort` fallback.**
+7. **`apps/desktop/tsconfig.node.json` includes `src/worker/**/*`.**
+8. **Main-side host lifecycle tests** with an injected process/transport factory
+   (lazy-once, init handshake, dispatch correlation, **dispatch + concurrent
+   cancel**, child exit → all pending rejected, dispose timeout, next dispatch
+   after crash starts a new generation, same request never auto-replayed).
+9. Protocol frames carry **`protocolVersion: 1`**; error frames carry
+   `messageId` + `executionRequestId` + `code`; `cancel:result.cancelled: true`
+   means **the cancellation signal was delivered to an active execution**, not that
+   the execution has terminated (terminal state is the later
+   `dispatch:result.outcome === 'CANCELLED'`).
+
 ## Context
 
-Phase 1 closed the renderer↔main domain boundary: `canvas-agent:command` validates
-requests/responses, the WorkspaceService persists to SQLite, and `worker.dispatch` /
-`worker.cancel` return `HostUnavailableError` via `UnavailableWorkerHost`. The only
-remaining worker-path gap is the approved process boundary: the Worker must run in
-an **Electron Utility Process**, never in Electron Main (ADR-018).
-
-`@canvas-agent/worker-runtime` stays Electron-free; the Electron-specific host lives
-in the desktop package.
+Phase 1 closed the renderer↔main domain boundary and left the only worker-path gap:
+the Worker must run in an Electron **Utility Process**, never in Electron Main
+(ADR-018). `@canvas-agent/worker-runtime` stays Electron-free.
 
 ## Goal
 
 Replace `UnavailableWorkerHost` with a `UtilityProcessWorkerHost` that:
 
-1. forks an Electron Utility Process running `@canvas-agent/worker-runtime`
-   `createWorker`;
-2. relays `worker.dispatch` / `worker.cancel` over a narrow, validated
-   `MessagePortMain` protocol, correlated by `executionRequestId`;
-3. owns the process lifecycle (lazy fork, crash handling, dispose);
-4. preserves per-execution cancellation and single-claim semantics.
-
-## Non-goals (this proposal)
-
-- Real Agent adapter (later phase; Phase 2 keeps the deterministic fixture adapter
-  in the Utility Process to prove the boundary end-to-end).
-- Multiple workers, queues, leases, checkpoint recovery, approval flows.
-- Changes to the renderer (Phase 3).
+1. lazily forks (single-flight) an Electron Utility Process running
+   `@canvas-agent/worker-runtime` `createWorker`;
+2. relays `worker.dispatch` / `worker.cancel` over a validated
+   `MessagePortMain`-free parent-channel protocol, correlated by `messageId`;
+3. owns process lifecycle (state machine, crash → reject → restartable, dispose
+   with drain);
+4. preserves per-execution cancellation, single-claim within a process lifetime,
+   and no cross-restart replay.
 
 ## Topology
 
@@ -44,8 +76,9 @@ Renderer
                                              │
                                 ┌────────────▼─────────────┐
                                 │ UtilityProcessWorkerHost │   Electron Main
+                                │  (state machine)         │
                                 └────────────┬─────────────┘
-                                             │ fork + MessagePortMain
+                                             │ fork + parent channel
                                              ▼
                                 ┌──────────────────────────┐
                                 │ Utility Process          │
@@ -58,29 +91,34 @@ Renderer
 
 ## Protocol (`apps/desktop/src/worker/protocol.ts`)
 
-Internal main↔worker-process protocol, validated with Zod (no unchecked casts).
+Fixed transport: Electron Utility Process parent channel (`process.parentPort` in
+the child; `child.postMessage` in main). Every frame is Zod-validated and carries
+`protocolVersion: 1`.
 
 ```ts
-// main → worker
 type WorkerHostRequest =
-  | { type: 'init'; sourceRepositoryPath: string; runtimeDirectory: string }
-  | { type: 'dispatch'; executionRequestId: string; request: ExecutionRequestContract }
-  | { type: 'cancel'; executionRequestId: string }
-  | { type: 'dispose' }
+  | { protocolVersion: 1; type: 'init'; sourceRepositoryPath: string; runtimeDirectory: string }
+  | { protocolVersion: 1; type: 'dispatch'; messageId: string; executionRequestId: string; request: ExecutionRequestContract }
+  | { protocolVersion: 1; type: 'cancel'; messageId: string; executionRequestId: string }
+  | { protocolVersion: 1; type: 'dispose' }
 
-// worker → main
 type WorkerHostResponse =
-  | { type: 'dispatch:result'; executionRequestId: string; result: DispatchResult }
-  | { type: 'cancel:result'; executionRequestId: string; cancelled: boolean }
-  | { type: 'error'; executionRequestId: string | null; message: string }
-  | { type: 'dispose:ack' }
+  | { protocolVersion: 1; type: 'init:ack' }
+  | { protocolVersion: 1; type: 'dispatch:result'; messageId: string; executionRequestId: string; result: DispatchResult }
+  | { protocolVersion: 1; type: 'cancel:result'; messageId: string; executionRequestId: string; cancelled: boolean }
+  | { protocolVersion: 1; type: 'error'; messageId: string; executionRequestId: string | null; code: 'NOT_INITIALIZED' | 'INVALID_FRAME' | 'SERVICE_FAILURE'; message: string }
+  | { protocolVersion: 1; type: 'dispose:ack' }
 ```
 
-- `init` carries `AppConfig` values (the renderer can never supply paths).
-- Responses are correlated by `executionRequestId`; the host keeps a
-  `Map<executionRequestId, resolve/reject>`.
-- Validation: each frame passes its Zod schema in both directions (in-process
-  boundary, but treated like the IPC boundary).
+Identity split:
+
+- **`messageId`** = transport RPC identity (main `pending` map key).
+- **`executionRequestId`** = domain execution identity (worker `executions` map
+  key, AbortController per execution). They are never the same key.
+
+`cancel:result.cancelled: true` = the cancellation signal was delivered to an
+active execution (acknowledgment). The execution's terminal state is the later
+`dispatch:result.outcome === 'CANCELLED'`.
 
 ## Worker side (`src/worker/`)
 
@@ -92,99 +130,114 @@ interface WorkerTransport {
 }
 
 class WorkerService {
-  constructor(
-    private readonly appConfig: AppConfig,
-    private readonly transport: WorkerTransport
-  )
-  // owns ONE createWorker instance (shared claim store) + per-execution
-  // AbortController map:
-  //   Map<executionRequestId, AbortController>
+  constructor(private readonly transport: WorkerTransport)
+  // ONE createWorker for the process lifetime (shared claim store).
+  // executions: Map<executionRequestId, { controller: AbortController; completion: Promise<void> }>
   onRequest(request: WorkerHostRequest): Promise<void>
 }
 ```
 
-- `init` builds `createWorker({ runtimeDirectory, sourceRepositoryPath,
+- `init` → build `createWorker({ runtimeDirectory, sourceRepositoryPath,
   capabilities: ['git','node'], commandAllowlist: ['git','node'],
-  verificationCommands: [], agent: FixtureAgentAdapter(...) })`.
-- `dispatch`: create a per-execution `AbortController`, `worker.dispatch({ request,
-  signal })`, reply `dispatch:result` on settle, delete the controller.
-- `cancel(id)`: abort the per-execution controller → the in-flight dispatch
-  resolves `CANCELLED`; reply `cancel:result { cancelled: true }` (false if no
-  active execution).
-- `dispose`: `worker.cancel()` + reply `dispose:ack`.
-- Errors → `{ type: 'error', message }` (mapped by the host to `CommandError`).
+  verificationCommands: [...], agent: FixtureAgentAdapter({ steps: [...] }) })`;
+  reply `init:ack`.
+- `dispatch` → create per-exec `AbortController` + `completion` promise; call
+  `worker.dispatch({ request, signal: controller.signal })`; on settle reply
+  `dispatch:result` and delete the execution entry.
+- `cancel(id)` → abort the per-exec controller; reply `cancel:result
+  { cancelled: true }` if an active execution exists, else `{ cancelled: false }`.
+- `dispose` → stop accepting `dispatch`; abort all per-exec controllers; `await
+  Promise.allSettled(completions)`; reply `dispose:ack`. **It does not call
+  `worker.cancel()`** (that only aborts `createWorker`'s internal controller and
+  would not affect executions driven by external signals).
+- `error` → `{ type: 'error', messageId, executionRequestId, code, message }`.
 
 ### `index.ts` (electron entry)
 
-```ts
-import { parentPort } from 'node:worker_threads'   // or process.parentPort (electron)
-```
-
-Wires the Electron Utility Process `MessagePortMain`/`parentPort` to `WorkerService`
-and starts the transport. This is the only Electron-dependent file.
+Wires `process.parentPort` messages to `WorkerService` and sends responses back.
+The only Electron-dependent file.
 
 ## Main side (`src/main/utility-process-worker-host.ts`)
 
 Implements `WorkerHost`:
 
 ```ts
-class UtilityProcessWorkerHost implements WorkerHost {
-  private child: UtilityProcess | null
-  private pending: Map<string, { resolve; reject }>
-  private port: MessagePortMain | null
+type WorkerHostState = 'STOPPED' | 'STARTING' | 'READY' | 'DISPOSING'
 
-  ensureStarted(): void        // lazy fork of out/main/worker.js + init handshake
+class UtilityProcessWorkerHost implements WorkerHost {
+  private state: WorkerHostState = 'STOPPED'
+  private startPromise: Promise<void> | null = null
+  private child: UtilityProcess | null = null
+  private pending: Map<string, PendingRequest>   // key: messageId
+  private submittedExecutionIds = new Set<string>()  // no cross-restart replay
+  private messageCounter = 0
+
+  constructor(
+    private readonly appConfig: AppConfig,
+    private readonly processFactory: (entry: string) => UtilityProcessLike = defaultFork
+  )
+  ensureStarted(): Promise<void>   // single-flight; init handshake awaits init:ack
   async dispatch(request): Promise<DispatchResult>
   async cancel(id): Promise<boolean>
   async dispose(): Promise<void>
 }
 ```
 
-- Lazy fork on first `dispatch`; sends `init` with `AppConfig`.
-- `dispatch`/`cancel` write a pending entry and `postMessage`; timeout/error paths
-  reject with `HostUnavailableError` / `InternalError`.
-- On child `exit` while requests are pending: reject all pending with
-  `HostUnavailableError`; mark host unavailable for a new dispatch until restarted.
-- `dispose`: send `dispose`, close the port, `child.kill()`.
+- **`ensureStarted()`**: if `STARTING`, await `startPromise`; if `READY`, return;
+  else fork + wire transport + send `init` and await `init:ack` (with a timeout).
+  `processFactory` is injectable for host-lifecycle tests.
+- **`dispatch`**: `await ensureStarted()`; generate `messageId`; register pending;
+  record `executionRequestId` in `submittedExecutionIds`; `child.postMessage(frame)`.
+- **`cancel(id)`**: `await ensureStarted()`; send cancel with a new `messageId`;
+  resolve with `{ cancelled }` from `cancel:result`.
+- **Child exit** while pending: reject every pending request with
+  `HostUnavailableError`; set state `STOPPED` (restartable). The failed
+  `executionRequestId` stays in `submittedExecutionIds`, so it can never be
+  auto-replayed by the host — a retry must be a new `ExecutionRequest`.
+- **`dispose()`**: set `DISPOSING`; send `dispose`; wait `dispose:ack` with a
+  timeout; then `child.kill()` and close.
 
-## Build change (`electron.vite.config.ts`)
+## Claim semantics (documented boundary)
 
-The main build gains a second entry so the Utility Process has a bundled entry that
-also inlines the workspace packages:
+`createWorker`'s claim store is an in-memory `Set` per process. Within one Utility
+Process lifetime, single-claim holds (one shared store). Across a crash, a fresh
+process has a fresh store; the **host-level `submittedExecutionIds`** prevents
+automatic replay of the same id, but durable cross-app-restart claim semantics
+remain future orchestration work.
 
-```ts
-main: {
-  build: {
-    rollupOptions: {
-      input: { index: 'src/main/index.ts', worker: 'src/worker/index.ts' }
-    },
-    externalizeDeps: { exclude: [...@canvas-agent/...] }
-  }
-}
-```
+## Build & config changes
 
-`UtilityProcessWorkerHost` forks `join(__dirname, 'worker.js')`.
-
-`index.ts` swaps `UnavailableWorkerHost` → `UtilityProcessWorkerHost`; the
-UnavailableWorkerHost stays only as a test/dev fallback and in `testing/`.
+- `electron.vite.config.ts` main build adds a second entry:
+  `input: { index: 'src/main/index.ts', worker: 'src/worker/index.ts' }`; the
+  worker entry keeps the same `externalizeDeps.exclude` for `@canvas-agent/*`.
+- `apps/desktop/tsconfig.node.json` includes `"src/worker/**/*"`.
+- `index.ts` swaps `UnavailableWorkerHost` → `UtilityProcessWorkerHost`
+  (`UnavailableWorkerHost` remains only in `testing/`).
 
 ## Security invariants (unchanged)
 
 - Worker never touches the app database (worker-runtime invariant).
 - Paths come only from `AppConfig` (`init`); renderer never supplies paths.
-- Protocol frames are Zod-validated at both ends.
-- `worker-runtime` remains Electron-free; Electron only exists in the host + entry.
+- Protocol frames Zod-validated at both ends; `protocolVersion: 1`.
+- `worker-runtime` remains Electron-free.
 
 ## Tests
 
-- `protocol.test.ts`: request/response schemas accept valid frames, reject bad ones.
-- `worker-service.test.ts`: drive `WorkerService` with a fake transport + temp git
-  repo; assert `dispatch → SUCCEEDED`, `cancel(id)` aborts that execution,
-  `cancel` of an unknown id returns `false`, `dispose` acks.
-- `utility-process-worker-host` behavior is covered by a **manual runtime smoke**
-  (`electron .` with `CANVAS_AGENT_REPO`): run `worker.dispatch` through the router
-  and observe `SUCCEEDED` while the Utility Process runs it.
-- Existing `InProcessWorkerHost` tests stay as the fast in-process path.
+- `protocol.test.ts`: frame schemas accept valid frames, reject bad ones; identity
+  split (`messageId` ≠ `executionRequestId`) is type-enforced.
+- `worker-service.test.ts`: fake transport + temp git repo; assert `dispatch →
+  SUCCEEDED` with a real patch (fixture writes a file, verification runs),
+  `dispatch + cancel` on the same execution → cancel ack `true`, later
+  `dispatch:result.outcome === 'CANCELLED'`, `cancel` unknown id → `false`,
+  `dispose` drains and acks.
+- `utility-process-worker-host.test.ts` (injected `processFactory`): lazy start
+  only once, init handshake, dispatch correlation, **dispatch + concurrent
+  cancel**, child exit → all pending rejected with `HostUnavailableError`, dispose
+  timeout → kill, next dispatch after crash starts a new generation, same
+  `executionRequestId` never auto-replayed.
+- Manual runtime smoke: `electron .` with `CANVAS_AGENT_REPO`; drive
+  `worker.dispatch` through the router and observe `SUCCEEDED` with a real patch
+  hash, while the Utility Process hosts the work.
 
 ## Ownership & files
 
@@ -195,24 +248,13 @@ UnavailableWorkerHost stays only as a test/dev fallback and in `testing/`.
 | `apps/desktop/src/worker/index.ts` | architect |
 | `apps/desktop/src/main/utility-process-worker-host.ts` | architect |
 | `apps/desktop/electron.vite.config.ts` | architect |
-| `apps/desktop/src/main/index.ts` (swap host) | architect |
+| `apps/desktop/tsconfig.node.json` | architect |
+| `apps/desktop/src/main/index.ts` (host swap) | architect |
 | tests above | architect |
 | `packages/worker-runtime` | unchanged |
 
-## Open questions
-
-1. **Lazy fork on first dispatch** (proposed) vs eager fork at app boot?
-2. **Adapter in the Utility Process**: keep `FixtureAgentAdapter` for Phase 2
-   (proposed) so the boundary is proven deterministically before a real Agent
-   adapter is chosen?
-3. **Protocol location**: internal `apps/desktop/src/worker/protocol.ts`
-   (proposed) vs publishing the schemas in `@canvas-agent/contracts`?
-4. **Worker process crash mid-dispatch**: return `HostUnavailableError`
-   (proposed, no auto-restart) vs attempt one restart per request?
-
 ## Handoff
 
-On approval: implement the host + entry + protocol + tests, swap the production
-host, run the manual Utility-Process smoke, then update the Phase 1 delivery record
-to Phase 2. Real Agent adapter, multi-worker and event protocols remain separate
-later phases.
+On approval, implement Phase 2 as scoped above; then update the Phase 1 delivery
+record. A real Agent adapter, multi-worker scheduling, event/checkpoint protocols
+remain separate later phases.
