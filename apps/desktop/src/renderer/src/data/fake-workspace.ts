@@ -384,10 +384,68 @@ export function createFakeWorkspaceClient(options: FakeWorkspaceOptions = {}): W
           if (!state) {
             return failure(request, 'NotFoundError', `Cannot find Project ${input.projectId}`)
           }
+          const taskSpecAggregate = state.taskSpecs.find(
+            (aggregate) => aggregate.spec.id === input.taskSpecVersionId
+          )
+          if (!taskSpecAggregate) {
+            return failure(
+              request,
+              'NotFoundError',
+              `Cannot find TaskSpecVersion ${input.taskSpecVersionId}`
+            )
+          }
+          const spec = taskSpecAggregate.spec
+          const taskSpecContent = [
+            spec.description,
+            spec.scope,
+            ...taskSpecAggregate.criteria.map((criterion) => criterion.description)
+          ].join('\n')
+          const materialized: Array<{
+            itemType: 'USER_INPUT' | 'NODE_VERSION'
+            sourceRef: string
+            resolvedContent: string
+            authority: 'TASK_INSTRUCTION' | 'PROJECT_FACT'
+            priority: 'P0' | 'P1'
+            tokenEstimate: number
+            selectionReason: string | null
+          }> = [
+            {
+              itemType: 'USER_INPUT' as const,
+              sourceRef: `task-spec://${spec.id}`,
+              resolvedContent: taskSpecContent,
+              authority: 'TASK_INSTRUCTION' as const,
+              priority: 'P0' as const,
+              tokenEstimate: Math.max(1, Math.ceil(taskSpecContent.length / 4)),
+              selectionReason: null
+            }
+          ]
+          for (const selection of input.selections) {
+            const ref = selection.source
+            const version = state.nodeVersions.find(
+              (candidate) => candidate.id === ref.nodeVersionId
+            )
+            if (version === undefined) {
+              return failure(
+                request,
+                'NotFoundError',
+                `Cannot find NodeVersion ${ref.nodeVersionId}`
+              )
+            }
+            const content = `${version.title}\n\n${version.body}`
+            materialized.push({
+              itemType: 'NODE_VERSION' as const,
+              sourceRef: `node://${version.id}`,
+              resolvedContent: content,
+              authority: 'PROJECT_FACT' as const,
+              priority: 'P1' as const,
+              tokenEstimate: Math.max(1, Math.ceil(content.length / 4)),
+              selectionReason: selection.selectionReason ?? null
+            })
+          }
           const snapshots = snapshotsByProject.get(input.projectId) ?? []
           const id = `snapshot-${snapshots.length + 1}`
           const now = new Date().toISOString()
-          const items: ContextSnapshotItemRecord[] = input.items.map((item, position) => ({
+          const items: ContextSnapshotItemRecord[] = materialized.map((item, position) => ({
             id: `${id}-item-${position + 1}`,
             contextSnapshotId: id,
             position,
@@ -395,11 +453,11 @@ export function createFakeWorkspaceClient(options: FakeWorkspaceOptions = {}): W
             sourceRef: item.sourceRef,
             resolvedContent: item.resolvedContent,
             contentHash: '6'.repeat(64),
-            selectionReason: item.selectionReason ?? null,
+            selectionReason: item.selectionReason,
             authority: item.authority,
-            priority: item.priority ?? 'P2',
+            priority: item.priority,
             tokenEstimate: item.tokenEstimate,
-            blobId: item.blobId ?? null
+            blobId: null
           }))
           const result: SnapshotFreezeResult = {
             snapshot: {

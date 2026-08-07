@@ -140,17 +140,7 @@ describe('CommandRouter (command-core)', () => {
         taskSpecVersionId: specId,
         baseBaselineId: baselineId,
         expectedRepositoryRevisionId: revisionRow.id,
-        items: [
-          {
-            itemType: 'NODE_VERSION',
-            sourceRef: `node://${versionId}`,
-            resolvedContent: 'body',
-            authority: 'TASK_INSTRUCTION',
-            priority: 'P0',
-            tokenEstimate: 120,
-            position: 0
-          }
-        ]
+        selections: [{ source: { kind: 'NODE_VERSION', nodeVersionId: versionId } }]
       })
     )
     expect(frozen.ok).toBe(true)

@@ -1,7 +1,7 @@
 # PROPOSAL-023 — Phase 4 #1: Context resolver / materialization + SourceReference unification
 
-- **Status:** Draft — awaiting architecture freeze
-- **Author:** DeepSeek V4 Flash
+- **Status:** APPROVED WITH REQUIRED CHANGES — direction frozen, entering implementation
+- **Author:** DeepSeek V4 Flash (architecture decisions by the lead)
 - **Date:** 2026-08-08
 - **Basis:** Phase 4 close-out priority #1; the parked option B from
   `phase3-context-materialization-research.md`; the Phase 4 sourceRef TODO.
@@ -10,153 +10,205 @@
 
 Phase 3 closes the real loop with an untrusted freeze path:
 
-1. **sourceRef is opaque and inconsistent.** The same conceptual reference is
-   encoded three ways already:
-   - `context-candidates.ts` / `phase3-smoke.ts`: `task-spec://<id>`, `node://<id>`;
-   - `workspace-view.ts`: raw `spec.id` / `version.id`;
-   - fake/legacy tooling: any string.
-   A future ContextResolver must not have to understand `task-spec://`, raw uuids,
-   `node://`, `path:` and `commit:` simultaneously.
+1. **sourceRef is opaque and inconsistent** (`task-spec://`, raw ids, arbitrary
+   strings coexist across renderer / smoke / tooling).
 2. **freeze content is fabricated by the renderer.** `snapshot.freeze` accepts
-   `items[].resolvedContent` verbatim; nothing verifies it against the persisted
-   aggregate it claims to reference. This is acceptable for a single-user Phase 3,
-   not for an "execution substrate" that will do materialization, long-term memory
-   and graph context assembly.
-3. **RepositoryContent has no home.** Reading real repository files into a frozen
-   snapshot (PROPOSAL-022 deferred `context.resolve`) needs a resolver boundary,
-   not more renderer-fabricated content.
+   `items[].resolvedContent` verbatim; persistence only hashes what it receives,
+   so the hash proves "unchanged since freeze", not "frozen from an authoritative
+   source at freeze time".
+3. **RepositoryContent has no resolver home.**
 
-## Goals
+## Core principle (frozen)
 
-1. One canonical `SourceReference` (typed discriminated union) that the renderer,
-   Main, persistence and any future resolver all speak — plus a single
-   `sourceRefToString`/`parseSourceRef` pair.
-2. Main is the **single authority** that materializes frozen content from
-   authoritative, project-scoped persistence. The renderer never fabricates
-   `resolvedContent` for typed selections.
-3. Freeze moves from "renderer sends content" to "renderer sends selections";
-   the old content-based path stays available to tooling/tests only.
-4. The resolver boundary is the place `RepositoryContent` lands later without
-   another contract change.
+> **Renderer only selects the source. Main decides what that source actually
+> freezes into.**
 
-## SourceReference (contracts)
+The renderer owns "I want this source"; it never owns "what this source should be
+interpreted as" (itemType / authority / priority / tokenEstimate / resolvedContent /
+contentHash / sourceRef string are all derived on Main; `position` is the array index).
+
+## Decisions
+
+### Decision 1 — Freeze contract: B1 (breaking), internal primitive stays
+
+Public `snapshot.freeze(items)` is **removed**. The single public semantics become:
+
+```ts
+snapshot.freeze({
+  projectId,
+  taskId,
+  taskSpecVersionId,
+  baseBaselineId,
+  expectedRepositoryRevisionId,
+  selections: ContextSelection[]
+})
+
+interface ContextSelection {
+  source: SourceReference
+  selectionReason?: string | null
+}
+```
+
+`freezeContextSnapshot(p, { items: ResolvedContextItem[] })` remains only as an
+**internal persistence primitive** (Persistence tests may still test it directly).
+
+```
+public IPC        = selection-based only
+Main resolver     = authoritative materialization
+Persistence API  = resolved-item freeze primitive
+```
+
+### Decision 2 — No reserved future kinds in the public union
+
+Phase 4 #1 supports exactly two kinds:
 
 ```ts
 type SourceReference =
-  | { kind: 'TaskSpecVersion'; taskSpecVersionId: string }
-  | { kind: 'NodeVersion'; nodeVersionId: string }
-  | { kind: 'RepositoryContent'; path: string; commit?: string } // future
-  | { kind: 'Artifact'; artifactId: string }                     // future, reserved
-  | { kind: 'UserInput'; text: string }                          // future, reserved
-
-sourceRefToString(ref): string      // task-spec://<id>, node://<id>, repo://<path>@<commit>
-parseSourceRef(value: string): SourceReference  // throws on unknown scheme
+  | { kind: 'TASK_SPEC_VERSION'; taskSpecVersionId: string }
+  | { kind: 'NODE_VERSION'; nodeVersionId: string }
 ```
 
-- `SourceReference` is zod-validated (contracts) and serialized to the existing
-  `SnapshotItem.sourceRef` string via `sourceRefToString` — the DB column is
-  unchanged.
-- Future kinds are **reserved in the union** but rejected by resolution until
-  implemented, so the parser/resolver don't evolve piecemeal.
-- Existing legacy strings (`node://nv_smoke`, raw ids) parse under the union where
-  the scheme matches; anything unknown is a validation error.
+Future kinds (`REPOSITORY_CONTENT`, `ARTIFACT`, `USER_INPUT`) are documented here,
+**not schema-valid**. Add one, implement one. In particular:
 
-## Resolver design (Main)
+- `REPOSITORY_CONTENT` shape is not frozen (its revision must come from the
+  resolution scope, not be embedded — `expectedRepositoryRevisionId` already
+  exists, and RepositoryRevision is baseCommit+treeHash+workingTreePatchHash, not
+  a bare commit).
+- `USER_INPUT` is not a reference; if ever needed it will be a persisted entity
+  reference or an explicit `InlineUntrustedContent` with
+  `authority: UNTRUSTED_CONTENT`.
+- `ARTIFACT` waits for Artifact persistence.
 
-```ts
-interface ContextResolver {
-  resolve(projectId: string, ref: SourceReference): Promise<ResolvedContextItem>
-}
+### Decision 3 — `context.resolve` is deferred
 
-interface ResolvedContextItem {
-  readonly sourceRef: string            // canonical sourceRefToString
-  readonly resolvedContent: string
-  readonly contentHash: string
-  readonly authority: ContextAuthority
-  readonly priority: ContextPriority
-  readonly tokenEstimate: number
-}
+Deferred to the RepositoryContent packet, when the renderer needs to preview
+content it does not already have in `ProjectStateView`.
+
+## Invariants (A–F)
+
+- **A. Renderer submits metadata-free selections.** A selection is only
+  `{ source, selectionReason? }`. Main derives `itemType`, `authority`, `priority`,
+  `tokenEstimate`, `sourceRef`, `resolvedContent`, `contentHash`; `position` is the
+  array index.
+- **B. Resolver is scope-parameterized.** The signature carries the full snapshot
+  binding so RepositoryContent can join later without breaking it:
+
+  ```ts
+  interface ContextResolutionScope {
+    projectId: string
+    taskId: string
+    taskSpecVersionId: string
+    baseBaselineId: string
+    expectedRepositoryRevisionId: string
+  }
+
+  interface ContextResolver {
+    resolve(scope: ContextResolutionScope, ref: SourceReference): Promise<ResolvedContextItem>
+  }
+  ```
+
+- **C. `ResolvedContextItem` includes `itemType`:**
+
+  ```ts
+  interface ResolvedContextItem {
+    readonly itemType: ContextItemType
+    readonly sourceRef: string
+    readonly resolvedContent: string
+    readonly contentHash: string
+    readonly authority: ContextAuthority
+    readonly priority: ContextPriority
+    readonly tokenEstimate: number
+  }
+  ```
+
+- **D. The pinned TaskSpecVersion is auto-materialized.** Main always freezes the
+  snapshot's `taskSpecVersionId` as `USER_INPUT / TASK_INSTRUCTION / P0` at
+  position 0. The renderer never sends it. This structurally eliminates
+  `header spec != selected spec`. The renderer may display it as a pinned/required
+  row but it is not a selection and is not submitted.
+
+- **E. NodeVersion must be a member of `baseBaseline`.** A `NODE_VERSION` selection
+  resolves only if `nodeVersion.project === projectId` AND the version is in
+  `baseBaseline.items` → `NODE_VERSION / PROJECT_FACT / P1`. Anything else is an
+  error; non-baseline references would require a `REFERENCE / P2` resolver later.
+
+- **F. No duplicate sources.** `sourceRefToString(ref)` is the canonical
+  uniqueness key; a repeated source in one freeze → `ValidationError` with
+  `duplicate_context_source`.
+
+## Canonical materialization (hash-stable, test-locked)
+
+- **TaskSpecVersion** content (ordered by `position ASC`):
+  `description`, `scope`, `targets` (each `nodeId` + `nodeVersionId`),
+  `criteria` (each `description` + `verificationMethod`). This matches the
+  TaskSpec `contentHash` coverage; UI copy must never leak into it.
+- **NodeVersion** content: `title` + `body`.
+
+## Encoding
+
+`sourceRefToString()` produces only canonical forms
+(`task-spec://<id>`, `node://<id>`); `parseSourceRef()` accepts only canonical
+forms; raw ids are `INVALID`. Historical frozen snapshots keep their old strings
+and are **not migrated** (immutable). New freezes are canonical only.
+
+## Frozen end-to-end flow
+
+```text
+Renderer
+  │ snapshot.freeze({ ..., selections: [{ source: NODE_VERSION(...) }, ...] })
+  ▼
+Main / WorkspaceService
+  ├ validate bindings
+  ▼
+ContextResolver
+  ├ auto-materialize pinned TaskSpec → USER_INPUT / TASK_INSTRUCTION / P0
+  ├ resolve each NodeVersion → same project + baseBaseline member → NODE_VERSION / PROJECT_FACT / P1
+  ├ canonical sourceRef + content + tokenEstimate + SHA-256
+  ▼
+ResolvedContextItem[]
+  ▼
+freezeContextSnapshot(...)
+  ▼
+single SQLite transaction → FROZEN ContextSnapshot
+  ▼
+ExecutionCoordinator
 ```
 
-Implementations (in the Main layer, backed by persistence read helpers):
-
-| SourceReference | authority | priority | content |
-|---|---|---|---|
-| `TaskSpecVersion` | `TASK_INSTRUCTION` | `P0` | description + scope + criteria |
-| `NodeVersion` | `PROJECT_FACT` | `P1` | title + body |
-| `RepositoryContent` | (deferred) | (deferred) | git file read |
-
-Invariants:
-- A selection resolves only against aggregates in `projectId` (project-scoped; no
-  cross-project source). Mismatch → error.
-- `resolvedContent` is composed on Main from persisted fields; `contentHash` is
-  recorded at freeze time for audit.
-
-## Freeze contract options
-
-- **B1 — replace `items` with `selections`** in `snapshot.freeze` (breaking).
-  Cleanest surface, but breaks the content-based path used by smoke/tests/tooling.
-- **B2 — add `snapshot.freezeFromSelections`** (additive, recommended).
-  `snapshot.freezeFromSelections({ projectId, taskId, taskSpecVersionId,
-  baseBaselineId, expectedRepositoryRevisionId, selections: SourceReference[] })`
-  → Main resolves + materializes + freezes. Existing `snapshot.freeze` remains for
-  tooling/tests (documented as internal).
-- **B3 — single command, optional `selections` field**; exactly one of
-  `items`/`selections` must be present. Least explicit; muddies validation.
-
-Recommendation: **B2**. Additive, keeps the deterministic tooling path, gives the
-renderer one obvious command.
-
-Optional (non-blocking): `context.resolve` IPC command so the Composer can preview
-resolved content + token estimates before freeze. The renderer already has
-title/body/description locally, so this is an enhancement, not a requirement.
-
-## Renderer changes (data wiring only)
-
-- `context-candidates.ts` emits `SourceReference[]` selections instead of
-  content-bearing items.
-- The live Composer keeps its local selection/token preview; `freezeFromSelections`
-  replaces `freeze`; the frozen snapshot evidence panel is unchanged.
-- `workspace-view.ts` and any other raw-id sourceRef usage migrate to
-  `sourceRefToString`.
+The renderer can no longer control `resolvedContent / contentHash / authority /
+priority / itemType / tokenEstimate`.
 
 ## Out of scope (this packet)
 
-- `RepositoryContent` file resolution (resolver interface only, reserved).
-- `Artifact` / `UserInput` kinds (reserved, rejected by resolution).
-- Revision pinning changes (`revision.current` → `expectedRepositoryRevisionId`
-  flow is unchanged).
+- `REPOSITORY_CONTENT` / `ARTIFACT` / `USER_INPUT` kinds (documented, not
+  schema-valid).
+- `context.resolve` preview (deferred to the RepositoryContent packet).
+- Revision pinning changes (unchanged).
 - Run/Artifact persistence, RunEvent, Checkpoint/Resume (Phase 4 #2–#4).
 
 ## Test matrix
 
-- contracts: zod parse for each `SourceReference` kind + `sourceRefToString`/
-  `parseSourceRef` round-trip; unknown scheme → validation error.
-- resolver: each implemented kind materializes authoritative content with the
-  right authority/priority; unknown source → error; cross-project source → error;
-  contentHash stable for identical content.
-- freeze-from-selections: end-to-end freeze with hashed materialized items;
-  renderer-fabricated content path no longer reachable from the renderer IPC.
-- renderer: `context-candidates` → selections; live view freeze via the new
-  command (fake + real E2E updated).
-- E2E: `e2e:live` freeze step driven via selections (Playwright, real backend).
+- contracts: zod parse per kind; `sourceRefToString`/`parseSourceRef` round-trip;
+  raw/non-canonical → validation error.
+- resolver: TaskSpecVersion canonical content + hash stability; NodeVersion
+  materialization; wrong project → error; nodeVersion not in baseBaseline →
+  error; duplicate source → `ValidationError duplicate_context_source`.
+- freeze-from-selections: end-to-end freeze (pinned task spec at position 0 +
+  selections), single transaction; content-bearing input no longer reachable from
+  renderer IPC.
+- renderer: composer emits `SourceReference` selections; live view freeze via the
+  new contract (fake + real E2E).
+- E2E: `e2e:live` freeze driven via selections against the real backend.
 
 ## Delivery
 
-- `packages/contracts`: `SourceReference` + schemas + `sourceRefToString`/
-  `parseSourceRef`; `snapshot.freezeFromSelections` command; `context.resolve`
-  (optional).
-- `packages/persistence`: read helpers used by the resolver (already mostly
-  present); `freezeContextSnapshot` reused after Main materializes.
-- `apps/desktop/src/main`: `ContextResolver` + route wiring.
-- `apps/desktop/src/renderer`: `context-candidates` → selections; live view wiring.
-- docs: this ADR + verification packet row.
+- `packages/contracts`: `SourceReference` + `sourceRefToString`/`parseSourceRef`;
+  `snapshot.freeze` selections schema (breaking); output item schema kept.
+- `packages/persistence`: `freezeContextSnapshot` unchanged as the internal
+  primitive; baseline-membership read helper.
+- `apps/desktop/src/main`: `ContextResolver` + `WorkspaceService.freezeSnapshot`
+  (selections) + wiring; phase3-smoke migrated to selections.
+- `apps/desktop/src/renderer`: `context-candidates` → selections; pinned task spec
+  row; live view freeze; fake-workspace / use-workspace migrated.
+- docs: this ADR (revised) + verification packet row.
 - Gate: `pnpm check` green + `e2e:live` green.
-
-## Awaiting architecture decisions
-
-1. Adopt B2 (`snapshot.freezeFromSelections`) vs B1/B3?
-2. Reserve future `RepositoryContent`/`Artifact`/`UserInput` kinds in the union now
-   (recommended) vs add them when implemented?
-3. Ship `context.resolve` preview in this packet or defer to the repository-content
-   packet?

@@ -1,17 +1,17 @@
 import type { ContextAuthority, ContextItemType, ContextPriority } from '@canvas-agent/domain'
+import { sourceRefToString, type SourceReference } from '@canvas-agent/contracts'
 import type { ProjectStateView } from '@/lib/workspace-types'
 
-export interface ContextCandidateInput {
+export interface ContextCandidate {
   readonly id: string
+  readonly source: SourceReference
+  readonly label: string
+  readonly description: string
   readonly itemType: ContextItemType
-  readonly sourceRef: string
-  readonly resolvedContent: string
   readonly authority: ContextAuthority
   readonly priority: ContextPriority
   readonly tokenEstimate: number
-  readonly position: number
-  readonly label: string
-  readonly description: string
+  readonly required: boolean
 }
 
 export function estimateTokens(content: string): number {
@@ -19,44 +19,57 @@ export function estimateTokens(content: string): number {
   return Math.max(1, Math.ceil(characters / 4))
 }
 
-export function buildContextCandidates(workspace: ProjectStateView): ContextCandidateInput[] {
-  const candidates: ContextCandidateInput[] = []
+// The renderer only *selects sources*; Main derives content/authority/priority.
+// The pinned TaskSpecVersion is displayed as a required row but is never
+// submitted (Main auto-materializes it). NodeVersion candidates are limited to
+// members of the base baseline so a selection can actually freeze.
+export function buildContextCandidates(workspace: ProjectStateView): ContextCandidate[] {
+  const candidates: ContextCandidate[] = []
 
-  for (const aggregate of workspace.taskSpecs) {
-    const { spec, criteria } = aggregate
-    const content = [
-      `TaskSpecVersion ${spec.id}`,
-      `Description: ${spec.description}`,
-      `Scope: ${spec.scope}`,
-      ...criteria.map((criterion, index) => `Criterion ${index + 1}: ${criterion.description}`)
-    ].join('\n')
+  const pinnedSpec = workspace.taskSpecs[0]
+  if (pinnedSpec) {
+    const { spec } = pinnedSpec
+    const preview = [
+      spec.description,
+      spec.scope,
+      ...pinnedSpec.criteria.map((criterion) => criterion.description)
+    ].join(' ')
     candidates.push({
       id: `task-spec://${spec.id}`,
+      source: { kind: 'TASK_SPEC_VERSION', taskSpecVersionId: spec.id },
+      label: `Task instruction · ${spec.id}`,
+      description: spec.description,
       itemType: 'USER_INPUT',
-      sourceRef: `task-spec://${spec.id}`,
-      resolvedContent: content,
       authority: 'TASK_INSTRUCTION',
       priority: 'P0',
-      tokenEstimate: estimateTokens(content),
-      position: candidates.length,
-      label: `Task instruction · ${spec.id}`,
-      description: spec.description
+      tokenEstimate: estimateTokens(preview),
+      required: true
     })
   }
 
+  const baseBaseline =
+    workspace.baselines.find(
+      (aggregate) => aggregate.baseline.id === (workspace.activeBaseline?.id ?? null)
+    ) ?? workspace.baselines[0]
+  const baselineVersionIds = new Set(
+    baseBaseline === undefined ? [] : baseBaseline.items.map((item) => item.nodeVersionId)
+  )
+
   for (const version of workspace.nodeVersions) {
-    const content = `${version.title}\n\n${version.body}`
+    if (!baselineVersionIds.has(version.id)) {
+      continue
+    }
+    const source: SourceReference = { kind: 'NODE_VERSION', nodeVersionId: version.id }
     candidates.push({
-      id: `node://${version.id}`,
+      id: sourceRefToString(source),
+      source,
+      label: `Node version · ${version.title}`,
+      description: version.body,
       itemType: 'NODE_VERSION',
-      sourceRef: `node://${version.id}`,
-      resolvedContent: content,
       authority: 'PROJECT_FACT',
       priority: 'P1',
-      tokenEstimate: estimateTokens(content),
-      position: candidates.length,
-      label: `Node version · ${version.title}`,
-      description: version.body
+      tokenEstimate: estimateTokens(`${version.title} ${version.body}`),
+      required: false
     })
   }
 

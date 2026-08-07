@@ -40,9 +40,11 @@ import {
 } from '@canvas-agent/persistence'
 import type { CommandInput, ProjectStateView } from '@canvas-agent/contracts'
 import { GitRevisionReader } from './git-revision-reader'
+import { ContextResolver, type ResolvedContextItem } from './context-resolver'
 
 export class WorkspaceService {
   private readonly services: SystemServices
+  private readonly contextResolver: ContextResolver
 
   constructor(
     private readonly p: Persistence,
@@ -50,6 +52,7 @@ export class WorkspaceService {
     services: SystemServices = defaultServices
   ) {
     this.services = services
+    this.contextResolver = new ContextResolver(p)
   }
 
   createProject(payload: CommandInput<'project.create'>): ProjectRow {
@@ -177,14 +180,37 @@ export class WorkspaceService {
 
   freezeSnapshot(payload: CommandInput<'snapshot.freeze'>): FreezeContextSnapshotResult {
     requireRepositoryRevision(this.p, payload.expectedRepositoryRevisionId)
-    return freezeContextSnapshot(this.p, {
-      id: this.services.nextId('snap_'),
+    const scope = {
       projectId: payload.projectId,
       taskId: payload.taskId,
       taskSpecVersionId: payload.taskSpecVersionId,
       baseBaselineId: payload.baseBaselineId,
-      expectedRepositoryRevisionId: payload.expectedRepositoryRevisionId,
-      items: payload.items
+      expectedRepositoryRevisionId: payload.expectedRepositoryRevisionId
+    }
+    const resolved = this.contextResolver.materialize(scope, payload.selections)
+    return freezeContextSnapshot(this.p, {
+      id: this.services.nextId('snap_'),
+      projectId: scope.projectId,
+      taskId: scope.taskId,
+      taskSpecVersionId: scope.taskSpecVersionId,
+      baseBaselineId: scope.baseBaselineId,
+      expectedRepositoryRevisionId: scope.expectedRepositoryRevisionId,
+      items: toFreezeItems(resolved)
     })
   }
 }
+
+function toFreezeItems(items: readonly ResolvedContextItem[]): FreezeContextSnapshotInputItems {
+  return items.map((item, position) => ({
+    itemType: item.itemType,
+    sourceRef: item.sourceRef,
+    resolvedContent: item.resolvedContent,
+    selectionReason: item.selectionReason ?? null,
+    authority: item.authority,
+    priority: item.priority,
+    tokenEstimate: item.tokenEstimate,
+    position
+  }))
+}
+
+type FreezeContextSnapshotInputItems = Parameters<typeof freezeContextSnapshot>[1]['items']

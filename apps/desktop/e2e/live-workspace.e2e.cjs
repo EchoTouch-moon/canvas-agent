@@ -75,7 +75,7 @@ async function main() {
     await page.getByText('Node version · Prove the loop').waitFor({ timeout: 5000 })
     step('composer real candidates', true)
 
-    await page.getByRole('checkbox').first().check()
+    await page.locator('input[type="checkbox"]:enabled').first().check()
     await page.getByRole('button', { name: 'Freeze snapshot' }).click()
     await page.getByText('FROZEN', { exact: true }).waitFor({ timeout: 10000 })
     step('real snapshot freeze', true)

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { freezeSelectionSchema } from './source-reference'
 import {
   BASELINE_STATUSES,
   CONTEXT_AUTHORITIES,
@@ -238,20 +239,6 @@ const emptyObjectSchema = z.object({}).strict()
 
 const contextPrioritySchema = z.enum(['P0', 'P1', 'P2', 'P3'])
 
-const contextSnapshotItemInputSchema = z
-  .object({
-    itemType: z.enum(CONTEXT_ITEM_TYPES),
-    sourceRef: z.string().min(1),
-    resolvedContent: z.string(),
-    selectionReason: z.string().nullable().optional(),
-    authority: z.enum(CONTEXT_AUTHORITIES),
-    priority: contextPrioritySchema.optional(),
-    tokenEstimate: z.number().int().nonnegative(),
-    blobId: idSchema.nullable().optional(),
-    position: z.number().int().nonnegative()
-  })
-  .strict()
-
 const contextSnapshotSchema = z
   .object({
     id: idSchema,
@@ -291,7 +278,7 @@ const snapshotFreezeSchema = z
     taskSpecVersionId: idSchema,
     baseBaselineId: idSchema,
     expectedRepositoryRevisionId: idSchema,
-    items: z.array(contextSnapshotItemInputSchema)
+    selections: z.array(freezeSelectionSchema)
   })
   .strict()
 

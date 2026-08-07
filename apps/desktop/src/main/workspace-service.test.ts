@@ -73,19 +73,30 @@ describe('WorkspaceService', () => {
       taskSpecVersionId: spec.spec.id,
       baseBaselineId: draft.id,
       expectedRepositoryRevisionId: revision.id,
-      items: [
+      selections: [
         {
-          itemType: 'NODE_VERSION',
-          sourceRef: `node://${version.id}`,
-          resolvedContent: version.body,
-          authority: 'TASK_INSTRUCTION',
-          priority: 'P0',
-          tokenEstimate: 120,
-          position: 0
+          source: { kind: 'NODE_VERSION', nodeVersionId: version.id },
+          selectionReason: 'primary requirement'
         }
       ]
     })
     expect(frozen.snapshot.status).toBe('FROZEN')
+    expect(frozen.items).toHaveLength(2)
+    expect(frozen.items[0]).toMatchObject({
+      itemType: 'USER_INPUT',
+      sourceRef: `task-spec://${spec.spec.id}`,
+      authority: 'TASK_INSTRUCTION',
+      priority: 'P0'
+    })
+    expect(frozen.items[0]?.contentHash).toBe(spec.spec.contentHash)
+    expect(frozen.items[1]).toMatchObject({
+      itemType: 'NODE_VERSION',
+      sourceRef: `node://${version.id}`,
+      authority: 'PROJECT_FACT',
+      priority: 'P1',
+      selectionReason: 'primary requirement'
+    })
+    expect(frozen.items[1]?.contentHash).toBe(version.contentHash)
 
     closeWorkspaceDatabase(p)
   })
@@ -114,7 +125,7 @@ describe('WorkspaceService', () => {
         taskSpecVersionId: 's',
         baseBaselineId: 'b',
         expectedRepositoryRevisionId: 'rev_missing',
-        items: []
+        selections: []
       })
     ).toThrow(NotFoundError)
 
