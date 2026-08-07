@@ -42,15 +42,39 @@ CANVAS_AGENT_REPO=<repo> CANVAS_AGENT_PHASE3_SMOKE=1 pnpm --filter @canvas-agent
 ## Verification note
 
 `pnpm check` is recorded as **local** evidence; GitHub Actions CI (`.github/workflows/ci.yml`)
-is now in the repository and will publish commit status once the workflow runs on
-the next push — prefer CI output over local runs from that point on.
+is now in the repository and publishes commit status on push to main / PRs — prefer
+CI output over local runs from that point on.
 
-## Manual E2E checklist (final gate)
+## Real Electron E2E (final gate) — PASSED
 
-- [ ] `CANVAS_AGENT_REPO=<repo> CANVAS_AGENT_DEMO_SEED=1` first launch → Demo project
-      hydrates on the Dashboard.
-- [ ] Composer offers real TaskSpec / NodeVersion candidates (no fixture repository/artifact cards).
-- [ ] Freeze commits one `snapshot.freeze`; items are read-only afterwards.
-- [ ] Run dispatches via `execution.dispatch`; outcome + patch + verification evidence render.
-- [ ] Repo changed after freeze → `REVISION_MISMATCH` surfaces (no silent re-freeze).
-- [ ] `APPLY ARTIFACT` / `COMPLETE TASK` / `ACTIVATE BASELINE` are locked/deferred.
+`pnpm --filter @canvas-agent/desktop e2e:live` (Playwright `_electron`, `--disable-gpu`,
+fresh temp repo + `CANVAS_AGENT_DEMO_SEED=1`, temp HOME):
+
+```text
+[e2e] PASS project hydration              → real project.list + project.state (MUSICDB Demo)
+[e2e] PASS composer real candidates       → task-spec:// + node:// candidates only
+[e2e] PASS real snapshot freeze           → snapshot.freeze → FROZEN snapshot
+[e2e] PASS execution dispatch             → execution.dispatch → Utility Process
+[e2e] PASS SUCCEEDED evidence             → patch docs/phase2.md rendered
+[e2e] PASS claim granted evidence
+[e2e] PASS verification exit 0 evidence
+[e2e] PASS outcome badge
+[e2e] ALL PASSED
+```
+
+Screenshot: `$TMPDIR/canvas-agent-e2e/live-workspace.png`.
+
+The E2E surfaced and fixed a real preload bug: the sandboxed preload externalized
+`zod` (`module not found: zod`), so `window.canvasAgent` never existed at runtime.
+`electron.vite.config.ts` now bundles `zod` into the preload output.
+
+Manual E2E checklist (final gate):
+
+- [x] `CANVAS_AGENT_REPO=<repo> CANVAS_AGENT_DEMO_SEED=1` first launch → Demo project
+      hydrates in the live workspace view.
+- [x] Composer offers real TaskSpec / NodeVersion candidates (no fixture repository/artifact cards).
+- [x] Freeze commits one `snapshot.freeze`; the frozen snapshot is read-only afterwards.
+- [x] Run dispatches via `execution.dispatch`; outcome + patch + verification evidence render.
+- [ ] Repo changed after freeze → `REVISION_MISMATCH` surfaces (no silent re-freeze) — covered by
+      `ExecutionCoordinator` tests; not re-driven through the UI in this E2E.
+- [x] `APPLY ARTIFACT` / `COMPLETE TASK` / `ACTIVATE BASELINE` are locked/deferred.
