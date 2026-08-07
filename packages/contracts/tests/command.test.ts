@@ -107,6 +107,19 @@ describe('command envelope', () => {
     ) as CommandRequest<'worker.cancel'>
     expect(cancel.payload).toEqual({ executionRequestId: 'req_01' })
   })
+
+  it('exposes revision.current but not revision.upsert to the renderer', () => {
+    const current = commandRequestSchema.parse(
+      request('revision.current', {})
+    ) as CommandRequest<'revision.current'>
+    expect(current.payload).toEqual({})
+
+    expect(() =>
+      commandRequestSchema.parse(
+        request('revision.upsert', { baseCommit: COMMIT, treeHash: COMMIT })
+      )
+    ).toThrow()
+  })
 })
 
 describe('command response correlation', () => {

@@ -231,13 +231,7 @@ const repositoryRevisionRowSchema = z
   })
   .strict()
 
-const repositoryRevisionUpsertSchema = z
-  .object({
-    baseCommit: gitObjectHashSchema,
-    treeHash: gitObjectHashSchema,
-    workingTreePatchHash: contentHashSchema.nullable().optional()
-  })
-  .strict()
+const emptyObjectSchema = z.object({}).strict()
 
 // --- Context snapshot -------------------------------------------------------
 
@@ -416,7 +410,7 @@ export interface CommandMap {
   'taskSpec.publish': { request: z.infer<typeof taskSpecPublishSchema>; response: z.infer<typeof taskSpecPublishResultSchema> }
   'baseline.createDraft': { request: z.infer<typeof baselineCreateDraftSchema>; response: z.infer<typeof baselineSchema> }
   'baseline.activate': { request: z.infer<typeof baselineActivateSchema>; response: z.infer<typeof baselineActivateResultSchema> }
-  'revision.upsert': { request: z.infer<typeof repositoryRevisionUpsertSchema>; response: z.infer<typeof repositoryRevisionRowSchema> }
+  'revision.current': { request: z.infer<typeof emptyObjectSchema>; response: z.infer<typeof repositoryRevisionRowSchema> }
   'snapshot.freeze': { request: z.infer<typeof snapshotFreezeSchema>; response: z.infer<typeof snapshotFreezeResultSchema> }
   'worker.dispatch': { request: ExecutionRequestContract; response: z.infer<typeof dispatchResultSchema> }
   'worker.cancel': { request: z.infer<typeof workerCancelSchema>; response: z.infer<typeof workerCancelResultSchema> }
@@ -460,7 +454,7 @@ export const commandRequestSchema = z.discriminatedUnion('command', [
   commandRequestMember('taskSpec.publish', taskSpecPublishSchema),
   commandRequestMember('baseline.createDraft', baselineCreateDraftSchema),
   commandRequestMember('baseline.activate', baselineActivateSchema),
-  commandRequestMember('revision.upsert', repositoryRevisionUpsertSchema),
+  commandRequestMember('revision.current', emptyObjectSchema),
   commandRequestMember('snapshot.freeze', snapshotFreezeSchema),
   commandRequestMember('worker.dispatch', executionRequestSchema),
   commandRequestMember('worker.cancel', workerCancelSchema)
@@ -503,7 +497,7 @@ export const commandResponseSchemas = {
   'taskSpec.publish': commandResponseMember('taskSpec.publish', taskSpecPublishResultSchema),
   'baseline.createDraft': commandResponseMember('baseline.createDraft', baselineSchema),
   'baseline.activate': commandResponseMember('baseline.activate', baselineActivateResultSchema),
-  'revision.upsert': commandResponseMember('revision.upsert', repositoryRevisionRowSchema),
+  'revision.current': commandResponseMember('revision.current', repositoryRevisionRowSchema),
   'snapshot.freeze': commandResponseMember('snapshot.freeze', snapshotFreezeResultSchema),
   'worker.dispatch': commandResponseMember('worker.dispatch', dispatchResultSchema),
   'worker.cancel': commandResponseMember('worker.cancel', workerCancelResultSchema)
@@ -521,7 +515,7 @@ export const commandSchemas = {
   'taskSpec.publish': { input: taskSpecPublishSchema, output: taskSpecPublishResultSchema },
   'baseline.createDraft': { input: baselineCreateDraftSchema, output: baselineSchema },
   'baseline.activate': { input: baselineActivateSchema, output: baselineActivateResultSchema },
-  'revision.upsert': { input: repositoryRevisionUpsertSchema, output: repositoryRevisionRowSchema },
+  'revision.current': { input: emptyObjectSchema, output: repositoryRevisionRowSchema },
   'snapshot.freeze': { input: snapshotFreezeSchema, output: snapshotFreezeResultSchema },
   'worker.dispatch': { input: executionRequestSchema, output: dispatchResultSchema },
   'worker.cancel': { input: workerCancelSchema, output: workerCancelResultSchema }
