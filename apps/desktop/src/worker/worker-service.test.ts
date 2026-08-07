@@ -2,13 +2,42 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { computeRequestHash, readRepositoryRevision } from '@canvas-agent/worker-runtime'
+import {
+  CancelledError,
+  computeRequestHash,
+  readRepositoryRevision,
+  type AgentAdapter,
+  type AgentContext,
+  type AgentSummary
+} from '@canvas-agent/worker-runtime'
 import type { ExecutionRequestContract } from '@canvas-agent/contracts'
 import { WorkerService, type WorkerTransport } from './worker-service'
 import type { WorkerHostResponse } from './protocol'
 import { cleanupTempDirs, createTempGitRepo, trackTempDir } from '../main/testing/git-fixture'
 
 const FUTURE = '2099-01-01T00:00:00.000Z'
+
+class BarrierAgent implements AgentAdapter {
+  private markStarted!: () => void
+  private markAbortObserved!: () => void
+  readonly started = new Promise<void>((resolve) => {
+    this.markStarted = resolve
+  })
+  private readonly abortObserved = new Promise<void>((resolve) => {
+    this.markAbortObserved = resolve
+  })
+
+  async run(context: AgentContext): Promise<AgentSummary> {
+    this.markStarted()
+    if (context.signal?.aborted) {
+      this.markAbortObserved()
+    } else {
+      context.signal?.addEventListener('abort', () => this.markAbortObserved())
+    }
+    await this.abortObserved
+    throw new CancelledError()
+  }
+}
 
 class CapturingTransport implements WorkerTransport {
   readonly sent: WorkerHostResponse[] = []
@@ -133,13 +162,12 @@ describe('WorkerService', () => {
     expect(result.result.patchHash).toMatch(/^[a-f0-9]{64}$/)
   })
 
-  it('delivers a cancel ack and a later CANCELLED dispatch result', async () => {
+  it('delivers a cancel ack and a later CANCELLED dispatch result via a controlled agent barrier', async () => {
     const repoDir = await createTempGitRepo()
     const runtimeDir = trackTempDir(await mkdtemp(join(tmpdir(), 'ca-worker-service-')))
     const transport = new CapturingTransport()
-    const service = new WorkerService(transport, {
-      verificationCommands: [['node', '-e', 'setTimeout(() => {}, 30_000)']]
-    })
+    const agent = new BarrierAgent()
+    const service = new WorkerService(transport, { agent })
     await service.onRequest({
       protocolVersion: 1,
       type: 'init',
@@ -170,7 +198,7 @@ describe('WorkerService', () => {
         workingTreePatchHash: revision.workingTreePatchHash
       })
     })
-    await new Promise((resolve) => setTimeout(resolve, 300))
+    await agent.started
     await service.onRequest({
       protocolVersion: 1,
       type: 'cancel',

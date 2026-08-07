@@ -201,4 +201,30 @@ describe('worker dispatch against a temporary git repository', () => {
     expect(result.outcome).toBe('CANCELLED')
     expect(result.artifacts?.some((artifact) => artifact.kind === 'AGENT_PARTIAL')).toBe(true)
   })
+
+  it('converges a preflight cancellation to CANCELLED regardless of phase', async () => {
+    const repo = await createTempGitRepo()
+    const runtime = await runtimeDir()
+    const worker = createWorker({
+      runtimeDirectory: runtime,
+      sourceRepositoryPath: repo.dir,
+      capabilities: ['git', 'node'],
+      commandAllowlist: TEST_ALLOWLIST,
+      verificationCommands: [],
+      agent: new FixtureAgentAdapter({ steps: [], summary: 'no-op' })
+    })
+    const controller = new AbortController()
+    controller.abort()
+
+    const result = await worker.dispatch({
+      request: requestForRepo(repo, {
+        resourceBudget: { maxDurationMs: 30_000, maxToolCalls: 5, maxDiskBytes: 100_000_000 }
+      }),
+      signal: controller.signal
+    })
+
+    expect(result.outcome).toBe('CANCELLED')
+    expect(result.claimGranted).toBe(true)
+    expect(await pathExists(join(runtime, 'worktrees'))).toBe(false)
+  })
 })

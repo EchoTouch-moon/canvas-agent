@@ -86,6 +86,12 @@ export function createWorker(config: WorkerConfig): Worker {
         request.executionRequestId
       )
     } catch (error) {
+      if (signal.aborted) {
+        return {
+          outcome: 'CANCELLED',
+          claimGranted: true
+        }
+      }
       if (error instanceof RevisionMismatchError) {
         return {
           outcome: 'REVISION_MISMATCH',
@@ -110,6 +116,21 @@ export function createWorker(config: WorkerConfig): Worker {
         baseCommit: request.expectedRepositoryRevision.baseCommit
       })
     } catch (error) {
+      if (signal.aborted) {
+        try {
+          await removeWorktree({
+            ...gitOptions(config.sourceRepositoryPath, undefined),
+            sourceRepoPath: config.sourceRepositoryPath,
+            worktreePath
+          })
+        } catch {
+          // best-effort cleanup: never mask the cancellation outcome
+        }
+        return {
+          outcome: 'CANCELLED',
+          claimGranted: true
+        }
+      }
       return {
         outcome: 'PARTIAL',
         claimGranted: true,
