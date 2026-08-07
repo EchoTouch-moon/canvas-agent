@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import type { Persistence } from '../db'
 import { withTransaction } from '../db'
 import { ConcurrencyError, CycleError, NotFoundError, ValidationError } from '../errors'

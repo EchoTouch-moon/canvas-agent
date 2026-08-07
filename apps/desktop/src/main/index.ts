@@ -1,23 +1,28 @@
-import { app, shell, BrowserWindow, ipcMain, type WebFrameMain } from 'electron'
-import { join } from 'path'
+import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { DESKTOP_CHANNELS, runtimeInfoSchema } from '@canvas-agent/contracts'
 import icon from '../../resources/icon.png?asset'
+import { resolveAppConfig } from './config'
+import { openWorkspaceDatabase, closeWorkspaceDatabase } from './database'
+import { GitRevisionReader } from './git-revision-reader'
+import { WorkspaceService } from './workspace-service'
+import { UnavailableWorkerHost } from './worker-host'
+import { registerCommandRouter } from './command-router'
+import { isTrustedSender } from './security'
 
 const allowedExternalOrigins = new Set(['https://deerflow.tech'])
 
-function isTrustedSender(frame: WebFrameMain | null): boolean {
-  if (!frame) return false
-
-  const senderUrl = new URL(frame.url)
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    return senderUrl.origin === new URL(process.env['ELECTRON_RENDERER_URL']).origin
+function resolveMigrationsFolder(): string {
+  const sourceDrizzle = join(app.getAppPath(), '..', '..', 'packages', 'persistence', 'drizzle')
+  if (existsSync(sourceDrizzle)) {
+    return sourceDrizzle
   }
-
-  return senderUrl.protocol === 'file:'
+  return join(app.getAppPath(), 'drizzle')
 }
 
-function registerIpcHandlers(): void {
+function registerRuntimeInfoHandler(): void {
   ipcMain.handle(DESKTOP_CHANNELS.runtimeInfo, (event) => {
     if (!isTrustedSender(event.senderFrame)) {
       throw new Error('Rejected IPC request from an untrusted renderer')
@@ -78,19 +83,52 @@ function createWindow(): void {
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('tech.canvasagent.desktop')
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  registerIpcHandlers()
+  // Composition root for the real core loop.
+  let persistence: ReturnType<typeof openWorkspaceDatabase> | null = null
+  let workspace: WorkspaceService | null = null
+  try {
+    const configResult = await resolveAppConfig(app.getPath('userData'))
+    if (configResult.error !== null) {
+      console.error(`[workspace] configuration error: ${configResult.error}`)
+    }
+    if (configResult.config !== null) {
+      persistence = openWorkspaceDatabase(
+        join(app.getPath('userData'), 'canvas-agent.db'),
+        undefined,
+        resolveMigrationsFolder()
+      )
+      workspace = new WorkspaceService(persistence, new GitRevisionReader(configResult.config))
+      console.error(`[workspace] ready at ${configResult.config.sourceRepositoryPath}`)
+    } else if (configResult.error === null) {
+      console.error(
+        '[workspace] CANVAS_AGENT_REPO is not set; workspace commands are unavailable (fixture UI only). ' +
+          'This is a Phase-1 bootstrap mechanism, not the final workspace-selection UX.'
+      )
+    }
+  } catch (error) {
+    console.error('[workspace] failed to start the workspace service', error)
+  }
+  const workerHost = new UnavailableWorkerHost()
+
+  registerRuntimeInfoHandler()
+  registerCommandRouter({ workspace, worker: workerHost })
+
+  app.on('before-quit', () => {
+    void workerHost.dispose()
+    if (persistence !== null) {
+      closeWorkspaceDatabase(persistence)
+    }
+  })
 
   createWindow()
 
@@ -109,6 +147,3 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.

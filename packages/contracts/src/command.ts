@@ -356,7 +356,7 @@ const recoveryMetadataSchema = z
   })
   .strict()
 
-const dispatchResultSchema = z
+export const dispatchResultSchema = z
   .object({
     outcome: dispatchOutcomeSchema,
     claimGranted: z.boolean(),
@@ -371,6 +371,7 @@ const dispatchResultSchema = z
     timedOut: z.boolean().optional()
   })
   .strict()
+export type DispatchResult = z.infer<typeof dispatchResultSchema>
 
 const workerCancelSchema = z.object({ executionRequestId: idSchema }).strict()
 const workerCancelResultSchema = z.object({ cancelled: z.boolean() }).strict()

@@ -1,6 +1,6 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import type { Persistence } from '../db'
-import { ConcurrencyError, ImmutableWriteError, NotFoundError, ValidationError } from '../errors'
+import { ConcurrencyError, NotFoundError } from '../errors'
 import { nodeDraftTable, nodeTable, nodeVersionTable } from '../schema'
 import type { NodeDraftRow, NodeRow, NodeVersionRow } from '../schema'
 import { canonicalContent, sha256Hex } from '../services'

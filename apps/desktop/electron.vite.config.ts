@@ -7,7 +7,12 @@ export default defineConfig({
   main: {
     build: {
       externalizeDeps: {
-        exclude: ['@canvas-agent/contracts', '@canvas-agent/domain']
+        exclude: [
+          '@canvas-agent/contracts',
+          '@canvas-agent/domain',
+          '@canvas-agent/persistence',
+          '@canvas-agent/worker-runtime'
+        ]
       }
     }
   },

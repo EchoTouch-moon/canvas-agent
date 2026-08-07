@@ -39,7 +39,7 @@ export interface ActualRepositoryRevision {
 }
 
 export async function readRepositoryRevision(
-  repoPath: string,
+  _repoPath: string,
   options: GitRunOptions
 ): Promise<ActualRepositoryRevision> {
   const baseCommit = await runGitCommand(['rev-parse', 'HEAD'], options)

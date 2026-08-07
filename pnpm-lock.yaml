@@ -22,6 +22,12 @@ importers:
       '@canvas-agent/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@canvas-agent/persistence':
+        specifier: workspace:*
+        version: link:../../packages/persistence
+      '@canvas-agent/worker-runtime':
+        specifier: workspace:*
+        version: link:../../packages/worker-runtime
       '@electron-toolkit/utils':
         specifier: ^4.0.0
         version: 4.0.0(electron@39.8.10)

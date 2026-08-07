@@ -1,4 +1,4 @@
-import { and, eq, isNull, or } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import type { Persistence } from '../db'
 import { NotFoundError } from '../errors'
 import { repositoryRevisionTable } from '../schema'

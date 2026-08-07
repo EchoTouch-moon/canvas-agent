@@ -32,8 +32,8 @@ export function openDatabase(options: DatabaseOptions): Persistence {
   }
 }
 
-export function applyMigrations(p: Persistence): void {
-  migrate(p.drizzle, { migrationsFolder: migrationFolder })
+export function applyMigrations(p: Persistence, migrationsFolder: string = migrationFolder): void {
+  migrate(p.drizzle, { migrationsFolder })
   installGuards(p)
 }
 
