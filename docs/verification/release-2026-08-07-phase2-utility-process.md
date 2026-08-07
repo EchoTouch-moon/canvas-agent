@@ -18,6 +18,43 @@ isolated Git worktree over the validated internal protocol.
 | SHA | Message |
 |---|---|
 | `659fda8` | feat(worker): UtilityProcess worker host for the real execution boundary |
+| `ac45023` | fix(worker): harden UtilityProcess protocol and lifecycle (close-out) |
+
+## Close-out fixes (commit `ac45023`)
+
+Per the Phase 2 review (`ACCEPTED WITH CLOSE-OUT FIXES`):
+
+1. **Error frame `messageId` is `string | null`** — unattributable `INVALID_FRAME`
+   and init/dispose failures send `messageId: null`, never a fabricated `''`.
+2. **Per-RPC error isolation** — a worker `error` frame with a `messageId`
+   rejects only that correlated pending RPC; the host never `rejectAll`s on a
+   single execution failure. Error codes map to stable errors
+   (`NOT_INITIALIZED → HostUnavailableError`; `INVALID_FRAME`/`SERVICE_FAILURE →
+   `InternalError`), so worker messages are not leaked to the renderer.
+3. **Dispatch frame refine** — `frame.executionRequestId ===
+   frame.request.executionRequestId` enforced by the protocol schema.
+4. **Host lifecycle** — new `DISPOSED` terminal state (dispose is not
+   restartable, crash is); dispatch/cancel rejected while `DISPOSING`/`DISPOSED`;
+   **init timeout** aborts the child and returns to `STOPPED` so the next dispatch
+   restarts a fresh generation; **stale child generation** guarded in the
+   message/exit handlers; `pending` stores `executionRequestId` and `settle`
+   validates it against the response.
+5. **Main outbound validation** — frames are parsed with
+   `workerHostRequestSchema` before `postMessage` (defense-in-depth, both ends).
+6. **Graceful app shutdown** — `before-quit` now `preventDefault()`s, awaits
+   `workerHost.dispose()` (draining executions + `dispose:ack`/timeout), closes the
+   database, then quits; guarded against re-entry.
+7. **Runtime smoke** now also asserts verification exit code 0.
+
+### New tests (close-out)
+
+- `INVALID_FRAME` error with `messageId: null` for a fully invalid frame.
+- Dispatch frame whose `executionRequestId` disagrees with the request → rejected.
+- A worker `SERVICE_FAILURE` error rejects only the correlated RPC (the other
+  pending execution still resolves).
+- Init timeout → first dispatch rejects, next dispatch forks a new generation.
+- Late exit from a stale child generation is ignored.
+- Dispatch during `DISPOSING` / after `DISPOSED` is rejected.
 
 ## Deliverables
 
@@ -63,8 +100,8 @@ pnpm check  PASS (exit 0)
 @canvas-agent/contracts      13/13
 @canvas-agent/persistence    33/33
 @canvas-agent/worker-runtime 18/18
-@canvas-agent/desktop        30/30   (added protocol, worker-service and host
-                                      lifecycle tests; total 99)
+@canvas-agent/desktop        36/36   (added protocol, worker-service and host
+                                      lifecycle tests incl. close-out cases; total 105)
 ```
 
 Runtime smoke (real Utility Process):
