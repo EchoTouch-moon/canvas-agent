@@ -38,7 +38,5 @@ export type FrozenSnapshotView = ContextSnapshotRecord & {
 export type DispatchResult = CommandOutput<'execution.dispatch'>
 export type DispatchOutcome = DispatchResult['outcome']
 export type CancellationResult = CommandOutput<'execution.cancel'>
-export type VerificationCommandResult = NonNullable<
-  DispatchResult['verificationResults']
->[number]
+export type VerificationCommandResult = NonNullable<DispatchResult['verificationResults']>[number]
 export type ArtifactDescriptor = NonNullable<DispatchResult['artifacts']>[number]

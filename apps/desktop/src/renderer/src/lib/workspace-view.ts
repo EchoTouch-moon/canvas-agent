@@ -386,9 +386,7 @@ export function createWorkspaceRenderState(
         acceptanceEvaluated: false as const,
         taskSpecVersionId: null
       }
-  const contextItems = taskRecord
-    ? buildCandidates(workspace, taskRecord, selectedNodeId)
-    : []
+  const contextItems = taskRecord ? buildCandidates(workspace, taskRecord, selectedNodeId) : []
   const requiredIds = contextItems.filter((item) => item.required).map((item) => item.id)
   const snapshotRecord = ui.contextSnapshotMode === 'draft' ? null : session.frozenSnapshot
   const selectedFromUi = ui.selectedContextItemIds.filter((id) =>

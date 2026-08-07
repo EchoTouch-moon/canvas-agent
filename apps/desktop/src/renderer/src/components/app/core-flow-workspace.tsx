@@ -1841,10 +1841,7 @@ export function CoreFlowWorkspace({
   readonly runtimeInfo: RuntimeInfo | null
   readonly workspaceClient?: WorkspaceClient
 }): React.JSX.Element {
-  const client = useMemo(
-    () => workspaceClient ?? createWorkspaceClient(),
-    [workspaceClient]
-  )
+  const client = useMemo(() => workspaceClient ?? createWorkspaceClient(), [workspaceClient])
   const hydrated = useWorkspace(null, client)
   const [uiState, dispatch] = useReducer(
     workspaceUiReducer,

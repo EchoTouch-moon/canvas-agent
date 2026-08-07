@@ -464,7 +464,11 @@ export function createFakeWorkspaceClient(options: FakeWorkspaceOptions = {}): W
           } satisfies DispatchResult)
         }
         default:
-          return failure(request, 'InternalError', `Fake transport does not implement ${request.command}`)
+          return failure(
+            request,
+            'InternalError',
+            `Fake transport does not implement ${request.command}`
+          )
       }
     }
   }
