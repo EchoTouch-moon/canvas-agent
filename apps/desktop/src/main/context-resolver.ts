@@ -1,11 +1,13 @@
 import {
   canonicalContent,
+  getBaseline,
   listBaselineItems,
   listCriteria,
   listTaskTargets,
   requireNode,
   requireNodeVersion,
   requireRepositoryRevision,
+  requireTask,
   requireTaskSpecVersion,
   sha256Hex,
   ValidationError,
@@ -42,6 +44,33 @@ export interface ResolvedContextItem {
 export function estimateTokens(content: string): number {
   const characters = content.replace(/\s+/g, ' ').trim().length
   return Math.max(1, Math.ceil(characters / 4))
+}
+
+// Every resolution (preview or freeze) is scoped to one project: the Task, the
+// pinned TaskSpecVersion, the base Baseline (project + ACTIVE) and the pinned
+// RepositoryRevision must all exist and belong to the scope. This closes the
+// public context.resolve read path against cross-project materialization.
+function validateContextResolutionScope(p: Persistence, scope: ContextResolutionScope): void {
+  const task = requireTask(p, scope.taskId)
+  if (task.projectId !== scope.projectId) {
+    throw new ValidationError(`Task ${task.id} does not belong to Project ${scope.projectId}`)
+  }
+  const spec = requireTaskSpecVersion(p, scope.taskSpecVersionId)
+  if (spec.taskId !== scope.taskId) {
+    throw new ValidationError(`TaskSpecVersion ${spec.id} does not belong to Task ${scope.taskId}`)
+  }
+  const baseline = getBaseline(p, scope.baseBaselineId)
+  if (baseline.projectId !== scope.projectId) {
+    throw new ValidationError(
+      `ProjectBaseline ${baseline.id} does not belong to Project ${scope.projectId}`
+    )
+  }
+  if (baseline.status !== 'ACTIVE') {
+    throw new ValidationError(
+      `ProjectBaseline ${baseline.id} is not ACTIVE and cannot be pinned by a snapshot`
+    )
+  }
+  requireRepositoryRevision(p, scope.expectedRepositoryRevisionId)
 }
 
 // Canonical, hash-stable materialization. The resolvedContent of each item is
@@ -156,6 +185,7 @@ export class ContextResolver {
   }
 
   async resolve(scope: ContextResolutionScope, ref: SourceReference): Promise<ResolvedContextItem> {
+    validateContextResolutionScope(this.p, scope)
     switch (ref.kind) {
       case 'TASK_SPEC_VERSION': {
         if (ref.taskSpecVersionId !== scope.taskSpecVersionId) {
@@ -178,6 +208,7 @@ export class ContextResolver {
     scope: ContextResolutionScope,
     selections: readonly FreezeSelection[]
   ): Promise<ResolvedContextItem[]> {
+    validateContextResolutionScope(this.p, scope)
     const items: ResolvedContextItem[] = [
       await this.resolve(scope, {
         kind: 'TASK_SPEC_VERSION',

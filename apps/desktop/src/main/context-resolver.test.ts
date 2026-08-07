@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import {
   activateBaseline,
   createBaselineDraft,
@@ -16,7 +18,7 @@ import {
 } from '@canvas-agent/persistence'
 import { openWorkspaceDatabase, closeWorkspaceDatabase } from './database'
 import { ContextResolver, type ContextResolutionScope } from './context-resolver'
-import { cleanupTempDirs, createTempGitRepo, gitOutput } from './testing/git-fixture'
+import { cleanupTempDirs, createTempGitRepo, git, gitOutput } from './testing/git-fixture'
 
 function fixedServices(): SystemServices {
   let counter = 0
@@ -96,6 +98,14 @@ async function seed(): Promise<Seeded> {
   })
   activateBaseline(p, { baselineId: baseline.id })
 
+  const baseCommit = await gitOutput(repoDir, ['rev-parse', 'HEAD'])
+  upsertRepositoryRevision(p, {
+    id: 'rev_1',
+    baseCommit,
+    treeHash: '0'.repeat(40),
+    workingTreePatchHash: null
+  })
+
   return {
     p,
     repoDir,
@@ -110,7 +120,7 @@ async function seed(): Promise<Seeded> {
       taskId: task.id,
       taskSpecVersionId: spec.spec.id,
       baseBaselineId: baseline.id,
-      expectedRepositoryRevisionId: 'rev_placeholder'
+      expectedRepositoryRevisionId: 'rev_1'
     }
   }
 }
@@ -242,13 +252,62 @@ describe('ContextResolver', () => {
     closeWorkspaceDatabase(p)
   })
 
+  it('rejects a cross-project scope in context.resolve (task from another project)', async () => {
+    const { p, repoDir, scope } = await seed()
+    const foreignProjectId = 'proj_foreign_scope'
+    createProject(p, { id: foreignProjectId, name: 'Foreign' })
+    const foreignTask = createTask(p, {
+      id: 'task_foreign',
+      projectId: foreignProjectId,
+      type: 'IMPLEMENT_CHANGE',
+      title: 'Foreign'
+    })
+    const foreignSpec = publishTaskSpecVersion(p, {
+      id: 'spec_foreign',
+      taskId: foreignTask.id,
+      description: 'x',
+      scope: 'y',
+      criteria: [{ description: 'c', position: 0 }]
+    })
+    const resolver = new ContextResolver(p, repoDir)
+    await expect(
+      resolver.resolve(
+        {
+          ...scope,
+          taskId: foreignTask.id,
+          taskSpecVersionId: foreignSpec.spec.id
+        },
+        { kind: 'TASK_SPEC_VERSION', taskSpecVersionId: foreignSpec.spec.id }
+      )
+    ).rejects.toThrow(/does not belong to Project/)
+    closeWorkspaceDatabase(p)
+  })
+
+  it('rejects a scope whose base baseline is not ACTIVE', async () => {
+    const { p, repoDir, scope, baselineVersionId } = await seed()
+    const draft = createBaselineDraft(p, {
+      id: 'baseline_draft',
+      projectId: scope.projectId,
+      name: 'draft',
+      nodeVersionIds: [baselineVersionId]
+    })
+    const resolver = new ContextResolver(p, repoDir)
+    await expect(
+      resolver.resolve(
+        { ...scope, baseBaselineId: draft.id },
+        { kind: 'TASK_SPEC_VERSION', taskSpecVersionId: scope.taskSpecVersionId }
+      )
+    ).rejects.toThrow(/is not ACTIVE/)
+    closeWorkspaceDatabase(p)
+  })
+
   it('materializes REPOSITORY_CONTENT from a clean pinned baseCommit', async () => {
     const { p, repoDir, scope } = await seed()
     const baseCommit = await gitOutput(repoDir, ['rev-parse', 'HEAD'])
     upsertRepositoryRevision(p, {
       id: 'rev_clean',
       baseCommit,
-      treeHash: '0'.repeat(40),
+      treeHash: '1'.repeat(40),
       workingTreePatchHash: null
     })
     const resolver = new ContextResolver(p, repoDir)
@@ -302,7 +361,7 @@ describe('ContextResolver', () => {
     upsertRepositoryRevision(p, {
       id: 'rev_clean',
       baseCommit,
-      treeHash: '0'.repeat(40),
+      treeHash: '1'.repeat(40),
       workingTreePatchHash: null
     })
     const resolver = new ContextResolver(p, repoDir)
@@ -312,6 +371,68 @@ describe('ContextResolver', () => {
         { kind: 'REPOSITORY_CONTENT', path: 'nope.md' }
       )
     ).rejects.toThrow(NotFoundError)
+    closeWorkspaceDatabase(p)
+  })
+
+  it('reports an unavailable pinned commit as an internal failure, not NotFoundError', async () => {
+    const { p, repoDir, scope } = await seed()
+    upsertRepositoryRevision(p, {
+      id: 'rev_ghost',
+      baseCommit: 'a'.repeat(40),
+      treeHash: '0'.repeat(40),
+      workingTreePatchHash: null
+    })
+    const resolver = new ContextResolver(p, repoDir)
+    await expect(
+      resolver.resolve(
+        { ...scope, expectedRepositoryRevisionId: 'rev_ghost' },
+        { kind: 'REPOSITORY_CONTENT', path: 'README.md' }
+      )
+    ).rejects.toThrow(/pinned commit .* is unavailable/)
+    closeWorkspaceDatabase(p)
+  })
+
+  it('rejects oversized repository content (fail-closed, no truncation)', async () => {
+    const { p, repoDir, scope } = await seed()
+    await writeFile(join(repoDir, 'big.txt'), 'a'.repeat(512 * 1024 + 1))
+    await git(repoDir, ['add', 'big.txt'])
+    await git(repoDir, ['commit', '-m', 'big'])
+    const baseCommit = await gitOutput(repoDir, ['rev-parse', 'HEAD'])
+    upsertRepositoryRevision(p, {
+      id: 'rev_big',
+      baseCommit,
+      treeHash: '0'.repeat(40),
+      workingTreePatchHash: null
+    })
+    const resolver = new ContextResolver(p, repoDir)
+    await expect(
+      resolver.resolve(
+        { ...scope, expectedRepositoryRevisionId: 'rev_big' },
+        { kind: 'REPOSITORY_CONTENT', path: 'big.txt' }
+      )
+    ).rejects.toThrow(/repository_content_too_large/)
+    closeWorkspaceDatabase(p)
+  })
+
+  it('rejects non-UTF-8 repository content', async () => {
+    const { p, repoDir, scope } = await seed()
+    await writeFile(join(repoDir, 'binary.bin'), Buffer.from([0xff, 0xfe, 0xff]))
+    await git(repoDir, ['add', 'binary.bin'])
+    await git(repoDir, ['commit', '-m', 'binary'])
+    const baseCommit = await gitOutput(repoDir, ['rev-parse', 'HEAD'])
+    upsertRepositoryRevision(p, {
+      id: 'rev_binary',
+      baseCommit,
+      treeHash: '0'.repeat(40),
+      workingTreePatchHash: null
+    })
+    const resolver = new ContextResolver(p, repoDir)
+    await expect(
+      resolver.resolve(
+        { ...scope, expectedRepositoryRevisionId: 'rev_binary' },
+        { kind: 'REPOSITORY_CONTENT', path: 'binary.bin' }
+      )
+    ).rejects.toThrow(/repository_content_not_utf8/)
     closeWorkspaceDatabase(p)
   })
 })

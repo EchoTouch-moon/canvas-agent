@@ -13,6 +13,8 @@ function tempRepo() {
   execSync('git config user.name e2e', { cwd: dir })
   execSync('git config user.email e2e@local', { cwd: dir })
   fs.writeFileSync(path.join(dir, 'README.md'), '# e2e\n')
+  fs.mkdirSync(path.join(dir, 'docs'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'docs', 'context file.md'), '# context file\n')
   execSync('git add -A && git commit -m init', { cwd: dir })
   return dir
 }
@@ -77,12 +79,13 @@ async function main() {
 
     await page.locator('input[type="checkbox"]:enabled').first().check()
 
-    // RepositoryContent: resolve a pinned file and add it to the context.
-    await page.getByLabel('Repository file path').fill('README.md')
+    // RepositoryContent: resolve a pinned file containing a space (exercises the
+    // segment-wise repo:// codec end to end) and add it to the context.
+    await page.getByLabel('Repository file path').fill('docs/context file.md')
     await page.getByRole('button', { name: 'Resolve' }).click()
-    await page.getByText('repo://README.md').waitFor({ timeout: 10000 })
+    await page.getByText('repo://docs/context%20file.md').waitFor({ timeout: 10000 })
     await page.getByRole('button', { name: 'Add to context' }).click()
-    step('repository content resolve -> add selection', true)
+    step('repository content resolve (encoded path) -> add selection', true)
 
     await page.getByRole('button', { name: 'Freeze snapshot' }).click()
     await page.getByText('FROZEN', { exact: true }).waitFor({ timeout: 10000 })

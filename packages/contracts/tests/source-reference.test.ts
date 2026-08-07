@@ -38,7 +38,18 @@ describe('sourceReferenceSchema', () => {
     expect(
       sourceReferenceSchema.parse({ kind: 'REPOSITORY_CONTENT', path: 'docs/a%20b.md' })
     ).toBeTruthy()
-    for (const path of ['/abs/file', '../secret', 'src/../secret', './foo', 'src//foo', 'a/', 'a\\b', '']) {
+    for (const path of [
+      '/abs/file',
+      '../secret',
+      'src/../secret',
+      './foo',
+      'src//foo',
+      'a/',
+      'a\\b',
+      'C:/foo',
+      'C:\\foo',
+      ''
+    ]) {
       expect(() =>
         sourceReferenceSchema.parse({ kind: 'REPOSITORY_CONTENT', path })
       ).toThrow()

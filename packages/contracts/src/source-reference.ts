@@ -9,6 +9,7 @@ export function isCanonicalRepositoryPath(path: string): boolean {
   if (path.length === 0) return false
   if (path.startsWith('/')) return false
   if (/[\\\0]/.test(path)) return false
+  if (/^[A-Za-z]:/.test(path)) return false
   const segments = path.split('/')
   return segments.every((segment) => segment.length > 0 && segment !== '.' && segment !== '..')
 }

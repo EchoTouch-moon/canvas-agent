@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import { parseSourceRef } from '@canvas-agent/contracts'
 import {
   FileCheck2,
   FolderOpen,
@@ -27,6 +28,17 @@ interface RunState {
   readonly status: 'PENDING' | 'DONE'
   readonly result?: DispatchResult
   readonly error?: string
+}
+
+// Decode the canonical repo:// sourceRef back to the repository path (e.g.
+// repo://docs/foo%20bar.md -> docs/foo bar.md). Never hand the encoded string
+// to the resolver.
+function repositoryPathOf(item: ResolvedContextItem): string {
+  const ref = parseSourceRef(item.sourceRef)
+  if (ref.kind === 'REPOSITORY_CONTENT') {
+    return ref.path
+  }
+  return item.sourceRef
 }
 
 function CandidateRow({
@@ -273,8 +285,8 @@ function RepositorySection({
             <Button
               size="sm"
               variant="secondary"
-              disabled={selectedPaths.includes(preview.sourceRef.replace('repo://', ''))}
-              onClick={() => onAdd(preview.sourceRef.replace('repo://', ''))}
+              disabled={selectedPaths.includes(repositoryPathOf(preview))}
+              onClick={() => onAdd(repositoryPathOf(preview))}
             >
               <Plus className="size-3.5" aria-hidden="true" />
               Add to context

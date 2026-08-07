@@ -15,18 +15,27 @@ export class GitRepositoryContentReader {
   constructor(private readonly sourceRepositoryPath: string) {}
 
   async readFileAtCommit(path: string, baseCommit: string): Promise<ReadFileResult> {
-    const stdout = await this.execGitBytes(['cat-file', 'blob', `${baseCommit}:${path}`])
+    // Verify the pinned commit object exists first: an unavailable/missing
+    // commit or corrupted repository is an internal failure, not a missing file.
+    const commit = await this.execGit(['cat-file', '-e', `${baseCommit}^{commit}`], 'check')
+    if (!commit.ok) {
+      throw new Error(`repository content: pinned commit ${baseCommit} is unavailable`)
+    }
+    const { stdout } = await this.execGit(['cat-file', 'blob', `${baseCommit}:${path}`], 'blob')
     let content: string
     try {
-      content = new TextDecoder('utf-8', { fatal: true }).decode(stdout)
+      content = new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(stdout))
     } catch {
       throw new ValidationError('repository_content_not_utf8')
     }
     return { content }
   }
 
-  private execGitBytes(args: readonly string[]): Promise<Buffer> {
-    return new Promise<Buffer>((resolve, reject) => {
+  private execGit(
+    args: readonly string[],
+    mode: 'blob' | 'check'
+  ): Promise<{ ok: boolean; stdout: Buffer }> {
+    return new Promise<{ ok: boolean; stdout: Buffer }>((resolve, reject) => {
       const child = spawn('git', [...args], {
         cwd: this.sourceRepositoryPath,
         stdio: ['ignore', 'pipe', 'pipe']
@@ -41,11 +50,11 @@ export class GitRepositoryContentReader {
         clearTimeout(timer)
         reject(error)
       }
-      const succeed = (buffer: Buffer): void => {
+      const finish = (ok: boolean, stdout: Buffer): void => {
         if (settled) return
         settled = true
         clearTimeout(timer)
-        resolve(buffer)
+        resolve({ ok, stdout })
       }
 
       const timer = setTimeout(() => {
@@ -71,15 +80,19 @@ export class GitRepositoryContentReader {
       child.on('close', (code) => {
         if (settled) return
         if (code !== 0) {
-          fail(
-            new NotFoundError(
-              `Repository file ${args[args.length - 1] ?? ''} is not available at the pinned revision`,
-              ''
+          if (mode === 'blob') {
+            fail(
+              new NotFoundError(
+                `Repository file ${args[args.length - 1] ?? ''} is not available at the pinned revision`,
+                ''
+              )
             )
-          )
+          } else {
+            finish(false, Buffer.concat(chunks))
+          }
           return
         }
-        succeed(Buffer.concat(chunks))
+        finish(true, Buffer.concat(chunks))
       })
     })
   }

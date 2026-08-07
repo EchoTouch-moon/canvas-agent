@@ -17,8 +17,11 @@
 | A. preview ≠ freeze trust | `context.resolve` returns items; freeze only accepts `SourceReference` selections and re-resolves; `resolvedContextItemSchema` cannot be submitted to `snapshot.freeze` | **PASS** (contracts + E2E) |
 | B. canonical repo path | schema refine + resolver guard reject absolute/`..`/`//`/`\`/NUL/empty | **PASS** (contracts + resolver tests) |
 | C. `repo://` segment codec | segment-wise `encodeURIComponent`; parse decodes/validates/re-encodes with exact match | **PASS** (contracts round-trip incl. space/unicode) |
-| D. UTF-8 + 512 KiB cap, fail-closed | byte-safe `git cat-file` + fatal TextDecoder; `repository_content_too_large` / `not_utf8` never freeze truncated content | **PASS** (reader design; resolver tests) |
-| E. error separation | invalid path → ValidationError; dirty → ValidationError; missing file → NotFoundError; git infra → InternalError | **PASS** (resolver tests) |
+| D. UTF-8 + 512 KiB cap, fail-closed | byte-safe `git cat-file` + fatal TextDecoder; real tests commit a 512 KiB+1 file → `repository_content_too_large` and a `0xff 0xfe 0xff` blob → `repository_content_not_utf8` | **PASS** (resolver tests) |
+| E. error separation | invalid path → ValidationError; dirty → ValidationError; missing file at valid commit → NotFoundError; unavailable pinned commit / git infra → InternalError | **PASS** (resolver tests incl. ghost-commit InternalError) |
+| project-scoped preview | unified `validateContextResolutionScope` at resolve/materialize entry (Task→project, TaskSpec→task, Baseline→project+ACTIVE, RepositoryRevision exists); cross-project `context.resolve` rejected | **PASS** (resolver tests) |
+| encoded-path UI round-trip | Live Add uses `parseSourceRef(preview.sourceRef)` (decoded path), never `sourceRef.replace('repo://', '')`; E2E resolves `docs/context file.md` → `repo://docs/context%20file.md` → freeze → dispatch | **PASS** (E2E) |
+| drive-style paths rejected | `isCanonicalRepositoryPath` rejects `C:/foo`, `C:\foo` | **PASS** (contracts tests) |
 
 ## Runtime evidence
 
