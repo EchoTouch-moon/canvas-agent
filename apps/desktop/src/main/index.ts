@@ -13,6 +13,7 @@ import { seedDemoWorkspace } from './demo-seed'
 import { UnavailableWorkerHost } from './worker-host'
 import { UtilityProcessWorkerHost } from './utility-process-worker-host'
 import { runWorkerSmoke } from './worker-smoke'
+import { runPhase3Smoke } from './phase3-smoke'
 import { registerCommandRouter } from './command-router'
 import { isTrustedSender } from './security'
 
@@ -145,6 +146,24 @@ app.whenReady().then(async () => {
     void runWorkerSmoke(appConfig, workerHost)
       .catch((error) => {
         console.error('[worker-smoke] FAILED:', error instanceof Error ? error.message : error)
+      })
+      .finally(() => {
+        app.quit()
+      })
+  }
+
+  if (
+    process.env['CANVAS_AGENT_PHASE3_SMOKE'] === '1' &&
+    workspace !== null &&
+    coordinator !== null &&
+    persistence !== null
+  ) {
+    void (async () => {
+      const demoProjectId = await seedDemoWorkspace(persistence)
+      await runPhase3Smoke({ workspace, coordinator, projectId: demoProjectId })
+    })()
+      .catch((error) => {
+        console.error('[phase3-smoke] FAILED:', error instanceof Error ? error.message : error)
       })
       .finally(() => {
         app.quit()

@@ -1,0 +1,227 @@
+import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  activateBaseline,
+  applyMigrations,
+  closeDatabase,
+  createBaselineDraft,
+  createNode,
+  createProject,
+  createTask,
+  freezeContextSnapshot,
+  openDatabase,
+  publishNodeVersion,
+  publishTaskSpecVersion,
+  upsertRepositoryRevision,
+  NotFoundError,
+  ValidationError,
+  type Persistence,
+  type SystemServices
+} from '@canvas-agent/persistence'
+import type { DispatchResult, ExecutionRequestContract } from '@canvas-agent/contracts'
+import { computeRequestHash } from '@canvas-agent/worker-runtime'
+import { ExecutionCoordinator } from './execution-coordinator'
+import { InProcessWorkerHost } from './testing/in-process-worker-host'
+import type { WorkerHost } from './worker-host'
+import {
+  cleanupTempDirs,
+  createTempGitRepo,
+  git,
+  gitOutput,
+  trackTempDir
+} from './testing/git-fixture'
+
+function services(): SystemServices {
+  return {
+    now: () => '2026-08-08T00:00:00.000Z',
+    nextId: (prefix: string) => `${prefix}1`
+  }
+}
+
+class FakeWorkerHost implements WorkerHost {
+  readonly captured: ExecutionRequestContract[] = []
+  result: DispatchResult = { outcome: 'SUCCEEDED', claimGranted: true }
+
+  async dispatch(request: ExecutionRequestContract): Promise<DispatchResult> {
+    this.captured.push(request)
+    return this.result
+  }
+
+  async cancel(executionRequestId: string): Promise<boolean> {
+    return executionRequestId === 'active-1'
+  }
+
+  async dispose(): Promise<void> {
+    return
+  }
+}
+
+async function frozenSetup(
+  p: Persistence,
+  repoDir?: string
+): Promise<{ snapshotId: string; revisionId: string }> {
+  createProject(p, { id: 'proj_1', name: 'P' })
+  createNode(p, { id: 'node_1', projectId: 'proj_1', type: 'GOAL' })
+  const version = publishNodeVersion(p, { id: 'nv_1', nodeId: 'node_1', title: 'T', body: 'body' })
+  createTask(p, { id: 'task_1', projectId: 'proj_1', type: 'IMPLEMENT_CHANGE', title: 'T' })
+  publishTaskSpecVersion(p, {
+    id: 'spec_1',
+    taskId: 'task_1',
+    description: 'd',
+    scope: 's',
+    criteria: [{ description: 'c', position: 0 }]
+  })
+  const baseline = createBaselineDraft(p, {
+    id: 'baseline_1',
+    projectId: 'proj_1',
+    name: '0.1',
+    nodeVersionIds: [version.id]
+  })
+  activateBaseline(p, { baselineId: baseline.id })
+
+  const baseCommit = repoDir ? await gitOutput(repoDir, ['rev-parse', 'HEAD']) : 'a'.repeat(40)
+  const treeHash = repoDir ? await gitOutput(repoDir, ['rev-parse', 'HEAD^{tree}']) : 'b'.repeat(40)
+  const revision = upsertRepositoryRevision(p, {
+    id: 'rev_1',
+    baseCommit,
+    treeHash,
+    workingTreePatchHash: null
+  })
+
+  const frozen = freezeContextSnapshot(p, {
+    id: 'snap_1',
+    projectId: 'proj_1',
+    taskId: 'task_1',
+    taskSpecVersionId: 'spec_1',
+    baseBaselineId: baseline.id,
+    expectedRepositoryRevisionId: revision.id,
+    items: []
+  })
+
+  return { snapshotId: frozen.snapshot.id, revisionId: revision.id }
+}
+
+describe('ExecutionCoordinator', () => {
+  afterEach(async () => {
+    await cleanupTempDirs()
+  })
+
+  it('builds an ExecutionRequest from a frozen snapshot with Main-owned fields', async () => {
+    const p = openDatabase({ path: ':memory:', services: services() })
+    applyMigrations(p)
+    await frozenSetup(p)
+    const worker = new FakeWorkerHost()
+    const coordinator = new ExecutionCoordinator(p, worker, services())
+
+    await coordinator.dispatch({ executionRequestId: 'exec-1', contextSnapshotId: 'snap_1' })
+
+    expect(worker.captured).toHaveLength(1)
+    const request = worker.captured[0] as unknown as ExecutionRequestContract
+    expect(request.executionRequestId).toBe('exec-1')
+    expect(request.workerAttemptNumber).toBe(1)
+    expect(request.runId).toBe('run_1')
+    expect(request.contextSnapshotId).toBe('snap_1')
+    expect(request.taskSpecVersionId).toBe('spec_1')
+    expect(request.expectedRepositoryRevision.baseCommit).toBe('a'.repeat(40))
+    expect(request.requiredCapabilities).toEqual(['git', 'node'])
+    expect(request.toolPolicy.allowNetwork).toBe(false)
+    expect(request.resourceBudget.maxDurationMs).toBe(30_000)
+    expect(request.workspaceStrategy).toBe('ISOLATED_WORKTREE')
+    const { requestHash: _hash, ...rest } = request
+    void _hash
+    expect(request.requestHash).toBe(computeRequestHash(rest))
+
+    closeDatabase(p)
+  })
+
+  it('rejects a non-frozen snapshot', async () => {
+    const p = openDatabase({ path: ':memory:', services: services() })
+    applyMigrations(p)
+    const { snapshotId: frozenId } = await frozenSetup(p)
+    p.db.exec(
+      "INSERT INTO context_snapshot (id, project_id, task_id, task_spec_version_id, base_baseline_id, expected_repository_revision_id, status, freshness, created_at, updated_at) VALUES ('snap_draft','proj_1','task_1','spec_1','baseline_1','rev_1','DRAFT','CURRENT','2026-08-08T00:00:00.000Z','2026-08-08T00:00:00.000Z')"
+    )
+    const coordinator = new ExecutionCoordinator(p, new FakeWorkerHost(), services())
+
+    await expect(
+      coordinator.dispatch({ executionRequestId: 'exec-1', contextSnapshotId: 'snap_draft' })
+    ).rejects.toThrow(ValidationError)
+    void frozenId
+    closeDatabase(p)
+  })
+
+  it('rejects a snapshot that does not exist', async () => {
+    const p = openDatabase({ path: ':memory:', services: services() })
+    applyMigrations(p)
+    const coordinator = new ExecutionCoordinator(p, new FakeWorkerHost(), services())
+
+    await expect(
+      coordinator.dispatch({ executionRequestId: 'exec-1', contextSnapshotId: 'missing' })
+    ).rejects.toThrow(NotFoundError)
+    closeDatabase(p)
+  })
+
+  it('does not chase the current revision: repo changed after freeze -> REVISION_MISMATCH', async () => {
+    const repoDir = await createTempGitRepo()
+    const runtimeDir = trackTempDir(await mkdtemp(join(tmpdir(), 'ca-coord-runtime-')))
+    const p = openDatabase({ path: ':memory:', services: services() })
+    applyMigrations(p)
+    const { snapshotId } = await frozenSetup(p, repoDir)
+
+    await writeFile(join(repoDir, 'README.md'), '# test repository\nchanged after freeze\n')
+    await git(repoDir, ['commit', '-am', 'post-freeze change'])
+
+    const worker = new InProcessWorkerHost({
+      sourceRepositoryPath: repoDir,
+      runtimeDirectory: runtimeDir
+    })
+    const coordinator = new ExecutionCoordinator(p, worker, services())
+
+    const result = await coordinator.dispatch({
+      executionRequestId: 'exec-1',
+      contextSnapshotId: snapshotId
+    })
+    expect(result.outcome).toBe('REVISION_MISMATCH')
+    await worker.dispose()
+    closeDatabase(p)
+  })
+
+  it('dispatches successfully against an unchanged repository', async () => {
+    const repoDir = await createTempGitRepo()
+    const runtimeDir = trackTempDir(await mkdtemp(join(tmpdir(), 'ca-coord-runtime-')))
+    const p = openDatabase({ path: ':memory:', services: services() })
+    applyMigrations(p)
+    const { snapshotId } = await frozenSetup(p, repoDir)
+
+    const worker = new InProcessWorkerHost({
+      sourceRepositoryPath: repoDir,
+      runtimeDirectory: runtimeDir
+    })
+    const coordinator = new ExecutionCoordinator(p, worker, services())
+
+    const result = await coordinator.dispatch({
+      executionRequestId: 'exec-1',
+      contextSnapshotId: snapshotId
+    })
+    expect(result.outcome).toBe('SUCCEEDED')
+    await worker.dispose()
+    closeDatabase(p)
+  })
+
+  it('cancel forwards to the worker and reports unknown ids as false', async () => {
+    const p = openDatabase({ path: ':memory:', services: services() })
+    applyMigrations(p)
+    const worker = new FakeWorkerHost()
+    const coordinator = new ExecutionCoordinator(p, worker, services())
+
+    await expect(coordinator.cancel({ executionRequestId: 'active-1' })).resolves.toEqual({
+      cancelled: true
+    })
+    await expect(coordinator.cancel({ executionRequestId: 'unknown' })).resolves.toEqual({
+      cancelled: false
+    })
+    closeDatabase(p)
+  })
+})

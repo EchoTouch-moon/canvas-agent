@@ -13,6 +13,7 @@ import type {
   ExecutionRequestContract
 } from '@canvas-agent/contracts'
 import { computeRequestHash } from '@canvas-agent/worker-runtime'
+import { PHASE3_EXECUTION_PROFILE } from './execution-profile'
 import type { WorkerHost } from './worker-host'
 
 const EXPIRY_OFFSET_MS = 24 * 60 * 60 * 1000
@@ -48,16 +49,11 @@ export class ExecutionCoordinator {
         workingTreePatchHash: revision.workingTreePatchHash
       },
       checkpointId: null,
-      requiredCapabilities: ['git', 'node'],
-      agentConfiguration: { provider: 'fixture', model: 'deterministic' },
-      toolPolicy: {
-        allowedTools: ['write_file', 'run_command'],
-        deniedPaths: [],
-        allowNetwork: false,
-        allowShell: true
-      },
-      workspaceStrategy: 'ISOLATED_WORKTREE',
-      resourceBudget: { maxDurationMs: 30_000, maxToolCalls: 20, maxDiskBytes: 1_000_000_000 },
+      requiredCapabilities: PHASE3_EXECUTION_PROFILE.requiredCapabilities,
+      agentConfiguration: PHASE3_EXECUTION_PROFILE.agentConfiguration,
+      toolPolicy: PHASE3_EXECUTION_PROFILE.toolPolicy,
+      workspaceStrategy: PHASE3_EXECUTION_PROFILE.workspaceStrategy,
+      resourceBudget: PHASE3_EXECUTION_PROFILE.resourceBudget,
       schemaVersion: 1,
       expiresAt: new Date(Date.parse(this.services.now()) + EXPIRY_OFFSET_MS).toISOString()
     }

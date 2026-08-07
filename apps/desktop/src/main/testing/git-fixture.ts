@@ -19,6 +19,10 @@ export async function cleanupTempDirs(): Promise<void> {
 }
 
 export async function git(repoPath: string, args: readonly string[]): Promise<void> {
+  await gitOutput(repoPath, args)
+}
+
+export async function gitOutput(repoPath: string, args: readonly string[]): Promise<string> {
   const result = await runCommand({
     argv: ['git', ...args],
     cwd: repoPath,
@@ -31,6 +35,7 @@ export async function git(repoPath: string, args: readonly string[]): Promise<vo
   if (result.exitCode !== 0) {
     throw new Error(`git ${args.join(' ')} failed: ${result.stderr || result.stdout}`)
   }
+  return result.stdout.trim()
 }
 
 export async function createTempGitRepo(): Promise<string> {
