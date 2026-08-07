@@ -1,4 +1,5 @@
 import type { TaskStatus } from '@canvas-agent/domain'
+import { sourceRefToString, type SourceReference } from '@canvas-agent/contracts'
 import type { FlowNotice, WorkspaceUiState } from '@/state/workspace-ui-reducer'
 import type {
   ContextSnapshotRecord,
@@ -56,6 +57,7 @@ export interface ContextCandidate {
   readonly label: string
   readonly description: string
   readonly content: string
+  readonly source: SourceReference
   readonly sourceRef: string
   readonly type: 'USER_INPUT' | 'NODE_VERSION'
   readonly authority: 'TASK_INSTRUCTION' | 'PROJECT_FACT'
@@ -247,12 +249,17 @@ function buildCandidates(
     const content = [spec.spec.description, spec.spec.scope, criteria]
       .filter((part) => part.length > 0)
       .join('\n')
+    const source: SourceReference = {
+      kind: 'TASK_SPEC_VERSION',
+      taskSpecVersionId: spec.spec.id
+    }
     candidates.push({
       id: `task-spec:${spec.spec.id}`,
       label: 'Task specification',
       description: `${spec.spec.description} ${spec.spec.scope}`.trim(),
       content,
-      sourceRef: spec.spec.id,
+      source,
+      sourceRef: sourceRefToString(source),
       type: 'USER_INPUT',
       authority: 'TASK_INSTRUCTION',
       priority: 'P0',
@@ -261,15 +268,24 @@ function buildCandidates(
     })
   }
 
-  const versions = workspace.nodeVersions.filter((version) => version.nodeId === selectedNodeId)
+  const baselineVersionIds = new Set(
+    workspace.baselines
+      .find((aggregate) => aggregate.baseline.id === workspace.activeBaseline?.id)
+      ?.items.map((item) => item.nodeVersionId) ?? []
+  )
+  const versions = workspace.nodeVersions.filter(
+    (version) => version.nodeId === selectedNodeId && baselineVersionIds.has(version.id)
+  )
   for (const version of versions) {
     const content = `${version.title}\n${version.body}`
+    const source: SourceReference = { kind: 'NODE_VERSION', nodeVersionId: version.id }
     candidates.push({
       id: `node-version:${version.id}`,
       label: version.title,
       description: version.body,
       content,
-      sourceRef: version.id,
+      source,
+      sourceRef: sourceRefToString(source),
       type: 'NODE_VERSION',
       authority: 'PROJECT_FACT',
       priority: 'P1',

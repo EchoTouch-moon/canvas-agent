@@ -17,16 +17,10 @@ describe('fake WorkspaceClient transport', () => {
       taskSpecVersionId: taskSpec.spec.id,
       baseBaselineId: baseline.baseline.id,
       expectedRepositoryRevisionId: revision.id,
-      items: [
+      selections: [
         {
-          itemType: 'USER_INPUT',
-          sourceRef: taskSpec.spec.id,
-          resolvedContent: taskSpec.spec.description,
-          authority: 'TASK_INSTRUCTION',
-          priority: 'P0',
-          tokenEstimate: 12,
-          selectionReason: 'test',
-          position: 0
+          source: { kind: 'NODE_VERSION', nodeVersionId: workspace.nodeVersions[0]!.id },
+          selectionReason: 'test'
         }
       ]
     })
@@ -40,6 +34,9 @@ describe('fake WorkspaceClient transport', () => {
     const result = await dispatch
 
     expect(snapshot.snapshot.status).toBe('FROZEN')
+    expect(snapshot.items.map((item) => item.itemType)).toContain('USER_INPUT')
+    expect(snapshot.items.map((item) => item.itemType)).toContain('NODE_VERSION')
+    expect(snapshot.items[1]?.selectionReason).toBe('test')
     expect(cancel.cancelled).toBe(true)
     expect(result.outcome).toBe('CANCELLED')
   })

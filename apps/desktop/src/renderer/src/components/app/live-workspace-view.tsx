@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { RunOutcomeBadge } from '@/components/domain'
-import { buildContextCandidates, type ContextCandidateInput } from '@/lib/context-candidates'
+import { buildContextCandidates, type ContextCandidate } from '@/lib/context-candidates'
 import { useWorkspace, type UseWorkspaceResult } from '@/hooks/use-workspace'
 import type { DispatchResult, FrozenSnapshotView } from '@/lib/workspace-types'
 
@@ -28,10 +28,12 @@ interface RunState {
 function CandidateRow({
   candidate,
   selected,
+  readOnly,
   onToggle
 }: {
-  readonly candidate: ContextCandidateInput
+  readonly candidate: ContextCandidate
   readonly selected: boolean
+  readonly readOnly: boolean
   readonly onToggle: () => void
 }): React.JSX.Element {
   return (
@@ -39,6 +41,7 @@ function CandidateRow({
       <input
         type="checkbox"
         checked={selected}
+        disabled={readOnly}
         aria-label={`Include ${candidate.label}`}
         className="mt-0.5 size-3.5 accent-[var(--primary)]"
         onChange={onToggle}
@@ -46,6 +49,11 @@ function CandidateRow({
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-1.5">
           <span className="truncate text-[12px] font-semibold">{candidate.label}</span>
+          {candidate.required ? (
+            <Badge tone="success">required</Badge>
+          ) : (
+            <Badge tone="neutral">optional</Badge>
+          )}
           <Badge tone={candidate.priority === 'P0' ? 'warning' : 'neutral'}>
             {candidate.priority}
           </Badge>
@@ -157,7 +165,7 @@ function ComposerSection({
   selectedIds,
   onToggle
 }: {
-  readonly candidates: readonly ContextCandidateInput[]
+  readonly candidates: readonly ContextCandidate[]
   readonly selectedIds: readonly string[]
   readonly onToggle: (id: string) => void
 }): React.JSX.Element {
@@ -179,7 +187,8 @@ function ComposerSection({
           <CandidateRow
             key={candidate.id}
             candidate={candidate}
-            selected={selectedIds.includes(candidate.id)}
+            selected={candidate.required || selectedIds.includes(candidate.id)}
+            readOnly={candidate.required}
             onToggle={() => onToggle(candidate.id)}
           />
         ))}
@@ -350,24 +359,16 @@ export function LiveWorkspaceView(): React.JSX.Element {
       setActionError('No baseline available to freeze against.')
       return
     }
-    const items = candidates
-      .filter((candidate) => selectedIds.includes(candidate.id))
-      .map((candidate, position) => ({
-        itemType: candidate.itemType,
-        sourceRef: candidate.sourceRef,
-        resolvedContent: candidate.resolvedContent,
-        authority: candidate.authority,
-        priority: candidate.priority,
-        tokenEstimate: candidate.tokenEstimate,
-        position
-      }))
+    const selections = candidates
+      .filter((candidate) => !candidate.required && selectedIds.includes(candidate.id))
+      .map((candidate) => ({ source: candidate.source, selectionReason: null }))
     try {
       const frozenSnapshot = await workspace.freeze({
         projectId: view.project.id,
         taskId: spec.spec.taskId,
         taskSpecVersionId: spec.spec.id,
         baseBaselineId: baseBaseline.id,
-        items
+        selections
       })
       setFrozen(frozenSnapshot)
     } catch (error) {

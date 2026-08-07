@@ -1967,16 +1967,11 @@ export function CoreFlowWorkspace({
       taskId: state.task.id,
       taskSpecVersionId: state.task.taskSpecVersionId,
       baseBaselineId: state.baseline.id,
-      items: getSelectedContextItems(state).map((item, position) => ({
-        itemType: item.type,
-        sourceRef: item.sourceRef,
-        resolvedContent: item.content,
-        authority: item.authority,
-        priority: item.priority,
-        tokenEstimate: item.tokens,
-        selectionReason: 'Selected in Context Composer',
-        position
-      }))
+      selections: getSelectedContextItems(state).flatMap((item) =>
+        item.source.kind === 'NODE_VERSION'
+          ? [{ source: item.source, selectionReason: 'Selected in Context Composer' }]
+          : []
+      )
     }
 
     try {
