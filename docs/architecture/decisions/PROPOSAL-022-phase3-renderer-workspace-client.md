@@ -248,9 +248,9 @@ surface.
 
 - `workspace-client.test.ts`: fake `window.canvasAgent`; `ok:false` → typed
   `WorkspaceError`; `ok:true` → typed data.
-- `use-workspace.test.ts`: seed → projection; domain command adopts authoritative
-  response; debounced draft `ConcurrencyError` → local conflict state (only for
-  external mismatches).
+- `use-workspace.test.ts`: `project.state` hydration → projection; domain command
+  adopts authoritative response; debounced draft `ConcurrencyError` → local
+  conflict state (only for external mismatches).
 - Reducer split tests: UI-only commands pure; domain commands route to `execute`.
 - `execution.dispatch` test: Main builds an ExecutionRequest from the frozen
   snapshot bindings (taskSpec + pinned revision); repo changed after freeze →
