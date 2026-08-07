@@ -23,12 +23,26 @@ describe('sourceReferenceSchema', () => {
 
   it('rejects unknown kinds, extra fields and empty ids', () => {
     expect(() =>
-      sourceReferenceSchema.parse({ kind: 'REPOSITORY_CONTENT', path: 'src/a.ts' })
+      sourceReferenceSchema.parse({ kind: 'ARTIFACT', artifactId: 'a_1' })
     ).toThrow()
     expect(() =>
       sourceReferenceSchema.parse({ kind: 'NODE_VERSION', nodeVersionId: 'nv_1', extra: true })
     ).toThrow()
     expect(() => sourceReferenceSchema.parse({ kind: 'NODE_VERSION', nodeVersionId: '' })).toThrow()
+  })
+
+  it('accepts canonical REPOSITORY_CONTENT and rejects non-canonical paths', () => {
+    expect(
+      sourceReferenceSchema.parse({ kind: 'REPOSITORY_CONTENT', path: 'src/components/foo.ts' })
+    ).toBeTruthy()
+    expect(
+      sourceReferenceSchema.parse({ kind: 'REPOSITORY_CONTENT', path: 'docs/a%20b.md' })
+    ).toBeTruthy()
+    for (const path of ['/abs/file', '../secret', 'src/../secret', './foo', 'src//foo', 'a/', 'a\\b', '']) {
+      expect(() =>
+        sourceReferenceSchema.parse({ kind: 'REPOSITORY_CONTENT', path })
+      ).toThrow()
+    }
   })
 })
 
@@ -42,6 +56,19 @@ describe('freezeSelectionSchema', () => {
     expect(
       freezeSelectionSchema.parse({ source: { kind: 'NODE_VERSION', nodeVersionId: 'nv_1' } })
     ).toBeTruthy()
+  })
+
+  it('accepts a canonical REPOSITORY_CONTENT source', () => {
+    expect(
+      freezeSelectionSchema.parse({
+        source: { kind: 'REPOSITORY_CONTENT', path: 'README.md' }
+      })
+    ).toBeTruthy()
+    expect(() =>
+      freezeSelectionSchema.parse({
+        source: { kind: 'REPOSITORY_CONTENT', path: '../secret' }
+      })
+    ).toThrow()
   })
 
   it('rejects a TASK_SPEC_VERSION source structurally', () => {
@@ -69,7 +96,9 @@ describe('freezeSelectionSchema', () => {
 describe('sourceRefToString / parseSourceRef', () => {
   const refs: SourceReference[] = [
     { kind: 'TASK_SPEC_VERSION', taskSpecVersionId: 'spec_1' },
-    { kind: 'NODE_VERSION', nodeVersionId: 'nv_1' }
+    { kind: 'NODE_VERSION', nodeVersionId: 'nv_1' },
+    { kind: 'REPOSITORY_CONTENT', path: 'src/components/foo bar.ts' },
+    { kind: 'REPOSITORY_CONTENT', path: 'docs/设计.md' }
   ]
 
   for (const ref of refs) {
@@ -84,12 +113,20 @@ describe('sourceRefToString / parseSourceRef', () => {
       'task-spec://spec_1'
     )
     expect(sourceRefToString({ kind: 'NODE_VERSION', nodeVersionId: 'nv_1' })).toBe('node://nv_1')
+    expect(
+      sourceRefToString({ kind: 'REPOSITORY_CONTENT', path: 'docs/foo bar.md' })
+    ).toBe('repo://docs/foo%20bar.md')
+    expect(
+      parseSourceRef('repo://docs/foo%20bar.md')
+    ).toEqual({ kind: 'REPOSITORY_CONTENT', path: 'docs/foo bar.md' })
   })
 
-  it('rejects raw ids and unknown schemes', () => {
+  it('rejects raw ids, unknown schemes and non-canonical repo encodings', () => {
     expect(() => parseSourceRef('nv_1')).toThrow()
     expect(() => parseSourceRef('spec_1')).toThrow()
-    expect(() => parseSourceRef('repo://src/a.ts')).toThrow()
+    expect(() => parseSourceRef('blob://x')).toThrow()
+    expect(() => parseSourceRef('repo://../secret')).toThrow()
+    expect(() => parseSourceRef('repo://a%2Fb')).toThrow()
     expect(() => parseSourceRef('')).toThrow()
   })
 })

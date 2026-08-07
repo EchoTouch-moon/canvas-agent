@@ -82,6 +82,36 @@ describe('command envelope', () => {
     ).toThrow()
   })
 
+  it('validates context.resolve payloads with a full SourceReference union', () => {
+    const resolve = commandRequestSchema.parse(
+      request('context.resolve', {
+        projectId: 'p',
+        taskId: 't',
+        taskSpecVersionId: 's',
+        baseBaselineId: 'b',
+        expectedRepositoryRevisionId: 'r',
+        selections: [
+          { kind: 'TASK_SPEC_VERSION', taskSpecVersionId: 's' },
+          { kind: 'NODE_VERSION', nodeVersionId: 'nv_1' },
+          { kind: 'REPOSITORY_CONTENT', path: 'README.md' }
+        ]
+      })
+    ) as CommandRequest<'context.resolve'>
+    expect(resolve.payload.selections).toHaveLength(3)
+    expect(() =>
+      commandRequestSchema.parse(
+        request('context.resolve', {
+          projectId: 'p',
+          taskId: 't',
+          taskSpecVersionId: 's',
+          baseBaselineId: 'b',
+          expectedRepositoryRevisionId: 'r',
+          selections: [{ kind: 'REPOSITORY_CONTENT', path: '../secret' }]
+        })
+      )
+    ).toThrow()
+  })
+
   it('validates execution.dispatch and execution.cancel payloads', () => {
     const dispatch = commandRequestSchema.parse(
       request('execution.dispatch', {

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { freezeSelectionSchema } from './source-reference'
+import { freezeSelectionSchema, sourceReferenceSchema } from './source-reference'
 import {
   BASELINE_STATUSES,
   CONTEXT_AUTHORITIES,
@@ -289,6 +289,36 @@ const snapshotFreezeResultSchema = z
   })
   .strict()
 
+const resolvedContextItemSchema = z
+  .object({
+    itemType: z.enum(CONTEXT_ITEM_TYPES),
+    sourceRef: z.string().min(1),
+    resolvedContent: z.string(),
+    contentHash: contentHashSchema,
+    authority: z.enum(CONTEXT_AUTHORITIES),
+    priority: contextPrioritySchema,
+    tokenEstimate: z.number().int().nonnegative(),
+    selectionReason: z.string().nullable().optional()
+  })
+  .strict()
+
+const contextResolveSchema = z
+  .object({
+    projectId: idSchema,
+    taskId: idSchema,
+    taskSpecVersionId: idSchema,
+    baseBaselineId: idSchema,
+    expectedRepositoryRevisionId: idSchema,
+    selections: z.array(sourceReferenceSchema)
+  })
+  .strict()
+
+const contextResolveResultSchema = z
+  .object({
+    items: z.array(resolvedContextItemSchema)
+  })
+  .strict()
+
 // --- Worker dispatch / cancel ----------------------------------------------
 
 const dispatchOutcomeSchema = z.enum([
@@ -483,6 +513,7 @@ export interface CommandMap {
   'baseline.activate': { request: z.infer<typeof baselineActivateSchema>; response: z.infer<typeof baselineActivateResultSchema> }
   'revision.current': { request: z.infer<typeof emptyObjectSchema>; response: z.infer<typeof repositoryRevisionRowSchema> }
   'snapshot.freeze': { request: z.infer<typeof snapshotFreezeSchema>; response: z.infer<typeof snapshotFreezeResultSchema> }
+  'context.resolve': { request: z.infer<typeof contextResolveSchema>; response: z.infer<typeof contextResolveResultSchema> }
   'execution.dispatch': { request: z.infer<typeof executionDispatchRequestSchema>; response: DispatchResult }
   'execution.cancel': { request: z.infer<typeof executionCancelSchema>; response: z.infer<typeof cancelResultSchema> }
 }
@@ -529,6 +560,7 @@ export const commandRequestSchema = z.discriminatedUnion('command', [
   commandRequestMember('baseline.activate', baselineActivateSchema),
   commandRequestMember('revision.current', emptyObjectSchema),
   commandRequestMember('snapshot.freeze', snapshotFreezeSchema),
+  commandRequestMember('context.resolve', contextResolveSchema),
   commandRequestMember('execution.dispatch', executionDispatchRequestSchema),
   commandRequestMember('execution.cancel', executionCancelSchema)
 ])
@@ -574,6 +606,7 @@ export const commandResponseSchemas = {
   'baseline.activate': commandResponseMember('baseline.activate', baselineActivateResultSchema),
   'revision.current': commandResponseMember('revision.current', repositoryRevisionRowSchema),
   'snapshot.freeze': commandResponseMember('snapshot.freeze', snapshotFreezeResultSchema),
+  'context.resolve': commandResponseMember('context.resolve', contextResolveResultSchema),
   'execution.dispatch': commandResponseMember('execution.dispatch', dispatchResultSchema),
   'execution.cancel': commandResponseMember('execution.cancel', cancelResultSchema)
 } as const
@@ -594,6 +627,7 @@ export const commandSchemas = {
   'baseline.activate': { input: baselineActivateSchema, output: baselineActivateResultSchema },
   'revision.current': { input: emptyObjectSchema, output: repositoryRevisionRowSchema },
   'snapshot.freeze': { input: snapshotFreezeSchema, output: snapshotFreezeResultSchema },
+  'context.resolve': { input: contextResolveSchema, output: contextResolveResultSchema },
   'execution.dispatch': { input: executionDispatchRequestSchema, output: dispatchResultSchema },
   'execution.cancel': { input: executionCancelSchema, output: cancelResultSchema }
 }
