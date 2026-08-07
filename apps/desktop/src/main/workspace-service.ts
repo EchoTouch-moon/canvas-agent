@@ -41,7 +41,6 @@ import {
 import type { CommandInput, ProjectStateView } from '@canvas-agent/contracts'
 import { GitRevisionReader } from './git-revision-reader'
 import { ContextResolver, type ResolvedContextItem } from './context-resolver'
-
 export class WorkspaceService {
   private readonly services: SystemServices
   private readonly contextResolver: ContextResolver
@@ -52,7 +51,7 @@ export class WorkspaceService {
     services: SystemServices = defaultServices
   ) {
     this.services = services
-    this.contextResolver = new ContextResolver(p)
+    this.contextResolver = new ContextResolver(p, revisions.sourceRepositoryPath)
   }
 
   createProject(payload: CommandInput<'project.create'>): ProjectRow {
@@ -178,7 +177,9 @@ export class WorkspaceService {
     })
   }
 
-  freezeSnapshot(payload: CommandInput<'snapshot.freeze'>): FreezeContextSnapshotResult {
+  async freezeSnapshot(
+    payload: CommandInput<'snapshot.freeze'>
+  ): Promise<FreezeContextSnapshotResult> {
     requireRepositoryRevision(this.p, payload.expectedRepositoryRevisionId)
     const scope = {
       projectId: payload.projectId,
@@ -187,7 +188,7 @@ export class WorkspaceService {
       baseBaselineId: payload.baseBaselineId,
       expectedRepositoryRevisionId: payload.expectedRepositoryRevisionId
     }
-    const resolved = this.contextResolver.materialize(scope, payload.selections)
+    const resolved = await this.contextResolver.materialize(scope, payload.selections)
     return freezeContextSnapshot(this.p, {
       id: this.services.nextId('snap_'),
       projectId: scope.projectId,
@@ -197,6 +198,23 @@ export class WorkspaceService {
       expectedRepositoryRevisionId: scope.expectedRepositoryRevisionId,
       items: toFreezeItems(resolved)
     })
+  }
+
+  async resolveContext(
+    payload: CommandInput<'context.resolve'>
+  ): Promise<{ items: ResolvedContextItem[] }> {
+    const scope = {
+      projectId: payload.projectId,
+      taskId: payload.taskId,
+      taskSpecVersionId: payload.taskSpecVersionId,
+      baseBaselineId: payload.baseBaselineId,
+      expectedRepositoryRevisionId: payload.expectedRepositoryRevisionId
+    }
+    const items: ResolvedContextItem[] = []
+    for (const ref of payload.selections) {
+      items.push(await this.contextResolver.resolve(scope, ref))
+    }
+    return { items }
   }
 }
 

@@ -5,15 +5,18 @@ import {
   createNode,
   createProject,
   createTask,
+  NotFoundError,
   publishNodeVersion,
   publishTaskSpecVersion,
+  sha256Hex,
+  upsertRepositoryRevision,
   ValidationError,
   type Persistence,
   type SystemServices
 } from '@canvas-agent/persistence'
 import { openWorkspaceDatabase, closeWorkspaceDatabase } from './database'
 import { ContextResolver, type ContextResolutionScope } from './context-resolver'
-import { cleanupTempDirs } from './testing/git-fixture'
+import { cleanupTempDirs, createTempGitRepo, gitOutput } from './testing/git-fixture'
 
 function fixedServices(): SystemServices {
   let counter = 0
@@ -25,6 +28,7 @@ function fixedServices(): SystemServices {
 
 interface Seeded {
   p: Persistence
+  repoDir: string
   scope: ContextResolutionScope
   projectId: string
   baselineId: string
@@ -34,8 +38,9 @@ interface Seeded {
   foreignVersionId: string
 }
 
-function seed(): Seeded {
+async function seed(): Promise<Seeded> {
   const p = openWorkspaceDatabase(':memory:', fixedServices())
+  const repoDir = await createTempGitRepo()
   const projectId = 'proj_main'
   const foreignProjectId = 'proj_foreign'
 
@@ -93,6 +98,7 @@ function seed(): Seeded {
 
   return {
     p,
+    repoDir,
     projectId,
     baselineId: baseline.id,
     taskSpecVersionId: spec.spec.id,
@@ -114,10 +120,10 @@ describe('ContextResolver', () => {
     await cleanupTempDirs()
   })
 
-  it('materializes the pinned task spec first at position 0', () => {
-    const { p, scope, taskSpecVersionId } = seed()
-    const resolver = new ContextResolver(p)
-    const items = resolver.materialize(scope, [])
+  it('materializes the pinned task spec first at position 0', async () => {
+    const { p, repoDir, scope, taskSpecVersionId } = await seed()
+    const resolver = new ContextResolver(p, repoDir)
+    const items = await resolver.materialize(scope, [])
 
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({
@@ -130,10 +136,10 @@ describe('ContextResolver', () => {
     closeWorkspaceDatabase(p)
   })
 
-  it('resolves a baseline node version as PROJECT_FACT / P1 and matches its persisted hash', () => {
-    const { p, scope, baselineVersionId } = seed()
-    const resolver = new ContextResolver(p)
-    const items = resolver.materialize(scope, [
+  it('resolves a baseline node version as PROJECT_FACT / P1 and matches its persisted hash', async () => {
+    const { p, repoDir, scope, baselineVersionId } = await seed()
+    const resolver = new ContextResolver(p, repoDir)
+    const items = await resolver.materialize(scope, [
       { source: { kind: 'NODE_VERSION', nodeVersionId: baselineVersionId } }
     ])
 
@@ -150,44 +156,44 @@ describe('ContextResolver', () => {
     closeWorkspaceDatabase(p)
   })
 
-  it('rejects a node version that is not a member of the base baseline', () => {
-    const { p, scope, outOfBaselineVersionId } = seed()
-    const resolver = new ContextResolver(p)
-    expect(() =>
+  it('rejects a node version that is not a member of the base baseline', async () => {
+    const { p, repoDir, scope, outOfBaselineVersionId } = await seed()
+    const resolver = new ContextResolver(p, repoDir)
+    await expect(
       resolver.materialize(scope, [
         { source: { kind: 'NODE_VERSION', nodeVersionId: outOfBaselineVersionId } }
       ])
-    ).toThrow(ValidationError)
+    ).rejects.toThrow(ValidationError)
     closeWorkspaceDatabase(p)
   })
 
-  it('rejects a node version from another project', () => {
-    const { p, scope, foreignVersionId } = seed()
-    const resolver = new ContextResolver(p)
-    expect(() =>
+  it('rejects a node version from another project', async () => {
+    const { p, repoDir, scope, foreignVersionId } = await seed()
+    const resolver = new ContextResolver(p, repoDir)
+    await expect(
       resolver.materialize(scope, [
         { source: { kind: 'NODE_VERSION', nodeVersionId: foreignVersionId } }
       ])
-    ).toThrow(ValidationError)
+    ).rejects.toThrow(ValidationError)
     closeWorkspaceDatabase(p)
   })
 
-  it('rejects duplicate selections via canonical sourceRef', () => {
-    const { p, scope, baselineVersionId } = seed()
-    const resolver = new ContextResolver(p)
-    expect(() =>
+  it('rejects duplicate selections via canonical sourceRef', async () => {
+    const { p, repoDir, scope, baselineVersionId } = await seed()
+    const resolver = new ContextResolver(p, repoDir)
+    await expect(
       resolver.materialize(scope, [
         { source: { kind: 'NODE_VERSION', nodeVersionId: baselineVersionId } },
         { source: { kind: 'NODE_VERSION', nodeVersionId: baselineVersionId } }
       ])
-    ).toThrow(/duplicate_context_source/)
+    ).rejects.toThrow(/duplicate_context_source/)
     closeWorkspaceDatabase(p)
   })
 
-  it('resolve() supports TASK_SPEC_VERSION refs bound to the task', () => {
-    const { p, scope, taskSpecVersionId } = seed()
-    const resolver = new ContextResolver(p)
-    const item = resolver.resolve(scope, {
+  it('resolve() supports TASK_SPEC_VERSION refs bound to the task', async () => {
+    const { p, repoDir, scope, taskSpecVersionId } = await seed()
+    const resolver = new ContextResolver(p, repoDir)
+    const item = await resolver.resolve(scope, {
       kind: 'TASK_SPEC_VERSION',
       taskSpecVersionId
     })
@@ -195,8 +201,8 @@ describe('ContextResolver', () => {
     closeWorkspaceDatabase(p)
   })
 
-  it('resolve() requires the exact pinned task spec version', () => {
-    const { p, scope } = seed()
+  it('resolve() requires the exact pinned task spec version', async () => {
+    const { p, repoDir, scope } = await seed()
     const laterSpec = publishTaskSpecVersion(p, {
       id: 'spec_later',
       taskId: scope.taskId,
@@ -204,18 +210,18 @@ describe('ContextResolver', () => {
       scope: 'demo',
       criteria: [{ description: 'c', position: 0 }]
     })
-    const resolver = new ContextResolver(p)
-    expect(() =>
+    const resolver = new ContextResolver(p, repoDir)
+    await expect(
       resolver.resolve(scope, {
         kind: 'TASK_SPEC_VERSION',
         taskSpecVersionId: laterSpec.spec.id
       })
-    ).toThrow(/task_spec_binding_mismatch/)
+    ).rejects.toThrow(/task_spec_binding_mismatch/)
     closeWorkspaceDatabase(p)
   })
 
-  it('resolve() rejects a task spec bound to another task', () => {
-    const { p, scope } = seed()
+  it('resolve() rejects a task spec bound to another task', async () => {
+    const { p, repoDir, scope } = await seed()
     const otherTask = createTask(p, {
       id: 'task_other',
       projectId: scope.projectId,
@@ -229,10 +235,83 @@ describe('ContextResolver', () => {
       scope: 'y',
       criteria: [{ description: 'c', position: 0 }]
     })
-    const resolver = new ContextResolver(p)
-    expect(() =>
+    const resolver = new ContextResolver(p, repoDir)
+    await expect(
       resolver.resolve(scope, { kind: 'TASK_SPEC_VERSION', taskSpecVersionId: otherSpec.spec.id })
-    ).toThrow(ValidationError)
+    ).rejects.toThrow(ValidationError)
+    closeWorkspaceDatabase(p)
+  })
+
+  it('materializes REPOSITORY_CONTENT from a clean pinned baseCommit', async () => {
+    const { p, repoDir, scope } = await seed()
+    const baseCommit = await gitOutput(repoDir, ['rev-parse', 'HEAD'])
+    upsertRepositoryRevision(p, {
+      id: 'rev_clean',
+      baseCommit,
+      treeHash: '0'.repeat(40),
+      workingTreePatchHash: null
+    })
+    const resolver = new ContextResolver(p, repoDir)
+    const item = await resolver.resolve(
+      { ...scope, expectedRepositoryRevisionId: 'rev_clean' },
+      { kind: 'REPOSITORY_CONTENT', path: 'README.md' }
+    )
+
+    expect(item).toMatchObject({
+      itemType: 'REPOSITORY_CONTENT',
+      sourceRef: 'repo://README.md',
+      authority: 'REFERENCE',
+      priority: 'P2'
+    })
+    expect(item.resolvedContent).toContain('# main process test')
+    expect(item.contentHash).toBe(sha256Hex(item.resolvedContent))
+    closeWorkspaceDatabase(p)
+  })
+
+  it('rejects REPOSITORY_CONTENT on a dirty revision', async () => {
+    const { p, repoDir, scope } = await seed()
+    const baseCommit = await gitOutput(repoDir, ['rev-parse', 'HEAD'])
+    upsertRepositoryRevision(p, {
+      id: 'rev_dirty',
+      baseCommit,
+      treeHash: '0'.repeat(40),
+      workingTreePatchHash: 'dirty-patch'
+    })
+    const resolver = new ContextResolver(p, repoDir)
+    await expect(
+      resolver.resolve(
+        { ...scope, expectedRepositoryRevisionId: 'rev_dirty' },
+        { kind: 'REPOSITORY_CONTENT', path: 'README.md' }
+      )
+    ).rejects.toThrow(/repository_content_dirty_revision_unsupported/)
+    closeWorkspaceDatabase(p)
+  })
+
+  it('rejects a non-canonical repository path at the resolver boundary', async () => {
+    const { p, repoDir, scope } = await seed()
+    const resolver = new ContextResolver(p, repoDir)
+    await expect(
+      resolver.resolve(scope, { kind: 'REPOSITORY_CONTENT', path: '../secret' })
+    ).rejects.toThrow(/repository_content_non_canonical_path/)
+    closeWorkspaceDatabase(p)
+  })
+
+  it('reports a missing repository file as NotFoundError', async () => {
+    const { p, repoDir, scope } = await seed()
+    const baseCommit = await gitOutput(repoDir, ['rev-parse', 'HEAD'])
+    upsertRepositoryRevision(p, {
+      id: 'rev_clean',
+      baseCommit,
+      treeHash: '0'.repeat(40),
+      workingTreePatchHash: null
+    })
+    const resolver = new ContextResolver(p, repoDir)
+    await expect(
+      resolver.resolve(
+        { ...scope, expectedRepositoryRevisionId: 'rev_clean' },
+        { kind: 'REPOSITORY_CONTENT', path: 'nope.md' }
+      )
+    ).rejects.toThrow(NotFoundError)
     closeWorkspaceDatabase(p)
   })
 })

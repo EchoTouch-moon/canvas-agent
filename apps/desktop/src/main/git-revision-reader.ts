@@ -11,6 +11,10 @@ export interface ResolvedRepositoryRevision {
 export class GitRevisionReader {
   constructor(private readonly appConfig: AppConfig) {}
 
+  get sourceRepositoryPath(): string {
+    return this.appConfig.sourceRepositoryPath
+  }
+
   async current(): Promise<ResolvedRepositoryRevision> {
     const revision = await readRepositoryRevision(this.appConfig.sourceRepositoryPath, {
       cwd: this.appConfig.sourceRepositoryPath,

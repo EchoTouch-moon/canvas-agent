@@ -5,6 +5,7 @@ import {
   listTaskTargets,
   requireNode,
   requireNodeVersion,
+  requireRepositoryRevision,
   requireTaskSpecVersion,
   sha256Hex,
   ValidationError,
@@ -13,9 +14,11 @@ import {
 import type { ContextAuthority, ContextItemType, ContextPriority } from '@canvas-agent/domain'
 import {
   sourceRefToString,
+  isCanonicalRepositoryPath,
   type FreezeSelection,
   type SourceReference
 } from '@canvas-agent/contracts'
+import { GitRepositoryContentReader } from './git-repository-content-reader'
 
 export interface ContextResolutionScope {
   readonly projectId: string
@@ -43,8 +46,9 @@ export function estimateTokens(content: string): number {
 
 // Canonical, hash-stable materialization. The resolvedContent of each item is
 // exactly the canonical representation whose sha256 equals the persisted
-// aggregate's own contentHash, so a frozen item can be audited against the
-// authoritative source.
+// aggregate's own contentHash (for TaskSpecVersion / NodeVersion), or the
+// pinned baseCommit file content (for REPOSITORY_CONTENT), so a frozen item can
+// be audited against the authoritative source.
 
 function materializeTaskSpec(p: Persistence, scope: ContextResolutionScope): ResolvedContextItem {
   const spec = requireTaskSpecVersion(p, scope.taskSpecVersionId)
@@ -114,10 +118,44 @@ function materializeNodeVersion(
   }
 }
 
-export class ContextResolver {
-  constructor(private readonly p: Persistence) {}
+async function materializeRepositoryContent(
+  p: Persistence,
+  repositoryContent: GitRepositoryContentReader,
+  scope: ContextResolutionScope,
+  ref: Extract<SourceReference, { kind: 'REPOSITORY_CONTENT' }>,
+  selectionReason?: string | null
+): Promise<ResolvedContextItem> {
+  if (!isCanonicalRepositoryPath(ref.path)) {
+    throw new ValidationError('repository_content_non_canonical_path')
+  }
+  const revision = requireRepositoryRevision(p, scope.expectedRepositoryRevisionId)
+  if (revision.workingTreePatchHash !== null) {
+    throw new ValidationError('repository_content_dirty_revision_unsupported')
+  }
+  const { content } = await repositoryContent.readFileAtCommit(ref.path, revision.baseCommit)
+  return {
+    itemType: 'REPOSITORY_CONTENT',
+    sourceRef: sourceRefToString(ref),
+    resolvedContent: content,
+    contentHash: sha256Hex(content),
+    authority: 'REFERENCE',
+    priority: 'P2',
+    tokenEstimate: estimateTokens(content),
+    selectionReason: selectionReason ?? null
+  }
+}
 
-  resolve(scope: ContextResolutionScope, ref: SourceReference): ResolvedContextItem {
+export class ContextResolver {
+  private readonly repositoryContent: GitRepositoryContentReader
+
+  constructor(
+    private readonly p: Persistence,
+    sourceRepositoryPath: string
+  ) {
+    this.repositoryContent = new GitRepositoryContentReader(sourceRepositoryPath)
+  }
+
+  async resolve(scope: ContextResolutionScope, ref: SourceReference): Promise<ResolvedContextItem> {
     switch (ref.kind) {
       case 'TASK_SPEC_VERSION': {
         if (ref.taskSpecVersionId !== scope.taskSpecVersionId) {
@@ -127,27 +165,38 @@ export class ContextResolver {
       }
       case 'NODE_VERSION':
         return materializeNodeVersion(this.p, scope, ref)
+      case 'REPOSITORY_CONTENT':
+        return materializeRepositoryContent(this.p, this.repositoryContent, scope, ref)
     }
   }
 
   // The pinned TaskSpecVersion is always materialized first at position 0 and
-  // never supplied by the renderer (invariant D). Selections resolve in order;
-  // duplicate sources are rejected (invariant F).
-  materialize(
+  // never supplied by the renderer (invariant D). Selections resolve in order
+  // (sequential await keeps positions, error order and git pressure
+  // deterministic); duplicate sources are rejected (invariant F).
+  async materialize(
     scope: ContextResolutionScope,
     selections: readonly FreezeSelection[]
-  ): ResolvedContextItem[] {
+  ): Promise<ResolvedContextItem[]> {
     const items: ResolvedContextItem[] = [
-      this.resolve(scope, { kind: 'TASK_SPEC_VERSION', taskSpecVersionId: scope.taskSpecVersionId })
+      await this.resolve(scope, {
+        kind: 'TASK_SPEC_VERSION',
+        taskSpecVersionId: scope.taskSpecVersionId
+      })
     ]
     const seen = new Set<string>([items[0].sourceRef])
     for (const selection of selections) {
-      const item = materializeNodeVersion(
-        this.p,
-        scope,
-        selection.source,
-        selection.selectionReason
-      )
+      const ref = selection.source
+      const item =
+        ref.kind === 'REPOSITORY_CONTENT'
+          ? await materializeRepositoryContent(
+              this.p,
+              this.repositoryContent,
+              scope,
+              ref,
+              selection.selectionReason
+            )
+          : materializeNodeVersion(this.p, scope, ref, selection.selectionReason)
       if (seen.has(item.sourceRef)) {
         throw new ValidationError(`duplicate_context_source: ${item.sourceRef}`)
       }
