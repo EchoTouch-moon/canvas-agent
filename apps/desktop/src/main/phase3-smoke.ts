@@ -51,30 +51,21 @@ export async function runPhase3Smoke(deps: Phase3SmokeDeps): Promise<void> {
       taskSpecVersionId: spec.id,
       baseBaselineId: (view.activeBaseline as { id: string }).id,
       expectedRepositoryRevisionId: revisionId,
-      items: [
+      selections: [
         {
-          itemType: 'NODE_VERSION',
-          sourceRef: `node://${nodeVersion.id}`,
-          resolvedContent: nodeVersion.body,
-          authority: 'PROJECT_FACT',
-          priority: 'P1',
-          tokenEstimate: 120,
-          position: 0
-        },
-        {
-          itemType: 'USER_INPUT',
-          sourceRef: `task-spec://${spec.id}`,
-          resolvedContent: `${spec.id} scope`,
-          authority: 'TASK_INSTRUCTION',
-          priority: 'P0',
-          tokenEstimate: 80,
-          position: 1
+          source: { kind: 'NODE_VERSION', nodeVersionId: nodeVersion.id },
+          selectionReason: 'phase3 smoke'
         }
       ]
     })
   )
   if (!frozen.ok) throw new Error(`snapshot.freeze failed: ${frozen.error.message}`)
-  const snapshotId = (frozen.data as { snapshot: { id: string } }).snapshot.id
+  const frozenData = frozen.data as { snapshot: { id: string }; items: Array<{ itemType: string }> }
+  const snapshotId = frozenData.snapshot.id
+  const itemTypes = new Set(frozenData.items.map((item) => item.itemType))
+  if (!itemTypes.has('USER_INPUT') || !itemTypes.has('NODE_VERSION')) {
+    throw new Error('snapshot.freeze did not materialize the pinned task spec + selection')
+  }
   console.error('[phase3-smoke] snapshot frozen PASSED')
 
   const dispatch = await handleCommand(
