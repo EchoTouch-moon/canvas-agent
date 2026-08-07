@@ -27,18 +27,23 @@ describe('ProjectStateView renderer projection', () => {
   })
 
   it('derives Node relationships from real Edge records', () => {
+    const workspace = createFakeWorkspaceState()
     const view = createWorkspaceRenderState(
-      createFakeWorkspaceState(),
+      workspace,
       createInitialWorkspaceUiState(),
       createInitialExecutionSession()
     )
-    const requirement = view.nodes.find((node) => node.id === 'node-requirement-011')
+    const requirementId = workspace.nodes.find((node) => node.type === 'REQUIREMENT')?.id
+    const requirement = view.nodes.find((node) => node.id === requirementId)
+    const expectedNeighborIds = workspace.edges
+      .filter(
+        (edge) => edge.sourceNodeId === requirementId || edge.targetNodeId === requirementId
+      )
+      .map((edge) =>
+        edge.sourceNodeId === requirementId ? edge.targetNodeId : edge.sourceNodeId
+      )
 
-    expect(requirement?.edges.map((edge) => edge.nodeId)).toEqual([
-      'node-goal-001',
-      'node-constraint-004',
-      'node-design-021'
-    ])
+    expect(requirement?.edges.map((edge) => edge.nodeId)).toEqual(expectedNeighborIds)
     expect('links' in (requirement ?? {})).toBe(false)
   })
 

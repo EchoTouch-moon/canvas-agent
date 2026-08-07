@@ -70,8 +70,8 @@ import {
 } from '@/state/workspace-ui-reducer'
 import { useWorkspace } from '@/hooks/use-workspace'
 import { createInitialExecutionSession, createWorkspaceRenderState } from '@/lib/workspace-view'
-import { createDefaultRendererWorkspaceClient } from '@/data/fake-workspace'
 import {
+  createWorkspaceClient,
   isWorkspaceError,
   type WorkspaceClient,
   type SnapshotFreezeInput
@@ -1842,7 +1842,7 @@ export function CoreFlowWorkspace({
   readonly workspaceClient?: WorkspaceClient
 }): React.JSX.Element {
   const client = useMemo(
-    () => workspaceClient ?? createDefaultRendererWorkspaceClient(),
+    () => workspaceClient ?? createWorkspaceClient(),
     [workspaceClient]
   )
   const hydrated = useWorkspace(null, client)
@@ -1970,14 +1970,15 @@ export function CoreFlowWorkspace({
       taskId: state.task.id,
       taskSpecVersionId: state.task.taskSpecVersionId,
       baseBaselineId: state.baseline.id,
-      items: getSelectedContextItems(state).map((item) => ({
+      items: getSelectedContextItems(state).map((item, position) => ({
         itemType: item.type,
         sourceRef: item.sourceRef,
         resolvedContent: item.content,
         authority: item.authority,
         priority: item.priority,
         tokenEstimate: item.tokens,
-        selectionReason: 'Selected in Context Composer'
+        selectionReason: 'Selected in Context Composer',
+        position
       }))
     }
 

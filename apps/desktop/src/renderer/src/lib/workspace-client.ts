@@ -1,125 +1,34 @@
 import type {
-  CancellationResult,
-  ContextSnapshotItemRecord,
-  ContextSnapshotRecord,
-  DispatchResult,
-  NodeDraftRecord,
-  ProjectRecord,
-  ProjectStateView,
-  RepositoryRevisionRecord
-} from './workspace-types'
+  CanvasAgentDesktopApi,
+  CommandErrorName,
+  CommandInput,
+  CommandOutput,
+  CommandRequest,
+  CommandResponse,
+  WorkspaceCommand
+} from '@canvas-agent/contracts'
 
-export interface SnapshotFreezeItemInput {
-  readonly itemType: ContextSnapshotItemRecord['itemType']
-  readonly sourceRef: string
-  readonly resolvedContent: string
-  readonly authority: ContextSnapshotItemRecord['authority']
-  readonly priority: ContextSnapshotItemRecord['priority']
-  readonly tokenEstimate: number
-  readonly selectionReason?: string
-}
+export type SnapshotFreezeInput = CommandInput<'snapshot.freeze'>
+export type NodeDraftUpsertInput = CommandInput<'nodeDraft.upsert'>
+export type CommandTransport = Pick<CanvasAgentDesktopApi, 'command'>
 
-export interface SnapshotFreezeInput {
-  readonly projectId: string
-  readonly taskId: string
-  readonly taskSpecVersionId: string
-  readonly baseBaselineId: string
-  readonly expectedRepositoryRevisionId: string
-  readonly items: readonly SnapshotFreezeItemInput[]
-}
-
-export interface NodeDraftUpsertInput {
-  readonly nodeId: string
-  readonly title: string
-  readonly body: string
-  readonly expectedRevision?: number
-}
-
-export interface WorkspaceCommandMap {
-  readonly 'project.list': {
-    readonly input: Record<string, never>
-    readonly output: readonly ProjectRecord[]
-  }
-  readonly 'project.state': {
-    readonly input: { readonly projectId: string }
-    readonly output: ProjectStateView
-  }
-  readonly 'revision.current': {
-    readonly input: Record<string, never>
-    readonly output: RepositoryRevisionRecord
-  }
-  readonly 'snapshot.freeze': {
-    readonly input: SnapshotFreezeInput
-    readonly output: ContextSnapshotRecord
-  }
-  readonly 'nodeDraft.upsert': {
-    readonly input: NodeDraftUpsertInput
-    readonly output: NodeDraftRecord
-  }
-  readonly 'execution.dispatch': {
-    readonly input: {
-      readonly executionRequestId: string
-      readonly contextSnapshotId: string
-    }
-    readonly output: DispatchResult
-  }
-  readonly 'execution.cancel': {
-    readonly input: { readonly executionRequestId: string }
-    readonly output: CancellationResult
-  }
-}
-
-export type WorkspaceCommand = keyof WorkspaceCommandMap
-export type CommandInput<C extends WorkspaceCommand> = WorkspaceCommandMap[C]['input']
-export type CommandOutput<C extends WorkspaceCommand> = WorkspaceCommandMap[C]['output']
-
-export interface CommandRequest<C extends WorkspaceCommand = WorkspaceCommand> {
-  readonly requestId: string
-  readonly command: C
-  readonly payload: CommandInput<C>
-}
-
-export interface CommandSuccessResponse<C extends WorkspaceCommand = WorkspaceCommand> {
-  readonly requestId: string
-  readonly command: C
-  readonly ok: true
-  readonly data: unknown
-}
-
-export interface CommandFailureResponse<C extends WorkspaceCommand = WorkspaceCommand> {
-  readonly requestId: string
-  readonly command: C
-  readonly ok: false
-  readonly error: {
-    readonly code: string
-    readonly message: string
-    readonly details?: unknown
-  }
-}
-
-export type CommandResponse<C extends WorkspaceCommand = WorkspaceCommand> =
-  CommandSuccessResponse<C> | CommandFailureResponse<C>
-
-export interface CommandTransport {
-  command(request: CommandRequest): Promise<unknown>
-}
-
-export type WorkspaceErrorCode =
-  | 'ConcurrencyError'
-  | 'ValidationError'
-  | 'NotFoundError'
-  | 'HostUnavailableError'
-  | 'InternalError'
+export type {
+  CanvasAgentDesktopApi,
+  CommandErrorName,
+  CommandInput,
+  CommandOutput,
+  CommandRequest,
+  CommandResponse,
+  WorkspaceCommand
+} from '@canvas-agent/contracts'
 
 export class WorkspaceError extends Error {
-  override readonly name: WorkspaceErrorCode
-  readonly code: WorkspaceErrorCode
-  readonly details: unknown
+  override readonly name: CommandErrorName
+  readonly details?: unknown
 
-  constructor(code: WorkspaceErrorCode, message: string, details?: unknown) {
+  constructor(name: CommandErrorName, message: string, details?: unknown) {
     super(message)
-    this.name = code
-    this.code = code
+    this.name = name
     this.details = details
   }
 }
@@ -160,9 +69,9 @@ export function isWorkspaceError(error: unknown): error is WorkspaceError {
 
 export function isWorkspaceErrorCode(
   error: unknown,
-  code: WorkspaceErrorCode
+  name: CommandErrorName
 ): error is WorkspaceError {
-  return isWorkspaceError(error) && error.code === code
+  return isWorkspaceError(error) && error.name === name
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -173,41 +82,47 @@ function isResponse(value: unknown): value is CommandResponse {
   if (
     !isRecord(value) ||
     typeof value.requestId !== 'string' ||
+    value.schemaVersion !== 1 ||
     typeof value.command !== 'string'
   ) {
     return false
   }
-  if (value.ok === true) return true
+  if (value.ok === true) return 'data' in value
   return (
     value.ok === false &&
     isRecord(value.error) &&
-    typeof value.error.code === 'string' &&
+    typeof value.error.name === 'string' &&
     typeof value.error.message === 'string'
   )
 }
 
-function normalizeErrorCode(value: string): WorkspaceErrorCode {
-  if (
-    value === 'ConcurrencyError' ||
-    value === 'ValidationError' ||
-    value === 'NotFoundError' ||
-    value === 'HostUnavailableError' ||
-    value === 'InternalError'
-  ) {
-    return value
-  }
-  return 'InternalError'
+const commandErrorNames = new Set<CommandErrorName>([
+  'RequestValidationError',
+  'NotFoundError',
+  'ValidationError',
+  'ConcurrencyError',
+  'ImmutableWriteError',
+  'PersistenceError',
+  'HostUnavailableError',
+  'InternalError'
+])
+
+function normalizeErrorName(value: string): CommandErrorName {
+  return commandErrorNames.has(value as CommandErrorName)
+    ? (value as CommandErrorName)
+    : 'InternalError'
 }
 
 function createWorkspaceError(
-  code: WorkspaceErrorCode,
+  name: CommandErrorName,
   message: string,
   details?: unknown
 ): WorkspaceError {
-  switch (code) {
+  switch (name) {
     case 'ConcurrencyError':
       return new ConcurrencyError(message, details)
     case 'ValidationError':
+    case 'RequestValidationError':
       return new ValidationError(message, details)
     case 'NotFoundError':
       return new NotFoundError(message, details)
@@ -215,6 +130,9 @@ function createWorkspaceError(
       return new HostUnavailableError(message, details)
     case 'InternalError':
       return new InternalError(message, details)
+    case 'ImmutableWriteError':
+    case 'PersistenceError':
+      return new WorkspaceError(name, message, details)
   }
 }
 
@@ -223,13 +141,6 @@ function createRequestId(): string {
     return crypto.randomUUID()
   }
   return `renderer-${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
-
-function validateOutput<C extends WorkspaceCommand>(command: C, data: unknown): CommandOutput<C> {
-  if (data === null || data === undefined) {
-    throw new InternalError(`Workspace command ${command} returned no data`)
-  }
-  return data as CommandOutput<C>
 }
 
 function windowTransport(): CommandTransport {
@@ -241,7 +152,7 @@ function windowTransport(): CommandTransport {
           new HostUnavailableError('The Canvas Agent command bridge is unavailable')
         )
       }
-      return api.command(request)
+      return api.command(request as CommandRequest)
     }
   }
 }
@@ -261,11 +172,12 @@ export function createWorkspaceClient(
       command: C,
       payload: CommandInput<C>
     ): Promise<CommandOutput<C>> {
-      const request: CommandRequest<C> = {
+      const request = {
         requestId: createRequestId(),
+        schemaVersion: 1,
         command,
         payload
-      }
+      } as CommandRequest<C>
 
       let rawResponse: unknown
       try {
@@ -295,12 +207,15 @@ export function createWorkspaceClient(
       }
       if (!rawResponse.ok) {
         throw createWorkspaceError(
-          normalizeErrorCode(rawResponse.error.code),
+          normalizeErrorName(rawResponse.error.name),
           rawResponse.error.message,
           rawResponse.error.details
         )
       }
-      return validateOutput(command, rawResponse.data)
+      if (rawResponse.data === null || rawResponse.data === undefined) {
+        throw new InternalError(`Workspace command ${command} returned no data`)
+      }
+      return rawResponse.data as CommandOutput<C>
     }
   }
 }

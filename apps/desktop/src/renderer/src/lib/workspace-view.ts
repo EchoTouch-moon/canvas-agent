@@ -3,8 +3,10 @@ import type { FlowNotice, WorkspaceUiState } from '@/state/workspace-ui-reducer'
 import type {
   ContextSnapshotRecord,
   DispatchResult,
+  FrozenSnapshotView,
   ProjectStateView,
-  TaskAggregate
+  TaskRecord,
+  TaskSpecAggregate
 } from './workspace-types'
 import type { FlowRoute } from '@/state/workspace-ui-reducer'
 
@@ -38,7 +40,7 @@ export interface TaskCriterion {
 
 export interface CoreFlowTask {
   readonly id: string
-  readonly type: TaskAggregate['task']['type']
+  readonly type: TaskRecord['type']
   readonly title: string
   readonly objective: string
   readonly nonGoals: readonly string[]
@@ -65,12 +67,12 @@ export interface ContextCandidate {
 export interface CoreFlowSnapshot {
   readonly id: string
   readonly label: string
-  readonly status: ProjectStateView['contextSnapshots'][number]['status'] | 'DRAFT'
-  readonly freshness: ProjectStateView['contextSnapshots'][number]['freshness']
+  readonly status: ContextSnapshotRecord['status'] | 'DRAFT'
+  readonly freshness: ContextSnapshotRecord['freshness']
   readonly revision: string
   readonly tokenBudget: number
   readonly frozenAt: string | null
-  readonly record: ContextSnapshotRecord | null
+  readonly record: FrozenSnapshotView | null
 }
 
 export interface RunTestResult {
@@ -108,7 +110,7 @@ export interface CoreFlowBaseline {
   readonly label: string
   readonly sourceTaskId: string
   readonly revision: string
-  readonly status: ProjectStateView['baselines'][number]['baseline']['status']
+  readonly status: NonNullable<ProjectStateView['activeBaseline']>['status']
 }
 
 export interface WorkspaceRenderState {
@@ -142,7 +144,7 @@ export interface ExecutionSession {
   readonly result: DispatchResult | null
   readonly cancelRequested: boolean
   readonly reviewStatus: ArtifactReviewStatus
-  readonly frozenSnapshot: ContextSnapshotRecord | null
+  readonly frozenSnapshot: FrozenSnapshotView | null
 }
 
 export function createInitialExecutionSession(): ExecutionSession {
@@ -171,8 +173,13 @@ function latestNodeVersion(
     .sort((left, right) => right.sequence - left.sequence)[0]
 }
 
-function latestTaskSpec(task: TaskAggregate): TaskAggregate['specs'][number] | undefined {
-  return [...task.specs].sort((left, right) => right.version.sequence - left.version.sequence)[0]
+function latestTaskSpec(
+  workspace: ProjectStateView,
+  task: TaskRecord
+): TaskSpecAggregate | undefined {
+  return workspace.taskSpecs
+    .filter((aggregate) => aggregate.spec.taskId === task.id)
+    .sort((left, right) => right.spec.sequence - left.spec.sequence)[0]
 }
 
 function splitNonGoals(scope: string): readonly string[] {
@@ -185,8 +192,8 @@ function splitNonGoals(scope: string): readonly string[] {
     .filter((item) => item.length > 0)
 }
 
-function buildTask(workspace: ProjectStateView, task: TaskAggregate): CoreFlowTask {
-  const spec = latestTaskSpec(task)
+function buildTask(workspace: ProjectStateView, task: TaskRecord): CoreFlowTask {
+  const spec = latestTaskSpec(workspace, task)
   const nodeTitle = new Map(
     workspace.nodes.map((node) => {
       const version = latestNodeVersion(workspace, node.id)
@@ -203,13 +210,13 @@ function buildTask(workspace: ProjectStateView, task: TaskAggregate): CoreFlowTa
       }) ?? []
 
   return {
-    id: task.task.id,
-    type: task.task.type,
-    title: task.task.title,
-    objective: spec?.version.description ?? task.draft?.description ?? '',
-    nonGoals: splitNonGoals(spec?.version.scope ?? task.draft?.scope ?? ''),
+    id: task.id,
+    type: task.type,
+    title: task.title,
+    objective: spec?.spec.description ?? '',
+    nonGoals: splitNonGoals(spec?.spec.scope ?? ''),
     targets,
-    status: task.task.status,
+    status: task.status,
     criteria:
       spec?.criteria
         .slice()
@@ -220,16 +227,16 @@ function buildTask(workspace: ProjectStateView, task: TaskAggregate): CoreFlowTa
           passed: false
         })) ?? [],
     acceptanceEvaluated: false,
-    taskSpecVersionId: spec?.version.id ?? null
+    taskSpecVersionId: spec?.spec.id ?? null
   }
 }
 
 function buildCandidates(
   workspace: ProjectStateView,
-  task: TaskAggregate,
+  task: TaskRecord,
   selectedNodeId: string
 ): readonly ContextCandidate[] {
-  const spec = latestTaskSpec(task)
+  const spec = latestTaskSpec(workspace, task)
   const candidates: ContextCandidate[] = []
   if (spec) {
     const criteria = spec.criteria
@@ -237,15 +244,15 @@ function buildCandidates(
       .sort((left, right) => left.position - right.position)
       .map((criterion) => criterion.description)
       .join('\n')
-    const content = [spec.version.description, spec.version.scope, criteria]
+    const content = [spec.spec.description, spec.spec.scope, criteria]
       .filter((part) => part.length > 0)
       .join('\n')
     candidates.push({
-      id: `task-spec:${spec.version.id}`,
+      id: `task-spec:${spec.spec.id}`,
       label: 'Task specification',
-      description: `${spec.version.description} ${spec.version.scope}`.trim(),
+      description: `${spec.spec.description} ${spec.spec.scope}`.trim(),
       content,
-      sourceRef: spec.version.id,
+      sourceRef: spec.spec.id,
       type: 'USER_INPUT',
       authority: 'TASK_INSTRUCTION',
       priority: 'P0',
@@ -271,15 +278,6 @@ function buildCandidates(
     })
   }
   return candidates
-}
-
-function latestSnapshot(workspace: ProjectStateView, taskId: string): ContextSnapshotRecord | null {
-  return (
-    workspace.contextSnapshots
-      .filter((snapshot) => snapshot.taskId === taskId)
-      .slice()
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null
-  )
 }
 
 function buildNodeViews(workspace: ProjectStateView): readonly CoreFlowNode[] {
@@ -372,10 +370,10 @@ export function createWorkspaceRenderState(
     ui.selectedNodeId && nodes.some((node) => node.id === ui.selectedNodeId)
       ? ui.selectedNodeId
       : (nodes[0]?.id ?? '')
-  const taskAggregate =
-    workspace.tasks.find((item) => item.task.id === ui.selectedTaskId) ?? workspace.tasks[0]
-  const task = taskAggregate
-    ? buildTask(workspace, taskAggregate)
+  const taskRecord =
+    workspace.tasks.find((item) => item.id === ui.selectedTaskId) ?? workspace.tasks[0]
+  const task = taskRecord
+    ? buildTask(workspace, taskRecord)
     : {
         id: '',
         type: 'IMPLEMENT_CHANGE' as const,
@@ -388,14 +386,11 @@ export function createWorkspaceRenderState(
         acceptanceEvaluated: false as const,
         taskSpecVersionId: null
       }
-  const contextItems = taskAggregate
-    ? buildCandidates(workspace, taskAggregate, selectedNodeId)
+  const contextItems = taskRecord
+    ? buildCandidates(workspace, taskRecord, selectedNodeId)
     : []
   const requiredIds = contextItems.filter((item) => item.required).map((item) => item.id)
-  const snapshotRecord =
-    ui.contextSnapshotMode === 'draft'
-      ? null
-      : (session.frozenSnapshot ?? latestSnapshot(workspace, task.id))
+  const snapshotRecord = ui.contextSnapshotMode === 'draft' ? null : session.frozenSnapshot
   const selectedFromUi = ui.selectedContextItemIds.filter((id) =>
     contextItems.some((item) => item.id === id)
   )
@@ -416,14 +411,14 @@ export function createWorkspaceRenderState(
     ...requiredIds,
     ...selectedBase.filter((id) => !requiredIdSet.has(id))
   ]
-  const activeBaseline = workspace.baselines.find((item) => item.baseline.status === 'ACTIVE')
+  const activeBaseline = workspace.activeBaseline
   const baseline = activeBaseline
     ? {
-        id: activeBaseline.baseline.id,
-        label: activeBaseline.baseline.name,
+        id: activeBaseline.id,
+        label: activeBaseline.name,
         sourceTaskId: task.id,
-        revision: activeBaseline.baseline.repositoryRevisionId ?? 'No repository revision',
-        status: activeBaseline.baseline.status
+        revision: activeBaseline.repositoryRevisionId ?? 'No repository revision',
+        status: activeBaseline.status
       }
     : null
   const snapshot: CoreFlowSnapshot = {
@@ -431,10 +426,7 @@ export function createWorkspaceRenderState(
     label: snapshotRecord ? `Frozen ${snapshotRecord.id}` : `Draft for ${task.title}`,
     status: snapshotRecord?.status ?? 'DRAFT',
     freshness: snapshotRecord?.freshness ?? 'CURRENT',
-    revision:
-      snapshotRecord?.expectedRepositoryRevisionId ??
-      workspace.repositoryRevision?.id ??
-      'Not resolved',
+    revision: snapshotRecord?.expectedRepositoryRevisionId ?? 'Not resolved',
     tokenBudget: CONTEXT_TOKEN_BUDGET,
     frozenAt: snapshotRecord?.status === 'FROZEN' ? snapshotRecord.updatedAt : null,
     record: snapshotRecord
@@ -445,7 +437,7 @@ export function createWorkspaceRenderState(
       id: workspace.project.id,
       name: workspace.project.name,
       description: workspace.project.description ?? '',
-      branch: workspace.project.branch ?? 'main',
+      branch: 'main',
       activeBaseline: baseline?.label ?? 'No active baseline'
     },
     nodes,

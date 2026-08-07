@@ -4,12 +4,12 @@ import {
   WorkspaceError,
   type WorkspaceClient,
   type SnapshotFreezeInput,
-  type NodeDraftUpsertInput
+  type NodeDraftUpsertInput,
+  createWorkspaceClient
 } from '@/lib/workspace-client'
-import { createDefaultRendererWorkspaceClient } from '@/data/fake-workspace'
 import type {
-  ContextSnapshotRecord,
   DispatchResult,
+  FrozenSnapshotView,
   NodeDraftRecord,
   ProjectRecord,
   ProjectStateView,
@@ -47,7 +47,7 @@ export interface UseWorkspaceResult {
   readonly refresh: () => Promise<void>
   readonly freeze: (
     input: Omit<SnapshotFreezeInput, 'expectedRepositoryRevisionId'>
-  ) => Promise<ContextSnapshotRecord>
+  ) => Promise<FrozenSnapshotView>
   readonly saveNodeDraft: (input: NodeDraftUpsertInput) => Promise<NodeDraftRecord>
   readonly execute: (input: {
     readonly executionRequestId: string
@@ -56,7 +56,7 @@ export interface UseWorkspaceResult {
   readonly cancel: (executionRequestId: string) => Promise<{ readonly cancelled: boolean }>
 }
 
-const defaultClient = createDefaultRendererWorkspaceClient()
+const defaultClient = createWorkspaceClient()
 
 export function useWorkspace(
   requestedProjectId: string | null = null,
@@ -109,14 +109,14 @@ export function useWorkspace(
   const freeze = useCallback(
     async (
       input: Omit<SnapshotFreezeInput, 'expectedRepositoryRevisionId'>
-    ): Promise<ContextSnapshotRecord> => {
+    ): Promise<FrozenSnapshotView> => {
       const revision: RepositoryRevisionRecord = await client.command('revision.current', {})
-      const snapshot = await client.command('snapshot.freeze', {
+      const result = await client.command('snapshot.freeze', {
         ...input,
         expectedRepositoryRevisionId: revision.id
       })
       await refresh()
-      return snapshot
+      return { ...result.snapshot, items: result.items }
     },
     [client, refresh]
   )

@@ -6,6 +6,7 @@ describe('WorkspaceClient', () => {
     const transport = {
       command: vi.fn(async (request: CommandRequest) => ({
         requestId: request.requestId,
+        schemaVersion: 1 as const,
         command: request.command,
         ok: true as const,
         data: []
@@ -16,6 +17,7 @@ describe('WorkspaceClient', () => {
     await expect(client.command('project.list', {})).resolves.toEqual([])
     const request = transport.command.mock.calls[0]?.[0]
     expect(request?.requestId).toEqual(expect.any(String))
+    expect(request?.schemaVersion).toBe(1)
     expect(request?.command).toBe('project.list')
   })
 
@@ -23,10 +25,11 @@ describe('WorkspaceClient', () => {
     const transport = {
       command: vi.fn(async (request: CommandRequest) => ({
         requestId: request.requestId,
+        schemaVersion: 1 as const,
         command: request.command,
         ok: false as const,
         error: {
-          code: 'ConcurrencyError',
+          name: 'ConcurrencyError' as const,
           message: 'NodeDraft changed',
           details: { serverRevision: 6 }
         }
@@ -38,7 +41,6 @@ describe('WorkspaceClient', () => {
       client.command('nodeDraft.upsert', { nodeId: 'node-1', title: 'A', body: 'B' })
     ).rejects.toMatchObject({
       name: 'ConcurrencyError',
-      code: 'ConcurrencyError',
       details: { serverRevision: 6 }
     })
   })
@@ -47,6 +49,7 @@ describe('WorkspaceClient', () => {
     const requestMismatch = createWorkspaceClient({
       command: vi.fn(async (request: CommandRequest) => ({
         requestId: `${request.requestId}-other`,
+        schemaVersion: 1 as const,
         command: request.command,
         ok: true as const,
         data: []
@@ -59,7 +62,8 @@ describe('WorkspaceClient', () => {
     const commandMismatch = createWorkspaceClient({
       command: vi.fn(async (request: CommandRequest) => ({
         requestId: request.requestId,
-        command: 'project.state',
+        schemaVersion: 1 as const,
+        command: 'project.state' as const,
         ok: true as const,
         data: []
       }))
@@ -80,13 +84,22 @@ describe('WorkspaceClient', () => {
     await expect(client.command('project.list', {})).rejects.toBe(transportError)
   })
 
+  it('fails closed when the production bridge is unavailable', async () => {
+    const client = createWorkspaceClient()
+
+    await expect(client.command('project.list', {})).rejects.toMatchObject({
+      name: 'HostUnavailableError'
+    })
+  })
+
   it('keeps execution.dispatch payload opaque and minimal', async () => {
     const transport = {
       command: vi.fn(async (request: CommandRequest) => ({
         requestId: request.requestId,
+        schemaVersion: 1 as const,
         command: request.command,
         ok: true as const,
-        data: { outcome: 'SUCCEEDED', claimGranted: true }
+        data: { outcome: 'SUCCEEDED' as const, claimGranted: true }
       }))
     }
     const client = createWorkspaceClient(transport)
