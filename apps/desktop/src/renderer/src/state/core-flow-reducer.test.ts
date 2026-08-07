@@ -1,139 +1,65 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CORE_FLOW_IDS,
-  createInitialCoreFlowState,
-  type CoreFlowState
-} from '@/data/core-flow-fixture'
-import {
-  coreFlowReducer,
-  getFreezeBlockers,
-  getSelectedContextTokens,
-  type CoreFlowCommand
-} from './core-flow-reducer'
+  createInitialWorkspaceUiState,
+  workspaceUiReducer,
+  type WorkspaceUiState
+} from './workspace-ui-reducer'
 
-function reduce(state: CoreFlowState, command: CoreFlowCommand): CoreFlowState {
-  return coreFlowReducer(state, command)
+function reduce(
+  state: WorkspaceUiState,
+  command: Parameters<typeof workspaceUiReducer>[1]
+): WorkspaceUiState {
+  return workspaceUiReducer(state, command)
 }
 
-function createSucceededRunState(): CoreFlowState {
-  let state = createInitialCoreFlowState()
-  state = reduce(state, { type: 'TOGGLE_CONTEXT_ITEM', itemId: CORE_FLOW_IDS.recordingVersionNode })
-  state = reduce(state, { type: 'FREEZE_SNAPSHOT' })
-  state = reduce(state, { type: 'START_RUN' })
-  state = reduce(state, { type: 'ADVANCE_RUN' })
-  state = reduce(state, { type: 'ADVANCE_RUN' })
-  state = reduce(state, { type: 'FINISH_RUN' })
-  return state
-}
+describe('renderer-local workspace UI reducer', () => {
+  it('keeps navigation and selection local', () => {
+    let state = createInitialWorkspaceUiState()
+    state = reduce(state, { type: 'NAVIGATE', route: 'context' })
+    state = reduce(state, { type: 'SELECT_NODE', nodeId: 'node-1' })
+    state = reduce(state, { type: 'SELECT_TASK', taskId: 'task-1' })
 
-describe('core flow command interactions', () => {
-  it('updates optional context count, order and token budget while pinning required items', () => {
-    const initial = createInitialCoreFlowState()
-    const afterAdd = reduce(initial, {
-      type: 'TOGGLE_CONTEXT_ITEM',
-      itemId: CORE_FLOW_IDS.recordingVersionNode
-    })
-    const afterSecondAdd = reduce(afterAdd, {
-      type: 'TOGGLE_CONTEXT_ITEM',
-      itemId: CORE_FLOW_IDS.recordingExample
-    })
-    const afterRemove = reduce(afterSecondAdd, {
-      type: 'TOGGLE_CONTEXT_ITEM',
-      itemId: CORE_FLOW_IDS.recordingVersionNode
-    })
-    const afterRequiredRemove = reduce(afterRemove, {
-      type: 'TOGGLE_CONTEXT_ITEM',
-      itemId: CORE_FLOW_IDS.projectRule
-    })
-
-    expect(afterAdd.selectedContextItemIds).toEqual([
-      CORE_FLOW_IDS.projectRule,
-      CORE_FLOW_IDS.taskInstruction,
-      CORE_FLOW_IDS.recordingVersionNode
-    ])
-    expect(getSelectedContextTokens(afterSecondAdd)).toBe(6_600)
-    expect(afterRemove.selectedContextItemIds).toEqual([
-      CORE_FLOW_IDS.projectRule,
-      CORE_FLOW_IDS.taskInstruction,
-      CORE_FLOW_IDS.recordingExample
-    ])
-    expect(afterRequiredRemove.selectedContextItemIds).toContain(CORE_FLOW_IDS.projectRule)
-    expect(afterRequiredRemove.notice?.title).toBe('Required item is pinned')
+    expect(state.route).toBe('task')
+    expect(state.selectedNodeId).toBe('node-1')
+    expect(state.selectedTaskId).toBe('task-1')
   })
 
-  it('blocks Freeze for conflict and overflow without changing a Draft Snapshot', () => {
-    const conflictState = reduce(createInitialCoreFlowState(), {
-      type: 'TOGGLE_CONTEXT_ITEM',
-      itemId: CORE_FLOW_IDS.conflictingNote
-    })
-    const blockedConflict = reduce(conflictState, { type: 'FREEZE_SNAPSHOT' })
-    expect(getFreezeBlockers(conflictState)).toHaveLength(1)
-    expect(blockedConflict.snapshot.status).toBe('DRAFT')
-    expect(blockedConflict.notice?.title).toBe('Freeze blocked')
+  it('coalesces context selection without changing domain records', () => {
+    let state = createInitialWorkspaceUiState()
+    state = reduce(state, { type: 'INITIALIZE_CONTEXT', itemIds: ['task-spec:1'] })
+    state = reduce(state, { type: 'TOGGLE_CONTEXT_ITEM', itemId: 'node-version:1' })
+    state = reduce(state, { type: 'TOGGLE_CONTEXT_ITEM', itemId: 'node-version:1' })
 
-    let overflowState = createInitialCoreFlowState()
-    overflowState = reduce(overflowState, {
-      type: 'TOGGLE_CONTEXT_ITEM',
-      itemId: CORE_FLOW_IDS.recordingVersionNode
-    })
-    overflowState = reduce(overflowState, {
-      type: 'TOGGLE_CONTEXT_ITEM',
-      itemId: CORE_FLOW_IDS.schemaNode
-    })
-    const blockedOverflow = reduce(overflowState, { type: 'FREEZE_SNAPSHOT' })
-    expect(getFreezeBlockers(overflowState)).toHaveLength(1)
-    expect(blockedOverflow.snapshot.status).toBe('DRAFT')
-    expect(blockedOverflow.notice?.message).toContain('over the')
+    expect(state.selectedContextItemIds).toEqual(['task-spec:1'])
+    expect(state.notice).toBeNull()
   })
 
-  it('freezes context read-only and starts a Run as a separate command', () => {
-    const initial = createInitialCoreFlowState()
-    const frozen = reduce(initial, { type: 'FREEZE_SNAPSHOT' })
-    const editedAfterFreeze = reduce(frozen, {
-      type: 'TOGGLE_CONTEXT_ITEM',
-      itemId: CORE_FLOW_IDS.recordingExample
+  it('retains only UI controls and notices', () => {
+    let state = createInitialWorkspaceUiState()
+    state = reduce(state, { type: 'SET_FILTER', value: 'node' })
+    state = reduce(state, { type: 'SET_ARTIFACT_TAB', tab: 'diff' })
+    state = reduce(state, { type: 'SET_DIALOG', dialog: 'freeze' })
+    state = reduce(state, {
+      type: 'SET_NOTICE',
+      notice: { tone: 'info', title: 'Saved', message: 'Draft saved.' }
     })
-    const queued = reduce(frozen, { type: 'START_RUN' })
 
-    expect(frozen.snapshot.status).toBe('FROZEN')
-    expect(editedAfterFreeze.selectedContextItemIds).toEqual(frozen.selectedContextItemIds)
-    expect(editedAfterFreeze.notice?.title).toBe('Snapshot is read-only')
-    expect(queued.snapshot.status).toBe('FROZEN')
-    expect(queued.run.status).toBe('QUEUED')
+    expect(state.contextFilter).toBe('node')
+    expect(state.artifactTab).toBe('diff')
+    expect(state.dialog).toBe('freeze')
+    expect(state.notice?.title).toBe('Saved')
   })
 
-  it('keeps Task review separate from a succeeded Run until one explicit completion', () => {
-    const succeeded = createSucceededRunState()
-    const accepted = reduce(succeeded, { type: 'ACCEPT_ARTIFACT' })
-    const completed = reduce(accepted, { type: 'COMPLETE_TASK' })
+  it('switches between a frozen projection and a new local Snapshot draft', () => {
+    let state = createInitialWorkspaceUiState()
+    state = reduce(state, { type: 'INITIALIZE_CONTEXT', itemIds: ['task-spec:1'] })
+    state = reduce(state, { type: 'BEGIN_CONTEXT_DRAFT' })
 
-    expect(succeeded.run.outcome).toBe('SUCCEEDED')
-    expect(succeeded.task.status).toBe('WAITING_REVIEW')
-    expect(succeeded.task.acceptanceEvaluated).toBe(false)
-    expect(accepted.artifact.reviewStatus).toBe('ACCEPTED')
-    expect(accepted.artifact.applicationStatus).toBe('APPLIED')
-    expect(accepted.task.status).toBe('WAITING_REVIEW')
-    expect(completed.task.status).toBe('COMPLETED')
-    expect(completed.task.acceptanceEvaluated).toBe(true)
-    expect(completed.task.completionRunId).toBe('RUN-009')
-    expect(completed.task.criteria.every((criterion) => criterion.passed)).toBe(true)
-  })
+    expect(state.contextSnapshotMode).toBe('draft')
+    expect(state.selectedContextItemIds).toEqual([])
+    expect(state.route).toBe('context')
 
-  it('rejects completion before the Artifact is accepted', () => {
-    const succeeded = createSucceededRunState()
-    const blocked = reduce(succeeded, { type: 'COMPLETE_TASK' })
-    expect(blocked.task.status).toBe('WAITING_REVIEW')
-    expect(blocked.notice?.title).toBe('Task completion blocked')
-  })
-
-  it('requires explicit completion before Baseline activation', () => {
-    const accepted = reduce(createSucceededRunState(), { type: 'ACCEPT_ARTIFACT' })
-    const completed = reduce(accepted, { type: 'COMPLETE_TASK' })
-    const activated = reduce(completed, { type: 'ACTIVATE_BASELINE' })
-
-    expect(accepted.baseline.status).toBe('DRAFT')
-    expect(completed.task.status).toBe('COMPLETED')
-    expect(completed.baseline.status).toBe('DRAFT')
-    expect(activated.baseline.status).toBe('ACTIVE')
+    state = reduce(state, { type: 'MARK_CONTEXT_FROZEN' })
+    expect(state.contextSnapshotMode).toBe('frozen')
   })
 })

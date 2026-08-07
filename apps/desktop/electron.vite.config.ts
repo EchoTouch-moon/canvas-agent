@@ -25,7 +25,7 @@ export default defineConfig({
   preload: {
     build: {
       externalizeDeps: {
-        exclude: ['@canvas-agent/contracts', '@canvas-agent/domain']
+        exclude: ['@canvas-agent/contracts', '@canvas-agent/domain', 'zod']
       }
     }
   },

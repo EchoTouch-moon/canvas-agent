@@ -44,6 +44,9 @@ interface AppSidebarProps {
   readonly onNavigate: (label: string) => void
   readonly onToggle: () => void
   readonly projectName?: string
+  readonly projects?: readonly { readonly id: string; readonly name: string }[]
+  readonly selectedProjectId?: string | null
+  readonly onProjectSelect?: (projectId: string) => void
 }
 
 export function AppSidebar({
@@ -51,7 +54,10 @@ export function AppSidebar({
   activeItem,
   onNavigate,
   onToggle,
-  projectName = 'MUSICDB'
+  projectName = 'MUSICDB',
+  projects = [],
+  selectedProjectId = null,
+  onProjectSelect
 }: AppSidebarProps): React.JSX.Element {
   const { t } = useI18n()
 
@@ -102,23 +108,50 @@ export function AppSidebar({
       </div>
 
       <div className={cn('shrink-0 py-3', collapsed ? 'px-2' : 'px-3')}>
-        <Tooltip content={t('app.currentProject', { name: projectName })} side="right">
+        {projects.length > 0 ? (
+          <Tooltip content={t('app.currentProject', { name: projectName })} side="right">
+            <label
+              className={cn(
+                'flex h-9 w-full items-center gap-2 rounded-[var(--radius-control)] border border-border bg-sidebar px-2',
+                collapsed && 'size-9 justify-center px-0'
+              )}
+            >
+              <Database className="size-4 shrink-0 text-primary" aria-hidden="true" />
+              <select
+                aria-label={t('app.currentProject', { name: projectName })}
+                value={selectedProjectId ?? ''}
+                onChange={(event) => onProjectSelect?.(event.target.value)}
+                className={cn(
+                  'min-w-0 flex-1 cursor-pointer appearance-none bg-transparent text-[12px] font-medium outline-none',
+                  collapsed && 'sr-only'
+                )}
+              >
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                className={cn('size-3.5 shrink-0 text-muted-foreground', collapsed && 'hidden')}
+                aria-hidden="true"
+              />
+            </label>
+          </Tooltip>
+        ) : (
           <Button
             variant="outline"
             aria-label={t('app.currentProject', { name: projectName })}
+            disabled
             className={cn(
               'w-full justify-start gap-2 bg-sidebar',
               collapsed && 'size-9 justify-center px-0'
             )}
           >
-            <Database className="size-4 shrink-0 text-primary" aria-hidden="true" />
+            <Database className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             <span className={cn('truncate', collapsed && 'sr-only')}>{projectName}</span>
-            <ChevronDown
-              className={cn('ml-auto size-3.5', collapsed && 'hidden')}
-              aria-hidden="true"
-            />
           </Button>
-        </Tooltip>
+        )}
       </div>
 
       <nav

@@ -1,0 +1,477 @@
+import type {
+  CommandErrorName,
+  CommandOutput,
+  CommandRequest,
+  CommandResponse,
+  WorkspaceCommand
+} from '@canvas-agent/contracts'
+import {
+  createWorkspaceClient,
+  type CommandTransport,
+  type WorkspaceClient
+} from '@/lib/workspace-client'
+import type {
+  ContextSnapshotItemRecord,
+  DispatchResult,
+  NodeDraftRecord,
+  ProjectRecord,
+  ProjectStateView,
+  RepositoryRevisionRecord,
+  SnapshotFreezeResult
+} from '@/lib/workspace-types'
+
+interface FakeWorkspaceOptions {
+  readonly projects?: readonly ProjectRecord[]
+  readonly states?: readonly ProjectStateView[]
+  readonly executionDelayMs?: number
+}
+
+const defaultProject: ProjectRecord = {
+  id: 'project-musicdb',
+  name: 'MUSICDB',
+  description: 'Personal music library and recording-version workspace.',
+  createdAt: '2026-08-06T08:00:00.000Z',
+  updatedAt: '2026-08-06T09:10:00.000Z'
+}
+
+const projects = [defaultProject] satisfies CommandOutput<'project.list'>
+
+function slug(value: string): string {
+  return value.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
+}
+
+function clone<T>(value: T): T {
+  return structuredClone(value)
+}
+
+export function createFakeWorkspaceState(
+  project: ProjectRecord = defaultProject
+): CommandOutput<'project.state'> {
+  const prefix = slug(project.id)
+  const projectId = project.id
+  const taskId = `${prefix}-task-recording-version-notes`
+  const baselineId = `${prefix}-baseline-1`
+  const nodeIds = {
+    goal: `${prefix}-node-goal-001`,
+    requirement: `${prefix}-node-requirement-011`,
+    constraint: `${prefix}-node-constraint-004`,
+    design: `${prefix}-node-design-021`
+  } as const
+  const nodeVersions: ProjectStateView['nodeVersions'] = [
+    {
+      id: `${prefix}-node-version-goal-003`,
+      nodeId: nodeIds.goal,
+      sequence: 3,
+      title: 'Reliable recording-version notes',
+      body: 'Keep song-wide facts separate from notes tied to one recording version.',
+      contentHash: '1'.repeat(64),
+      createdAt: '2026-08-06T09:00:00.000Z'
+    },
+    {
+      id: `${prefix}-node-version-requirement-002`,
+      nodeId: nodeIds.requirement,
+      sequence: 2,
+      title: 'Separate note ownership',
+      body: 'A note must identify whether it belongs to a song or a recording version.',
+      contentHash: '2'.repeat(64),
+      createdAt: '2026-08-06T09:01:00.000Z'
+    },
+    {
+      id: `${prefix}-node-version-constraint-001`,
+      nodeId: nodeIds.constraint,
+      sequence: 1,
+      title: 'Preserve existing song notes',
+      body: 'The change cannot invalidate existing song-wide notes or their search results.',
+      contentHash: '3'.repeat(64),
+      createdAt: '2026-08-06T09:02:00.000Z'
+    },
+    {
+      id: `${prefix}-node-version-design-004`,
+      nodeId: nodeIds.design,
+      sequence: 4,
+      title: 'RecordingVersionNote relation',
+      body: 'Add a typed relation from a note to one recording version without duplicating text.',
+      contentHash: '4'.repeat(64),
+      createdAt: '2026-08-06T09:03:00.000Z'
+    }
+  ]
+  const nodes: ProjectStateView['nodes'] = [
+    {
+      id: nodeIds.goal,
+      projectId,
+      type: 'GOAL' as const,
+      lifecycle: 'ACTIVE' as const,
+      createdAt: '2026-08-06T08:10:00.000Z',
+      updatedAt: '2026-08-06T09:00:00.000Z'
+    },
+    {
+      id: nodeIds.requirement,
+      projectId,
+      type: 'REQUIREMENT' as const,
+      lifecycle: 'ACTIVE' as const,
+      createdAt: '2026-08-06T08:11:00.000Z',
+      updatedAt: '2026-08-06T09:01:00.000Z'
+    },
+    {
+      id: nodeIds.constraint,
+      projectId,
+      type: 'CONSTRAINT' as const,
+      lifecycle: 'ACTIVE' as const,
+      createdAt: '2026-08-06T08:12:00.000Z',
+      updatedAt: '2026-08-06T09:02:00.000Z'
+    },
+    {
+      id: nodeIds.design,
+      projectId,
+      type: 'DESIGN' as const,
+      lifecycle: 'ACTIVE' as const,
+      createdAt: '2026-08-06T08:13:00.000Z',
+      updatedAt: '2026-08-06T09:03:00.000Z'
+    }
+  ]
+  const nodeDrafts: ProjectStateView['nodeDrafts'] = nodes.map((node, index) => ({
+    id: `${prefix}-draft-${index + 1}`,
+    nodeId: node.id,
+    title: nodeVersions[index]?.title ?? node.id,
+    body: nodeVersions[index]?.body ?? '',
+    revision: 5,
+    updatedAt: '2026-08-06T09:04:00.000Z'
+  }))
+  const repositoryRevision: RepositoryRevisionRecord = {
+    id: `${prefix}-revision-main-a`,
+    baseCommit: 'a'.repeat(40),
+    treeHash: 'b'.repeat(40),
+    workingTreePatchHash: null,
+    createdAt: '2026-08-06T09:04:30.000Z'
+  }
+  const taskSpec = {
+    id: `${prefix}-task-spec-recording-version-notes-1`,
+    taskId,
+    sequence: 1,
+    description: 'Separate song-wide notes from notes tied to a specific recording version.',
+    scope:
+      'Non-goals: No bulk migration of historic notes. No redesign of the music library search.',
+    contentHash: '5'.repeat(64),
+    createdAt: '2026-08-06T09:05:00.000Z'
+  } satisfies ProjectStateView['taskSpecs'][number]['spec']
+  const criteria = [
+    'Song-wide notes remain readable',
+    'Recording-version notes are addressable',
+    'Existing note search remains compatible',
+    'The relation is visible in the detail view',
+    'Invalid ownership is rejected',
+    'Migration is explicitly out of scope'
+  ].map((description, position) => ({
+    id: `${prefix}-criterion-${position + 1}`,
+    taskSpecVersionId: taskSpec.id,
+    position,
+    description,
+    verificationMethod: 'MANUAL_REVIEW' as const
+  }))
+  const targets = [nodeIds.requirement, nodeIds.design, nodeIds.requirement].map(
+    (nodeId, position) => ({
+      id: `${prefix}-target-${position + 1}`,
+      taskSpecVersionId: taskSpec.id,
+      nodeId,
+      nodeVersionId: null,
+      position
+    })
+  )
+  const baseline = {
+    id: baselineId,
+    projectId,
+    status: 'ACTIVE' as const,
+    name: 'Baseline 1.0',
+    description: 'Current MUSICDB project anchor.',
+    repositoryRevisionId: repositoryRevision.id,
+    activatedAt: '2026-08-06T09:06:00.000Z',
+    supersededAt: null,
+    createdAt: '2026-08-06T09:06:00.000Z',
+    updatedAt: '2026-08-06T09:06:00.000Z'
+  } satisfies ProjectStateView['activeBaseline'] & object
+  const state = {
+    project,
+    nodes,
+    nodeDrafts,
+    nodeVersions,
+    edges: [
+      {
+        id: `${prefix}-edge-goal-requirement`,
+        projectId,
+        sourceNodeId: nodeIds.goal,
+        targetNodeId: nodeIds.requirement,
+        type: 'PARENT_OF' as const,
+        status: 'ACTIVE' as const,
+        anchoredNodeVersionId: nodeVersions[1].id,
+        note: null,
+        createdAt: '2026-08-06T08:20:00.000Z',
+        updatedAt: '2026-08-06T09:00:00.000Z'
+      },
+      {
+        id: `${prefix}-edge-requirement-constraint`,
+        projectId,
+        sourceNodeId: nodeIds.requirement,
+        targetNodeId: nodeIds.constraint,
+        type: 'CONSTRAINS' as const,
+        status: 'ACTIVE' as const,
+        anchoredNodeVersionId: nodeVersions[2].id,
+        note: null,
+        createdAt: '2026-08-06T08:21:00.000Z',
+        updatedAt: '2026-08-06T09:01:00.000Z'
+      },
+      {
+        id: `${prefix}-edge-requirement-design`,
+        projectId,
+        sourceNodeId: nodeIds.requirement,
+        targetNodeId: nodeIds.design,
+        type: 'IMPLEMENTS' as const,
+        status: 'ACTIVE' as const,
+        anchoredNodeVersionId: nodeVersions[3].id,
+        note: null,
+        createdAt: '2026-08-06T08:22:00.000Z',
+        updatedAt: '2026-08-06T09:02:00.000Z'
+      }
+    ],
+    tasks: [
+      {
+        id: taskId,
+        projectId,
+        type: 'IMPLEMENT_CHANGE' as const,
+        status: 'IN_PROGRESS' as const,
+        title: 'Add recording-version notes',
+        createdAt: '2026-08-06T09:05:30.000Z',
+        updatedAt: '2026-08-06T09:05:30.000Z'
+      }
+    ],
+    taskSpecs: [
+      {
+        spec: taskSpec,
+        criteria,
+        targets
+      }
+    ],
+    baselines: [
+      {
+        baseline,
+        items: nodeVersions.map((version, position) => ({
+          id: `${prefix}-baseline-item-${position + 1}`,
+          baselineId,
+          nodeVersionId: version.id,
+          position
+        }))
+      }
+    ],
+    activeBaseline: baseline
+  } satisfies CommandOutput<'project.state'>
+
+  return state
+}
+
+function response<C extends WorkspaceCommand>(
+  request: CommandRequest<C>,
+  data: CommandOutput<C>
+): CommandResponse<C> {
+  return {
+    requestId: request.requestId,
+    schemaVersion: 1,
+    command: request.command as C,
+    ok: true,
+    data
+  }
+}
+
+function failure<C extends WorkspaceCommand>(
+  request: CommandRequest<C>,
+  name: CommandErrorName,
+  message: string,
+  details?: Record<string, unknown>
+): CommandResponse<C> {
+  return {
+    requestId: request.requestId,
+    schemaVersion: 1,
+    command: request.command as C,
+    ok: false,
+    error: { name, message, details }
+  }
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+export function createFakeWorkspaceClient(options: FakeWorkspaceOptions = {}): WorkspaceClient {
+  const availableProjects = [...(options.projects ?? projects)]
+  const stateByProject = new Map(
+    (options.states ?? availableProjects.map((project) => createFakeWorkspaceState(project))).map(
+      (state) => [state.project.id, clone(state)] as const
+    )
+  )
+  const revisionByProject = new Map<string, RepositoryRevisionRecord>()
+  for (const state of stateByProject.values()) {
+    revisionByProject.set(state.project.id, {
+      id: `${slug(state.project.id)}-revision-main-a`,
+      baseCommit: 'a'.repeat(40),
+      treeHash: 'b'.repeat(40),
+      workingTreePatchHash: null,
+      createdAt: '2026-08-06T09:04:30.000Z'
+    })
+  }
+  const snapshotsByProject = new Map<string, SnapshotFreezeResult[]>()
+  for (const state of stateByProject.values()) snapshotsByProject.set(state.project.id, [])
+  const cancelledRequests = new Set<string>()
+  const executionDelayMs = options.executionDelayMs ?? 250
+
+  const transport: CommandTransport = {
+    async command(request) {
+      switch (request.command) {
+        case 'project.list':
+          return response(request, clone(availableProjects))
+        case 'project.state': {
+          const state = stateByProject.get(request.payload.projectId)
+          return state
+            ? response(request, clone(state))
+            : failure(request, 'NotFoundError', `Cannot find Project ${request.payload.projectId}`)
+        }
+        case 'revision.current': {
+          const revision = revisionByProject.values().next().value
+          return revision
+            ? response(request, clone(revision))
+            : failure(request, 'NotFoundError', 'Cannot resolve a repository revision')
+        }
+        case 'nodeDraft.upsert': {
+          const input = request.payload
+          const state = [...stateByProject.values()].find((candidate) =>
+            candidate.nodes.some((node) => node.id === input.nodeId)
+          )
+          const existing = state?.nodeDrafts.find((draft) => draft.nodeId === input.nodeId)
+          if (!state) {
+            return failure(request, 'NotFoundError', `Cannot find NodeDraft ${input.nodeId}`)
+          }
+          if (
+            existing &&
+            input.expectedRevision !== undefined &&
+            input.expectedRevision !== existing.revision
+          ) {
+            return failure(
+              request,
+              'ConcurrencyError',
+              `Concurrent modification of NodeDraft ${existing.id}`,
+              {
+                serverRevision: existing.revision,
+                serverValue: { title: existing.title, body: existing.body }
+              }
+            )
+          }
+          const updated: NodeDraftRecord = {
+            id: existing?.id ?? `draft-${input.nodeId}`,
+            nodeId: input.nodeId,
+            title: input.title,
+            body: input.body ?? existing?.body ?? '',
+            revision: (existing?.revision ?? 0) + 1,
+            updatedAt: new Date().toISOString()
+          }
+          stateByProject.set(state.project.id, {
+            ...state,
+            nodeDrafts: existing
+              ? state.nodeDrafts.map((draft) => (draft.nodeId === input.nodeId ? updated : draft))
+              : [...state.nodeDrafts, updated]
+          })
+          return response(request, clone(updated))
+        }
+        case 'snapshot.freeze': {
+          const input = request.payload
+          const state = stateByProject.get(input.projectId)
+          if (!state) {
+            return failure(request, 'NotFoundError', `Cannot find Project ${input.projectId}`)
+          }
+          const snapshots = snapshotsByProject.get(input.projectId) ?? []
+          const id = `snapshot-${snapshots.length + 1}`
+          const now = new Date().toISOString()
+          const items: ContextSnapshotItemRecord[] = input.items.map((item, position) => ({
+            id: `${id}-item-${position + 1}`,
+            contextSnapshotId: id,
+            position,
+            itemType: item.itemType,
+            sourceRef: item.sourceRef,
+            resolvedContent: item.resolvedContent,
+            contentHash: '6'.repeat(64),
+            selectionReason: item.selectionReason ?? null,
+            authority: item.authority,
+            priority: item.priority ?? 'P2',
+            tokenEstimate: item.tokenEstimate,
+            blobId: item.blobId ?? null
+          }))
+          const result: SnapshotFreezeResult = {
+            snapshot: {
+              id,
+              projectId: input.projectId,
+              taskId: input.taskId,
+              taskSpecVersionId: input.taskSpecVersionId,
+              baseBaselineId: input.baseBaselineId,
+              expectedRepositoryRevisionId: input.expectedRepositoryRevisionId,
+              status: 'FROZEN',
+              freshness: 'CURRENT',
+              createdAt: now,
+              updatedAt: now
+            },
+            items
+          }
+          snapshots.push(result)
+          snapshotsByProject.set(input.projectId, snapshots)
+          return response(request, clone(result))
+        }
+        case 'execution.cancel': {
+          cancelledRequests.add(request.payload.executionRequestId)
+          return response(request, { cancelled: true })
+        }
+        case 'execution.dispatch': {
+          const input = request.payload
+          await delay(executionDelayMs)
+          if (cancelledRequests.has(input.executionRequestId)) {
+            return response(request, {
+              outcome: 'CANCELLED',
+              claimGranted: true,
+              artifacts: []
+            } satisfies DispatchResult)
+          }
+          return response(request, {
+            outcome: 'SUCCEEDED',
+            claimGranted: true,
+            patch: `diff --git a/src/notes.ts b/src/notes.ts\n+recordingVersionId: string`,
+            patchHash: '7'.repeat(64),
+            verificationResults: [
+              {
+                argv: ['pnpm', 'test'],
+                exitCode: 0,
+                signal: null,
+                stdout: '6 tests passed',
+                stderr: '',
+                timedOut: false,
+                cancelled: false,
+                outputTruncated: false,
+                durationMs: 42
+              }
+            ],
+            artifacts: [
+              {
+                kind: 'PATCH',
+                fileName: 'patch.diff',
+                contentHash: '7'.repeat(64),
+                sizeBytes: 76
+              }
+            ],
+            agentSummary: `Execution completed for ContextSnapshot ${input.contextSnapshotId}.`
+          } satisfies DispatchResult)
+        }
+        default:
+          return failure(
+            request,
+            'InternalError',
+            `Fake transport does not implement ${request.command}`
+          )
+      }
+    }
+  }
+
+  return createWorkspaceClient(transport)
+}

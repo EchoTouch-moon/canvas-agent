@@ -32,6 +32,9 @@ interface AppShellProps {
   readonly projectName?: string
   readonly activeItem?: string
   readonly onNavigate?: (label: string) => void
+  readonly projects?: readonly { readonly id: string; readonly name: string }[]
+  readonly selectedProjectId?: string | null
+  readonly onProjectSelect?: (projectId: string) => void
 }
 
 function initialTheme(): Theme {
@@ -53,8 +56,11 @@ export function AppShell({
   title = 'Project Dashboard',
   description,
   projectName = 'MUSICDB',
-  activeItem,
-  onNavigate
+  activeItem: controlledActiveItem,
+  onNavigate,
+  projects,
+  selectedProjectId,
+  onProjectSelect
 }: AppShellProps): React.JSX.Element {
   const { t, locale, setLocale } = useI18n()
   const [theme, setTheme] = useState<Theme>(initialTheme)
@@ -68,8 +74,8 @@ export function AppShell({
       typeof window !== 'undefined' &&
       window.localStorage.getItem('canvas-agent-flow-guide-seen') !== '1'
   )
-  const hasExternalNav = activeItem !== undefined && onNavigate !== undefined
-  const resolvedActive = hasExternalNav ? activeItem : internalActive
+  const hasExternalNav = controlledActiveItem !== undefined && onNavigate !== undefined
+  const resolvedActive = hasExternalNav ? controlledActiveItem : internalActive
   const handleNavigate = hasExternalNav ? onNavigate : setInternalActive
 
   const closeGuide = useCallback(() => {
@@ -208,6 +214,9 @@ export function AppShell({
           onNavigate={handleNavigate}
           onToggle={() => setSidebarCollapsed((current) => !current)}
           projectName={projectName}
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          onProjectSelect={onProjectSelect}
         />
         <section className="flex min-w-0 flex-1 flex-col bg-workspace">
           <WorkspaceHeader

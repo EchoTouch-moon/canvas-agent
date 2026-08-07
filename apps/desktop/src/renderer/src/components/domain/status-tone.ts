@@ -6,6 +6,7 @@ import type {
   SnapshotStatus,
   TaskStatus
 } from '@canvas-agent/domain'
+import type { DispatchOutcome } from '@/lib/workspace-types'
 import type { LucideIcon } from 'lucide-react'
 import {
   Archive,
@@ -28,7 +29,13 @@ import {
 } from 'lucide-react'
 
 export type StatusValue =
-  TaskStatus | RunStatus | RunOutcome | BaselineStatus | SnapshotFreshness | SnapshotStatus
+  | TaskStatus
+  | RunStatus
+  | RunOutcome
+  | DispatchOutcome
+  | BaselineStatus
+  | SnapshotFreshness
+  | SnapshotStatus
 export type StatusTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info'
 
 const statusTones: Record<StatusValue, StatusTone> = {
@@ -52,6 +59,9 @@ const statusTones: Record<StatusValue, StatusTone> = {
   PARTIAL: 'warning',
   FAILED: 'danger',
   TIMED_OUT: 'danger',
+  VALIDATION_REJECTED: 'danger',
+  CLAIM_REJECTED: 'warning',
+  REVISION_MISMATCH: 'warning',
   ACTIVE: 'success',
   SUPERSEDED: 'neutral',
   CURRENT: 'success',
@@ -81,6 +91,9 @@ const statusIcons: Record<StatusValue, LucideIcon> = {
   PARTIAL: TriangleAlert,
   FAILED: XCircle,
   TIMED_OUT: Clock3,
+  VALIDATION_REJECTED: XCircle,
+  CLAIM_REJECTED: TriangleAlert,
+  REVISION_MISMATCH: TriangleAlert,
   ACTIVE: CheckCircle2,
   SUPERSEDED: GitBranch,
   CURRENT: CheckCircle2,
