@@ -66,7 +66,9 @@ export function mapCommandError(error: unknown): CommandError {
     return { name: 'HostUnavailableError', message: error.message }
   }
   if (error instanceof Error) {
-    return { name: 'InternalError', message: error.message }
+    console.error('[command] internal error:', error)
+    return { name: 'InternalError', message: 'Internal command failure' }
   }
-  return { name: 'InternalError', message: String(error) }
+  console.error('[command] internal error:', error)
+  return { name: 'InternalError', message: 'Internal command failure' }
 }

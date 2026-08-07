@@ -1,4 +1,4 @@
-import { realpath, mkdir } from 'node:fs/promises'
+import { access, constants, mkdir, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ISOLATED_GIT_ENV, runCommand } from '@canvas-agent/worker-runtime'
 
@@ -63,6 +63,11 @@ export async function resolveAppConfig(userData: string): Promise<ConfigResult> 
   const canonical = await realpath(sourceRepositoryPath)
   const runtimeDirectory = defaultRuntimeDirectory(userData)
   await mkdir(runtimeDirectory, { recursive: true })
+  try {
+    await access(runtimeDirectory, constants.W_OK)
+  } catch {
+    return { config: null, error: `runtime directory is not writable: ${runtimeDirectory}` }
+  }
 
   return { config: { sourceRepositoryPath: canonical, runtimeDirectory }, error: null }
 }

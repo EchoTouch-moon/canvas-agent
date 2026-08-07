@@ -1,6 +1,8 @@
 import {
   commandRequestSchema,
+  commandResponseSchemas,
   commandSchemas,
+  type CommandError,
   type CommandInput,
   type CommandResponse,
   type ExecutionRequestContract,
@@ -18,6 +20,8 @@ export interface CommandDeps {
   workspace: WorkspaceService | null
   worker: WorkerHost
 }
+
+const INTERNAL_FAILURE = 'Internal command failure'
 
 export function buildRoutes(deps: CommandDeps): Record<string, CommandRoute> {
   const routes: Record<string, CommandRoute> = {}
@@ -67,66 +71,55 @@ export async function handleCommand(
 ): Promise<CommandResponse> {
   const parsed = commandRequestSchema.safeParse(payload)
   if (!parsed.success) {
-    const raw = (typeof payload === 'object' && payload !== null ? payload : {}) as {
-      requestId?: unknown
-      command?: unknown
-    }
-    return {
-      requestId: typeof raw.requestId === 'string' ? raw.requestId : '',
-      schemaVersion: 1,
-      ok: false,
-      command: (typeof raw.command === 'string'
-        ? raw.command
-        : 'project.create') as WorkspaceCommand,
-      error: {
-        name: 'RequestValidationError',
-        message: parsed.error.issues
-          .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-          .join('; ')
-      }
-    }
+    throw new Error('invalid command request')
   }
 
   const route = routes[parsed.data.command]
   if (!route) {
-    return {
-      requestId: parsed.data.requestId,
-      schemaVersion: 1,
-      ok: false,
-      command: parsed.data.command,
-      error: { name: 'RequestValidationError', message: `unknown command: ${parsed.data.command}` }
-    }
+    throw new Error(`unknown command: ${parsed.data.command}`)
   }
 
   let data: unknown
   try {
     data = await route.execute(parsed.data.payload)
   } catch (error) {
-    return {
-      requestId: parsed.data.requestId,
-      schemaVersion: 1,
+    return finalize(parsed.data.requestId, parsed.data.command, {
       ok: false,
-      command: parsed.data.command,
       error: mapCommandError(error)
-    }
+    })
   }
 
   const validated = commandSchemas[parsed.data.command].output.safeParse(data)
   if (!validated.success) {
-    return {
-      requestId: parsed.data.requestId,
-      schemaVersion: 1,
+    console.error('[command] output failed schema validation', parsed.data.command)
+    return finalize(parsed.data.requestId, parsed.data.command, {
       ok: false,
-      command: parsed.data.command,
-      error: { name: 'InternalError', message: 'command output failed schema validation' }
-    }
+      error: { name: 'InternalError', message: INTERNAL_FAILURE }
+    })
   }
 
-  return {
-    requestId: parsed.data.requestId,
-    schemaVersion: 1,
+  return finalize(parsed.data.requestId, parsed.data.command, {
     ok: true,
-    command: parsed.data.command,
     data: validated.data
-  } as CommandResponse
+  })
+}
+
+function finalize<K extends WorkspaceCommand>(
+  requestId: string,
+  command: K,
+  body: { ok: true; data: unknown } | { ok: false; error: CommandError }
+): CommandResponse {
+  const response = { requestId, schemaVersion: 1, command, ...body } as CommandResponse
+  const validated = commandResponseSchemas[command].safeParse(response)
+  if (!validated.success) {
+    console.error('[command] response failed schema validation', command)
+    return {
+      requestId,
+      schemaVersion: 1,
+      ok: false,
+      command,
+      error: { name: 'InternalError', message: INTERNAL_FAILURE }
+    }
+  }
+  return validated.data as CommandResponse
 }

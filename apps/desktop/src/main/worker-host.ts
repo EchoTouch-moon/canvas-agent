@@ -17,7 +17,9 @@ export class UnavailableWorkerHost implements WorkerHost {
 
   async cancel(executionRequestId: string): Promise<boolean> {
     void executionRequestId
-    return false
+    throw new HostUnavailableError(
+      'Worker host is not available (Phase 2 wires the Utility Process)'
+    )
   }
 
   async dispose(): Promise<void> {

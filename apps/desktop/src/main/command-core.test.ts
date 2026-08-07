@@ -57,16 +57,22 @@ describe('CommandRouter (command-core)', () => {
     await cleanupTempDirs()
   })
 
-  it('rejects malformed and unknown commands as RequestValidationError', async () => {
+  it('rejects malformed and unknown commands at the transport boundary', async () => {
     const routes = buildRoutes({ workspace: null, worker: new UnavailableWorkerHost() })
 
-    const malformed = await handleCommand(routes, { requestId: 'r', command: 'project.create' })
-    expect(malformed.ok).toBe(false)
-    if (!malformed.ok) expect(malformed.error.name).toBe('RequestValidationError')
+    await expect(
+      handleCommand(routes, { requestId: 'r', command: 'project.create' })
+    ).rejects.toThrow()
+    await expect(handleCommand(routes, request('nope.create', {}))).rejects.toThrow()
+  })
 
-    const unknown = await handleCommand(routes, request('nope.create', {}))
-    expect(unknown.ok).toBe(false)
-    if (!unknown.ok) expect(unknown.error.name).toBe('RequestValidationError')
+  it('rejects handler output that fails the command response schema', async () => {
+    const badRoutes = {
+      'project.create': { execute: async () => ({ bad: true }) }
+    }
+    const result = await handleCommand(badRoutes, request('project.create', { name: 'X' }))
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.name).toBe('InternalError')
   })
 
   it('reports workspace commands as HostUnavailableError when unconfigured', async () => {

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import {
   DESKTOP_CHANNELS,
   commandRequestSchema,
+  commandResponseSchemas,
   runtimeInfoSchema,
   type CanvasAgentDesktopApi,
   type CommandRequest,
@@ -17,7 +18,7 @@ const canvasAgentApi: CanvasAgentDesktopApi = {
   async command(request: CommandRequest): Promise<CommandResponse> {
     commandRequestSchema.parse(request)
     const response: unknown = await ipcRenderer.invoke(DESKTOP_CHANNELS.command, request)
-    return response as CommandResponse
+    return commandResponseSchemas[request.command].parse(response)
   }
 }
 
