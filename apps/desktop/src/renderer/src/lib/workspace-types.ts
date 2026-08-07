@@ -40,3 +40,5 @@ export type DispatchOutcome = DispatchResult['outcome']
 export type CancellationResult = CommandOutput<'execution.cancel'>
 export type VerificationCommandResult = NonNullable<DispatchResult['verificationResults']>[number]
 export type ArtifactDescriptor = NonNullable<DispatchResult['artifacts']>[number]
+
+export type ResolvedContextItem = CommandOutput<'context.resolve'>['items'][number]

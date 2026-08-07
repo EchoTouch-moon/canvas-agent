@@ -41,6 +41,43 @@ describe('fake WorkspaceClient transport', () => {
     expect(result.outcome).toBe('CANCELLED')
   })
 
+  it('previews pinned repository content via context.resolve (preview is separate from freeze)', async () => {
+    const client = createFakeWorkspaceClient()
+    const projects = await client.command('project.list', {})
+    const workspace = await client.command('project.state', { projectId: projects[0]!.id })
+    const revision = await client.command('revision.current', {})
+    const task = workspace.tasks[0]!
+    const taskSpec = workspace.taskSpecs[0]!
+    const baseline = workspace.baselines[0]!
+
+    const resolved = await client.command('context.resolve', {
+      projectId: workspace.project.id,
+      taskId: task.id,
+      taskSpecVersionId: taskSpec.spec.id,
+      baseBaselineId: baseline.baseline.id,
+      expectedRepositoryRevisionId: revision.id,
+      selections: [{ kind: 'REPOSITORY_CONTENT', path: 'README.md' }]
+    })
+    expect(resolved.items).toHaveLength(1)
+    expect(resolved.items[0]).toMatchObject({
+      itemType: 'REPOSITORY_CONTENT',
+      sourceRef: 'repo://README.md',
+      authority: 'REFERENCE',
+      priority: 'P2'
+    })
+    expect(resolved.items[0].resolvedContent).toContain('MUSICDB Demo')
+
+    const frozen = await client.command('snapshot.freeze', {
+      projectId: workspace.project.id,
+      taskId: task.id,
+      taskSpecVersionId: taskSpec.spec.id,
+      baseBaselineId: baseline.baseline.id,
+      expectedRepositoryRevisionId: revision.id,
+      selections: [{ source: { kind: 'REPOSITORY_CONTENT', path: 'README.md' } }]
+    })
+    expect(frozen.items.map((item) => item.itemType)).toContain('REPOSITORY_CONTENT')
+  })
+
   it('uses authoritative entity-shaped state rather than a core-flow fixture', async () => {
     const state = createFakeWorkspaceState()
 

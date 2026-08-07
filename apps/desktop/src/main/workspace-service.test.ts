@@ -67,7 +67,7 @@ describe('WorkspaceService', () => {
     const revision = await service.revisionCurrent()
     expect(revision.baseCommit).toMatch(/^[a-f0-9]{40}$/)
 
-    const frozen = service.freezeSnapshot({
+    const frozen = await service.freezeSnapshot({
       projectId: project.id,
       taskId: task.id,
       taskSpecVersionId: spec.spec.id,
@@ -77,11 +77,12 @@ describe('WorkspaceService', () => {
         {
           source: { kind: 'NODE_VERSION', nodeVersionId: version.id },
           selectionReason: 'primary requirement'
-        }
+        },
+        { source: { kind: 'REPOSITORY_CONTENT', path: 'README.md' } }
       ]
     })
     expect(frozen.snapshot.status).toBe('FROZEN')
-    expect(frozen.items).toHaveLength(2)
+    expect(frozen.items).toHaveLength(3)
     expect(frozen.items[0]).toMatchObject({
       itemType: 'USER_INPUT',
       sourceRef: `task-spec://${spec.spec.id}`,
@@ -97,6 +98,25 @@ describe('WorkspaceService', () => {
       selectionReason: 'primary requirement'
     })
     expect(frozen.items[1]?.contentHash).toBe(version.contentHash)
+    expect(frozen.items[2]).toMatchObject({
+      itemType: 'REPOSITORY_CONTENT',
+      sourceRef: 'repo://README.md',
+      authority: 'REFERENCE',
+      priority: 'P2'
+    })
+    expect(frozen.items[2]?.resolvedContent).toContain('# main process test')
+
+    const resolved = await service.resolveContext({
+      projectId: project.id,
+      taskId: task.id,
+      taskSpecVersionId: spec.spec.id,
+      baseBaselineId: draft.id,
+      expectedRepositoryRevisionId: revision.id,
+      selections: [{ kind: 'REPOSITORY_CONTENT', path: 'README.md' }]
+    })
+    expect(resolved.items).toHaveLength(1)
+    expect(resolved.items[0]?.itemType).toBe('REPOSITORY_CONTENT')
+    expect(resolved.items[0]?.resolvedContent).toContain('# main process test')
 
     closeWorkspaceDatabase(p)
   })
@@ -118,7 +138,7 @@ describe('WorkspaceService', () => {
     ).toThrow(ConcurrencyError)
 
     expect(() => service.getProject({ projectId: 'missing' })).toThrow(NotFoundError)
-    expect(() =>
+    await expect(
       service.freezeSnapshot({
         projectId: project.id,
         taskId: 't',
@@ -127,7 +147,7 @@ describe('WorkspaceService', () => {
         expectedRepositoryRevisionId: 'rev_missing',
         selections: []
       })
-    ).toThrow(NotFoundError)
+    ).rejects.toThrow(NotFoundError)
 
     closeWorkspaceDatabase(p)
   })

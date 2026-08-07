@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { SourceReference } from '@canvas-agent/contracts'
 import {
   InternalError,
   WorkspaceError,
@@ -13,7 +14,8 @@ import type {
   NodeDraftRecord,
   ProjectRecord,
   ProjectStateView,
-  RepositoryRevisionRecord
+  RepositoryRevisionRecord,
+  ResolvedContextItem
 } from '@/lib/workspace-types'
 
 export interface HydratedWorkspace {
@@ -49,6 +51,13 @@ export interface UseWorkspaceResult {
     input: Omit<SnapshotFreezeInput, 'expectedRepositoryRevisionId'>
   ) => Promise<FrozenSnapshotView>
   readonly saveNodeDraft: (input: NodeDraftUpsertInput) => Promise<NodeDraftRecord>
+  readonly resolveContext: (input: {
+    readonly projectId: string
+    readonly taskId: string
+    readonly taskSpecVersionId: string
+    readonly baseBaselineId: string
+    readonly selections: readonly SourceReference[]
+  }) => Promise<{ readonly items: readonly ResolvedContextItem[] }>
   readonly execute: (input: {
     readonly executionRequestId: string
     readonly contextSnapshotId: string
@@ -140,6 +149,27 @@ export function useWorkspace(
     [client, refresh]
   )
 
+  const resolveContext = useCallback(
+    async (input: {
+      readonly projectId: string
+      readonly taskId: string
+      readonly taskSpecVersionId: string
+      readonly baseBaselineId: string
+      readonly selections: readonly SourceReference[]
+    }): Promise<{ readonly items: readonly ResolvedContextItem[] }> => {
+      const revision: RepositoryRevisionRecord = await client.command('revision.current', {})
+      return client.command('context.resolve', {
+        projectId: input.projectId,
+        taskId: input.taskId,
+        taskSpecVersionId: input.taskSpecVersionId,
+        baseBaselineId: input.baseBaselineId,
+        expectedRepositoryRevisionId: revision.id,
+        selections: [...input.selections]
+      })
+    },
+    [client]
+  )
+
   const execute = useCallback(
     (input: {
       readonly executionRequestId: string
@@ -164,6 +194,7 @@ export function useWorkspace(
     refresh,
     freeze,
     saveNodeDraft,
+    resolveContext,
     execute,
     cancel
   }

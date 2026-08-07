@@ -17,6 +17,7 @@ import type {
   ProjectRecord,
   ProjectStateView,
   RepositoryRevisionRecord,
+  ResolvedContextItem,
   SnapshotFreezeResult
 } from '@/lib/workspace-types'
 
@@ -24,6 +25,11 @@ interface FakeWorkspaceOptions {
   readonly projects?: readonly ProjectRecord[]
   readonly states?: readonly ProjectStateView[]
   readonly executionDelayMs?: number
+  readonly repositoryFiles?: Record<string, string>
+}
+
+const defaultRepositoryFiles: Record<string, string> = {
+  'README.md': '# MUSICDB Demo\n\nA fake pinned repository file used by the fake transport.\n'
 }
 
 const defaultProject: ProjectRecord = {
@@ -320,6 +326,7 @@ export function createFakeWorkspaceClient(options: FakeWorkspaceOptions = {}): W
   for (const state of stateByProject.values()) snapshotsByProject.set(state.project.id, [])
   const cancelledRequests = new Set<string>()
   const executionDelayMs = options.executionDelayMs ?? 250
+  const repositoryFiles = { ...defaultRepositoryFiles, ...(options.repositoryFiles ?? {}) }
 
   const transport: CommandTransport = {
     async command(request) {
@@ -401,11 +408,11 @@ export function createFakeWorkspaceClient(options: FakeWorkspaceOptions = {}): W
             ...taskSpecAggregate.criteria.map((criterion) => criterion.description)
           ].join('\n')
           const materialized: Array<{
-            itemType: 'USER_INPUT' | 'NODE_VERSION'
+            itemType: 'USER_INPUT' | 'NODE_VERSION' | 'REPOSITORY_CONTENT'
             sourceRef: string
             resolvedContent: string
-            authority: 'TASK_INSTRUCTION' | 'PROJECT_FACT'
-            priority: 'P0' | 'P1'
+            authority: 'TASK_INSTRUCTION' | 'PROJECT_FACT' | 'REFERENCE'
+            priority: 'P0' | 'P1' | 'P2'
             tokenEstimate: number
             selectionReason: string | null
           }> = [
@@ -421,6 +428,22 @@ export function createFakeWorkspaceClient(options: FakeWorkspaceOptions = {}): W
           ]
           for (const selection of input.selections) {
             const ref = selection.source
+            if (ref.kind === 'REPOSITORY_CONTENT') {
+              const content = repositoryFiles[ref.path]
+              if (content === undefined) {
+                return failure(request, 'NotFoundError', `Cannot find repository file ${ref.path}`)
+              }
+              materialized.push({
+                itemType: 'REPOSITORY_CONTENT' as const,
+                sourceRef: `repo://${ref.path}`,
+                resolvedContent: content,
+                authority: 'REFERENCE' as const,
+                priority: 'P2' as const,
+                tokenEstimate: Math.max(1, Math.ceil(content.length / 4)),
+                selectionReason: selection.selectionReason ?? null
+              })
+              continue
+            }
             const version = state.nodeVersions.find(
               (candidate) => candidate.id === ref.nodeVersionId
             )
@@ -520,6 +543,83 @@ export function createFakeWorkspaceClient(options: FakeWorkspaceOptions = {}): W
             ],
             agentSummary: `Execution completed for ContextSnapshot ${input.contextSnapshotId}.`
           } satisfies DispatchResult)
+        }
+        case 'context.resolve': {
+          const input = request.payload
+          const state = stateByProject.get(input.projectId)
+          if (!state) {
+            return failure(request, 'NotFoundError', `Cannot find Project ${input.projectId}`)
+          }
+          const items: ResolvedContextItem[] = []
+          for (const ref of input.selections) {
+            if (ref.kind === 'TASK_SPEC_VERSION') {
+              if (ref.taskSpecVersionId !== input.taskSpecVersionId) {
+                return failure(request, 'ValidationError', 'task_spec_binding_mismatch')
+              }
+              const aggregate = state.taskSpecs.find(
+                (candidate) => candidate.spec.id === ref.taskSpecVersionId
+              )
+              if (!aggregate) {
+                return failure(
+                  request,
+                  'NotFoundError',
+                  `Cannot find TaskSpecVersion ${ref.taskSpecVersionId}`
+                )
+              }
+              const content = [
+                aggregate.spec.description,
+                aggregate.spec.scope,
+                ...aggregate.criteria.map((criterion) => criterion.description)
+              ].join('\n')
+              items.push({
+                itemType: 'USER_INPUT',
+                sourceRef: `task-spec://${aggregate.spec.id}`,
+                resolvedContent: content,
+                contentHash: '8'.repeat(64),
+                authority: 'TASK_INSTRUCTION',
+                priority: 'P0',
+                tokenEstimate: Math.max(1, Math.ceil(content.length / 4))
+              })
+              continue
+            }
+            if (ref.kind === 'REPOSITORY_CONTENT') {
+              const content = repositoryFiles[ref.path]
+              if (content === undefined) {
+                return failure(request, 'NotFoundError', `Cannot find repository file ${ref.path}`)
+              }
+              items.push({
+                itemType: 'REPOSITORY_CONTENT',
+                sourceRef: `repo://${ref.path}`,
+                resolvedContent: content,
+                contentHash: '9'.repeat(64),
+                authority: 'REFERENCE',
+                priority: 'P2',
+                tokenEstimate: Math.max(1, Math.ceil(content.length / 4))
+              })
+              continue
+            }
+            const version = state.nodeVersions.find(
+              (candidate) => candidate.id === ref.nodeVersionId
+            )
+            if (version === undefined) {
+              return failure(
+                request,
+                'NotFoundError',
+                `Cannot find NodeVersion ${ref.nodeVersionId}`
+              )
+            }
+            const content = `${version.title}\n\n${version.body}`
+            items.push({
+              itemType: 'NODE_VERSION',
+              sourceRef: `node://${version.id}`,
+              resolvedContent: content,
+              contentHash: 'a'.repeat(64),
+              authority: 'PROJECT_FACT',
+              priority: 'P1',
+              tokenEstimate: Math.max(1, Math.ceil(content.length / 4))
+            })
+          }
+          return response(request, { items })
         }
         default:
           return failure(
