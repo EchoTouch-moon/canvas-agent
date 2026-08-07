@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   InternalError,
   WorkspaceError,
@@ -67,16 +67,24 @@ export function useWorkspace(
   const [workspace, setWorkspace] = useState<ProjectStateView | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<WorkspaceError | null>(null)
+  const refreshGeneration = useRef(0)
 
   const refresh = useCallback(async (): Promise<void> => {
+    const generation = ++refreshGeneration.current
     setLoading(true)
     setError(null)
     try {
       const result = await hydrateWorkspace(client, requestedProjectId ?? selectedProjectId)
+      if (generation !== refreshGeneration.current) {
+        return
+      }
       setProjects(result.projects)
       setSelectedProjectId(result.selectedProjectId)
       setWorkspace(result.workspace)
     } catch (caught) {
+      if (generation !== refreshGeneration.current) {
+        return
+      }
       setWorkspace(null)
       setError(
         caught instanceof WorkspaceError
@@ -86,7 +94,9 @@ export function useWorkspace(
             )
       )
     } finally {
-      setLoading(false)
+      if (generation === refreshGeneration.current) {
+        setLoading(false)
+      }
     }
   }, [client, requestedProjectId, selectedProjectId])
 
