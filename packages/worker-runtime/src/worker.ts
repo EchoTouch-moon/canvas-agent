@@ -207,6 +207,10 @@ export function createWorker(config: WorkerConfig): Worker {
           reason = 'verification command timed out'
         }
       }
+
+      if (signal.aborted) {
+        outcome = 'CANCELLED'
+      }
     }
 
     let patch: string | undefined
@@ -220,6 +224,10 @@ export function createWorker(config: WorkerConfig): Worker {
         outcome = 'PARTIAL'
         reason = `patch export failed: ${describe(error)}`
       }
+    }
+
+    if (signal.aborted) {
+      outcome = 'CANCELLED'
     }
 
     let cleanupSucceeded = false

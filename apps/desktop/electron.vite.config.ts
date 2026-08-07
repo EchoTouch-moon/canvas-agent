@@ -13,6 +13,12 @@ export default defineConfig({
           '@canvas-agent/persistence',
           '@canvas-agent/worker-runtime'
         ]
+      },
+      rollupOptions: {
+        input: {
+          index: resolve('src/main/index.ts'),
+          worker: resolve('src/worker/index.ts')
+        }
       }
     }
   },

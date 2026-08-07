@@ -9,6 +9,8 @@ import { openWorkspaceDatabase, closeWorkspaceDatabase } from './database'
 import { GitRevisionReader } from './git-revision-reader'
 import { WorkspaceService } from './workspace-service'
 import { UnavailableWorkerHost } from './worker-host'
+import { UtilityProcessWorkerHost } from './utility-process-worker-host'
+import { runWorkerSmoke } from './worker-smoke'
 import { registerCommandRouter } from './command-router'
 import { isTrustedSender } from './security'
 
@@ -96,12 +98,14 @@ app.whenReady().then(async () => {
   // Composition root for the real core loop.
   let persistence: ReturnType<typeof openWorkspaceDatabase> | null = null
   let workspace: WorkspaceService | null = null
+  let appConfig: Awaited<ReturnType<typeof resolveAppConfig>>['config'] = null
   try {
     const configResult = await resolveAppConfig(app.getPath('userData'))
     if (configResult.error !== null) {
       console.error(`[workspace] configuration error: ${configResult.error}`)
     }
     if (configResult.config !== null) {
+      appConfig = configResult.config
       persistence = openWorkspaceDatabase(
         join(app.getPath('userData'), 'canvas-agent.db'),
         undefined,
@@ -118,10 +122,21 @@ app.whenReady().then(async () => {
   } catch (error) {
     console.error('[workspace] failed to start the workspace service', error)
   }
-  const workerHost = new UnavailableWorkerHost()
+  const workerHost =
+    appConfig !== null ? new UtilityProcessWorkerHost(appConfig) : new UnavailableWorkerHost()
 
   registerRuntimeInfoHandler()
   registerCommandRouter({ workspace, worker: workerHost })
+
+  if (process.env['CANVAS_AGENT_SMOKE'] === '1' && appConfig !== null) {
+    void runWorkerSmoke(appConfig, workerHost)
+      .catch((error) => {
+        console.error('[worker-smoke] FAILED:', error instanceof Error ? error.message : error)
+      })
+      .finally(() => {
+        app.quit()
+      })
+  }
 
   app.on('before-quit', () => {
     void workerHost.dispose()
