@@ -103,7 +103,8 @@ for pending runs.
 
 | command | payload | response |
 |---|---|---|
-| `project.state` | `{}` | `ProjectStateView` (persisted read model) |
+| `project.list` | `{}` | `Project[]` |
+| `project.state` | `{ projectId }` | `ProjectStateView` (persisted read model) |
 | `execution.dispatch` | `{ executionRequestId, contextSnapshotId }` | `DispatchResult` |
 | `execution.cancel` | `{ executionRequestId }` | `{ cancelled: boolean }` |
 
@@ -115,7 +116,7 @@ stay for Main/internal use.)
 
 ```ts
 interface ProjectStateView {
-  project: Project | null
+  project: Project   // always present (authoritative persisted projection)
 
   nodes: Node[]
   nodeDrafts: NodeDraft[]
@@ -159,7 +160,7 @@ on `ok:false`.
 
 ### `useWorkspace` hook (`src/renderer/src/hooks/use-workspace.ts`)
 
-- Loads `project.state` on mount; exposes `workspace` + `execute<C>`.
+- Loads `project.list` + `project.state` on mount; exposes `workspace` + `execute<C>`.
 - Domain mutations adopt the authoritative response into the projection.
 - Local UI state (route, selection, composer draft, buffers) stays separate.
 
