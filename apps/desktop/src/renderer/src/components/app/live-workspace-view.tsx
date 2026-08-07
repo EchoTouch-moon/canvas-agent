@@ -359,9 +359,13 @@ export function LiveWorkspaceView(): React.JSX.Element {
       setActionError('No baseline available to freeze against.')
       return
     }
-    const selections = candidates
-      .filter((candidate) => !candidate.required && selectedIds.includes(candidate.id))
-      .map((candidate) => ({ source: candidate.source, selectionReason: null }))
+    const selections = candidates.flatMap((candidate) =>
+      !candidate.required &&
+      selectedIds.includes(candidate.id) &&
+      candidate.source.kind === 'NODE_VERSION'
+        ? [{ source: candidate.source, selectionReason: null }]
+        : []
+    )
     try {
       const frozenSnapshot = await workspace.freeze({
         projectId: view.project.id,

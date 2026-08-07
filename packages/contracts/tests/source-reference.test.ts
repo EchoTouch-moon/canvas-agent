@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  contextSelectionSchema,
+  freezeSelectionSchema,
   parseSourceRef,
   sourceRefToString,
   sourceReferenceSchema,
@@ -32,20 +32,29 @@ describe('sourceReferenceSchema', () => {
   })
 })
 
-describe('contextSelectionSchema', () => {
-  it('accepts only source plus an optional selectionReason', () => {
-    const selection = contextSelectionSchema.parse({
+describe('freezeSelectionSchema', () => {
+  it('accepts only a NODE_VERSION source plus an optional selectionReason', () => {
+    const selection = freezeSelectionSchema.parse({
       source: { kind: 'NODE_VERSION', nodeVersionId: 'nv_1' },
       selectionReason: 'primary requirement'
     })
     expect(selection.selectionReason).toBe('primary requirement')
-    expect(contextSelectionSchema.parse({ source: { kind: 'NODE_VERSION', nodeVersionId: 'nv_1' } }))
-      .toBeTruthy()
+    expect(
+      freezeSelectionSchema.parse({ source: { kind: 'NODE_VERSION', nodeVersionId: 'nv_1' } })
+    ).toBeTruthy()
+  })
+
+  it('rejects a TASK_SPEC_VERSION source structurally', () => {
+    expect(() =>
+      freezeSelectionSchema.parse({
+        source: { kind: 'TASK_SPEC_VERSION', taskSpecVersionId: 'spec_1' }
+      })
+    ).toThrow()
   })
 
   it('rejects metadata-bearing selections', () => {
     expect(() =>
-      contextSelectionSchema.parse({
+      freezeSelectionSchema.parse({
         source: { kind: 'NODE_VERSION', nodeVersionId: 'nv_1' },
         itemType: 'NODE_VERSION',
         authority: 'PROJECT_FACT',

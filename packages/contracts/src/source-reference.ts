@@ -21,14 +21,25 @@ export const sourceReferenceSchema = z.discriminatedUnion('kind', [
 
 export type SourceReference = z.infer<typeof sourceReferenceSchema>
 
-export const contextSelectionSchema = z
+// Freeze selections are structurally NODE_VERSION-only (invariant D): the
+// TASK_SPEC_VERSION is the Main-owned pinned binding and is never submitted by
+// the renderer. It stays in `SourceReference` for canonical sourceRefs and the
+// resolver, but a freeze selection carrying it fails contract validation.
+const nodeVersionSourceReferenceSchema = z
   .object({
-    source: sourceReferenceSchema,
+    kind: z.literal('NODE_VERSION'),
+    nodeVersionId: z.string().min(1)
+  })
+  .strict()
+
+export const freezeSelectionSchema = z
+  .object({
+    source: nodeVersionSourceReferenceSchema,
     selectionReason: z.string().nullable().optional()
   })
   .strict()
 
-export type ContextSelection = z.infer<typeof contextSelectionSchema>
+export type FreezeSelection = z.infer<typeof freezeSelectionSchema>
 
 // Canonical-only encoding. Raw ids and unknown schemes are invalid; historical
 // frozen snapshots keep their old strings and are never re-encoded.

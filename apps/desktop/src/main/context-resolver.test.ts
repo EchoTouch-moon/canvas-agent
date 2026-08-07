@@ -184,15 +184,6 @@ describe('ContextResolver', () => {
     closeWorkspaceDatabase(p)
   })
 
-  it('rejects non-node-version selections', () => {
-    const { p, scope, taskSpecVersionId } = seed()
-    const resolver = new ContextResolver(p)
-    expect(() =>
-      resolver.materialize(scope, [{ source: { kind: 'TASK_SPEC_VERSION', taskSpecVersionId } }])
-    ).toThrow(/Unsupported source kind/)
-    closeWorkspaceDatabase(p)
-  })
-
   it('resolve() supports TASK_SPEC_VERSION refs bound to the task', () => {
     const { p, scope, taskSpecVersionId } = seed()
     const resolver = new ContextResolver(p)
@@ -201,6 +192,25 @@ describe('ContextResolver', () => {
       taskSpecVersionId
     })
     expect(item.itemType).toBe('USER_INPUT')
+    closeWorkspaceDatabase(p)
+  })
+
+  it('resolve() requires the exact pinned task spec version', () => {
+    const { p, scope } = seed()
+    const laterSpec = publishTaskSpecVersion(p, {
+      id: 'spec_later',
+      taskId: scope.taskId,
+      description: 'later',
+      scope: 'demo',
+      criteria: [{ description: 'c', position: 0 }]
+    })
+    const resolver = new ContextResolver(p)
+    expect(() =>
+      resolver.resolve(scope, {
+        kind: 'TASK_SPEC_VERSION',
+        taskSpecVersionId: laterSpec.spec.id
+      })
+    ).toThrow(/task_spec_binding_mismatch/)
     closeWorkspaceDatabase(p)
   })
 

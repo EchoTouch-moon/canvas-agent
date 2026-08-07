@@ -68,6 +68,18 @@ describe('command envelope', () => {
         })
       )
     ).not.toThrow()
+    expect(() =>
+      commandRequestSchema.parse(
+        request('snapshot.freeze', {
+          projectId: 'p',
+          taskId: 't',
+          taskSpecVersionId: 's',
+          baseBaselineId: 'b',
+          expectedRepositoryRevisionId: 'r',
+          selections: [{ source: { kind: 'TASK_SPEC_VERSION', taskSpecVersionId: 's' } }]
+        })
+      )
+    ).toThrow()
   })
 
   it('validates execution.dispatch and execution.cancel payloads', () => {

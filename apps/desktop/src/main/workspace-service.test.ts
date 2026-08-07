@@ -88,6 +88,7 @@ describe('WorkspaceService', () => {
       authority: 'TASK_INSTRUCTION',
       priority: 'P0'
     })
+    expect(frozen.items[0]?.contentHash).toBe(spec.spec.contentHash)
     expect(frozen.items[1]).toMatchObject({
       itemType: 'NODE_VERSION',
       sourceRef: `node://${version.id}`,

@@ -421,9 +421,6 @@ export function createFakeWorkspaceClient(options: FakeWorkspaceOptions = {}): W
           ]
           for (const selection of input.selections) {
             const ref = selection.source
-            if (ref.kind !== 'NODE_VERSION') {
-              return failure(request, 'ValidationError', `Unsupported source kind: ${ref.kind}`)
-            }
             const version = state.nodeVersions.find(
               (candidate) => candidate.id === ref.nodeVersionId
             )

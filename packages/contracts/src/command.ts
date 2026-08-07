@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { contextSelectionSchema } from './source-reference'
+import { freezeSelectionSchema } from './source-reference'
 import {
   BASELINE_STATUSES,
   CONTEXT_AUTHORITIES,
@@ -278,7 +278,7 @@ const snapshotFreezeSchema = z
     taskSpecVersionId: idSchema,
     baseBaselineId: idSchema,
     expectedRepositoryRevisionId: idSchema,
-    selections: z.array(contextSelectionSchema)
+    selections: z.array(freezeSelectionSchema)
   })
   .strict()
 

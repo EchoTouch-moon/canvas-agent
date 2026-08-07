@@ -13,7 +13,7 @@ import {
 import type { ContextAuthority, ContextItemType, ContextPriority } from '@canvas-agent/domain'
 import {
   sourceRefToString,
-  type ContextSelection,
+  type FreezeSelection,
   type SourceReference
 } from '@canvas-agent/contracts'
 
@@ -120,13 +120,10 @@ export class ContextResolver {
   resolve(scope: ContextResolutionScope, ref: SourceReference): ResolvedContextItem {
     switch (ref.kind) {
       case 'TASK_SPEC_VERSION': {
-        const spec = requireTaskSpecVersion(this.p, ref.taskSpecVersionId)
-        if (spec.taskId !== scope.taskId) {
-          throw new ValidationError(
-            `TaskSpecVersion ${spec.id} does not belong to Task ${scope.taskId}`
-          )
+        if (ref.taskSpecVersionId !== scope.taskSpecVersionId) {
+          throw new ValidationError('task_spec_binding_mismatch')
         }
-        return materializeTaskSpec(this.p, { ...scope, taskSpecVersionId: spec.id })
+        return materializeTaskSpec(this.p, scope)
       }
       case 'NODE_VERSION':
         return materializeNodeVersion(this.p, scope, ref)
@@ -138,18 +135,13 @@ export class ContextResolver {
   // duplicate sources are rejected (invariant F).
   materialize(
     scope: ContextResolutionScope,
-    selections: readonly ContextSelection[]
+    selections: readonly FreezeSelection[]
   ): ResolvedContextItem[] {
     const items: ResolvedContextItem[] = [
       this.resolve(scope, { kind: 'TASK_SPEC_VERSION', taskSpecVersionId: scope.taskSpecVersionId })
     ]
     const seen = new Set<string>([items[0].sourceRef])
     for (const selection of selections) {
-      if (selection.source.kind !== 'NODE_VERSION') {
-        throw new ValidationError(
-          `Unsupported source kind for freeze selection: ${selection.source.kind}`
-        )
-      }
       const item = materializeNodeVersion(
         this.p,
         scope,
