@@ -1,6 +1,6 @@
 import { and, asc, eq } from 'drizzle-orm'
 import type { Persistence } from '../db'
-import { CycleError, SelfEdgeError } from '../errors'
+import { CycleError, SelfEdgeError, ValidationError } from '../errors'
 import { edgeTable } from '../schema'
 import type { EdgeRow } from '../schema'
 import type { EdgeStatus, EdgeType } from '@canvas-agent/domain'
@@ -33,10 +33,14 @@ export interface CreateEdgeResult {
 }
 
 export function createEdge(p: Persistence, input: CreateEdgeInput): CreateEdgeResult {
-  requireNode(p, input.sourceNodeId)
-  requireNode(p, input.targetNodeId)
+  const source = requireNode(p, input.sourceNodeId)
+  const target = requireNode(p, input.targetNodeId)
   if (input.anchoredNodeVersionId !== null && input.anchoredNodeVersionId !== undefined) {
     requireNodeVersion(p, input.anchoredNodeVersionId)
+  }
+
+  if (source.projectId !== input.projectId || target.projectId !== input.projectId) {
+    throw new ValidationError('Edge source and target nodes must belong to the same project')
   }
 
   if (input.sourceNodeId === input.targetNodeId) {

@@ -180,10 +180,17 @@ export function publishTaskSpecVersion(p: Persistence, input: PublishTaskSpecVer
   }
   for (const target of input.targets ?? []) {
     if (target.nodeId !== null && target.nodeId !== undefined) {
-      requireNode(p, target.nodeId)
+      const node = requireNode(p, target.nodeId)
+      if (node.projectId !== task.projectId) {
+        throw new ValidationError('TaskSpecVersion targets must reference nodes in the same project as the Task')
+      }
     }
     if (target.nodeVersionId !== null && target.nodeVersionId !== undefined) {
-      requireNodeVersion(p, target.nodeVersionId)
+      const version = requireNodeVersion(p, target.nodeVersionId)
+      const node = requireNode(p, version.nodeId)
+      if (node.projectId !== task.projectId) {
+        throw new ValidationError('TaskSpecVersion targets must reference node versions in the same project as the Task')
+      }
     }
   }
 
@@ -346,6 +353,14 @@ export function createTaskDependency(p: Persistence, input: CreateTaskDependency
   })
 
   return created
+}
+
+export function requireTask(p: Persistence, id: string): TaskRow {
+  const row = p.drizzle.select().from(taskTable).where(eq(taskTable.id, id)).get()
+  if (row === undefined) {
+    throw new NotFoundError('Task', id)
+  }
+  return row
 }
 
 export function requireTaskSpecVersion(p: Persistence, id: string): TaskSpecVersionRow {

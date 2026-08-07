@@ -6,7 +6,7 @@ import { NotFoundError, ValidationError } from '../errors'
 import { baselineItemTable, projectBaselineTable, projectTable } from '../schema'
 import type { BaselineItemRow, ProjectBaselineRow } from '../schema'
 import { appendAudit } from './audit'
-import { requireNodeVersion } from './node'
+import { requireNode, requireNodeVersion } from './node'
 
 export interface CreateBaselineDraftInput {
   id: string
@@ -24,7 +24,11 @@ export function createBaselineDraft(p: Persistence, input: CreateBaselineDraftIn
   }
 
   for (const nodeVersionId of input.nodeVersionIds) {
-    requireNodeVersion(p, nodeVersionId)
+    const version = requireNodeVersion(p, nodeVersionId)
+    const node = requireNode(p, version.nodeId)
+    if (node.projectId !== input.projectId) {
+      throw new ValidationError('Baseline NodeVersions must belong to the same project as the Baseline')
+    }
   }
 
   return withTransaction(p, () => {

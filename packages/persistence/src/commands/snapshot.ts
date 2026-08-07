@@ -9,7 +9,7 @@ import type { ContextAuthority, ContextItemType, ContextPriority } from '@canvas
 import { appendAudit } from './audit'
 import { getBaseline } from './baseline'
 import { requireRepositoryRevision } from './repository-revision'
-import { requireTaskSpecVersion } from './task'
+import { requireTask, requireTaskSpecVersion } from './task'
 
 export interface ContextSnapshotItemInput {
   itemType: ContextItemType
@@ -39,6 +39,10 @@ export interface FreezeContextSnapshotResult {
 }
 
 export function freezeContextSnapshot(p: Persistence, input: FreezeContextSnapshotInput): FreezeContextSnapshotResult {
+  const task = requireTask(p, input.taskId)
+  if (task.projectId !== input.projectId) {
+    throw new ValidationError(`Task ${input.taskId} does not belong to Project ${input.projectId}`)
+  }
   const spec = requireTaskSpecVersion(p, input.taskSpecVersionId)
   if (spec.taskId !== input.taskId) {
     throw new ValidationError(`TaskSpecVersion ${input.taskSpecVersionId} does not belong to Task ${input.taskId}`)
