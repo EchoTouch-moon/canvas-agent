@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { freezeSelectionSchema, sourceReferenceSchema } from './source-reference'
+import { executionRequestIdSchema } from './execution-request'
 import {
   BASELINE_STATUSES,
   CONTEXT_AUTHORITIES,
@@ -8,6 +9,8 @@ import {
   EDGE_TYPES,
   NODE_LIFECYCLES,
   NODE_TYPES,
+  RUN_OUTCOMES,
+  RUN_STATUSES,
   SNAPSHOT_FRESHNESS,
   SNAPSHOT_STATUSES,
   TASK_STATUSES,
@@ -399,14 +402,105 @@ const projectStateRequestSchema = z.object({ projectId: idSchema }).strict()
 
 const executionDispatchRequestSchema = z
   .object({
-    executionRequestId: idSchema,
+    executionRequestId: executionRequestIdSchema,
     contextSnapshotId: idSchema
   })
   .strict()
 
-const executionCancelSchema = z.object({ executionRequestId: idSchema }).strict()
+const executionCancelSchema = z
+  .object({ executionRequestId: executionRequestIdSchema })
+  .strict()
 
 const cancelResultSchema = z.object({ cancelled: z.boolean() }).strict()
+
+const executionDispatchResponseSchema = z
+  .object({
+    runId: idSchema,
+    executionRequestId: executionRequestIdSchema,
+    result: dispatchResultSchema
+  })
+  .strict()
+
+// --- Run history (persisted execution records) -------------------------------
+
+const runStatusSchema = z.enum(RUN_STATUSES)
+const runOutcomeSchema = z.enum(RUN_OUTCOMES)
+
+const runSummarySchema = z
+  .object({
+    id: idSchema,
+    projectId: idSchema,
+    taskId: idSchema,
+    contextSnapshotId: idSchema,
+    status: runStatusSchema,
+    outcome: runOutcomeSchema.nullable(),
+    startedAt: isoDateTime,
+    completedAt: isoDateTime.nullable(),
+    createdAt: isoDateTime,
+    updatedAt: isoDateTime
+  })
+  .strict()
+
+const executionRequestRecordSchema = z
+  .object({
+    executionRequestId: executionRequestIdSchema,
+    runId: idSchema,
+    workerAttemptNumber: z.number().int().positive(),
+    checkpointId: idSchema.nullable(),
+    requestHash: contentHashSchema,
+    schemaVersion: z.number().int().positive(),
+    requestJson: z.string(),
+    dispatchOutcome: dispatchOutcomeSchema.nullable(),
+    claimGranted: z.boolean().nullable(),
+    rejectionReason: z.string().nullable(),
+    revisionMismatchField: z.string().nullable(),
+    revisionMismatchExpected: z.string().nullable(),
+    revisionMismatchActual: z.string().nullable(),
+    patchHash: contentHashSchema.nullable(),
+    timedOut: z.boolean().nullable(),
+    recoveryJson: z.string().nullable(),
+    dispatchedAt: isoDateTime,
+    completedAt: isoDateTime.nullable()
+  })
+  .strict()
+
+const runEventSchema = z
+  .object({
+    id: idSchema,
+    runId: idSchema,
+    sequence: z.number().int().nonnegative(),
+    kind: z.enum(['DISPATCHED', 'FINISHED', 'INTERRUPTED']),
+    detail: z.string().nullable(),
+    createdAt: isoDateTime
+  })
+  .strict()
+
+const artifactSchema = z
+  .object({
+    id: idSchema,
+    runId: idSchema,
+    executionRequestId: executionRequestIdSchema,
+    kind: artifactKindSchema,
+    fileName: z.string().min(1),
+    contentHash: contentHashSchema,
+    sizeBytes: z.number().int().nonnegative(),
+    content: z.string(),
+    position: z.number().int().nonnegative(),
+    createdAt: isoDateTime
+  })
+  .strict()
+
+const runListRequestSchema = z.object({ projectId: idSchema }).strict()
+const runGetRequestSchema = z.object({ runId: idSchema }).strict()
+
+const runAggregateViewSchema = z
+  .object({
+    run: runSummarySchema,
+    executionRequests: z.array(executionRequestRecordSchema),
+    events: z.array(runEventSchema),
+    artifacts: z.array(artifactSchema)
+  })
+  .strict()
 
 // Response-only schemas for the persisted read model (never reused as input).
 
@@ -514,8 +608,10 @@ export interface CommandMap {
   'revision.current': { request: z.infer<typeof emptyObjectSchema>; response: z.infer<typeof repositoryRevisionRowSchema> }
   'snapshot.freeze': { request: z.infer<typeof snapshotFreezeSchema>; response: z.infer<typeof snapshotFreezeResultSchema> }
   'context.resolve': { request: z.infer<typeof contextResolveSchema>; response: z.infer<typeof contextResolveResultSchema> }
-  'execution.dispatch': { request: z.infer<typeof executionDispatchRequestSchema>; response: DispatchResult }
+  'execution.dispatch': { request: z.infer<typeof executionDispatchRequestSchema>; response: z.infer<typeof executionDispatchResponseSchema> }
   'execution.cancel': { request: z.infer<typeof executionCancelSchema>; response: z.infer<typeof cancelResultSchema> }
+  'run.list': { request: z.infer<typeof runListRequestSchema>; response: z.infer<typeof runSummarySchema>[] }
+  'run.get': { request: z.infer<typeof runGetRequestSchema>; response: z.infer<typeof runAggregateViewSchema> }
 }
 
 export type WorkspaceCommand = keyof CommandMap
@@ -562,7 +658,9 @@ export const commandRequestSchema = z.discriminatedUnion('command', [
   commandRequestMember('snapshot.freeze', snapshotFreezeSchema),
   commandRequestMember('context.resolve', contextResolveSchema),
   commandRequestMember('execution.dispatch', executionDispatchRequestSchema),
-  commandRequestMember('execution.cancel', executionCancelSchema)
+  commandRequestMember('execution.cancel', executionCancelSchema),
+  commandRequestMember('run.list', runListRequestSchema),
+  commandRequestMember('run.get', runGetRequestSchema)
 ])
 
 // --- Response schemas (command-correlated, no z.unknown data) ----------------
@@ -607,8 +705,10 @@ export const commandResponseSchemas = {
   'revision.current': commandResponseMember('revision.current', repositoryRevisionRowSchema),
   'snapshot.freeze': commandResponseMember('snapshot.freeze', snapshotFreezeResultSchema),
   'context.resolve': commandResponseMember('context.resolve', contextResolveResultSchema),
-  'execution.dispatch': commandResponseMember('execution.dispatch', dispatchResultSchema),
-  'execution.cancel': commandResponseMember('execution.cancel', cancelResultSchema)
+  'execution.dispatch': commandResponseMember('execution.dispatch', executionDispatchResponseSchema),
+  'execution.cancel': commandResponseMember('execution.cancel', cancelResultSchema),
+  'run.list': commandResponseMember('run.list', z.array(runSummarySchema)),
+  'run.get': commandResponseMember('run.get', runAggregateViewSchema)
 } as const
 
 // --- Runtime route-registry skeleton (main process fills `execute`) ----------
@@ -628,6 +728,8 @@ export const commandSchemas = {
   'revision.current': { input: emptyObjectSchema, output: repositoryRevisionRowSchema },
   'snapshot.freeze': { input: snapshotFreezeSchema, output: snapshotFreezeResultSchema },
   'context.resolve': { input: contextResolveSchema, output: contextResolveResultSchema },
-  'execution.dispatch': { input: executionDispatchRequestSchema, output: dispatchResultSchema },
-  'execution.cancel': { input: executionCancelSchema, output: cancelResultSchema }
+  'execution.dispatch': { input: executionDispatchRequestSchema, output: executionDispatchResponseSchema },
+  'execution.cancel': { input: executionCancelSchema, output: cancelResultSchema },
+  'run.list': { input: runListRequestSchema, output: z.array(runSummarySchema) },
+  'run.get': { input: runGetRequestSchema, output: runAggregateViewSchema }
 }
