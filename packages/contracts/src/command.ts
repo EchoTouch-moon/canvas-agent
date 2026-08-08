@@ -504,6 +504,69 @@ const runAggregateViewSchema = z
   })
   .strict()
 
+// --- Acceptance evaluation / task completion ---------------------------------
+
+const acceptanceStatusSchema = z.enum(['PASSED', 'FAILED'])
+const criterionVerdictSchema = z.enum(['PASSED', 'FAILED'])
+
+const acceptanceCriterionVerdictInputSchema = z
+  .object({
+    criterionId: idSchema,
+    verdict: criterionVerdictSchema,
+    note: z.string().nullable().optional()
+  })
+  .strict()
+
+const acceptanceEvaluateSchema = z
+  .object({
+    projectId: idSchema,
+    taskId: idSchema,
+    taskSpecVersionId: idSchema,
+    runId: idSchema,
+    criteria: z.array(acceptanceCriterionVerdictInputSchema)
+  })
+  .strict()
+
+const acceptanceEvaluationItemSchema = z
+  .object({
+    id: idSchema,
+    evaluationId: idSchema,
+    criterionId: idSchema,
+    verdict: criterionVerdictSchema,
+    note: z.string().nullable(),
+    position: z.number().int().nonnegative()
+  })
+  .strict()
+
+const acceptanceEvaluationSchema = z
+  .object({
+    id: idSchema,
+    projectId: idSchema,
+    taskId: idSchema,
+    taskSpecVersionId: idSchema,
+    runId: idSchema,
+    sequence: z.number().int().nonnegative(),
+    status: acceptanceStatusSchema,
+    createdAt: isoDateTime
+  })
+  .strict()
+
+const acceptanceEvaluationAggregateSchema = z
+  .object({
+    evaluation: acceptanceEvaluationSchema,
+    items: z.array(acceptanceEvaluationItemSchema)
+  })
+  .strict()
+
+const acceptanceListRequestSchema = z.object({ taskId: idSchema }).strict()
+
+const taskCompleteSchema = z
+  .object({
+    taskId: idSchema,
+    evaluationId: idSchema
+  })
+  .strict()
+
 // Response-only schemas for the persisted read model (never reused as input).
 
 const edgeSchema = z
@@ -614,6 +677,9 @@ export interface CommandMap {
   'execution.cancel': { request: z.infer<typeof executionCancelSchema>; response: z.infer<typeof cancelResultSchema> }
   'run.list': { request: z.infer<typeof runListRequestSchema>; response: z.infer<typeof runSummarySchema>[] }
   'run.get': { request: z.infer<typeof runGetRequestSchema>; response: z.infer<typeof runAggregateViewSchema> }
+  'acceptance.evaluate': { request: z.infer<typeof acceptanceEvaluateSchema>; response: z.infer<typeof acceptanceEvaluationAggregateSchema> }
+  'acceptance.list': { request: z.infer<typeof acceptanceListRequestSchema>; response: z.infer<typeof acceptanceEvaluationAggregateSchema>[] }
+  'task.complete': { request: z.infer<typeof taskCompleteSchema>; response: z.infer<typeof taskSchema> }
 }
 
 export type WorkspaceCommand = keyof CommandMap
@@ -662,7 +728,10 @@ export const commandRequestSchema = z.discriminatedUnion('command', [
   commandRequestMember('execution.dispatch', executionDispatchRequestSchema),
   commandRequestMember('execution.cancel', executionCancelSchema),
   commandRequestMember('run.list', runListRequestSchema),
-  commandRequestMember('run.get', runGetRequestSchema)
+  commandRequestMember('run.get', runGetRequestSchema),
+  commandRequestMember('acceptance.evaluate', acceptanceEvaluateSchema),
+  commandRequestMember('acceptance.list', acceptanceListRequestSchema),
+  commandRequestMember('task.complete', taskCompleteSchema)
 ])
 
 // --- Response schemas (command-correlated, no z.unknown data) ----------------
@@ -710,7 +779,10 @@ export const commandResponseSchemas = {
   'execution.dispatch': commandResponseMember('execution.dispatch', executionDispatchResponseSchema),
   'execution.cancel': commandResponseMember('execution.cancel', cancelResultSchema),
   'run.list': commandResponseMember('run.list', z.array(runSummarySchema)),
-  'run.get': commandResponseMember('run.get', runAggregateViewSchema)
+  'run.get': commandResponseMember('run.get', runAggregateViewSchema),
+  'acceptance.evaluate': commandResponseMember('acceptance.evaluate', acceptanceEvaluationAggregateSchema),
+  'acceptance.list': commandResponseMember('acceptance.list', z.array(acceptanceEvaluationAggregateSchema)),
+  'task.complete': commandResponseMember('task.complete', taskSchema)
 } as const
 
 // --- Runtime route-registry skeleton (main process fills `execute`) ----------
@@ -733,5 +805,8 @@ export const commandSchemas = {
   'execution.dispatch': { input: executionDispatchRequestSchema, output: executionDispatchResponseSchema },
   'execution.cancel': { input: executionCancelSchema, output: cancelResultSchema },
   'run.list': { input: runListRequestSchema, output: z.array(runSummarySchema) },
-  'run.get': { input: runGetRequestSchema, output: runAggregateViewSchema }
+  'run.get': { input: runGetRequestSchema, output: runAggregateViewSchema },
+  'acceptance.evaluate': { input: acceptanceEvaluateSchema, output: acceptanceEvaluationAggregateSchema },
+  'acceptance.list': { input: acceptanceListRequestSchema, output: z.array(acceptanceEvaluationAggregateSchema) },
+  'task.complete': { input: taskCompleteSchema, output: taskSchema }
 }

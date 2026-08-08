@@ -1,4 +1,5 @@
 import { asc, desc, eq } from 'drizzle-orm'
+import type { TaskStatus } from '@canvas-agent/domain'
 import type { Persistence } from '../db'
 import { withTransaction } from '../db'
 import { ConcurrencyError, CycleError, NotFoundError, ValidationError } from '../errors'
@@ -277,6 +278,12 @@ export function publishTaskSpecVersion(p: Persistence, input: PublishTaskSpecVer
       }
     }
 
+    // First formal publish: a Task with an immutable TaskSpecVersion is no
+    // longer an undefined DRAFT. Same transaction as the published spec.
+    if (task.status === 'DRAFT') {
+      transitionTask(p, input.taskId, 'READY', p.services.now())
+    }
+
     touchTask(p, input.taskId)
     appendAudit(p, {
       projectId: task.projectId,
@@ -361,6 +368,55 @@ export function requireTask(p: Persistence, id: string): TaskRow {
     throw new NotFoundError('Task', id)
   }
   return row
+}
+
+const TASK_TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
+  DRAFT: ['READY'],
+  READY: ['IN_PROGRESS', 'ARCHIVED'],
+  IN_PROGRESS: ['IN_PROGRESS', 'WAITING_REVIEW', 'CANCELLED', 'ARCHIVED'],
+  WAITING_REVIEW: ['IN_PROGRESS', 'COMPLETED', 'CANCELLED'],
+  COMPLETED: [],
+  CANCELLED: [],
+  ARCHIVED: []
+}
+
+export function assertTaskTransition(from: TaskStatus, to: TaskStatus): void {
+  if (from === to) return
+  if (!TASK_TRANSITIONS[from]?.includes(to)) {
+    throw new ValidationError(`Task ${from} cannot transition to ${to}`)
+  }
+}
+
+// Plain helper (no transaction of its own) so callers can run it inside their
+// own withTransaction (publish, dispatch, acceptance, complete).
+export function transitionTask(
+  p: Persistence,
+  taskId: string,
+  to: TaskStatus,
+  now: string = p.services.now()
+): TaskRow {
+  const task = requireTask(p, taskId)
+  assertTaskTransition(task.status as TaskStatus, to)
+  if (task.status === to) {
+    return task
+  }
+  const updated = p.drizzle
+    .update(taskTable)
+    .set({ status: to, updatedAt: now })
+    .where(eq(taskTable.id, taskId))
+    .returning()
+    .all()[0]
+  if (updated === undefined) {
+    throw new Error(`task transition returned no row for ${taskId}`)
+  }
+  appendAudit(p, {
+    projectId: task.projectId,
+    entityType: 'Task',
+    entityId: taskId,
+    action: 'TASK_STATUS_CHANGED',
+    payload: { from: task.status, to }
+  })
+  return updated
 }
 
 export function requireTaskSpecVersion(p: Persistence, id: string): TaskSpecVersionRow {

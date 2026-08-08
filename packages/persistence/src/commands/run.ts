@@ -16,6 +16,7 @@ import {
   type RunRow
 } from '../schema'
 import { appendAudit } from './audit'
+import { transitionTask } from './task'
 
 // DispatchResult.outcome -> Run.outcome. VALIDATION_REJECTED / CLAIM_REJECTED /
 // REVISION_MISMATCH are legal terminal worker results that FAIL the run; they
@@ -155,6 +156,9 @@ function appendRunEvent(
 // worker starts. If this throws, the worker must not be dispatched.
 export function createDispatchedRun(p: Persistence, input: CreateDispatchedRunInput): void {
   withTransaction(p, () => {
+    // The dispatch Task transition and the durable Run record are ONE boundary:
+    // a Task that enters IN_PROGRESS is always paired with a real Run.
+    transitionTask(p, input.taskId, 'IN_PROGRESS', input.now)
     p.drizzle
       .insert(runTable)
       .values({
@@ -218,6 +222,14 @@ export function listRuns(p: Persistence, projectId: string): RunSummaryRow[] {
     .orderBy(desc(runTable.createdAt))
     .all()
     .map(toRunSummary)
+}
+
+export function requireRun(p: Persistence, runId: string): RunRow {
+  const run = p.drizzle.select().from(runTable).where(eq(runTable.id, runId)).get()
+  if (run === undefined) {
+    throw new NotFoundError('Run', runId)
+  }
+  return run
 }
 
 export function getRunAggregate(p: Persistence, runId: string): RunAggregateView {
