@@ -48,3 +48,8 @@ export type RunAggregateView = CommandOutput<'run.get'>
 export type ExecutionRequestRecordView = RunAggregateView['executionRequests'][number]
 export type RunEventView = RunAggregateView['events'][number]
 export type ArtifactView = RunAggregateView['artifacts'][number]
+
+export type AcceptanceEvaluationAggregate = CommandOutput<'acceptance.evaluate'>
+export type AcceptanceEvaluationRecord = AcceptanceEvaluationAggregate['evaluation']
+export type AcceptanceEvaluationItemRecord = AcceptanceEvaluationAggregate['items'][number]
+export type CriterionVerdict = AcceptanceEvaluationItemRecord['verdict']

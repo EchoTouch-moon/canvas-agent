@@ -1,4 +1,9 @@
 import { asc, desc, eq } from 'drizzle-orm'
+import {
+  assertTaskTransition as assertDomainTaskTransition,
+  DomainInvariantError,
+  type TaskStatus
+} from '@canvas-agent/domain'
 import type { Persistence } from '../db'
 import { withTransaction } from '../db'
 import { ConcurrencyError, CycleError, NotFoundError, ValidationError } from '../errors'
@@ -178,6 +183,12 @@ export function publishTaskSpecVersion(p: Persistence, input: PublishTaskSpecVer
   if (task === undefined) {
     throw new NotFoundError('Task', input.taskId)
   }
+  // A terminal Task's definition cannot be silently changed after completion.
+  if (task.status === 'COMPLETED' || task.status === 'CANCELLED' || task.status === 'ARCHIVED') {
+    throw new ValidationError(
+      `Task ${input.taskId} is ${task.status} and cannot publish a new TaskSpecVersion`
+    )
+  }
   for (const target of input.targets ?? []) {
     if (target.nodeId !== null && target.nodeId !== undefined) {
       const node = requireNode(p, target.nodeId)
@@ -277,6 +288,12 @@ export function publishTaskSpecVersion(p: Persistence, input: PublishTaskSpecVer
       }
     }
 
+    // First formal publish: a Task with an immutable TaskSpecVersion is no
+    // longer an undefined DRAFT. Same transaction as the published spec.
+    if (task.status === 'DRAFT') {
+      transitionTask(p, input.taskId, 'READY', p.services.now())
+    }
+
     touchTask(p, input.taskId)
     appendAudit(p, {
       projectId: task.projectId,
@@ -361,6 +378,47 @@ export function requireTask(p: Persistence, id: string): TaskRow {
     throw new NotFoundError('Task', id)
   }
   return row
+}
+
+// Single source of truth for task transitions is @canvas-agent/domain. The
+// persistence layer only converts the domain invariant error into a
+// ValidationError; it never copies the state matrix. Same-state stays a no-op
+// here so callers (dispatch: IN_PROGRESS -> IN_PROGRESS) can stay idempotent.
+export function transitionTask(
+  p: Persistence,
+  taskId: string,
+  to: TaskStatus,
+  now: string = p.services.now()
+): TaskRow {
+  const task = requireTask(p, taskId)
+  if (task.status === to) {
+    return task
+  }
+  try {
+    assertDomainTaskTransition(task.status as TaskStatus, to)
+  } catch (error) {
+    if (error instanceof DomainInvariantError) {
+      throw new ValidationError(`Task ${task.status} cannot transition to ${to}`)
+    }
+    throw error
+  }
+  const updated = p.drizzle
+    .update(taskTable)
+    .set({ status: to, updatedAt: now })
+    .where(eq(taskTable.id, taskId))
+    .returning()
+    .all()[0]
+  if (updated === undefined) {
+    throw new Error(`task transition returned no row for ${taskId}`)
+  }
+  appendAudit(p, {
+    projectId: task.projectId,
+    entityType: 'Task',
+    entityId: taskId,
+    action: 'TASK_STATUS_CHANGED',
+    payload: { from: task.status, to }
+  })
+  return updated
 }
 
 export function requireTaskSpecVersion(p: Persistence, id: string): TaskSpecVersionRow {

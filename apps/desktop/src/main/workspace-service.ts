@@ -1,5 +1,7 @@
 import {
   activateBaseline,
+  completeTask,
+  createAcceptanceEvaluation,
   createBaselineDraft,
   createNode,
   createProject,
@@ -9,6 +11,7 @@ import {
   getActiveBaseline,
   getProject,
   getRunAggregate,
+  listAcceptanceEvaluations,
   listBaselineItems,
   listBaselines,
   listCriteria,
@@ -27,6 +30,7 @@ import {
   requireRepositoryRevision,
   upsertRepositoryRevision,
   upsertNodeDraft,
+  type AcceptanceEvaluationAggregate,
   type ActivateBaselineResult,
   type FreezeContextSnapshotResult,
   type NodeDraftRow,
@@ -227,6 +231,18 @@ export class WorkspaceService {
 
   getRun(payload: CommandInput<'run.get'>): RunAggregateView {
     return getRunAggregate(this.p, payload.runId)
+  }
+
+  evaluateAcceptance(payload: CommandInput<'acceptance.evaluate'>): AcceptanceEvaluationAggregate {
+    return createAcceptanceEvaluation(this.p, payload)
+  }
+
+  listAcceptance(payload: CommandInput<'acceptance.list'>): AcceptanceEvaluationAggregate[] {
+    return listAcceptanceEvaluations(this.p, payload.taskId)
+  }
+
+  completeTask(payload: CommandInput<'task.complete'>): TaskRow {
+    return completeTask(this.p, payload)
   }
 }
 

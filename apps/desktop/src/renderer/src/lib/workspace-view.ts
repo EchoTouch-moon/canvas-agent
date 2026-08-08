@@ -140,6 +140,7 @@ export interface WorkspaceRenderState {
 
 export interface ExecutionSession {
   readonly executionRequestId: string | null
+  readonly runId: string | null
   readonly snapshotId: string | null
   readonly status: 'idle' | 'pending' | 'finished'
   readonly startedAt: string | null
@@ -152,6 +153,7 @@ export interface ExecutionSession {
 export function createInitialExecutionSession(): ExecutionSession {
   return {
     executionRequestId: null,
+    runId: null,
     snapshotId: null,
     status: 'idle',
     startedAt: null,

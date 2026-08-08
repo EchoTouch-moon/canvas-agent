@@ -126,4 +126,51 @@ describe('fake WorkspaceClient transport', () => {
     expect(state.baselines[0]?.baseline).toHaveProperty('repositoryRevisionId')
     expect(state.activeBaseline?.id).toBe(state.baselines[0]?.baseline.id)
   })
+
+  it('evaluates acceptance and completes the task through the fake transport', async () => {
+    const client = createFakeWorkspaceClient({ executionDelayMs: 0 })
+    const projects = await client.command('project.list', {})
+    const workspace = await client.command('project.state', { projectId: projects[0]!.id })
+    const revision = await client.command('revision.current', {})
+    const task = workspace.tasks[0]!
+    const taskSpec = workspace.taskSpecs[0]!
+    const baseline = workspace.baselines[0]!
+
+    const snapshot = await client.command('snapshot.freeze', {
+      projectId: workspace.project.id,
+      taskId: task.id,
+      taskSpecVersionId: taskSpec.spec.id,
+      baseBaselineId: baseline.baseline.id,
+      expectedRepositoryRevisionId: revision.id,
+      selections: [
+        { source: { kind: 'NODE_VERSION', nodeVersionId: workspace.nodeVersions[0]!.id } }
+      ]
+    })
+    const dispatch = await client.command('execution.dispatch', {
+      executionRequestId: 'exec-1',
+      contextSnapshotId: snapshot.snapshot.id
+    })
+
+    const evaluation = await client.command('acceptance.evaluate', {
+      projectId: workspace.project.id,
+      taskId: task.id,
+      taskSpecVersionId: taskSpec.spec.id,
+      runId: dispatch.runId,
+      criteria: taskSpec.criteria.map((criterion) => ({
+        criterionId: criterion.id,
+        verdict: 'PASSED' as const
+      }))
+    })
+    expect(evaluation.evaluation.status).toBe('PASSED')
+
+    const history = await client.command('acceptance.list', { taskId: task.id })
+    expect(history).toHaveLength(1)
+    expect(history[0]?.evaluation.status).toBe('PASSED')
+
+    const completed = await client.command('task.complete', {
+      taskId: task.id,
+      evaluationId: evaluation.evaluation.id
+    })
+    expect(completed.status).toBe('COMPLETED')
+  })
 })

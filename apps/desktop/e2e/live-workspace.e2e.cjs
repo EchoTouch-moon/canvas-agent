@@ -36,6 +36,7 @@ async function launch(repo, home, label) {
       ...process.env,
       CANVAS_AGENT_REPO: repo,
       CANVAS_AGENT_DEMO_SEED: '1',
+      CANVAS_AGENT_USER_DATA: home,
       HOME: home
     }
   })
@@ -52,7 +53,14 @@ async function launch(repo, home, label) {
 async function firstLaunch(repo, home) {
   const { app, page } = await launch(repo, home, 'A')
   try {
-    await page.getByText('Live workspace').click()
+    // Dismiss the CoreFlow welcome modal if present (it overlays the toggle).
+    const getStarted = page.getByRole('button', { name: 'Get started' })
+    if ((await getStarted.count()) > 0) {
+      await getStarted.first().click()
+      await page.waitForTimeout(500)
+    }
+    await page.getByRole('button', { name: 'Live workspace' }).waitFor({ timeout: 15000 })
+    await page.getByRole('button', { name: 'Live workspace' }).click()
     await page.getByText('MUSICDB Demo').waitFor({ timeout: 15000 })
     step('A project hydration', true)
 
@@ -80,9 +88,21 @@ async function firstLaunch(repo, home) {
 
     const claim = await page.getByText('Claim granted').count()
     step('A claim granted evidence', claim > 0)
+
+    // Acceptance: verdict the demo task's single criterion, submit the
+    // evaluation (Task -> WAITING_REVIEW), then complete the task.
+    await page.getByRole('button', { name: 'PASSED' }).first().click()
+    await page.getByRole('button', { name: 'Submit evaluation' }).click()
+    await page.getByText(/evaluation #0 · PASSED/).waitFor({ timeout: 10000 })
+    step('A acceptance.evaluate -> WAITING_REVIEW', true)
+    await page.getByRole('button', { name: 'Complete task' }).click()
+    await page.waitForTimeout(1500)
+    step('A task.complete submitted', true)
   } catch (error) {
     step('A e2e flow', false)
     console.log('[e2e] A FLOW ERROR:', error && error.message)
+    console.log('=== A BODY ===')
+    console.log((await page.evaluate(() => document.body.innerText)).slice(0, 800))
   }
   await app.close()
 }
@@ -90,7 +110,13 @@ async function firstLaunch(repo, home) {
 async function secondLaunch(repo, home) {
   const { app, page } = await launch(repo, home, 'B')
   try {
-    await page.getByText('Live workspace').click()
+    const getStarted = page.getByRole('button', { name: 'Get started' })
+    if ((await getStarted.count()) > 0) {
+      await getStarted.first().click()
+      await page.waitForTimeout(500)
+    }
+    await page.getByRole('button', { name: 'Live workspace' }).waitFor({ timeout: 15000 })
+    await page.getByRole('button', { name: 'Live workspace' }).click()
     await page.getByText('MUSICDB Demo').waitFor({ timeout: 15000 })
 
     // Persisted run history must survive the restart: run.list shows the run
@@ -151,6 +177,32 @@ async function secondLaunch(repo, home) {
 
     const evidence = await page.evaluate(() => document.body.innerText.includes('Snapshot'))
     step('B run.get snapshot binding present', evidence)
+
+    // The acceptance history and the completed Task must survive the restart.
+    const bridgeState = await page.evaluate(async () => {
+      const command = async (payload) => {
+        const response = await window.canvasAgent.command({
+          requestId: 'e2e-restart-b',
+          schemaVersion: 1,
+          command: payload.command,
+          payload: payload.body
+        })
+        return response.ok ? response.data : null
+      }
+      const evaluations = await command({
+        command: 'acceptance.list',
+        body: { taskId: 'task_demo_1' }
+      })
+      const state = await command({ command: 'project.state', body: { projectId: 'proj_demo' } })
+      const task = state && state.tasks.find((candidate) => candidate.id === 'task_demo_1')
+      return { evaluations, taskStatus: task ? task.status : null }
+    })
+    const evalCount = Array.isArray(bridgeState.evaluations) ? bridgeState.evaluations.length : 0
+    const evalPassed =
+      evalCount > 0 &&
+      bridgeState.evaluations[bridgeState.evaluations.length - 1].evaluation.status === 'PASSED'
+    step('B acceptance history survived restart (PASSED evaluation)', evalPassed)
+    step('B task is durably COMPLETED after restart', bridgeState.taskStatus === 'COMPLETED')
 
     fs.mkdirSync(SHOT_DIR, { recursive: true })
     await page.screenshot({ path: path.join(SHOT_DIR, 'restart-persistence.png'), fullPage: true })

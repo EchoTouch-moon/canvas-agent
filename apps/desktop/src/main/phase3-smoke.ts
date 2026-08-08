@@ -94,6 +94,15 @@ export async function runPhase3Smoke(deps: Phase3SmokeDeps): Promise<void> {
     throw new Error('execution patch did not contain the fixture file')
   }
   console.error('[phase3-smoke] patch evidence PASSED')
+
+  const refreshed = await handleCommand(routes, req('project.state', { projectId: deps.projectId }))
+  if (!refreshed.ok) throw new Error(`project.state re-read failed: ${refreshed.error.message}`)
+  const refreshedView = refreshed.data as ProjectStateView
+  const taskStatus = refreshedView.tasks.find((item) => item.id === task.id)?.status
+  if (taskStatus !== 'IN_PROGRESS') {
+    throw new Error(`task lifecycle did not advance to IN_PROGRESS (got ${taskStatus})`)
+  }
+  console.error('[phase3-smoke] task lifecycle IN_PROGRESS PASSED')
   if (response.result.verificationResults?.[0]?.exitCode !== 0) {
     throw new Error('execution verification did not exit 0')
   }

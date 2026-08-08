@@ -315,3 +315,119 @@ describe('executionRequestId and run commands', () => {
     expect(get.command).toBe('run.get')
   })
 })
+
+describe('acceptance and task completion commands', () => {
+  const verdict = { criterionId: 'criterion_1', verdict: 'PASSED' as const }
+
+  it('validates acceptance.evaluate payloads', () => {
+    const payload = {
+      projectId: 'proj_1',
+      taskId: 'task_1',
+      taskSpecVersionId: 'spec_1',
+      runId: 'run_1',
+      criteria: [verdict]
+    }
+    const parsed = commandRequestSchema.parse(request('acceptance.evaluate', payload))
+    expect(parsed.command).toBe('acceptance.evaluate')
+
+    // missing a required field
+    expect(() =>
+      commandRequestSchema.parse(
+        request('acceptance.evaluate', { ...payload, runId: undefined })
+      )
+    ).toThrow()
+    // empty criteria
+    expect(() =>
+      commandRequestSchema.parse(
+        request('acceptance.evaluate', { ...payload, criteria: [] })
+      )
+    ).toThrow()
+    // malformed criterion verdict
+    expect(() =>
+      commandRequestSchema.parse(
+        request('acceptance.evaluate', {
+          ...payload,
+          criteria: [{ criterionId: 'criterion_1', verdict: 'MAYBE' }]
+        })
+      )
+    ).toThrow()
+    // extra field rejected
+    expect(() =>
+      commandRequestSchema.parse(
+        request('acceptance.evaluate', { ...payload, extra: true })
+      )
+    ).toThrow()
+  })
+
+  it('validates acceptance.list and task.complete payloads', () => {
+    const list = commandRequestSchema.parse(
+      request('acceptance.list', { taskId: 'task_1' })
+    ) as CommandRequest<'acceptance.list'>
+    expect(list.command).toBe('acceptance.list')
+    expect(() => commandRequestSchema.parse(request('acceptance.list', {}))).toThrow()
+
+    const complete = commandRequestSchema.parse(
+      request('task.complete', { taskId: 'task_1', evaluationId: 'evaluation_1' })
+    ) as CommandRequest<'task.complete'>
+    expect(complete.command).toBe('task.complete')
+    expect(() =>
+      commandRequestSchema.parse(request('task.complete', { taskId: 'task_1' }))
+    ).toThrow()
+  })
+
+  it('validates the acceptance evaluation response aggregate', () => {
+    const aggregate = {
+      evaluation: {
+        id: 'evaluation_1',
+        projectId: 'proj_1',
+        taskId: 'task_1',
+        taskSpecVersionId: 'spec_1',
+        runId: 'run_1',
+        sequence: 0,
+        status: 'PASSED',
+        createdAt: '2026-08-08T00:00:00.000Z'
+      },
+      items: [
+        {
+          id: 'item_1',
+          evaluationId: 'evaluation_1',
+          criterionId: 'criterion_1',
+          verdict: 'PASSED',
+          note: null,
+          position: 0
+        }
+      ]
+    }
+    expect(commandResponseSchemas['acceptance.evaluate'].parse({ requestId: 'req', schemaVersion: 1, ok: true, command: 'acceptance.evaluate', data: aggregate })).toBeTruthy()
+    expect(() =>
+      commandResponseSchemas['acceptance.evaluate'].parse({
+        requestId: 'req',
+        schemaVersion: 1,
+        ok: true,
+        command: 'acceptance.evaluate',
+        data: { ...aggregate, evaluation: { ...aggregate.evaluation, status: 'PENDING' } }
+      })
+    ).toThrow()
+  })
+
+  it('validates the task.complete response Task schema', () => {
+    const task = {
+      id: 'task_1',
+      projectId: 'proj_1',
+      type: 'IMPLEMENT_CHANGE',
+      status: 'COMPLETED',
+      title: 'T',
+      createdAt: '2026-08-08T00:00:00.000Z',
+      updatedAt: '2026-08-08T00:00:00.000Z'
+    }
+    expect(() =>
+      commandResponseSchemas['task.complete'].parse({
+        requestId: 'req',
+        schemaVersion: 1,
+        ok: true,
+        command: 'task.complete',
+        data: task
+      })
+    ).not.toThrow()
+  })
+})
