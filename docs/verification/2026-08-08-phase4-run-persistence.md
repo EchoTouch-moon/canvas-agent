@@ -1,6 +1,6 @@
 # Phase 4 #3 verification packet — Run + RunEvent + Artifact persistence
 
-- **Status:** Pending merge — evidence recorded on branch `agent/deepseek-phase4c-run-persistence`
+- **Status:** VERIFIED / CLOSED
 - **Date:** 2026-08-08
 - **Basis:** PROPOSAL-024 (frozen)
 - **Repository:** https://github.com/EchoTouch-moon/canvas-agent

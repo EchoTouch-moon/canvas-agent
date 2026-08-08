@@ -1,6 +1,6 @@
 # Phase 4 #5 verification packet — Result Adoption + Baseline Promotion
 
-- **Status:** Pending merge — evidence recorded on branch `agent/deepseek-phase4e-result-adoption`
+- **Status:** VERIFIED / CLOSED — merged at `2e4a814` (head `36ea453`)
 - **Date:** 2026-08-08
 - **Basis:** PROPOSAL-026 (frozen durable side-effect protocol)
 - **Repository:** https://github.com/EchoTouch-moon/canvas-agent
