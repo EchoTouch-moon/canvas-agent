@@ -18,6 +18,12 @@ export interface CreateBaselineDraftInput {
 }
 
 export function createBaselineDraft(p: Persistence, input: CreateBaselineDraftInput): ProjectBaselineRow {
+  return withTransaction(p, () => insertBaselineDraft(p, input))
+}
+
+// Transaction-free insert so callers (baseline candidate creation) can compose
+// it inside their own transaction.
+export function insertBaselineDraft(p: Persistence, input: CreateBaselineDraftInput): ProjectBaselineRow {
   const project = p.drizzle.select().from(projectTable).where(eq(projectTable.id, input.projectId)).get()
   if (project === undefined) {
     throw new NotFoundError('Project', input.projectId)
@@ -31,53 +37,51 @@ export function createBaselineDraft(p: Persistence, input: CreateBaselineDraftIn
     }
   }
 
-  return withTransaction(p, () => {
-    const now = p.services.now()
-    const created = p.drizzle
-      .insert(projectBaselineTable)
+  const now = p.services.now()
+  const created = p.drizzle
+    .insert(projectBaselineTable)
+    .values({
+      id: input.id,
+      projectId: input.projectId,
+      status: 'DRAFT',
+      name: input.name,
+      description: input.description ?? null,
+      repositoryRevisionId: input.repositoryRevisionId ?? null,
+      createdAt: now,
+      updatedAt: now
+    })
+    .returning()
+    .all()[0]
+
+  if (created === undefined) {
+    throw new Error(`project_baseline insert returned no row for ${input.id}`)
+  }
+
+  input.nodeVersionIds.forEach((nodeVersionId, position) => {
+    const item = p.drizzle
+      .insert(baselineItemTable)
       .values({
-        id: input.id,
-        projectId: input.projectId,
-        status: 'DRAFT',
-        name: input.name,
-        description: input.description ?? null,
-        repositoryRevisionId: input.repositoryRevisionId ?? null,
-        createdAt: now,
-        updatedAt: now
+        id: p.services.nextId('baseline_item'),
+        baselineId: created.id,
+        nodeVersionId,
+        position
       })
       .returning()
       .all()[0]
-
-    if (created === undefined) {
-      throw new Error(`project_baseline insert returned no row for ${input.id}`)
+    if (item === undefined) {
+      throw new Error(`baseline_item insert returned no row for ${created.id}`)
     }
-
-    input.nodeVersionIds.forEach((nodeVersionId, position) => {
-      const item = p.drizzle
-        .insert(baselineItemTable)
-        .values({
-          id: p.services.nextId('baseline_item'),
-          baselineId: created.id,
-          nodeVersionId,
-          position
-        })
-        .returning()
-        .all()[0]
-      if (item === undefined) {
-        throw new Error(`baseline_item insert returned no row for ${created.id}`)
-      }
-    })
-
-    appendAudit(p, {
-      projectId: input.projectId,
-      entityType: 'ProjectBaseline',
-      entityId: created.id,
-      action: 'BASELINE_DRAFT_CREATED',
-      payload: { name: input.name, nodeVersionCount: input.nodeVersionIds.length }
-    })
-
-    return created
   })
+
+  appendAudit(p, {
+    projectId: input.projectId,
+    entityType: 'ProjectBaseline',
+    entityId: created.id,
+    action: 'BASELINE_DRAFT_CREATED',
+    payload: { name: input.name, nodeVersionCount: input.nodeVersionIds.length }
+  })
+
+  return created
 }
 
 export interface ActivateBaselineInput {

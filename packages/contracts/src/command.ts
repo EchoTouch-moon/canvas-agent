@@ -567,6 +567,65 @@ const taskCompleteSchema = z
   })
   .strict()
 
+// --- Result adoption / baseline candidate ------------------------------------
+
+const artifactApplicationEventKindSchema = z.enum([
+  'AUTHORIZED',
+  'APPLYING',
+  'APPLIED',
+  'FAILED',
+  'INTERRUPTED'
+])
+
+const artifactApplicationEventSchema = z
+  .object({
+    id: idSchema,
+    applicationId: idSchema,
+    sequence: z.number().int().nonnegative(),
+    kind: artifactApplicationEventKindSchema,
+    repositoryRevisionId: idSchema.nullable(),
+    reasonCode: z.string().nullable(),
+    detail: z.string().nullable(),
+    createdAt: isoDateTime
+  })
+  .strict()
+
+const artifactApplicationSchema = z
+  .object({
+    id: idSchema,
+    projectId: idSchema,
+    taskId: idSchema,
+    evaluationId: idSchema,
+    runId: idSchema,
+    executionRequestId: executionRequestIdSchema,
+    artifactId: idSchema,
+    baseBaselineId: idSchema,
+    baseRepositoryRevisionId: idSchema,
+    patchHash: contentHashSchema,
+    authorizedAt: isoDateTime
+  })
+  .strict()
+
+const artifactApplicationAggregateSchema = z
+  .object({
+    application: artifactApplicationSchema,
+    events: z.array(artifactApplicationEventSchema),
+    effectiveStatus: artifactApplicationEventKindSchema,
+    repositoryRevision: repositoryRevisionRowSchema.nullable()
+  })
+  .strict()
+
+const artifactApplySchema = z
+  .object({
+    taskId: idSchema,
+    evaluationId: idSchema,
+    artifactId: idSchema
+  })
+  .strict()
+
+const artifactApplicationListRequestSchema = z.object({ taskId: idSchema }).strict()
+
+
 // Response-only schemas for the persisted read model (never reused as input).
 
 const edgeSchema = z
@@ -617,6 +676,32 @@ const baselineAggregateSchema = z
     items: z.array(baselineItemSchema)
   })
   .strict()
+
+const baselineCandidateSourceSchema = z
+  .object({
+    baselineId: idSchema,
+    parentBaselineId: idSchema,
+    taskId: idSchema,
+    artifactApplicationId: idSchema
+  })
+  .strict()
+
+const baselineCandidateAggregateSchema = z
+  .object({
+    baseline: baselineSchema,
+    source: baselineCandidateSourceSchema,
+    items: z.array(baselineItemSchema)
+  })
+  .strict()
+
+const baselineCreateCandidateSchema = z
+  .object({
+    applicationId: idSchema,
+    name: z.string().min(1),
+    description: z.string().nullable().optional()
+  })
+  .strict()
+
 
 const projectStateViewSchema = z
   .object({
@@ -680,6 +765,9 @@ export interface CommandMap {
   'acceptance.evaluate': { request: z.infer<typeof acceptanceEvaluateSchema>; response: z.infer<typeof acceptanceEvaluationAggregateSchema> }
   'acceptance.list': { request: z.infer<typeof acceptanceListRequestSchema>; response: z.infer<typeof acceptanceEvaluationAggregateSchema>[] }
   'task.complete': { request: z.infer<typeof taskCompleteSchema>; response: z.infer<typeof taskSchema> }
+  'artifact.apply': { request: z.infer<typeof artifactApplySchema>; response: z.infer<typeof artifactApplicationAggregateSchema> }
+  'artifactApplication.list': { request: z.infer<typeof artifactApplicationListRequestSchema>; response: z.infer<typeof artifactApplicationAggregateSchema>[] }
+  'baseline.createCandidateFromTask': { request: z.infer<typeof baselineCreateCandidateSchema>; response: z.infer<typeof baselineCandidateAggregateSchema> }
 }
 
 export type WorkspaceCommand = keyof CommandMap
@@ -731,7 +819,10 @@ export const commandRequestSchema = z.discriminatedUnion('command', [
   commandRequestMember('run.get', runGetRequestSchema),
   commandRequestMember('acceptance.evaluate', acceptanceEvaluateSchema),
   commandRequestMember('acceptance.list', acceptanceListRequestSchema),
-  commandRequestMember('task.complete', taskCompleteSchema)
+  commandRequestMember('task.complete', taskCompleteSchema),
+  commandRequestMember('artifact.apply', artifactApplySchema),
+  commandRequestMember('artifactApplication.list', artifactApplicationListRequestSchema),
+  commandRequestMember('baseline.createCandidateFromTask', baselineCreateCandidateSchema)
 ])
 
 // --- Response schemas (command-correlated, no z.unknown data) ----------------
@@ -782,7 +873,10 @@ export const commandResponseSchemas = {
   'run.get': commandResponseMember('run.get', runAggregateViewSchema),
   'acceptance.evaluate': commandResponseMember('acceptance.evaluate', acceptanceEvaluationAggregateSchema),
   'acceptance.list': commandResponseMember('acceptance.list', z.array(acceptanceEvaluationAggregateSchema)),
-  'task.complete': commandResponseMember('task.complete', taskSchema)
+  'task.complete': commandResponseMember('task.complete', taskSchema),
+  'artifact.apply': commandResponseMember('artifact.apply', artifactApplicationAggregateSchema),
+  'artifactApplication.list': commandResponseMember('artifactApplication.list', z.array(artifactApplicationAggregateSchema)),
+  'baseline.createCandidateFromTask': commandResponseMember('baseline.createCandidateFromTask', baselineCandidateAggregateSchema)
 } as const
 
 // --- Runtime route-registry skeleton (main process fills `execute`) ----------
@@ -808,5 +902,8 @@ export const commandSchemas = {
   'run.get': { input: runGetRequestSchema, output: runAggregateViewSchema },
   'acceptance.evaluate': { input: acceptanceEvaluateSchema, output: acceptanceEvaluationAggregateSchema },
   'acceptance.list': { input: acceptanceListRequestSchema, output: z.array(acceptanceEvaluationAggregateSchema) },
-  'task.complete': { input: taskCompleteSchema, output: taskSchema }
+  'task.complete': { input: taskCompleteSchema, output: taskSchema },
+  'artifact.apply': { input: artifactApplySchema, output: artifactApplicationAggregateSchema },
+  'artifactApplication.list': { input: artifactApplicationListRequestSchema, output: z.array(artifactApplicationAggregateSchema) },
+  'baseline.createCandidateFromTask': { input: baselineCreateCandidateSchema, output: baselineCandidateAggregateSchema }
 }
