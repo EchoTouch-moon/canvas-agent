@@ -10,6 +10,8 @@ import {
 } from '@/lib/workspace-client'
 import type {
   AcceptanceEvaluationAggregate,
+  ArtifactApplicationAggregate,
+  BaselineCandidateAggregate,
   DispatchResult,
   FrozenSnapshotView,
   NodeDraftRecord,
@@ -88,6 +90,23 @@ export interface UseWorkspaceResult {
     readonly taskId: string
     readonly evaluationId: string
   }) => Promise<ProjectStateView['tasks'][number]>
+  readonly applyArtifact: (input: {
+    readonly taskId: string
+    readonly evaluationId: string
+    readonly artifactId: string
+  }) => Promise<ArtifactApplicationAggregate>
+  readonly listArtifactApplications: (
+    taskId: string
+  ) => Promise<readonly ArtifactApplicationAggregate[]>
+  readonly createBaselineCandidate: (input: {
+    readonly applicationId: string
+    readonly name: string
+    readonly description?: string | null
+  }) => Promise<BaselineCandidateAggregate>
+  readonly activateBaseline: (baselineId: string) => Promise<{
+    readonly activated: ProjectStateView['baselines'][number]['baseline']
+    readonly superseded: ProjectStateView['baselines'][number]['baseline'] | null
+  }>
 }
 
 const defaultClient = createWorkspaceClient()
@@ -260,6 +279,41 @@ export function useWorkspace(
     [client]
   )
 
+  const applyArtifact = useCallback(
+    (input: {
+      readonly taskId: string
+      readonly evaluationId: string
+      readonly artifactId: string
+    }): Promise<ArtifactApplicationAggregate> => client.command('artifact.apply', input),
+    [client]
+  )
+
+  const listArtifactApplications = useCallback(
+    (taskId: string): Promise<readonly ArtifactApplicationAggregate[]> =>
+      client.command('artifactApplication.list', { taskId }),
+    [client]
+  )
+
+  const createBaselineCandidate = useCallback(
+    (input: {
+      readonly applicationId: string
+      readonly name: string
+      readonly description?: string | null
+    }): Promise<BaselineCandidateAggregate> =>
+      client.command('baseline.createCandidateFromTask', input),
+    [client]
+  )
+
+  const activateBaseline = useCallback(
+    (
+      baselineId: string
+    ): Promise<{
+      readonly activated: ProjectStateView['baselines'][number]['baseline']
+      readonly superseded: ProjectStateView['baselines'][number]['baseline'] | null
+    }> => client.command('baseline.activate', { baselineId }),
+    [client]
+  )
+
   return {
     projects,
     selectedProjectId,
@@ -277,6 +331,10 @@ export function useWorkspace(
     runGet,
     evaluateAcceptance,
     listAcceptance,
-    completeTask
+    completeTask,
+    applyArtifact,
+    listArtifactApplications,
+    createBaselineCandidate,
+    activateBaseline
   }
 }

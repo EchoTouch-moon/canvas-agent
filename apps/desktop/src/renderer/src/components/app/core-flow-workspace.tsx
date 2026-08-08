@@ -91,12 +91,17 @@ interface FlowScreenProps {
   readonly onCancel: () => void
   readonly onStartNewSnapshot: () => void
   readonly onToggleContextItem: (item: ContextCandidate) => void
-  readonly onArtifactReview: (status: ArtifactReviewStatus) => void
   readonly onSaveNodeDraft: (request: NodeDraftSaveRequest) => void
   readonly nodeDraftQueue: NodeDraftSaveQueue
   readonly nodeDraftQueueState: NodeDraftQueueState | null
   readonly onEvaluateAcceptance: () => void
   readonly onCompleteTask: () => void
+  readonly onApplyArtifact: () => void
+  readonly canApply: boolean
+  readonly onCreateCandidate: () => void
+  readonly canCreateCandidate: boolean
+  readonly onActivateBaseline: () => void
+  readonly canActivateBaseline: boolean
 }
 
 interface SectionProps {
@@ -664,7 +669,13 @@ function TaskScreen({
   state,
   dispatch,
   onEvaluateAcceptance,
-  onCompleteTask
+  onCompleteTask,
+  onApplyArtifact,
+  canApply,
+  onCreateCandidate,
+  canCreateCandidate,
+  onActivateBaseline,
+  canActivateBaseline
 }: FlowScreenProps): React.JSX.Element {
   const passedCriteria = state.task.criteria.filter((criterion) => criterion.passed).length
 
@@ -867,6 +878,25 @@ function TaskScreen({
             disabled={state.task.status !== 'WAITING_REVIEW'}
           >
             Complete task
+          </Button>
+          <Button variant="outline" size="sm" onClick={onApplyArtifact} disabled={!canApply}>
+            Apply artifact
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onCreateCandidate}
+            disabled={!canCreateCandidate}
+          >
+            Create baseline
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onActivateBaseline}
+            disabled={!canActivateBaseline}
+          >
+            Activate baseline
           </Button>
           <Button
             variant="ghost"
@@ -1400,16 +1430,18 @@ function isArtifactTab(value: string): value is ArtifactTab {
   return value === 'summary' || value === 'diff' || value === 'tests'
 }
 
-function ArtifactScreen({ state, dispatch, onArtifactReview }: FlowScreenProps): React.JSX.Element {
-  const canReview = state.run.outcome === 'SUCCEEDED'
-  const canAccept = canReview && state.artifact.reviewStatus !== 'ACCEPTED'
-
+function ArtifactScreen({
+  state,
+  dispatch,
+  onApplyArtifact,
+  canApply
+}: FlowScreenProps): React.JSX.Element {
   return (
     <div className="space-y-5">
       <PageToolbar
         eyebrow="Artifact review / explicit actions"
         title={state.artifact.title}
-        description="Diff, tests and summary are review surfaces. Apply, accept, reject and request changes remain distinct commands."
+        description="Diff, tests and summary are review surfaces. Adoption (artifact.apply) is the explicit durable authorization."
         meta={
           <>
             <Badge tone={artifactTone[state.artifact.reviewStatus]}>
@@ -1508,40 +1540,16 @@ function ArtifactScreen({ state, dispatch, onArtifactReview }: FlowScreenProps):
         </Tabs>
       </Section>
 
-      <Section title="Review commands" icon={ShieldCheck} eyebrow="No automatic chain">
+      <Section title="Review commands" icon={ShieldCheck} eyebrow="Explicit adoption">
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" size="sm" disabled>
+          <Button variant="secondary" size="sm" onClick={onApplyArtifact} disabled={!canApply}>
             <Plus className="size-3.5" aria-hidden="true" />
             Apply artifact
           </Button>
-          <Button size="sm" onClick={() => onArtifactReview('ACCEPTED')} disabled={!canAccept}>
-            <Check className="size-3.5" aria-hidden="true" />
-            Accept artifact
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onArtifactReview('CHANGES_REQUESTED')}
-            disabled={!canReview}
-          >
-            Request changes
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => onArtifactReview('REJECTED')}
-            disabled={!canReview}
-          >
-            Reject artifact
-          </Button>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3 text-[10px] text-muted-foreground">
-          <span>Current state:</span>
-          <Badge tone={artifactTone[state.artifact.reviewStatus]}>
-            {artifactLabel[state.artifact.reviewStatus]}
-          </Badge>
-          <span aria-hidden="true">·</span>
-          <span>Patch apply deferred until Artifact persistence</span>
+          <span>Adoption is a durable authorization (artifact.apply) of the accepted PATCH;</span>
+          <span>the old session-only Accept / Reject / Request-changes controls are retired.</span>
         </div>
       </Section>
       <div className="flex justify-end">
@@ -2166,6 +2174,115 @@ export function CoreFlowWorkspace({
     }
   }, [hydrated, setNotice, state])
 
+  const handleApplyArtifact = useCallback(async (): Promise<void> => {
+    if (!hydrated.workspace || executionSession.runId === null || state === null) {
+      setNotice({
+        tone: 'danger',
+        title: 'Adoption blocked',
+        message: 'A COMPLETED task with a dispatched Run is required.'
+      })
+      return
+    }
+    try {
+      const evaluations = await hydrated.listAcceptance(state.task.id)
+      const latest = evaluations[evaluations.length - 1]
+      if (latest === undefined || latest.evaluation.status !== 'PASSED') {
+        setNotice({
+          tone: 'danger',
+          title: 'Adoption blocked',
+          message: 'No latest PASSED evaluation.'
+        })
+        return
+      }
+      const run = await hydrated.runGet(executionSession.runId)
+      const patch = run.artifacts.find((item) => item.kind === 'PATCH')
+      if (patch === undefined) {
+        setNotice({ tone: 'danger', title: 'Adoption blocked', message: 'No PATCH artifact.' })
+        return
+      }
+      const application = await hydrated.applyArtifact({
+        taskId: state.task.id,
+        evaluationId: latest.evaluation.id,
+        artifactId: patch.id
+      })
+      setNotice({
+        tone: application.effectiveStatus === 'APPLIED' ? 'success' : 'warning',
+        title: `Adoption ${application.effectiveStatus}`,
+        message: `Application ${application.application.id} recorded.`
+      })
+    } catch (caught) {
+      setNotice({
+        tone: 'danger',
+        title: 'Adoption failed',
+        message: caught instanceof Error ? caught.message : 'artifact.apply rejected the request.'
+      })
+    }
+  }, [hydrated, executionSession.runId, setNotice, state])
+
+  const handleCreateCandidate = useCallback(async (): Promise<void> => {
+    if (!hydrated.workspace || state === null) return
+    try {
+      const applications = await hydrated.listArtifactApplications(state.task.id)
+      const latestApplication = applications[applications.length - 1]
+      if (latestApplication === undefined || latestApplication.effectiveStatus !== 'APPLIED') {
+        setNotice({
+          tone: 'danger',
+          title: 'Candidate blocked',
+          message: 'No APPLIED artifact application.'
+        })
+        return
+      }
+      const candidate = await hydrated.createBaselineCandidate({
+        applicationId: latestApplication.application.id,
+        name: 'Baseline N+1'
+      })
+      setNotice({
+        tone: 'success',
+        title: 'Baseline candidate created',
+        message: `${candidate.baseline.id} is a DRAFT from parent ${candidate.source.parentBaselineId}.`
+      })
+    } catch (caught) {
+      setNotice({
+        tone: 'danger',
+        title: 'Candidate failed',
+        message:
+          caught instanceof Error
+            ? caught.message
+            : 'baseline.createCandidateFromTask rejected the request.'
+      })
+    }
+  }, [hydrated, setNotice, state])
+
+  const handleActivateBaseline = useCallback(async (): Promise<void> => {
+    if (!hydrated.workspace || state === null) return
+    const candidate = hydrated.workspace.baselines.find(
+      (aggregate) => aggregate.baseline.status === 'DRAFT'
+    )
+    if (candidate === undefined) {
+      setNotice({
+        tone: 'danger',
+        title: 'Activation blocked',
+        message: 'No DRAFT baseline candidate.'
+      })
+      return
+    }
+    try {
+      await hydrated.activateBaseline(candidate.baseline.id)
+      setNotice({
+        tone: 'success',
+        title: 'Baseline activated',
+        message: `${candidate.baseline.id} is now ACTIVE; its parent was superseded.`
+      })
+    } catch (caught) {
+      setNotice({
+        tone: 'danger',
+        title: 'Activation failed',
+        message:
+          caught instanceof Error ? caught.message : 'baseline.activate rejected the request.'
+      })
+    }
+  }, [hydrated, setNotice, state])
+
   const handleCancel = useCallback(async (): Promise<void> => {
     const executionRequestId = executionSession.executionRequestId
     if (!executionRequestId || executionSession.status !== 'pending') return
@@ -2187,27 +2304,6 @@ export function CoreFlowWorkspace({
       })
     }
   }, [executionSession, hydrated, setNotice])
-
-  const handleArtifactReview = useCallback(
-    (reviewStatus: ArtifactReviewStatus): void => {
-      setExecutionSession((current) => ({ ...current, reviewStatus }))
-      setNotice({
-        tone:
-          reviewStatus === 'REJECTED'
-            ? 'danger'
-            : reviewStatus === 'CHANGES_REQUESTED'
-              ? 'warning'
-              : 'success',
-        title:
-          reviewStatus === 'CHANGES_REQUESTED'
-            ? 'Changes requested'
-            : `Artifact ${reviewStatus.toLowerCase()}`,
-        message:
-          'This review is a session-only draft until Run / Artifact persistence is available.'
-      })
-    },
-    [setNotice]
-  )
 
   const handleSaveNodeDraft = useCallback(
     (request: NodeDraftSaveRequest): void => nodeDraftQueue.schedule(request),
@@ -2277,7 +2373,6 @@ export function CoreFlowWorkspace({
           onCancel={() => void handleCancel()}
           onStartNewSnapshot={handleStartNewSnapshot}
           onToggleContextItem={handleToggleContextItem}
-          onArtifactReview={handleArtifactReview}
           onSaveNodeDraft={handleSaveNodeDraft}
           nodeDraftQueue={nodeDraftQueue}
           nodeDraftQueueState={
@@ -2285,6 +2380,15 @@ export function CoreFlowWorkspace({
           }
           onEvaluateAcceptance={() => void handleEvaluateAcceptance()}
           onCompleteTask={() => void handleCompleteTask()}
+          onApplyArtifact={() => void handleApplyArtifact()}
+          canApply={state.task.status === 'COMPLETED' && executionSession.runId !== null}
+          onCreateCandidate={() => void handleCreateCandidate()}
+          canCreateCandidate={state.task.status === 'COMPLETED'}
+          onActivateBaseline={() => void handleActivateBaseline()}
+          canActivateBaseline={
+            hydrated.workspace !== null &&
+            hydrated.workspace.baselines.some((aggregate) => aggregate.baseline.status === 'DRAFT')
+          }
         />
       </div>
     </AppShell>

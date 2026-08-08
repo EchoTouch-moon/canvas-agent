@@ -53,3 +53,7 @@ export type AcceptanceEvaluationAggregate = CommandOutput<'acceptance.evaluate'>
 export type AcceptanceEvaluationRecord = AcceptanceEvaluationAggregate['evaluation']
 export type AcceptanceEvaluationItemRecord = AcceptanceEvaluationAggregate['items'][number]
 export type CriterionVerdict = AcceptanceEvaluationItemRecord['verdict']
+
+export type ArtifactApplicationAggregate = CommandOutput<'artifact.apply'>
+export type ArtifactApplicationEventView = ArtifactApplicationAggregate['events'][number]
+export type BaselineCandidateAggregate = CommandOutput<'baseline.createCandidateFromTask'>

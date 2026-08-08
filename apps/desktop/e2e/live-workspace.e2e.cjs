@@ -98,6 +98,17 @@ async function firstLaunch(repo, home) {
     await page.getByRole('button', { name: 'Complete task' }).click()
     await page.waitForTimeout(1500)
     step('A task.complete submitted', true)
+
+    // Result adoption: authorize the PATCH, create a baseline candidate, activate it.
+    await page.getByRole('button', { name: 'Authorize apply' }).click()
+    await page.getByText('APPLIED', { exact: true }).first().waitFor({ timeout: 15000 })
+    step('A artifact.apply -> APPLIED', true)
+    await page.getByRole('button', { name: 'Create baseline candidate' }).click()
+    await page.getByText('DRAFT', { exact: true }).first().waitFor({ timeout: 15000 })
+    step('A baseline candidate created (DRAFT)', true)
+    await page.getByRole('button', { name: 'Activate baseline' }).click()
+    await page.waitForTimeout(2000)
+    step('A baseline.activate submitted', true)
   } catch (error) {
     step('A e2e flow', false)
     console.log('[e2e] A FLOW ERROR:', error && error.message)
@@ -203,6 +214,52 @@ async function secondLaunch(repo, home) {
       bridgeState.evaluations[bridgeState.evaluations.length - 1].evaluation.status === 'PASSED'
     step('B acceptance history survived restart (PASSED evaluation)', evalPassed)
     step('B task is durably COMPLETED after restart', bridgeState.taskStatus === 'COMPLETED')
+
+    // Result adoption must survive: application still APPLIED, the candidate
+    // baseline is ACTIVE, and the applied RepositoryRevision == actual Git HEAD.
+    const gitHeadB = execSync('git -C ' + JSON.stringify(repo) + ' rev-parse HEAD')
+      .toString()
+      .trim()
+    const adoptionState = await page.evaluate(async () => {
+      const command = async (payload) => {
+        const response = await window.canvasAgent.command({
+          requestId: 'e2e-restart-adoption',
+          schemaVersion: 1,
+          command: payload.command,
+          payload: payload.body
+        })
+        return response.ok ? response.data : null
+      }
+      const applications = await command({
+        command: 'artifactApplication.list',
+        body: { taskId: 'task_demo_1' }
+      })
+      const state = await command({ command: 'project.state', body: { projectId: 'proj_demo' } })
+      return {
+        applications,
+        activeName: state && state.activeBaseline ? state.activeBaseline.name : null,
+        activeRevisionId:
+          state && state.activeBaseline ? state.activeBaseline.repositoryRevisionId : null
+      }
+    })
+    const application = Array.isArray(adoptionState.applications)
+      ? adoptionState.applications[0]
+      : null
+    step(
+      'B application still APPLIED after restart',
+      Boolean(application) && application.effectiveStatus === 'APPLIED'
+    )
+    step('B candidate baseline ACTIVE after restart', adoptionState.activeName === 'Baseline 1.1')
+    step(
+      'B applied RepositoryRevision == actual Git HEAD',
+      Boolean(application && application.repositoryRevision) &&
+        application.repositoryRevision.baseCommit === gitHeadB &&
+        gitHeadB.length === 40
+    )
+    step(
+      'B ACTIVE baseline pins the applied revision',
+      adoptionState.activeRevisionId === application.repositoryRevision.id
+    )
 
     fs.mkdirSync(SHOT_DIR, { recursive: true })
     await page.screenshot({ path: path.join(SHOT_DIR, 'restart-persistence.png'), fullPage: true })
