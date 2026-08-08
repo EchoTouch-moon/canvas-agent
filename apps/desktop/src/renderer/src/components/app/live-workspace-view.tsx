@@ -830,6 +830,26 @@ function AdoptionSection({
 
   const handleApply = useCallback(async (): Promise<void> => {
     setError(null)
+    // P1-4: a retry / reconcile uses the application's own stored binding, so
+    // AUTHORIZED / APPLYING / INTERRUPTED states are recoverable from the UI.
+    if (application !== null) {
+      setBusy(true)
+      try {
+        setApplication(
+          await workspace.applyArtifact({
+            taskId: application.application.taskId,
+            evaluationId: application.application.evaluationId,
+            artifactId: application.application.artifactId
+          })
+        )
+        await workspace.refresh()
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'reconcile failed')
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
     if (taskId === null || evaluationId === null || artifactId === null) return
     setBusy(true)
     try {
@@ -840,7 +860,7 @@ function AdoptionSection({
     } finally {
       setBusy(false)
     }
-  }, [workspace, taskId, evaluationId, artifactId])
+  }, [workspace, taskId, evaluationId, artifactId, application])
 
   const handleCreateCandidate = useCallback(async (): Promise<void> => {
     setError(null)
@@ -917,15 +937,30 @@ function AdoptionSection({
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               {error ? <span className="text-[10px] text-status-danger">{error}</span> : null}
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={!taskCompleted || artifactId === null || busy || application !== null}
-                onClick={() => void handleApply()}
-              >
-                {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
-                Authorize apply
-              </Button>
+              {application !== null &&
+              (application.effectiveStatus === 'APPLYING' ||
+                application.effectiveStatus === 'AUTHORIZED' ||
+                application.effectiveStatus === 'INTERRUPTED') ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => void handleApply()}
+                >
+                  {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
+                  Retry / reconcile application
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!taskCompleted || artifactId === null || busy || application !== null}
+                  onClick={() => void handleApply()}
+                >
+                  {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
+                  Authorize apply
+                </Button>
+              )}
               {application !== null && candidate === null ? (
                 <div className="flex items-center gap-2">
                   <Input

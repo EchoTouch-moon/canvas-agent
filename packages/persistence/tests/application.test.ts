@@ -268,6 +268,17 @@ describe('baseline candidate', () => {
     expect(() =>
       createBaselineCandidate(s.p, { applicationId: 'app_1', name: '1.0-copy' })
     ).toThrow(ValidationError)
+    // different description -> rejected
+    expect(() =>
+      createBaselineCandidate(s.p, { applicationId: 'app_1', name: '1.0', description: 'changed' })
+    ).toThrow(ValidationError)
+    // same name + same description -> idempotent
+    const withDescription = createBaselineCandidate(s.p, {
+      applicationId: 'app_1',
+      name: '1.0',
+      description: null
+    })
+    expect(withDescription.baseline.id).toBe(candidate.baseline.id)
     closeDatabase(s.p)
   })
 

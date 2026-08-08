@@ -303,6 +303,11 @@ export function createBaselineCandidate(
           `candidate already exists for application ${input.applicationId} with a different name`
         )
       }
+      if ((input.description ?? null) !== baseline.description) {
+        throw new ValidationError(
+          `candidate already exists for application ${input.applicationId} with a different description`
+        )
+      }
       return { baseline, source: existing, items: listBaselineItems(p, baseline.id) }
     }
 

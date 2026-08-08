@@ -22,6 +22,23 @@
 | Session-only ArtifactReview retired; CoreFlow APPLY/CREATE/ACTIVATE real | CoreFlow review gates wired; ArtifactScreen session buttons removed | **PASS** |
 | Migration: 3 tables, no semantic backfill | migration generated | **PASS** |
 
+## Close-out fixes
+
+| Fix | Evidence |
+|---|---|
+| P0-1 Run 1:N request correctness (find by artifact.executionRequestId, never [0]) | multi-request integration test (PATCH owned by the second ExecutionRequest) |
+| P0-2 exact idempotency binding (task+evaluation+artifact) | conflicting retry rejected `artifact_application_binding_conflict`, no Git mutation |
+| P0-3 AUTHORIZED recovery | crash-before-APPLYING test: AUTHORIZED survives, retry -> APPLIED |
+| P0-4 exact-base CAS before Git mutation + commit parent check | writer asserts HEAD == expected base + clean before apply; parent == base after |
+| P0-5 safe compensation | commit failure resets to base + clean (invalid-date commit failure test) |
+| P0-6 candidate repository guard | stale repo after apply -> candidate rejected, no row |
+| P0-7 trusted hooks directory | private runtime-scoped `adoption-hooks-<random>` dir, platform-aware null-device |
+| P0-8 CoreFlow exact candidate activation | activates only the stored `adoptionCandidateId`, never `find(status==='DRAFT')` |
+| P1-1 candidate retry compares name AND description | persistence test |
+| P1-2 restart E2E holds the DRAFT gate | DRAFT survives restart, activated only after relaunch |
+| P1-3 contracts coverage | artifact.apply / artifactApplication.list / baseline.createCandidateFromTask request+response tests |
+| P1-4 Live recovery UX | AUTHORIZED/APPLYING/INTERRUPTED shows Retry/Reconcile using the stored binding |
+
 ## Restart E2E (final gate — Project Evolution)
 
 `pnpm --filter @canvas-agent/desktop e2e:live` (real Electron, Playwright; isolated
@@ -32,11 +49,13 @@ userData + real repo):
 [e2e] A acceptance.evaluate -> WAITING_REVIEW
 [e2e] A task.complete submitted
 [e2e] A artifact.apply -> APPLIED
-[e2e] A baseline candidate created (DRAFT)
-[e2e] A baseline.activate submitted
+[e2e] A baseline candidate created (DRAFT)   ← activation deferred
 [e2e] first launch closed; relaunching with the SAME userData DB + repo
 [e2e] B application still APPLIED after restart
-[e2e] B candidate baseline ACTIVE after restart
+[e2e] B candidate baseline survives restart as DRAFT (review gate held)
+[e2e] B DRAFT candidate activated after restart
+[e2e] B candidate baseline ACTIVE after activation
+[e2e] B parent baseline SUPERSEDED after activation
 [e2e] B applied RepositoryRevision == actual Git HEAD
 [e2e] B ACTIVE baseline pins the applied revision
 [e2e] ALL PASSED
@@ -59,8 +78,8 @@ application, the ACTIVE candidate baseline and the applied RepositoryRevision
 
 ## Verification note
 
-`pnpm check` green (236 tests: domain 5, contracts 36, persistence 68,
-worker-runtime 19, desktop 108). `CANVAS_AGENT_PHASE3_SMOKE=1` PASSED with the
+`pnpm check` green (246 tests: domain 5, contracts 41, persistence 68,
+worker-runtime 19, desktop 113). `CANVAS_AGENT_PHASE3_SMOKE=1` PASSED with the
 `task lifecycle IN_PROGRESS` assertion. CI publishes commit status on the PR.
 
 This packet closes the loop: `Baseline N → Task → Run → Acceptance →

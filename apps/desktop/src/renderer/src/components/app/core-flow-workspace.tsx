@@ -1874,6 +1874,7 @@ export function CoreFlowWorkspace({
     createInitialWorkspaceUiState
   )
   const [executionSession, setExecutionSession] = useState(createInitialExecutionSession)
+  const [adoptionCandidateId, setAdoptionCandidateId] = useState<string | null>(null)
   const [nodeDraftQueueStates, setNodeDraftQueueStates] = useState<
     Record<string, NodeDraftQueueState>
   >({})
@@ -2236,6 +2237,7 @@ export function CoreFlowWorkspace({
         applicationId: latestApplication.application.id,
         name: 'Baseline N+1'
       })
+      setAdoptionCandidateId(candidate.baseline.id)
       setNotice({
         tone: 'success',
         title: 'Baseline candidate created',
@@ -2255,23 +2257,22 @@ export function CoreFlowWorkspace({
 
   const handleActivateBaseline = useCallback(async (): Promise<void> => {
     if (!hydrated.workspace || state === null) return
-    const candidate = hydrated.workspace.baselines.find(
-      (aggregate) => aggregate.baseline.status === 'DRAFT'
-    )
-    if (candidate === undefined) {
+    // P0-8: activate exactly the candidate this flow created, never any DRAFT.
+    const candidateBaselineId = adoptionCandidateId
+    if (candidateBaselineId === null) {
       setNotice({
         tone: 'danger',
         title: 'Activation blocked',
-        message: 'No DRAFT baseline candidate.'
+        message: 'Create a baseline candidate first.'
       })
       return
     }
     try {
-      await hydrated.activateBaseline(candidate.baseline.id)
+      await hydrated.activateBaseline(candidateBaselineId)
       setNotice({
         tone: 'success',
         title: 'Baseline activated',
-        message: `${candidate.baseline.id} is now ACTIVE; its parent was superseded.`
+        message: `${candidateBaselineId} is now ACTIVE; its parent was superseded.`
       })
     } catch (caught) {
       setNotice({
@@ -2281,7 +2282,7 @@ export function CoreFlowWorkspace({
           caught instanceof Error ? caught.message : 'baseline.activate rejected the request.'
       })
     }
-  }, [hydrated, setNotice, state])
+  }, [hydrated, adoptionCandidateId, setNotice, state])
 
   const handleCancel = useCallback(async (): Promise<void> => {
     const executionRequestId = executionSession.executionRequestId
@@ -2385,10 +2386,7 @@ export function CoreFlowWorkspace({
           onCreateCandidate={() => void handleCreateCandidate()}
           canCreateCandidate={state.task.status === 'COMPLETED'}
           onActivateBaseline={() => void handleActivateBaseline()}
-          canActivateBaseline={
-            hydrated.workspace !== null &&
-            hydrated.workspace.baselines.some((aggregate) => aggregate.baseline.status === 'DRAFT')
-          }
+          canActivateBaseline={adoptionCandidateId !== null}
         />
       </div>
     </AppShell>

@@ -431,3 +431,121 @@ describe('acceptance and task completion commands', () => {
     ).not.toThrow()
   })
 })
+
+describe('result adoption commands', () => {
+  it('validates artifact.apply payloads', () => {
+    const payload = { taskId: 'task_1', evaluationId: 'evaluation_1', artifactId: 'artifact_1' }
+    const parsed = commandRequestSchema.parse(request('artifact.apply', payload))
+    expect(parsed.command).toBe('artifact.apply')
+    expect(() =>
+      commandRequestSchema.parse(request('artifact.apply', { ...payload, artifactId: undefined }))
+    ).toThrow()
+    expect(() => commandRequestSchema.parse(request('artifact.apply', { taskId: 'task_1' }))).toThrow()
+    expect(() =>
+      commandRequestSchema.parse(request('artifact.apply', { ...payload, extra: true }))
+    ).toThrow()
+  })
+
+  it('validates artifactApplication.list payloads', () => {
+    const parsed = commandRequestSchema.parse(request('artifactApplication.list', { taskId: 'task_1' }))
+    expect(parsed.command).toBe('artifactApplication.list')
+    expect(() => commandRequestSchema.parse(request('artifactApplication.list', {}))).toThrow()
+  })
+
+  it('validates baseline.createCandidateFromTask payloads', () => {
+    const payload = { applicationId: 'app_1', name: 'Baseline 1.1' }
+    const parsed = commandRequestSchema.parse(request('baseline.createCandidateFromTask', payload))
+    expect(parsed.command).toBe('baseline.createCandidateFromTask')
+    expect(() =>
+      commandRequestSchema.parse(request('baseline.createCandidateFromTask', { applicationId: 'app_1' }))
+    ).toThrow()
+    expect(() =>
+      commandRequestSchema.parse(
+        request('baseline.createCandidateFromTask', { ...payload, name: '' })
+      )
+    ).toThrow()
+  })
+
+  it('validates the artifact application aggregate response', () => {
+    const aggregate = {
+      application: {
+        id: 'app_1',
+        projectId: 'proj_1',
+        taskId: 'task_1',
+        evaluationId: 'evaluation_1',
+        runId: 'run_1',
+        executionRequestId: 'exec-1',
+        artifactId: 'artifact_1',
+        baseBaselineId: 'baseline_1',
+        baseRepositoryRevisionId: 'rev_1',
+        patchHash: 'a'.repeat(64),
+        authorizedAt: '2026-08-08T00:00:00.000Z'
+      },
+      events: [
+        {
+          id: 'event_1',
+          applicationId: 'app_1',
+          sequence: 0,
+          kind: 'AUTHORIZED',
+          repositoryRevisionId: null,
+          reasonCode: null,
+          detail: null,
+          createdAt: '2026-08-08T00:00:00.000Z'
+        }
+      ],
+      effectiveStatus: 'AUTHORIZED',
+      repositoryRevision: null
+    }
+    expect(() =>
+      commandResponseSchemas['artifact.apply'].parse({
+        requestId: 'req',
+        schemaVersion: 1,
+        ok: true,
+        command: 'artifact.apply',
+        data: aggregate
+      })
+    ).not.toThrow()
+    expect(() =>
+      commandResponseSchemas['artifact.apply'].parse({
+        requestId: 'req',
+        schemaVersion: 1,
+        ok: true,
+        command: 'artifact.apply',
+        data: { ...aggregate, effectiveStatus: 'MAYBE' }
+      })
+    ).toThrow()
+  })
+
+  it('validates the baseline candidate aggregate response', () => {
+    const candidate = {
+      baseline: {
+        id: 'baseline_2',
+        projectId: 'proj_1',
+        status: 'DRAFT',
+        name: 'Baseline 1.1',
+        description: null,
+        repositoryRevisionId: 'rev_2',
+        activatedAt: null,
+        supersededAt: null,
+        createdAt: '2026-08-08T00:00:00.000Z',
+        updatedAt: '2026-08-08T00:00:00.000Z'
+      },
+      source: {
+        baselineId: 'baseline_2',
+        parentBaselineId: 'baseline_1',
+        taskId: 'task_1',
+        artifactApplicationId: 'app_1'
+      },
+      items: []
+    }
+    expect(() =>
+      commandResponseSchemas['baseline.createCandidateFromTask'].parse({
+        requestId: 'req',
+        schemaVersion: 1,
+        ok: true,
+        command: 'baseline.createCandidateFromTask',
+        data: candidate
+      })
+    ).not.toThrow()
+  })
+})

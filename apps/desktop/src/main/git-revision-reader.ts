@@ -15,6 +15,10 @@ export class GitRevisionReader {
     return this.appConfig.sourceRepositoryPath
   }
 
+  get runtimeDirectory(): string {
+    return this.appConfig.runtimeDirectory
+  }
+
   async current(): Promise<ResolvedRepositoryRevision> {
     const revision = await readRepositoryRevision(this.appConfig.sourceRepositoryPath, {
       cwd: this.appConfig.sourceRepositoryPath,

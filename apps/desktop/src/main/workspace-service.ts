@@ -14,6 +14,7 @@ import {
   finalizeApplicationApplied,
   freezeContextSnapshot,
   getActiveBaseline,
+  getArtifactApplicationAggregate,
   getBaseline,
   getProject,
   getRunAggregate,
@@ -81,7 +82,10 @@ export class WorkspaceService {
   ) {
     this.services = services
     this.contextResolver = new ContextResolver(p, revisions.sourceRepositoryPath)
-    this.gitWriter = new GitRepositoryWriter(revisions.sourceRepositoryPath)
+    this.gitWriter = new GitRepositoryWriter(
+      revisions.sourceRepositoryPath,
+      revisions.runtimeDirectory
+    )
   }
 
   createProject(payload: CommandInput<'project.create'>): ProjectRow {
@@ -270,10 +274,21 @@ export class WorkspaceService {
   ): Promise<ArtifactApplicationAggregate> {
     const existing = listArtifactApplicationAggregates(this.p, payload.taskId)[0]
     if (existing !== undefined) {
+      // P0-2: a retry is only safe with the exact same binding.
+      if (
+        existing.application.evaluationId !== payload.evaluationId ||
+        existing.application.artifactId !== payload.artifactId
+      ) {
+        throw new ValidationError('artifact_application_binding_conflict')
+      }
       if (existing.effectiveStatus === 'APPLIED') {
         return existing
       }
-      if (existing.effectiveStatus === 'APPLYING' || existing.effectiveStatus === 'INTERRUPTED') {
+      if (
+        existing.effectiveStatus === 'AUTHORIZED' ||
+        existing.effectiveStatus === 'APPLYING' ||
+        existing.effectiveStatus === 'INTERRUPTED'
+      ) {
         return this.reconcileApplication(existing)
       }
       throw new ValidationError(
@@ -289,9 +304,29 @@ export class WorkspaceService {
     return listArtifactApplicationAggregates(this.p, payload.taskId)
   }
 
-  createBaselineCandidate(
+  async createBaselineCandidate(
     payload: CommandInput<'baseline.createCandidateFromTask'>
-  ): BaselineCandidateAggregate {
+  ): Promise<BaselineCandidateAggregate> {
+    // P0-6: the candidate may only be materialized when the real repository is
+    // still exactly the APPLIED application's result revision (and clean).
+    const aggregate = getArtifactApplicationAggregate(this.p, payload.applicationId)
+    if (aggregate.effectiveStatus !== 'APPLIED') {
+      throw new ValidationError('baseline candidate requires an APPLIED artifact application')
+    }
+    const revision = aggregate.repositoryRevision
+    if (revision === null) {
+      throw new ValidationError('APPLIED application has no resulting repository revision')
+    }
+    const current = await this.revisions.current()
+    if (
+      current.baseCommit !== revision.baseCommit ||
+      current.treeHash !== revision.treeHash ||
+      current.workingTreePatchHash !== null
+    ) {
+      throw new ValidationError(
+        'application result repository revision does not match the real repository'
+      )
+    }
     return createCandidateBaseline(this.p, payload)
   }
 
@@ -366,8 +401,10 @@ export class WorkspaceService {
     if (artifact.runId !== run.id) {
       throw new ValidationError('artifact does not belong to the Run')
     }
-    const request = aggregate.executionRequests[0]
-    if (request === undefined || request.executionRequestId !== artifact.executionRequestId) {
+    const request = aggregate.executionRequests.find(
+      (candidate) => candidate.executionRequestId === artifact.executionRequestId
+    )
+    if (request === undefined) {
       throw new ValidationError('artifact does not belong to the Run execution')
     }
     if (sha256Hex(artifact.content) !== artifact.contentHash) {

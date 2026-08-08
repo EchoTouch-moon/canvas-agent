@@ -8,7 +8,9 @@ import {
   applyMigrations,
   artifactApplicationTable,
   artifactTable,
+  baselineCandidateSourceTable,
   closeDatabase,
+  executionRequestRecordTable,
   completeTask,
   createAcceptanceEvaluation,
   createBaselineDraft,
@@ -29,6 +31,7 @@ import {
 } from '@canvas-agent/persistence'
 import { WorkspaceService } from './workspace-service'
 import { GitRevisionReader } from './git-revision-reader'
+import { GitRepositoryWriter } from './git-repository-writer'
 import { cleanupTempDirs, createTempGitRepo, git, gitOutput } from './testing/git-fixture'
 
 function services(): SystemServices {
@@ -286,6 +289,161 @@ describe('result adoption', () => {
     expect(retried.effectiveStatus).toBe('APPLIED')
     expect(await gitOutput(s.repoDir, ['rev-parse', 'HEAD'])).toBe(appliedCommit)
     expect(retried.repositoryRevision?.baseCommit).toBe(appliedCommit)
+    closeDatabase(s.p)
+  })
+
+  it('recovers an AUTHORIZED application whose git side effect never started (P0-3)', async () => {
+    const s = await seed()
+    const aggregate = await s.service.applyArtifact({
+      taskId: s.taskId,
+      evaluationId: s.evaluationId,
+      artifactId: s.artifactId
+    })
+    // Simulate crash right after AUTHORIZED: APPLYING/APPLIED lost, git rolled
+    // back to the base, revision row removed.
+    s.p.db.exec(
+      `DELETE FROM artifact_application_event WHERE application_id = '${aggregate.application.id}' AND kind IN ('APPLYING','APPLIED')`
+    )
+    if (aggregate.repositoryRevision !== null) {
+      s.p.db.exec(`DELETE FROM repository_revision WHERE id = '${aggregate.repositoryRevision.id}'`)
+    }
+    await git(s.repoDir, ['reset', '--hard', s.baseCommit])
+    const authorized = getArtifactApplicationAggregate(s.p, aggregate.application.id)
+    expect(authorized.effectiveStatus).toBe('AUTHORIZED')
+
+    const retried = await s.service.applyArtifact({
+      taskId: s.taskId,
+      evaluationId: s.evaluationId,
+      artifactId: s.artifactId
+    })
+    expect(retried.effectiveStatus).toBe('APPLIED')
+    expect(await gitOutput(s.repoDir, ['rev-parse', 'HEAD'])).not.toBe(s.baseCommit)
+    closeDatabase(s.p)
+  })
+
+  it('rejects a conflicting idempotent retry without touching git (P0-2)', async () => {
+    const s = await seed()
+    await s.service.applyArtifact({
+      taskId: s.taskId,
+      evaluationId: s.evaluationId,
+      artifactId: s.artifactId
+    })
+    const afterFirst = await gitOutput(s.repoDir, ['rev-parse', 'HEAD'])
+
+    await expect(
+      s.service.applyArtifact({
+        taskId: s.taskId,
+        evaluationId: 'evaluation_other',
+        artifactId: s.artifactId
+      })
+    ).rejects.toThrow(/artifact_application_binding_conflict/)
+
+    expect(await gitOutput(s.repoDir, ['rev-parse', 'HEAD'])).toBe(afterFirst)
+    expect((await gitOutput(s.repoDir, ['rev-list', '--count', 'HEAD'])).trim()).toBe('2')
+    closeDatabase(s.p)
+  })
+
+  it('supports a PATCH artifact owned by the second ExecutionRequest of a Run (P0-1)', async () => {
+    const s = await seed()
+    // Add a second ExecutionRequestRecord + its PATCH to the same run.
+    s.p.drizzle
+      .insert(executionRequestRecordTable)
+      .values({
+        executionRequestId: 'exec-2',
+        runId: s.runId,
+        workerAttemptNumber: 2,
+        checkpointId: null,
+        requestHash: 'f'.repeat(64),
+        schemaVersion: 1,
+        requestJson: '{}',
+        dispatchOutcome: 'SUCCEEDED',
+        claimGranted: true,
+        rejectionReason: null,
+        revisionMismatchField: null,
+        revisionMismatchExpected: null,
+        revisionMismatchActual: null,
+        patchHash: null,
+        timedOut: false,
+        recoveryJson: null,
+        dispatchedAt: '2026-08-08T10:00:09.000Z',
+        completedAt: '2026-08-08T10:00:10.000Z'
+      })
+      .run()
+    const secondPatch = PATCH + '+second request change\n'
+    s.p.drizzle
+      .insert(artifactTable)
+      .values({
+        id: 'artifact_2',
+        runId: s.runId,
+        executionRequestId: 'exec-2',
+        kind: 'PATCH',
+        fileName: 'patch.diff',
+        content: secondPatch,
+        contentHash: sha256Hex(secondPatch),
+        sizeBytes: Buffer.byteLength(secondPatch, 'utf8'),
+        position: 1,
+        createdAt: '2026-08-08T10:00:10.000Z'
+      })
+      .run()
+
+    // The latest PASSED evaluation still references run_1 and the first patch;
+    // to adopt the second artifact we need the evaluation to point at it, so
+    // apply must find the request by artifact.executionRequestId (never [0]).
+    // Guard 17 requires request.patchHash match; exec-2 has null patchHash so
+    // it is skipped.
+    const aggregate = await s.service.applyArtifact({
+      taskId: s.taskId,
+      evaluationId: s.evaluationId,
+      artifactId: 'artifact_2'
+    })
+    expect(aggregate.effectiveStatus).toBe('APPLIED')
+    expect(aggregate.application.artifactId).toBe('artifact_2')
+    expect(aggregate.application.executionRequestId).toBe('exec-2')
+    closeDatabase(s.p)
+  })
+
+  it('compensates an apply --index + commit failure back to a clean base (P0-5)', async () => {
+    const s = await seed()
+    // The writer applies --index then commit fails (invalid author date), so it
+    // must safely reset to the expected base and stay clean.
+    const writer = new GitRepositoryWriter(
+      s.repoDir,
+      (await mkdtemp(join(tmpdir(), 'ca-writer-'))) as string
+    )
+    await expect(
+      writer.applyAcceptedPatch({
+        applicationId: 'app_comp',
+        baseCommit: s.baseCommit,
+        patchContent: PATCH,
+        patchHash: sha256Hex(PATCH),
+        taskId: s.taskId,
+        runId: s.runId,
+        artifactId: 'artifact_comp',
+        authorizedAt: 'not-a-valid-date'
+      })
+    ).rejects.toThrow()
+    expect(await gitOutput(s.repoDir, ['rev-parse', 'HEAD'])).toBe(s.baseCommit)
+    expect((await gitOutput(s.repoDir, ['status', '--porcelain'])).trim()).toBe('')
+    closeDatabase(s.p)
+  })
+
+  it('rejects a stale baseline candidate when the repo moved past the applied revision (P0-6)', async () => {
+    const s = await seed()
+    const applied = await s.service.applyArtifact({
+      taskId: s.taskId,
+      evaluationId: s.evaluationId,
+      artifactId: s.artifactId
+    })
+    await git(s.repoDir, ['commit', '--allow-empty', '-m', 'manual after adoption'])
+
+    await expect(
+      s.service.createBaselineCandidate({
+        applicationId: applied.application.id,
+        name: 'Baseline 1.1'
+      })
+    ).rejects.toThrow(/does not match the real repository/)
+    const candidateRows = s.p.drizzle.select().from(baselineCandidateSourceTable).all().length
+    expect(candidateRows).toBe(0)
     closeDatabase(s.p)
   })
 })

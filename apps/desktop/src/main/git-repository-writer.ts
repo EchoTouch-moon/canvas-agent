@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { randomBytes } from 'node:crypto'
 import { ValidationError } from '@canvas-agent/persistence'
 
 export interface ApplyAcceptedPatchInput {
@@ -28,31 +28,53 @@ export interface HeadInspection {
   clean: boolean
 }
 
+const NULL_DEVICE = process.platform === 'win32' ? 'NUL' : '/dev/null'
+
 // Narrow writer for the real-repository side effect. The renderer never passes
 // repo paths / argv / messages / working directories; Main decides everything.
-// Controlled identity/hooks/signing; dates come from authorizedAt; no push.
+// The expected base commit is a real precondition: before any mutation HEAD must
+// equal it and be clean, and the resulting commit's parent must be it. Commit
+// failures are safely compensated (reset to the expected base) when possible.
 export class GitRepositoryWriter {
   private readonly hooksDir: string
 
-  constructor(private readonly sourceRepositoryPath: string) {
-    this.hooksDir = join(tmpdir(), 'canvas-agent-hooks')
+  constructor(
+    private readonly sourceRepositoryPath: string,
+    private readonly runtimeDirectory: string
+  ) {
+    // Private, freshly created, verified-empty trusted hooks directory — never a
+    // shared predictable path that could pre-exist with hostile hooks. Created
+    // lazily inside applyAcceptedPatch so the error surfaces in the apply path.
+    this.hooksDir = join(runtimeDirectory, `adoption-hooks-${randomBytes(8).toString('hex')}`)
   }
 
   async applyAcceptedPatch(input: ApplyAcceptedPatchInput): Promise<AppliedRevision> {
     await mkdir(this.hooksDir, { recursive: true })
-    const patchFile = join(tmpdir(), `canvas-agent-patch-${input.applicationId}.diff`)
+    const patchFile = join(this.runtimeDirectory, `adoption-patch-${input.applicationId}.diff`)
     await writeFile(patchFile, input.patchContent, 'utf8')
     try {
+      // P0-4: exact-base CAS before any mutation.
+      await this.assertHeadEquals(input.baseCommit)
       await this.runGit(['apply', '--check', patchFile], input.authorizedAt)
-      await this.runGit(['apply', '--index', patchFile], input.authorizedAt)
-      await this.runGit(['commit', '-m', this.commitMessage(input)], input.authorizedAt)
+      try {
+        await this.runGit(['apply', '--index', patchFile], input.authorizedAt)
+        await this.runGit(['commit', '-m', this.commitMessage(input)], input.authorizedAt)
+      } catch (error) {
+        // P0-5: safe compensation if we are still at the expected base.
+        await this.compensateIfPossible(input.baseCommit)
+        throw error
+      }
     } finally {
       await rm(patchFile, { force: true }).catch(() => undefined)
     }
-    const revision = await this.readRevision()
-    if (revision.workingTreePatchHash !== null) {
+    const head = await this.inspectHead()
+    if (head.parent !== input.baseCommit) {
+      throw new ValidationError('adoption commit parent does not match the expected base')
+    }
+    if (!head.clean) {
       throw new ValidationError('adoption commit left a dirty working tree')
     }
+    const revision = await this.currentRevision()
     return revision
   }
 
@@ -70,7 +92,34 @@ export class GitRepositoryWriter {
   }
 
   async currentRevision(): Promise<AppliedRevision> {
-    return this.readRevision()
+    const baseCommit = (await this.gitOutput(['rev-parse', 'HEAD'])).trim()
+    const treeHash = (await this.gitOutput(['rev-parse', 'HEAD^{tree}'])).trim()
+    const status = (await this.gitOutput(['status', '--porcelain'])).trim()
+    return { baseCommit, treeHash, workingTreePatchHash: status.length === 0 ? null : 'dirty' }
+  }
+
+  private async assertHeadEquals(expectedBaseCommit: string): Promise<void> {
+    const head = await this.inspectHead()
+    if (head.baseCommit !== expectedBaseCommit) {
+      throw new ValidationError('adoption_base_changed')
+    }
+    if (!head.clean) {
+      throw new ValidationError('adoption_base_dirty')
+    }
+  }
+
+  private async compensateIfPossible(expectedBaseCommit: string): Promise<void> {
+    const head = await this.inspectHead()
+    if (head.baseCommit !== expectedBaseCommit) {
+      return
+    }
+    await this.runGit(['reset', '--hard', expectedBaseCommit], new Date().toISOString()).catch(
+      () => undefined
+    )
+    const after = await this.inspectHead()
+    if (after.baseCommit !== expectedBaseCommit || !after.clean) {
+      throw new ValidationError('adoption_compensation_failed')
+    }
   }
 
   private commitMessage(input: ApplyAcceptedPatchInput): string {
@@ -86,8 +135,8 @@ export class GitRepositoryWriter {
 
   private gitEnv(authorizedAt: string): Record<string, string> {
     return {
-      GIT_CONFIG_GLOBAL: '/dev/null',
-      GIT_CONFIG_SYSTEM: '/dev/null',
+      GIT_CONFIG_GLOBAL: NULL_DEVICE,
+      GIT_CONFIG_SYSTEM: NULL_DEVICE,
       GIT_AUTHOR_NAME: 'Canvas Agent',
       GIT_AUTHOR_EMAIL: 'agent@canvas-agent.local',
       GIT_COMMITTER_NAME: 'Canvas Agent',
@@ -147,12 +196,5 @@ export class GitRepositoryWriter {
         }
       })
     })
-  }
-
-  private async readRevision(): Promise<AppliedRevision> {
-    const baseCommit = (await this.gitOutput(['rev-parse', 'HEAD'])).trim()
-    const treeHash = (await this.gitOutput(['rev-parse', 'HEAD^{tree}'])).trim()
-    const status = (await this.gitOutput(['status', '--porcelain'])).trim()
-    return { baseCommit, treeHash, workingTreePatchHash: status.length === 0 ? null : 'dirty' }
   }
 }
