@@ -1,5 +1,9 @@
 import { asc, desc, eq } from 'drizzle-orm'
-import type { TaskStatus } from '@canvas-agent/domain'
+import {
+  assertTaskTransition as assertDomainTaskTransition,
+  DomainInvariantError,
+  type TaskStatus
+} from '@canvas-agent/domain'
 import type { Persistence } from '../db'
 import { withTransaction } from '../db'
 import { ConcurrencyError, CycleError, NotFoundError, ValidationError } from '../errors'
@@ -178,6 +182,12 @@ export function publishTaskSpecVersion(p: Persistence, input: PublishTaskSpecVer
   const task = p.drizzle.select().from(taskTable).where(eq(taskTable.id, input.taskId)).get()
   if (task === undefined) {
     throw new NotFoundError('Task', input.taskId)
+  }
+  // A terminal Task's definition cannot be silently changed after completion.
+  if (task.status === 'COMPLETED' || task.status === 'CANCELLED' || task.status === 'ARCHIVED') {
+    throw new ValidationError(
+      `Task ${input.taskId} is ${task.status} and cannot publish a new TaskSpecVersion`
+    )
   }
   for (const target of input.targets ?? []) {
     if (target.nodeId !== null && target.nodeId !== undefined) {
@@ -370,25 +380,10 @@ export function requireTask(p: Persistence, id: string): TaskRow {
   return row
 }
 
-const TASK_TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
-  DRAFT: ['READY'],
-  READY: ['IN_PROGRESS', 'ARCHIVED'],
-  IN_PROGRESS: ['IN_PROGRESS', 'WAITING_REVIEW', 'CANCELLED', 'ARCHIVED'],
-  WAITING_REVIEW: ['IN_PROGRESS', 'COMPLETED', 'CANCELLED'],
-  COMPLETED: [],
-  CANCELLED: [],
-  ARCHIVED: []
-}
-
-export function assertTaskTransition(from: TaskStatus, to: TaskStatus): void {
-  if (from === to) return
-  if (!TASK_TRANSITIONS[from]?.includes(to)) {
-    throw new ValidationError(`Task ${from} cannot transition to ${to}`)
-  }
-}
-
-// Plain helper (no transaction of its own) so callers can run it inside their
-// own withTransaction (publish, dispatch, acceptance, complete).
+// Single source of truth for task transitions is @canvas-agent/domain. The
+// persistence layer only converts the domain invariant error into a
+// ValidationError; it never copies the state matrix. Same-state stays a no-op
+// here so callers (dispatch: IN_PROGRESS -> IN_PROGRESS) can stay idempotent.
 export function transitionTask(
   p: Persistence,
   taskId: string,
@@ -396,9 +391,16 @@ export function transitionTask(
   now: string = p.services.now()
 ): TaskRow {
   const task = requireTask(p, taskId)
-  assertTaskTransition(task.status as TaskStatus, to)
   if (task.status === to) {
     return task
+  }
+  try {
+    assertDomainTaskTransition(task.status as TaskStatus, to)
+  } catch (error) {
+    if (error instanceof DomainInvariantError) {
+      throw new ValidationError(`Task ${task.status} cannot transition to ${to}`)
+    }
+    throw error
   }
   const updated = p.drizzle
     .update(taskTable)

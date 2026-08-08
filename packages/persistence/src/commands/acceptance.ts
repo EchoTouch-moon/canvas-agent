@@ -119,7 +119,10 @@ export function createAcceptanceEvaluation(
 
     const allPassed = input.criteria.every((criterion) => criterion.verdict === 'PASSED')
     const usableOutcome = USABLE_RUN_OUTCOMES.has(run.outcome ?? '')
-    const status: 'PASSED' | 'FAILED' = allPassed && usableOutcome ? 'PASSED' : 'FAILED'
+    if (allPassed && !usableOutcome) {
+      throw new ValidationError('PASSED acceptance evaluation requires a usable Run outcome')
+    }
+    const status: 'PASSED' | 'FAILED' = allPassed ? 'PASSED' : 'FAILED'
 
     const now = p.services.now()
     const last = p.drizzle

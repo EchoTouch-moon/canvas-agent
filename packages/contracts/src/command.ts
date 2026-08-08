@@ -523,7 +523,7 @@ const acceptanceEvaluateSchema = z
     taskId: idSchema,
     taskSpecVersionId: idSchema,
     runId: idSchema,
-    criteria: z.array(acceptanceCriterionVerdictInputSchema)
+    criteria: z.array(acceptanceCriterionVerdictInputSchema).min(1)
   })
   .strict()
 

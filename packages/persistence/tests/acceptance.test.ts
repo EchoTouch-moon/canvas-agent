@@ -17,6 +17,7 @@ import {
   publishTaskSpecVersion,
   requireTask,
   taskSpecVersionTable,
+  transitionTask,
   upsertRepositoryRevision,
   ValidationError,
   type Persistence
@@ -176,8 +177,47 @@ describe('task lifecycle', () => {
     closeDatabase(p)
   })
 
-  it('backfills legacy DRAFT tasks that already have a published spec', () => {
+  it('rejects publishing a new spec on a completed task', () => {
+    const { p, taskId, projectId, taskSpecVersionId, runId } = seedScenario()
+    const criteriaIds = specCriteriaIds(p, taskSpecVersionId)
+    const evaluation = createAcceptanceEvaluation(p, {
+      projectId,
+      taskId,
+      taskSpecVersionId,
+      runId,
+      criteria: criteriaIds.map((id) => ({ criterionId: id, verdict: 'PASSED' }))
+    })
+    completeTask(p, { taskId, evaluationId: evaluation.evaluation.id })
+    expect(() =>
+      publishTaskSpecVersion(p, {
+        id: 'spec_late',
+        taskId,
+        description: 'x',
+        scope: 's',
+        criteria: [{ description: 'c', position: 0 }]
+      })
+    ).toThrow(ValidationError)
+    closeDatabase(p)
+  })
+
+  it('rejects publishing a new spec on a cancelled task', () => {
     const p = createTestPersistence()
+    createProject(p, { id: 'proj', name: 'P' })
+    createTask(p, { id: 'task', projectId: 'proj', type: 'IMPLEMENT_CHANGE', title: 'T' })
+    transitionTask(p, 'task', 'CANCELLED')
+    expect(() =>
+      publishTaskSpecVersion(p, {
+        id: 'spec_late',
+        taskId: 'task',
+        description: 'x',
+        scope: 's',
+        criteria: [{ description: 'c', position: 0 }]
+      })
+    ).toThrow(ValidationError)
+    closeDatabase(p)
+  })
+
+  it('backfills legacy DRAFT tasks that already have a published spec', () => {    const p = createTestPersistence()
     createProject(p, { id: 'proj', name: 'P' })
     createTask(p, { id: 'task_draft', projectId: 'proj', type: 'IMPLEMENT_CHANGE', title: 'T' })
     p.drizzle
@@ -273,8 +313,9 @@ describe('acceptance evaluation', () => {
     closeDatabase(p)
   })
 
-  it('a FAILED / CANCELLED run can be evaluated but never PASSED', () => {
-    const { p, projectId, taskId, taskSpecVersionId } = seedScenario()
+  it('a non-usable run with any FAILED criterion records a durable FAILED evaluation', () => {
+    const { p, projectId, taskId, taskSpecVersionId } = seedScenario(2)
+    const criteriaIds = specCriteriaIds(p, taskSpecVersionId)
     // cancel a second run for the same task
     const cancelledRunId = 'run_c'
     createDispatchedRun(p, {
@@ -289,15 +330,46 @@ describe('acceptance evaluation', () => {
       request: dispatchRequest('exec-c')
     })
     finalize(p, cancelledRunId, 'exec-c', 'CANCELLED')
-    const criteriaIds = specCriteriaIds(p, taskSpecVersionId)
     const evaluation = createAcceptanceEvaluation(p, {
       projectId,
       taskId,
       taskSpecVersionId,
       runId: cancelledRunId,
-      criteria: criteriaIds.map((id) => ({ criterionId: id, verdict: 'PASSED' }))
+      criteria: criteriaIds.map((id, index) => ({
+        criterionId: id,
+        verdict: index === 0 ? 'FAILED' : 'PASSED'
+      }))
     })
     expect(evaluation.evaluation.status).toBe('FAILED')
+    expect(evaluation.items[0]?.verdict).toBe('FAILED')
+    closeDatabase(p)
+  })
+
+  it('rejects an all-PASSED evaluation against a non-usable run', () => {
+    const { p, projectId, taskId, taskSpecVersionId } = seedScenario(2)
+    const criteriaIds = specCriteriaIds(p, taskSpecVersionId)
+    const cancelledRunId = 'run_c'
+    createDispatchedRun(p, {
+      runId: cancelledRunId,
+      projectId,
+      taskId,
+      taskSpecVersionId,
+      contextSnapshotId: 'snap_1',
+      repositoryRevisionId: 'rev_1',
+      startedAt: '2026-08-08T10:00:06.000Z',
+      now: '2026-08-08T10:00:06.000Z',
+      request: dispatchRequest('exec-c')
+    })
+    finalize(p, cancelledRunId, 'exec-c', 'CANCELLED')
+    expect(() =>
+      createAcceptanceEvaluation(p, {
+        projectId,
+        taskId,
+        taskSpecVersionId,
+        runId: cancelledRunId,
+        criteria: criteriaIds.map((id) => ({ criterionId: id, verdict: 'PASSED' }))
+      })
+    ).toThrow(/usable Run outcome/)
     closeDatabase(p)
   })
 })
