@@ -1,132 +1,282 @@
 # PROPOSAL-024 — Phase 4 #3: Run + RunEvent + Artifact persistence
 
-- **Status:** Draft — awaiting architecture freeze
-- **Author:** DeepSeek V4 Flash
+- **Status:** APPROVED — direction frozen, entering implementation
+- **Author:** DeepSeek V4 Flash (architecture decisions by the lead)
 - **Date:** 2026-08-08
 - **Basis:** Phase 4 #3 direction; Phase 3 review gates (APPLY/COMPLETE/ACTIVATE
-  stay locked); the `content_blob` metadata registry.
+  stay locked); the existing `content_blob` metadata registry.
 
 ## Problem
 
-`execution.dispatch` returns a `DispatchResult` that is **session-only**:
+`execution.dispatch` returns a `DispatchResult` that is **session-only**: the
+coordinator's `runId` is discarded, artifact content lives only under
+`runtimeDirectory`, and there is no durable, queryable, auditable execution
+history. "Agent 执行成功" cannot become "项目里一条正式、持久、可审计的执行历史".
 
-- The coordinator generates `runId` (`run_*`) for the `ExecutionRequest`, then
-  discards it — there is no durable execution history.
-- Artifact content is written by the worker to
-  `runtimeDirectory/artifacts/<executionRequestId>/*` and is never copied
-  anywhere persistent; a runtime-directory cleanup loses every execution's
-  evidence.
-- There is no timeline: "Agent 执行成功" cannot become "项目里一条正式、持久、
-  可审计的执行历史".
+## Domain model (frozen)
 
-## Goals
+> Run ≠ one execution.dispatch. Run is NOT 1:1 with ExecutionRequest.
 
-1. A persisted **Run** aggregate per dispatched execution: identity bound to the
-   `ExecutionRequest.runId`, project-scoped, snapshot binding, outcome,
-   rejection / revision-mismatch detail, timestamps.
-2. A **deterministic RunEvent timeline** derived from the dispatch lifecycle
-   (no streaming in this packet).
-3. **Artifact persistence**: patch + verification results + agent summary +
-   partial evidence stored per run, content-hash auditable.
-4. Public read surface: `run.list({ projectId })` and `run.get({ runId })`
-   (with events + artifacts). `execution.dispatch` / `execution.cancel` remain
-   the action commands.
+```text
+Task                    = 要完成什么工作
+Run                     = 一次逻辑执行尝试
+ExecutionRequest        = 本次交给 Worker 的不可变执行合同
+Worker Attempt          = Worker 对合同的一次领取/执行片段
+```
 
-## Persistence design
+A Run can produce multiple ExecutionRequests (future resume / approval / worker
+swap):
 
-New tables (`packages/persistence/src/schema/run.ts` + commands/run.ts):
+```text
+Run 1 ─── N ExecutionRequestRecord
+Run 1 ─── N RunEvent
 
-- `run`: `id` (the ExecutionRequest runId), `projectId`, `taskId`,
-  `contextSnapshotId`, `taskSpecVersionId`, `repositoryRevisionId`,
-  `executionRequestId` (unique), `outcome`, `claimGranted`, `rejectionReason`,
-  `revisionMismatchField/Expected/Actual`, `patchHash`, `timedOut`,
-  `workerAttemptNumber`, `startedAt`, `completedAt` (nullable), `createdAt`.
-  Project-scoped from the frozen snapshot's projectId.
-- `run_event`: `id`, `runId`, `sequence`, `kind`, `detail` (JSON text),
-  `createdAt`. Deterministic events: `DISPATCHED` (at dispatch start) →
-  `COMPLETED` (at result). No streaming.
-- `artifact`: `id`, `runId`, `kind`, `fileName`, `contentHash`, `sizeBytes`,
-  `content` (inline text), `position`. Patch / verification JSON / summary /
-  partial evidence are text and stored inline, mirroring
-  `context_snapshot_item.resolvedContent`. `contentHash` = sha256 of content for
-  audit; content-addressed dedup is a future optimization.
+ExecutionRequestRecord 1 ─── N Artifact
+```
 
-## Dispatch lifecycle wiring
+## Tables
 
-In `ExecutionCoordinator.dispatch`, the already-generated
-`runId` (`this.services.nextId('run_')`) becomes the persisted Run id:
+### `run`
+
+```ts
+Run {
+  id                          // canonical identity, Main-created, injected into ExecutionRequest.runId
+  projectId
+  taskId
+  taskSpecVersionId
+  contextSnapshotId
+  repositoryRevisionId
+  status   // RunStatus
+  outcome  // RunOutcome | null
+  startedAt
+  completedAt                  // nullable
+  createdAt
+  updatedAt
+}
+```
+
+Not on Run (they are per-ExecutionRequest): `executionRequestId`,
+`workerAttemptNumber`, `claimGranted`, `rejectionReason`, `revisionMismatch`,
+`patchHash`, `timedOut`.
+
+### `execution_request_record`
+
+```ts
+ExecutionRequestRecord {
+  executionRequestId          // PK, runtime-safe id
+  runId
+  workerAttemptNumber
+  checkpointId                // nullable
+  requestHash
+  schemaVersion
+  requestJson                 // canonical stableStringify(request)
+  dispatchOutcome             // nullable
+  claimGranted                // nullable
+  rejectionReason             // nullable
+  revisionMismatchField       // nullable
+  revisionMismatchExpected    // nullable
+  revisionMismatchActual      // nullable
+  patchHash                   // nullable
+  timedOut                    // nullable
+  recoveryJson                // nullable
+  dispatchedAt
+  completedAt                 // nullable: time Main received the terminal DispatchResult
+}
+```
+
+- `requestJson` is the exact immutable contract sent to the worker, stored as
+  canonical `stableStringify(request)` bytes (Main constructs it). Audit can
+  re-verify: `parse requestJson → strip requestHash → computeRequestHash → ==
+  persisted requestHash`.
+- `completedAt` means **Main received the terminal DispatchResult**, not that the
+  Run was successfully finalized. A worker that returned SUCCEEDED but whose
+  artifact ingest failed leaves `dispatchOutcome = SUCCEEDED`,
+  `completedAt != null`, while the Run is `INTERRUPTED / outcome null`.
+
+### `run_event`
+
+```ts
+RunEvent {
+  id
+  runId
+  sequence        // UNIQUE(runId, sequence) — whole-Run timeline order
+  kind            // 'DISPATCHED' | 'FINISHED' | 'INTERRUPTED'
+  detail          // JSON text (metadata only; no agent/patch/test content)
+  createdAt
+}
+```
+
+Minimal deterministic events, all produced by Main (no worker streaming):
+
+- `DISPATCHED` `{ executionRequestId, workerAttemptNumber, requestHash }`
+- `FINISHED` `{ executionRequestId, dispatchOutcome, runOutcome }`
+- `INTERRUPTED` `{ executionRequestId, reasonCode }`
+
+### `artifact`
+
+```ts
+Artifact {
+  id
+  runId
+  executionRequestId          // the producing execution
+  kind                        // PATCH | TEST_RESULT | AGENT_SUMMARY | AGENT_PARTIAL
+  fileName
+  content                     // inline text
+  contentHash                 // sha256 of content
+  sizeBytes
+  position                    // UNIQUE(executionRequestId, position) — per-request ordering
+  createdAt
+}
+```
+
+`runId` enables aggregate/query; `executionRequestId` is the real producing
+execution (a Run with two requests has artifacts ordered per request, positions
+restarting at 0).
+
+## Run status / outcome semantics
+
+`RUNNING` is the initial durable observable state for Phase 4 #3;
+`CREATED / QUEUED / PREPARING` are reserved for a future scheduler/queue/worker
+allocation and are not faked now. Only a `FINISHED` Run carries an outcome; a
+`RUNNING` Run with `outcome null` is valid. A crashed Main process leaves the Run
+as `RUNNING / null / completedAt null` — a durable orphan record, not corruption
+(no startup reconciliation in this packet).
+
+DispatchResult → Run mapping (frozen):
+
+```text
+DispatchResult                    Run
+SUCCEEDED                          FINISHED / SUCCEEDED
+PARTIAL, timedOut != true          FINISHED / PARTIAL
+PARTIAL, timedOut == true          FINISHED / TIMED_OUT
+CANCELLED                          FINISHED / CANCELLED
+VALIDATION_REJECTED                FINISHED / FAILED     ← legal terminal result
+CLAIM_REJECTED                     FINISHED / FAILED
+REVISION_MISMATCH                  FINISHED / FAILED
+WorkerHost throws / child crash    INTERRUPTED / null
+Main artifact trust failure        INTERRUPTED / null
+Main cannot durable-finalize       INTERRUPTED / null
+```
+
+## Dispatch lifecycle (frozen)
 
 ```text
 execution.dispatch
-  → persist Run row (outcome null, completedAt null) + DISPATCHED event
-  → worker.dispatch(request)   // request.runId === Run.id
-  → on result:
-      → copy artifact files runtimeDirectory/artifacts/<executionRequestId>/*
-        into artifact rows (needs runtimeDirectory injected into the coordinator
-        or a small RunPersistenceService)
-      → update Run outcome/rejection/timestamps + patchHash
-      → append COMPLETED event (outcome + summary)
-  → return DispatchResult (unchanged surface)
+  → load + validate Snapshot
+  → generate canonical Run.id
+  → build ExecutionRequest (runId injected)
+  → compute requestHash
+  → SQLite transaction:
+      INSERT Run(status=RUNNING, outcome=null)
+      INSERT ExecutionRequestRecord
+      APPEND DISPATCHED
+  → COMMIT
+  → WorkerHost.dispatch()
 ```
 
-A crashed / abandoned dispatch leaves a Run stuck in `DISPATCHED` with
-`completedAt: null` — a durable, visible in-flight record rather than nothing.
+Invariant: if Run / ExecutionRequestRecord / DISPATCHED cannot be persisted, the
+worker must NOT start. Main owns `Run.id` and injects it into
+`ExecutionRequest.runId` (never the reverse).
+
+Completion:
+
+```text
+Worker DispatchResult
+  → ArtifactIngestor reads + verifies files (Main establishes facts)
+  → all artifacts in memory, size/hash/UTF-8 verified
+  → SQLite transaction:
+      INSERT Artifact[]
+      finalize ExecutionRequestRecord (dispatch metadata + completedAt)
+      Run RUNNING → FINISHED (mapped outcome)
+      APPEND FINISHED
+  → COMMIT
+  → return execution.dispatch response
+```
+
+No "Run = SUCCEEDED then artifact INSERT fails" window. On
+WorkerHost-throw / artifact-integrity-failure / persistence-failure the Run goes
+`RUNNING → INTERRUPTED / outcome null` and `execution.dispatch` returns a command
+error rather than claiming success.
+
+### `interruptRun` supports both cases (acceptance detail A)
+
+```ts
+interruptRun({ runId, executionRequestId, reason, terminalResult: null })
+// worker throw / child crash → request.completedAt = null
+
+interruptRun({ runId, executionRequestId, reason, terminalResult: result })
+// worker returned but ingest / durable finalize failed
+// → request.completedAt set, dispatch metadata persisted
+```
+
+Run has no outcome either way; the ExecutionRequestRecord keeps whatever terminal
+evidence was received.
+
+## Artifact ingestion trust boundary
+
+Main must not trust the worker's descriptors (worker is replaceable infra). After
+strict `fileName` validation (reject `''`, `.`, `..`, `/`, `\`, NUL), use
+**realpath containment** (acceptance detail B):
+
+```text
+trustedArtifactRoot   = realpath(runtimeDirectory/artifacts)
+executionDirectory    = realpath(runtimeDirectory/artifacts/<executionRequestId>)
+                        must be strict descendant of trustedArtifactRoot
+artifactFile          = realpath(executionDirectory/<fileName>)
+                        must be strict descendant of executionDirectory
+```
+
+Then: `lstat` must be a regular file (symlink rejected), bounded read, fatal
+UTF-8 decode, `actual size == descriptor.sizeBytes`, `actual sha256 ==
+descriptor.contentHash`.
 
 ## Command surface
 
 | command | payload | response |
 |---|---|---|
-| `run.list` | `{ projectId }` | `RunSummary[]` (id, outcome, snapshotId, startedAt, completedAt) |
-| `run.get` | `{ runId }` | `{ run, events, artifacts }` |
+| `execution.dispatch` | `{ executionRequestId, contextSnapshotId }` | `{ runId, executionRequestId, result: DispatchResult }` |
+| `execution.cancel` | `{ executionRequestId }` | `{ cancelled }` (unchanged; no `run.cancel`) |
+| `run.list` | `{ projectId }` | `RunSummary[]` |
+| `run.get` | `{ runId }` | `{ run, executionRequests, events, artifacts }` |
 
-Both read-only; actions remain `execution.dispatch` / `execution.cancel`.
-`execution.cancel` for a persisted run is unchanged (it aborts the in-flight
-worker; the terminal outcome lands in the Run on completion).
+`executionRequestId` is tightened to a single shared runtime-safe schema
+(`min 1`, `max 128`, `^[A-Za-z0-9._-]+$`, rejects `.` / `..`) reused by
+`ExecutionRequestContract`, `execution.dispatch` and `execution.cancel` — it is a
+real filesystem path segment on the worker side.
+
+## Renderer
+
+Thin wiring only: `useWorkspace.execute` returns the new dispatch response;
+`runList` / `runGet` wrappers; a Live-view Runs history section lists `run.list`
+and shows `run.get` details (status/outcome, snapshot binding, execution
+requests, events, artifacts). Timeline/evidence must come from `run.list` /
+`run.get`, never fabricated from a session-only `DispatchResult`. This replaces
+the Phase 3 session-only evidence.
 
 ## Out of scope (this packet)
 
-- Task completion / Baseline promotion (APPLY/COMPLETE/ACTIVATE stay locked).
-- Real-time RunEvent streaming (derived timeline only).
-- Checkpoint / resume / re-attempt engine.
-- Applying the patch to the source repository.
-- Cross-run artifact content dedup (inline storage now).
+Task completion, AcceptanceEvaluation, Baseline N+1, Checkpoint/Resume, Approval,
+ToolInvocation, patch apply, startup orphan reconciliation, streaming RunEvent,
+content-addressed Artifact dedup.
 
-## Test matrix
+## Acceptance (final gate)
 
-- persistence: `createRun`/`recordRunResult`/`listRuns`/`getRun`/events/artifacts
-  round-trip; project-scoped run listing; immutable-completed Run re-write
-  rejected.
-- coordinator: dispatch persists Run + DISPATCHED event before the worker; on
-  result persists artifacts + outcome + COMPLETED event; cancel/REVISION_MISMATCH
-  outcome persisted; artifact content hash matches the worker descriptor.
-- contracts: `run.list` / `run.get` request/response validation.
-- renderer: `run.list` / `run.get` via fake transport; Live view runs-history
-  section (hydration + dispatch shows the run appear).
-- E2E: after dispatch SUCCEEDED, `run.list` returns the run and `run.get` shows
-  the patch artifact content.
+1. Before the worker starts, Run + ExecutionRequestRecord + DISPATCHED are durable.
+2. The worker's terminal result is auditable on ExecutionRequestRecord.
+3. Artifacts are Main-verified (path / bytes / hash / size).
+4. FINISHED and INTERRUPTED semantics are never conflated.
+5. **Electron restart with the same HOME/DB**: the same Run, ExecutionRequest,
+   DISPATCHED + FINISHED events, and the same PATCH artifact bytes/hash all
+   survive.
 
 ## Delivery
 
-- `packages/contracts`: `run.list` / `run.get` schemas + CommandMap entries.
-- `packages/persistence`: `run` / `run_event` / `artifact` tables + commands.
-- `apps/desktop/src/main`: `RunPersistenceService` (or coordinator + runtime
-  dir), record-on-dispatch wiring, `run.list` / `run.get` routes.
-- `apps/desktop/src/renderer`: `useWorkspace.runList` / `runGet`; Live view
-  runs-history section; fake transport.
+- `packages/contracts`: shared `executionRequestIdSchema`; new `execution.dispatch`
+  response; `run.list` / `run.get` + schema set.
+- `packages/persistence`: four tables + commands + `mapDispatchToRunOutcome`.
+- `apps/desktop/src/main`: `ExecutionCoordinator` persistence wiring +
+  `ArtifactIngestor`; routes; smoke unwrap.
+- `apps/desktop/src/renderer`: execute/runList/runGet; Live runs history; fake
+  transport.
 - docs: this ADR + verification packet. Gate: `pnpm check` + `phase3-smoke` +
-  `e2e:live` + PR CI.
-
-## Awaiting architecture decisions
-
-1. **Event granularity**: minimal deterministic `DISPATCHED → COMPLETED`
-   (recommended) vs adding intermediate events (requires worker streaming)?
-2. **Artifact content storage**: inline `artifact.content` text (recommended,
-   mirrors resolvedContent) vs content-addressed blob table with dedup?
-3. **Run row lifecycle**: create at dispatch start (recommended — durable
-   in-flight record) vs only after completion?
-4. **Run id**: reuse the coordinator's `ExecutionRequest.runId` (recommended) vs
-   a separate persistence id?
-5. **Command surface**: `run.list` / `run.get` only, or also a `run.cancel`
-   alias over `execution.cancel`?
-6. **Renderer scope**: wire a runs-history section into the Live view in this
-   packet (recommended) vs backend-only?
+  `e2e:live` (incl. restart) + PR CI.
