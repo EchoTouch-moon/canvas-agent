@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { parseSourceRef } from '@canvas-agent/contracts'
 import {
+  CheckCircle2,
   ChevronRight,
   FileCheck2,
   FolderOpen,
@@ -23,6 +24,7 @@ import { RunOutcomeBadge } from '@/components/domain'
 import { buildContextCandidates, type ContextCandidate } from '@/lib/context-candidates'
 import { useWorkspace, type UseWorkspaceResult } from '@/hooks/use-workspace'
 import type {
+  AcceptanceEvaluationAggregate,
   DispatchResult,
   FrozenSnapshotView,
   ResolvedContextItem,
@@ -32,6 +34,7 @@ import type {
 
 interface RunState {
   readonly executionRequestId: string
+  readonly runId?: string
   readonly status: 'PENDING' | 'DONE'
   readonly result?: DispatchResult
   readonly error?: string
@@ -501,6 +504,242 @@ function RunsHistorySection({
   )
 }
 
+function AcceptanceSection({
+  workspace,
+  runId,
+  runOutcome
+}: {
+  readonly workspace: UseWorkspaceResult
+  readonly runId: string | null
+  readonly runOutcome: string | null
+}): React.JSX.Element {
+  const view = workspace.workspace
+  const spec = view?.taskSpecs[0]
+  const taskId = spec?.spec.taskId ?? null
+  const taskSpecVersionId = spec?.spec.id ?? null
+  const projectId = view?.project.id ?? null
+  const criteria = useMemo(() => spec?.criteria ?? [], [spec])
+  const [verdicts, setVerdicts] = useState<Record<string, 'PASSED' | 'FAILED'>>({})
+  const [notes, setNotes] = useState<Record<string, string>>({})
+  const [evaluations, setEvaluations] = useState<readonly AcceptanceEvaluationAggregate[]>([])
+  const [busy, setBusy] = useState(false)
+  const [completeBusy, setCompleteBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadEvaluations = useCallback(async (): Promise<void> => {
+    if (taskId === null) return
+    try {
+      setEvaluations(await workspace.listAcceptance(taskId))
+    } catch {
+      setEvaluations([])
+    }
+  }, [taskId, workspace])
+
+  useEffect(() => {
+    if (taskId === null) return
+    let active = true
+    void workspace
+      .listAcceptance(taskId)
+      .then((list) => {
+        if (active) setEvaluations(list)
+      })
+      .catch(() => {
+        if (active) setEvaluations([])
+      })
+    return () => {
+      active = false
+    }
+  }, [taskId, workspace])
+
+  const latest = evaluations[evaluations.length - 1]
+  const latestPassed = latest?.evaluation.status === 'PASSED'
+
+  const handleSubmit = useCallback(async (): Promise<void> => {
+    setError(null)
+    if (projectId === null || taskId === null || taskSpecVersionId === null || runId === null)
+      return
+    if (criteria.length === 0) return
+    if (criteria.some((criterion) => verdicts[criterion.id] === undefined)) {
+      setError('Verdict every acceptance criterion before submitting.')
+      return
+    }
+    setBusy(true)
+    try {
+      await workspace.evaluateAcceptance({
+        projectId,
+        taskId,
+        taskSpecVersionId,
+        runId,
+        criteria: criteria.map((criterion) => ({
+          criterionId: criterion.id,
+          verdict: verdicts[criterion.id] ?? 'FAILED',
+          note: notes[criterion.id]?.trim() || null
+        }))
+      })
+      await loadEvaluations()
+      await workspace.refresh()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Evaluation failed')
+    } finally {
+      setBusy(false)
+    }
+  }, [
+    workspace,
+    projectId,
+    taskId,
+    taskSpecVersionId,
+    runId,
+    criteria,
+    verdicts,
+    notes,
+    loadEvaluations
+  ])
+
+  const handleComplete = useCallback(async (): Promise<void> => {
+    setError(null)
+    if (taskId === null || latest === undefined) return
+    setCompleteBusy(true)
+    try {
+      await workspace.completeTask({ taskId, evaluationId: latest.evaluation.id })
+      await workspace.refresh()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Completion failed')
+    } finally {
+      setCompleteBusy(false)
+    }
+  }, [workspace, taskId, latest])
+
+  return (
+    <Section
+      eyebrow="acceptance.evaluate · task.complete"
+      title="Acceptance"
+      action={
+        latest ? (
+          <Badge tone={latestPassed ? 'success' : 'danger'}>
+            evaluation #{latest.evaluation.sequence} · {latest.evaluation.status}
+          </Badge>
+        ) : (
+          <Badge tone="neutral">no evaluation</Badge>
+        )
+      }
+    >
+      {runId === null ? (
+        <p className="text-[11px] text-muted-foreground">
+          Dispatch a run to evaluate its evidence against the task criteria.
+        </p>
+      ) : criteria.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">No task spec criteria available.</p>
+      ) : (
+        <div className="space-y-3">
+          {runOutcome ? (
+            <p className="text-[10px] text-muted-foreground">
+              Evaluating run <span className="font-mono">{runId}</span> · outcome {runOutcome}
+            </p>
+          ) : null}
+          <div className="space-y-2">
+            {criteria.map((criterion, index) => {
+              const verdict = verdicts[criterion.id]
+              return (
+                <div
+                  key={criterion.id}
+                  className="rounded-[var(--radius-control)] border border-border bg-muted/40 p-2.5"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="min-w-0 flex-1 text-[11px] leading-5">
+                      <span className="text-muted-foreground">#{index + 1}</span>{' '}
+                      {criterion.description}
+                    </p>
+                    <div className="flex shrink-0 gap-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setVerdicts((current) => ({ ...current, [criterion.id]: 'PASSED' }))
+                        }
+                        className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
+                          verdict === 'PASSED'
+                            ? 'bg-status-success/15 text-status-success'
+                            : 'text-muted-foreground hover:bg-accent'
+                        }`}
+                      >
+                        PASSED
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setVerdicts((current) => ({ ...current, [criterion.id]: 'FAILED' }))
+                        }
+                        className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
+                          verdict === 'FAILED'
+                            ? 'bg-status-danger/15 text-status-danger'
+                            : 'text-muted-foreground hover:bg-accent'
+                        }`}
+                      >
+                        FAILED
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    aria-label={`Note for ${criterion.description}`}
+                    placeholder="note (optional)"
+                    value={notes[criterion.id] ?? ''}
+                    onChange={(event) =>
+                      setNotes((current) => ({ ...current, [criterion.id]: event.target.value }))
+                    }
+                    className="mt-2 h-6 w-full rounded-[var(--radius-control)] border border-border bg-background px-2 text-[10px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  />
+                </div>
+              )
+            })}
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {error ? <span className="text-[10px] text-status-danger">{error}</span> : null}
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy}
+              onClick={() => void handleSubmit()}
+            >
+              {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
+              Submit evaluation
+            </Button>
+            <Button
+              size="sm"
+              disabled={!latestPassed || completeBusy}
+              onClick={() => void handleComplete()}
+            >
+              <CheckCircle2 className="size-3.5" aria-hidden="true" />
+              Complete task
+            </Button>
+          </div>
+
+          {evaluations.length > 0 ? (
+            <div>
+              <p className="mb-1 text-[9px] font-semibold text-muted-foreground uppercase">
+                Evaluation history
+              </p>
+              <ol className="space-y-1">
+                {evaluations.map((entry) => (
+                  <li key={entry.evaluation.id} className="flex items-center gap-2 text-[10px]">
+                    <Badge tone={entry.evaluation.status === 'PASSED' ? 'success' : 'danger'}>
+                      #{entry.evaluation.sequence} · {entry.evaluation.status}
+                    </Badge>
+                    <span className="min-w-0 flex-1 truncate font-mono">
+                      {entry.evaluation.runId}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {entry.items.map((item) => item.verdict).join(' / ')}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </Section>
+  )
+}
+
 function FreezeSection({
   workspace,
   selectedIds,
@@ -740,7 +979,12 @@ export function LiveWorkspaceView(): React.JSX.Element {
         executionRequestId,
         contextSnapshotId: frozen.id
       })
-      setRun({ executionRequestId, status: 'DONE', result: response.result })
+      setRun({
+        executionRequestId,
+        runId: response.runId,
+        status: 'DONE',
+        result: response.result
+      })
     } catch (error) {
       setRun({
         executionRequestId,
@@ -848,6 +1092,12 @@ export function LiveWorkspaceView(): React.JSX.Element {
           {run ? <EvidenceSection run={run} /> : null}
         </div>
       </div>
+
+      <AcceptanceSection
+        workspace={workspace}
+        runId={run?.runId ?? null}
+        runOutcome={run?.result?.outcome ?? null}
+      />
 
       <RunsHistorySection workspace={workspace} />
     </div>

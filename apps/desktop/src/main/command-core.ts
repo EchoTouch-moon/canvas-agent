@@ -69,6 +69,9 @@ export function buildRoutes(deps: CommandDeps): Record<string, CommandRoute> {
   workspaceRoute('context.resolve', (ws, payload) => ws.resolveContext(payload))
   workspaceRoute('run.list', (ws, payload) => ws.listRuns(payload))
   workspaceRoute('run.get', (ws, payload) => ws.getRun(payload))
+  workspaceRoute('acceptance.evaluate', (ws, payload) => ws.evaluateAcceptance(payload))
+  workspaceRoute('acceptance.list', (ws, payload) => ws.listAcceptance(payload))
+  workspaceRoute('task.complete', (ws, payload) => ws.completeTask(payload))
   coordinatorRoute('execution.dispatch', (coordinator, payload) => coordinator.dispatch(payload))
   coordinatorRoute('execution.cancel', (coordinator, payload) => coordinator.cancel(payload))
 

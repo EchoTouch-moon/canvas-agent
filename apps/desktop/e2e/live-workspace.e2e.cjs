@@ -80,6 +80,16 @@ async function firstLaunch(repo, home) {
 
     const claim = await page.getByText('Claim granted').count()
     step('A claim granted evidence', claim > 0)
+
+    // Acceptance: verdict the demo task's single criterion, submit the
+    // evaluation (Task -> WAITING_REVIEW), then complete the task.
+    await page.getByRole('button', { name: 'PASSED' }).first().click()
+    await page.getByRole('button', { name: 'Submit evaluation' }).click()
+    await page.getByText(/evaluation #0 · PASSED/).waitFor({ timeout: 10000 })
+    step('A acceptance.evaluate -> WAITING_REVIEW', true)
+    await page.getByRole('button', { name: 'Complete task' }).click()
+    await page.waitForTimeout(1500)
+    step('A task.complete submitted', true)
   } catch (error) {
     step('A e2e flow', false)
     console.log('[e2e] A FLOW ERROR:', error && error.message)
@@ -151,6 +161,32 @@ async function secondLaunch(repo, home) {
 
     const evidence = await page.evaluate(() => document.body.innerText.includes('Snapshot'))
     step('B run.get snapshot binding present', evidence)
+
+    // The acceptance history and the completed Task must survive the restart.
+    const bridgeState = await page.evaluate(async () => {
+      const command = async (payload) => {
+        const response = await window.canvasAgent.command({
+          requestId: 'e2e-restart-b',
+          schemaVersion: 1,
+          command: payload.command,
+          payload: payload.body
+        })
+        return response.ok ? response.data : null
+      }
+      const evaluations = await command({
+        command: 'acceptance.list',
+        body: { taskId: 'task_demo_1' }
+      })
+      const state = await command({ command: 'project.state', body: { projectId: 'proj_demo' } })
+      const task = state && state.tasks.find((candidate) => candidate.id === 'task_demo_1')
+      return { evaluations, taskStatus: task ? task.status : null }
+    })
+    const evalCount = Array.isArray(bridgeState.evaluations) ? bridgeState.evaluations.length : 0
+    const evalPassed =
+      evalCount > 0 &&
+      bridgeState.evaluations[bridgeState.evaluations.length - 1].evaluation.status === 'PASSED'
+    step('B acceptance history survived restart (PASSED evaluation)', evalPassed)
+    step('B task is durably COMPLETED after restart', bridgeState.taskStatus === 'COMPLETED')
 
     fs.mkdirSync(SHOT_DIR, { recursive: true })
     await page.screenshot({ path: path.join(SHOT_DIR, 'restart-persistence.png'), fullPage: true })

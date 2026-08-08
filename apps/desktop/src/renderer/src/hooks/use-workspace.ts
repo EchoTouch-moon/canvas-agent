@@ -9,6 +9,7 @@ import {
   createWorkspaceClient
 } from '@/lib/workspace-client'
 import type {
+  AcceptanceEvaluationAggregate,
   DispatchResult,
   FrozenSnapshotView,
   NodeDraftRecord,
@@ -71,6 +72,22 @@ export interface UseWorkspaceResult {
   readonly cancel: (executionRequestId: string) => Promise<{ readonly cancelled: boolean }>
   readonly runList: (projectId: string) => Promise<readonly RunSummary[]>
   readonly runGet: (runId: string) => Promise<RunAggregateView>
+  readonly evaluateAcceptance: (input: {
+    readonly projectId: string
+    readonly taskId: string
+    readonly taskSpecVersionId: string
+    readonly runId: string
+    readonly criteria: readonly {
+      readonly criterionId: string
+      readonly verdict: 'PASSED' | 'FAILED'
+      readonly note?: string | null
+    }[]
+  }) => Promise<AcceptanceEvaluationAggregate>
+  readonly listAcceptance: (taskId: string) => Promise<readonly AcceptanceEvaluationAggregate[]>
+  readonly completeTask: (input: {
+    readonly taskId: string
+    readonly evaluationId: string
+  }) => Promise<ProjectStateView['tasks'][number]>
 }
 
 const defaultClient = createWorkspaceClient()
@@ -207,6 +224,42 @@ export function useWorkspace(
     [client]
   )
 
+  const evaluateAcceptance = useCallback(
+    (input: {
+      readonly projectId: string
+      readonly taskId: string
+      readonly taskSpecVersionId: string
+      readonly runId: string
+      readonly criteria: readonly {
+        readonly criterionId: string
+        readonly verdict: 'PASSED' | 'FAILED'
+        readonly note?: string | null
+      }[]
+    }): Promise<AcceptanceEvaluationAggregate> =>
+      client.command('acceptance.evaluate', {
+        projectId: input.projectId,
+        taskId: input.taskId,
+        taskSpecVersionId: input.taskSpecVersionId,
+        runId: input.runId,
+        criteria: [...input.criteria]
+      }),
+    [client]
+  )
+
+  const listAcceptance = useCallback(
+    (taskId: string): Promise<readonly AcceptanceEvaluationAggregate[]> =>
+      client.command('acceptance.list', { taskId }),
+    [client]
+  )
+
+  const completeTask = useCallback(
+    (input: {
+      readonly taskId: string
+      readonly evaluationId: string
+    }): Promise<ProjectStateView['tasks'][number]> => client.command('task.complete', input),
+    [client]
+  )
+
   return {
     projects,
     selectedProjectId,
@@ -221,6 +274,9 @@ export function useWorkspace(
     execute,
     cancel,
     runList,
-    runGet
+    runGet,
+    evaluateAcceptance,
+    listAcceptance,
+    completeTask
   }
 }

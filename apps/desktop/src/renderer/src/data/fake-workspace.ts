@@ -11,6 +11,7 @@ import {
   type WorkspaceClient
 } from '@/lib/workspace-client'
 import type {
+  AcceptanceEvaluationAggregate,
   ContextSnapshotItemRecord,
   DispatchResult,
   NodeDraftRecord,
@@ -331,6 +332,8 @@ export function createFakeWorkspaceClient(options: FakeWorkspaceOptions = {}): W
   const repositoryFiles = { ...defaultRepositoryFiles, ...(options.repositoryFiles ?? {}) }
   const runsByProject = new Map<string, RunSummary[]>()
   const runAggregates = new Map<string, RunAggregateView>()
+  const acceptanceByTask = new Map<string, AcceptanceEvaluationAggregate[]>()
+  const taskStatus = new Map<string, string>()
   let runCounter = 0
 
   function recordRun(
@@ -661,6 +664,109 @@ export function createFakeWorkspaceClient(options: FakeWorkspaceOptions = {}): W
             return failure(request, 'NotFoundError', `Cannot find Run ${input.runId}`)
           }
           return response(request, clone(aggregate))
+        }
+        case 'acceptance.evaluate': {
+          const input = request.payload
+          const state = stateByProject.get(input.projectId)
+          if (!state) {
+            return failure(request, 'NotFoundError', `Cannot find Project ${input.projectId}`)
+          }
+          const specAggregate = state.taskSpecs.find(
+            (aggregate) => aggregate.spec.id === input.taskSpecVersionId
+          )
+          if (!specAggregate) {
+            return failure(
+              request,
+              'NotFoundError',
+              `Cannot find TaskSpecVersion ${input.taskSpecVersionId}`
+            )
+          }
+          const authoritativeIds = specAggregate.criteria.map((criterion) => criterion.id)
+          const submittedIds = input.criteria.map((criterion) => criterion.criterionId)
+          const uniqueSubmitted = new Set(submittedIds)
+          if (
+            uniqueSubmitted.size !== authoritativeIds.length ||
+            !authoritativeIds.every((id) => uniqueSubmitted.has(id))
+          ) {
+            return failure(
+              request,
+              'ValidationError',
+              'acceptance criteria must exactly match the TaskSpecVersion'
+            )
+          }
+          const run = runAggregates.get(input.runId)
+          if (!run || run.run.status !== 'FINISHED') {
+            return failure(request, 'ValidationError', 'Run is not FINISHED')
+          }
+          const allPassed = input.criteria.every((criterion) => criterion.verdict === 'PASSED')
+          const usable = ['SUCCEEDED', 'PARTIAL', 'TIMED_OUT'].includes(run.run.outcome ?? '')
+          const status = allPassed && usable ? 'PASSED' : 'FAILED'
+          const evaluations = acceptanceByTask.get(input.taskId) ?? []
+          const sequence = evaluations.length
+          const id = `evaluation-${sequence + 1}`
+          const createdAt = new Date().toISOString()
+          const evaluation: AcceptanceEvaluationAggregate['evaluation'] = {
+            id,
+            projectId: input.projectId,
+            taskId: input.taskId,
+            taskSpecVersionId: input.taskSpecVersionId,
+            runId: input.runId,
+            sequence,
+            status,
+            createdAt
+          }
+          const items: AcceptanceEvaluationAggregate['items'] = input.criteria.map(
+            (criterion, index) => {
+              const authoritative = specAggregate.criteria.find(
+                (candidate) => candidate.id === criterion.criterionId
+              )
+              return {
+                id: `item-${id}-${index}`,
+                evaluationId: id,
+                criterionId: criterion.criterionId,
+                verdict: criterion.verdict,
+                note: criterion.note ?? null,
+                position: authoritative?.position ?? index
+              }
+            }
+          )
+          const aggregate: AcceptanceEvaluationAggregate = { evaluation, items }
+          acceptanceByTask.set(input.taskId, [...evaluations, aggregate])
+          taskStatus.set(input.taskId, 'WAITING_REVIEW')
+          return response(request, clone(aggregate))
+        }
+        case 'acceptance.list': {
+          const input = request.payload
+          return response(request, clone(acceptanceByTask.get(input.taskId) ?? []))
+        }
+        case 'task.complete': {
+          const input = request.payload
+          const evaluations = acceptanceByTask.get(input.taskId) ?? []
+          const latest = evaluations[evaluations.length - 1]
+          if (!latest || latest.evaluation.id !== input.evaluationId) {
+            return failure(
+              request,
+              'ValidationError',
+              'task completion requires the latest evaluation'
+            )
+          }
+          if (latest.evaluation.status !== 'PASSED') {
+            return failure(
+              request,
+              'ValidationError',
+              'task completion requires a PASSED evaluation'
+            )
+          }
+          taskStatus.set(input.taskId, 'COMPLETED')
+          return response(request, {
+            id: input.taskId,
+            projectId: 'project-musicdb',
+            type: 'IMPLEMENT_CHANGE',
+            status: 'COMPLETED',
+            title: 'Task',
+            createdAt: latest.evaluation.createdAt,
+            updatedAt: new Date().toISOString()
+          })
         }
         case 'context.resolve': {
           const input = request.payload
