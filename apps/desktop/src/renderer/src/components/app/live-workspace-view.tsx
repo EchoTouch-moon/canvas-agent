@@ -25,6 +25,8 @@ import { buildContextCandidates, type ContextCandidate } from '@/lib/context-can
 import { useWorkspace, type UseWorkspaceResult } from '@/hooks/use-workspace'
 import type {
   AcceptanceEvaluationAggregate,
+  ArtifactApplicationAggregate,
+  BaselineCandidateAggregate,
   DispatchResult,
   FrozenSnapshotView,
   ResolvedContextItem,
@@ -758,6 +760,263 @@ function AcceptanceSection({
   )
 }
 
+function AdoptionSection({
+  workspace,
+  runId
+}: {
+  readonly workspace: UseWorkspaceResult
+  readonly runId: string | null
+}): React.JSX.Element {
+  const view = workspace.workspace
+  const [taskId, setTaskId] = useState<string | null>(null)
+  const [artifactId, setArtifactId] = useState<string | null>(null)
+  const [evaluationId, setEvaluationId] = useState<string | null>(null)
+  const [application, setApplication] = useState<ArtifactApplicationAggregate | null>(null)
+  const [candidateName, setCandidateName] = useState('Baseline 1.1')
+  const [candidate, setCandidate] = useState<BaselineCandidateAggregate | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const task = view?.tasks.find((item) => item.id === taskId) ?? null
+  const taskCompleted = task?.status === 'COMPLETED'
+
+  useEffect(() => {
+    if (runId === null) {
+      return
+    }
+    let active = true
+    void workspace
+      .runGet(runId)
+      .then((aggregate) => {
+        if (!active) return
+        setTaskId(aggregate.run.taskId)
+        const patch = aggregate.artifacts.find((item) => item.kind === 'PATCH')
+        setArtifactId(patch?.id ?? null)
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [runId, workspace])
+
+  useEffect(() => {
+    if (taskId === null) return
+    let active = true
+    void workspace
+      .listAcceptance(taskId)
+      .then((list) => {
+        const latest = list[list.length - 1]
+        if (active && latest) setEvaluationId(latest.evaluation.id)
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [taskId, workspace])
+
+  useEffect(() => {
+    if (taskId === null) return
+    let active = true
+    void workspace
+      .listArtifactApplications(taskId)
+      .then((list) => {
+        if (active && list.length > 0) setApplication(list[list.length - 1] ?? null)
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [taskId, workspace])
+
+  const handleApply = useCallback(async (): Promise<void> => {
+    setError(null)
+    // P1-4: a retry / reconcile uses the application's own stored binding, so
+    // AUTHORIZED / APPLYING / INTERRUPTED states are recoverable from the UI.
+    if (application !== null) {
+      setBusy(true)
+      try {
+        setApplication(
+          await workspace.applyArtifact({
+            taskId: application.application.taskId,
+            evaluationId: application.application.evaluationId,
+            artifactId: application.application.artifactId
+          })
+        )
+        await workspace.refresh()
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'reconcile failed')
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
+    if (taskId === null || evaluationId === null || artifactId === null) return
+    setBusy(true)
+    try {
+      setApplication(await workspace.applyArtifact({ taskId, evaluationId, artifactId }))
+      await workspace.refresh()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'apply failed')
+    } finally {
+      setBusy(false)
+    }
+  }, [workspace, taskId, evaluationId, artifactId, application])
+
+  const handleCreateCandidate = useCallback(async (): Promise<void> => {
+    setError(null)
+    if (application === null || candidateName.trim().length === 0) return
+    setBusy(true)
+    try {
+      setCandidate(
+        await workspace.createBaselineCandidate({
+          applicationId: application.application.id,
+          name: candidateName.trim()
+        })
+      )
+      await workspace.refresh()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'candidate failed')
+    } finally {
+      setBusy(false)
+    }
+  }, [workspace, application, candidateName])
+
+  const handleActivate = useCallback(async (): Promise<void> => {
+    setError(null)
+    if (candidate === null) return
+    setBusy(true)
+    try {
+      await workspace.activateBaseline(candidate.baseline.id)
+      await workspace.refresh()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'activation failed')
+    } finally {
+      setBusy(false)
+    }
+  }, [workspace, candidate])
+
+  const applied = application?.effectiveStatus === 'APPLIED'
+  const activeBaseline = view?.activeBaseline
+
+  return (
+    <Section
+      eyebrow="artifact.apply · baseline.createCandidateFromTask · baseline.activate"
+      title="Result adoption"
+      action={
+        application ? (
+          <Badge
+            tone={
+              applied
+                ? 'success'
+                : application.effectiveStatus === 'INTERRUPTED'
+                  ? 'danger'
+                  : 'info'
+            }
+          >
+            {application.effectiveStatus}
+          </Badge>
+        ) : (
+          <Badge tone="neutral">not authorized</Badge>
+        )
+      }
+    >
+      <div className="space-y-3">
+        {runId === null ? (
+          <p className="text-[11px] text-muted-foreground">
+            Dispatch and complete a task to authorize adopting its PATCH.
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
+              {taskCompleted ? (
+                <Badge tone="success">task COMPLETED</Badge>
+              ) : (
+                <Badge tone="warning">task not completed</Badge>
+              )}
+              <span className="font-mono">{artifactId ?? 'no PATCH artifact'}</span>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {error ? <span className="text-[10px] text-status-danger">{error}</span> : null}
+              {application !== null &&
+              (application.effectiveStatus === 'APPLYING' ||
+                application.effectiveStatus === 'AUTHORIZED' ||
+                application.effectiveStatus === 'INTERRUPTED') ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => void handleApply()}
+                >
+                  {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
+                  Retry / reconcile application
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!taskCompleted || artifactId === null || busy || application !== null}
+                  onClick={() => void handleApply()}
+                >
+                  {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
+                  Authorize apply
+                </Button>
+              )}
+              {application !== null && candidate === null ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    aria-label="Candidate baseline name"
+                    value={candidateName}
+                    onChange={(event) => setCandidateName(event.target.value)}
+                    className="h-7 w-40 text-[11px]"
+                  />
+                  <Button size="sm" disabled={busy} onClick={() => void handleCreateCandidate()}>
+                    Create baseline candidate
+                  </Button>
+                </div>
+              ) : null}
+              {candidate !== null ? (
+                <Button
+                  size="sm"
+                  disabled={busy || candidate.baseline.id === activeBaseline?.id}
+                  onClick={() => void handleActivate()}
+                >
+                  Activate baseline
+                </Button>
+              ) : null}
+            </div>
+            {application ? (
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-border pt-3 text-[10px]">
+                <dt className="text-muted-foreground">Application</dt>
+                <dd className="truncate text-right font-mono">{application.application.id}</dd>
+                <dt className="text-muted-foreground">Patch hash</dt>
+                <dd className="truncate text-right font-mono">
+                  {application.application.patchHash.slice(0, 16)}…
+                </dd>
+                <dt className="text-muted-foreground">Result revision</dt>
+                <dd className="truncate text-right font-mono">
+                  {application.repositoryRevision?.baseCommit.slice(0, 12) ?? '—'}
+                </dd>
+              </dl>
+            ) : null}
+            {candidate ? (
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-border pt-3 text-[10px]">
+                <dt className="text-muted-foreground">Candidate</dt>
+                <dd className="truncate text-right font-mono">{candidate.baseline.id}</dd>
+                <dt className="text-muted-foreground">Parent baseline</dt>
+                <dd className="truncate text-right font-mono">
+                  {candidate.source.parentBaselineId}
+                </dd>
+                <dt className="text-muted-foreground">Status</dt>
+                <dd className="text-right">{candidate.baseline.status}</dd>
+              </dl>
+            ) : null}
+          </>
+        )}
+      </div>
+    </Section>
+  )
+}
+
 function FreezeSection({
   workspace,
   selectedIds,
@@ -1116,6 +1375,8 @@ export function LiveWorkspaceView(): React.JSX.Element {
         runId={run?.runId ?? null}
         runOutcome={run?.result?.outcome ?? null}
       />
+
+      <AdoptionSection workspace={workspace} runId={run?.runId ?? null} />
 
       <RunsHistorySection workspace={workspace} />
     </div>

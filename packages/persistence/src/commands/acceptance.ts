@@ -41,6 +41,17 @@ export interface AcceptanceEvaluationAggregate {
 
 const USABLE_RUN_OUTCOMES = new Set(['SUCCEEDED', 'PARTIAL', 'TIMED_OUT'])
 
+export function requireAcceptanceEvaluation(p: Persistence, evaluationId: string): AcceptanceEvaluationRow {
+  return requireEvaluation(p, evaluationId)
+}
+
+export function latestAcceptanceEvaluationForTask(
+  p: Persistence,
+  taskId: string
+): AcceptanceEvaluationRow | undefined {
+  return latestEvaluationForTask(p, taskId)
+}
+
 function requireEvaluation(p: Persistence, evaluationId: string): AcceptanceEvaluationRow {
   const row = p.drizzle
     .select()

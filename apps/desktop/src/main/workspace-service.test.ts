@@ -60,7 +60,7 @@ describe('WorkspaceService', () => {
       name: '0.1',
       nodeVersionIds: [version.id]
     })
-    const { activated, superseded } = service.activateBaseline({ baselineId: draft.id })
+    const { activated, superseded } = await service.activateBaseline({ baselineId: draft.id })
     expect(activated.status).toBe('ACTIVE')
     expect(superseded).toBeNull()
 

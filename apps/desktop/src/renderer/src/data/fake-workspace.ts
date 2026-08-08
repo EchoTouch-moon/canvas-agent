@@ -12,6 +12,8 @@ import {
 } from '@/lib/workspace-client'
 import type {
   AcceptanceEvaluationAggregate,
+  ArtifactApplicationAggregate,
+  BaselineCandidateAggregate,
   ContextSnapshotItemRecord,
   DispatchResult,
   NodeDraftRecord,
@@ -334,6 +336,8 @@ export function createFakeWorkspaceClient(options: FakeWorkspaceOptions = {}): W
   const runAggregates = new Map<string, RunAggregateView>()
   const acceptanceByTask = new Map<string, AcceptanceEvaluationAggregate[]>()
   const taskStatus = new Map<string, string>()
+  const applicationsByTask = new Map<string, ArtifactApplicationAggregate[]>()
+  const candidatesByApplication = new Map<string, BaselineCandidateAggregate>()
   let runCounter = 0
 
   function recordRun(
@@ -767,6 +771,135 @@ export function createFakeWorkspaceClient(options: FakeWorkspaceOptions = {}): W
             createdAt: latest.evaluation.createdAt,
             updatedAt: new Date().toISOString()
           })
+        }
+        case 'artifact.apply': {
+          const input = request.payload
+          const state = stateByProject.get('project-musicdb')
+          const evaluations = acceptanceByTask.get(input.taskId) ?? []
+          const latest = evaluations[evaluations.length - 1]
+          if (!latest || latest.evaluation.id !== input.evaluationId) {
+            return failure(
+              request,
+              'ValidationError',
+              'adoption requires the latest PASSED evaluation'
+            )
+          }
+          if (latest.evaluation.status !== 'PASSED') {
+            return failure(request, 'ValidationError', 'adoption requires a PASSED evaluation')
+          }
+          const run = runAggregates.get(latest.evaluation.runId)
+          const artifact = run?.artifacts.find((item) => item.id === input.artifactId)
+          if (!run || !artifact || artifact.kind !== 'PATCH') {
+            return failure(request, 'NotFoundError', 'Cannot find the PATCH artifact')
+          }
+          const applications = applicationsByTask.get(input.taskId) ?? []
+          if (applications.length > 0) {
+            return response(request, clone(applications[0]))
+          }
+          const id = `application-${applications.length + 1}`
+          const now = new Date().toISOString()
+          const aggregate: ArtifactApplicationAggregate = {
+            application: {
+              id,
+              projectId: state?.project.id ?? 'project-musicdb',
+              taskId: input.taskId,
+              evaluationId: latest.evaluation.id,
+              runId: latest.evaluation.runId,
+              executionRequestId: 'exec-1',
+              artifactId: artifact.id,
+              baseBaselineId: 'baseline-1',
+              baseRepositoryRevisionId: 'rev-1',
+              patchHash: artifact.contentHash,
+              authorizedAt: now
+            },
+            events: [
+              {
+                id: `${id}-evt-0`,
+                applicationId: id,
+                sequence: 0,
+                kind: 'AUTHORIZED',
+                repositoryRevisionId: null,
+                reasonCode: null,
+                detail: null,
+                createdAt: now
+              },
+              {
+                id: `${id}-evt-1`,
+                applicationId: id,
+                sequence: 1,
+                kind: 'APPLYING',
+                repositoryRevisionId: null,
+                reasonCode: null,
+                detail: null,
+                createdAt: now
+              },
+              {
+                id: `${id}-evt-2`,
+                applicationId: id,
+                sequence: 2,
+                kind: 'APPLIED',
+                repositoryRevisionId: 'rev-2',
+                reasonCode: null,
+                detail: null,
+                createdAt: now
+              }
+            ],
+            effectiveStatus: 'APPLIED',
+            repositoryRevision: {
+              id: 'rev-2',
+              baseCommit: 'c'.repeat(40),
+              treeHash: 'd'.repeat(40),
+              workingTreePatchHash: null,
+              createdAt: now
+            }
+          }
+          applicationsByTask.set(input.taskId, [...applications, aggregate])
+          return response(request, clone(aggregate))
+        }
+        case 'artifactApplication.list': {
+          const input = request.payload
+          return response(request, clone(applicationsByTask.get(input.taskId) ?? []))
+        }
+        case 'baseline.createCandidateFromTask': {
+          const input = request.payload
+          const existing = candidatesByApplication.get(input.applicationId)
+          if (existing) {
+            return response(request, clone(existing))
+          }
+          const application = (applicationsByTask.get('task-1') ??
+            applicationsByTask.get('task_demo_1') ??
+            [])[0]
+          if (!application || application.effectiveStatus !== 'APPLIED') {
+            return failure(
+              request,
+              'ValidationError',
+              'baseline candidate requires an APPLIED application'
+            )
+          }
+          const baseline = {
+            id: 'baseline-2',
+            projectId: application.application.projectId,
+            status: 'DRAFT' as const,
+            name: input.name,
+            description: input.description ?? null,
+            repositoryRevisionId: 'rev-2',
+            activatedAt: null,
+            supersededAt: null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+          const aggregate: BaselineCandidateAggregate = {
+            baseline,
+            source: {
+              baselineId: baseline.id,
+              parentBaselineId: application.application.baseBaselineId,
+              taskId: application.application.taskId,
+              artifactApplicationId: application.application.id
+            },
+            items: []
+          }
+          candidatesByApplication.set(input.applicationId, aggregate)
+          return response(request, clone(aggregate))
         }
         case 'context.resolve': {
           const input = request.payload
