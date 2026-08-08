@@ -95,6 +95,8 @@ interface FlowScreenProps {
   readonly onSaveNodeDraft: (request: NodeDraftSaveRequest) => void
   readonly nodeDraftQueue: NodeDraftSaveQueue
   readonly nodeDraftQueueState: NodeDraftQueueState | null
+  readonly onEvaluateAcceptance: () => void
+  readonly onCompleteTask: () => void
 }
 
 interface SectionProps {
@@ -658,7 +660,12 @@ function OutlineScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element 
   )
 }
 
-function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
+function TaskScreen({
+  state,
+  dispatch,
+  onEvaluateAcceptance,
+  onCompleteTask
+}: FlowScreenProps): React.JSX.Element {
   const passedCriteria = state.task.criteria.filter((criterion) => criterion.passed).length
 
   return (
@@ -846,10 +853,19 @@ function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
           >
             Review artifact
           </Button>
-          <Button variant="secondary" size="sm" disabled>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onEvaluateAcceptance}
+            disabled={state.run.outcome === null}
+          >
             Evaluate acceptance
           </Button>
-          <Button size="sm" disabled>
+          <Button
+            size="sm"
+            onClick={onCompleteTask}
+            disabled={state.task.status !== 'WAITING_REVIEW'}
+          >
             Complete task
           </Button>
           <Button
@@ -861,7 +877,8 @@ function TaskScreen({ state, dispatch }: FlowScreenProps): React.JSX.Element {
           </Button>
         </div>
         <p className="mt-3 text-[10px] leading-4 text-muted-foreground">
-          Deferred until Run / Artifact persistence is available.
+          Acceptance evaluation and Task completion are real durable commands. APPLY_ARTIFACT /
+          ACTIVATE_BASELINE remain deferred to Phase 4 #5 (Result Adoption + Baseline Promotion).
         </p>
       </Section>
     </div>
@@ -2007,6 +2024,7 @@ export function CoreFlowWorkspace({
     const snapshotId = state.snapshot.record.id
     setExecutionSession({
       executionRequestId,
+      runId: null,
       snapshotId,
       status: 'pending',
       startedAt: new Date().toISOString(),
@@ -2031,6 +2049,7 @@ export function CoreFlowWorkspace({
       const result = response.result
       setExecutionSession((current) => ({
         ...current,
+        runId: response.runId,
         status: 'finished',
         result,
         cancelRequested: false
@@ -2065,6 +2084,87 @@ export function CoreFlowWorkspace({
       message: 'Select authoritative TaskSpec and NodeVersion candidates, then freeze again.'
     })
   }, [executionSession.status, setNotice])
+
+  const handleEvaluateAcceptance = useCallback(async (): Promise<void> => {
+    if (executionSession.runId === null || hydrated.workspace === null || state === null) {
+      setNotice({
+        tone: 'danger',
+        title: 'Evaluation blocked',
+        message: 'Dispatch a Run first; acceptance evaluates a Run against the task criteria.'
+      })
+      return
+    }
+    const taskSpecVersionId = state.task.taskSpecVersionId
+    const spec =
+      taskSpecVersionId === null
+        ? undefined
+        : hydrated.workspace.taskSpecs.find((aggregate) => aggregate.spec.id === taskSpecVersionId)
+    if (spec === undefined || taskSpecVersionId === null) {
+      setNotice({
+        tone: 'danger',
+        title: 'Evaluation blocked',
+        message: 'No matching TaskSpecVersion for the task.'
+      })
+      return
+    }
+    try {
+      const evaluation = await hydrated.evaluateAcceptance({
+        projectId: hydrated.workspace.project.id,
+        taskId: state.task.id,
+        taskSpecVersionId,
+        runId: executionSession.runId,
+        criteria: spec.criteria.map((criterion) => ({
+          criterionId: criterion.id,
+          verdict: 'PASSED' as const
+        }))
+      })
+      await hydrated.refresh()
+      setNotice({
+        tone: evaluation.evaluation.status === 'PASSED' ? 'success' : 'warning',
+        title: `Acceptance ${evaluation.evaluation.status}`,
+        message: `Evaluation #${evaluation.evaluation.sequence} recorded against Run ${executionSession.runId}.`
+      })
+    } catch (caught) {
+      setNotice({
+        tone: 'danger',
+        title: 'Evaluation failed',
+        message:
+          caught instanceof Error ? caught.message : 'acceptance.evaluate rejected the submission.'
+      })
+    }
+  }, [executionSession.runId, hydrated, setNotice, state])
+
+  const handleCompleteTask = useCallback(async (): Promise<void> => {
+    if (hydrated.workspace === null || state === null) return
+    try {
+      const evaluations = await hydrated.listAcceptance(state.task.id)
+      const latest = evaluations[evaluations.length - 1]
+      if (latest === undefined || latest.evaluation.status !== 'PASSED') {
+        setNotice({
+          tone: 'danger',
+          title: 'Completion blocked',
+          message: 'A latest PASSED acceptance evaluation is required before completing the Task.'
+        })
+        return
+      }
+      await hydrated.completeTask({
+        taskId: state.task.id,
+        evaluationId: latest.evaluation.id
+      })
+      await hydrated.refresh()
+      setNotice({
+        tone: 'success',
+        title: 'Task completed',
+        message: `${state.task.id} is now COMPLETED. Result adoption / Baseline N+1 remain deferred.`
+      })
+    } catch (caught) {
+      setNotice({
+        tone: 'danger',
+        title: 'Completion failed',
+        message: caught instanceof Error ? caught.message : 'task.complete rejected the request.'
+      })
+    }
+  }, [hydrated, setNotice, state])
 
   const handleCancel = useCallback(async (): Promise<void> => {
     const executionRequestId = executionSession.executionRequestId
@@ -2183,6 +2283,8 @@ export function CoreFlowWorkspace({
           nodeDraftQueueState={
             nodeDraftQueueStates[state.selectedNodeId] ?? nodeDraftQueue.state(state.selectedNodeId)
           }
+          onEvaluateAcceptance={() => void handleEvaluateAcceptance()}
+          onCompleteTask={() => void handleCompleteTask()}
         />
       </div>
     </AppShell>

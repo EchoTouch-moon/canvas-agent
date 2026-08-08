@@ -19,6 +19,12 @@ import { isTrustedSender } from './security'
 
 const allowedExternalOrigins = new Set(['https://deerflow.tech'])
 
+// macOS does not honor $HOME for userData; this escape hatch lets smoke/E2E
+// runs isolate the workspace database (fresh DB per run).
+if (process.env['CANVAS_AGENT_USER_DATA']) {
+  app.setPath('userData', process.env['CANVAS_AGENT_USER_DATA'])
+}
+
 function resolveMigrationsFolder(): string {
   const sourceDrizzle = join(app.getAppPath(), '..', '..', 'packages', 'persistence', 'drizzle')
   if (existsSync(sourceDrizzle)) {

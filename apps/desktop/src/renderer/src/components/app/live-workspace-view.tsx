@@ -514,11 +514,10 @@ function AcceptanceSection({
   readonly runOutcome: string | null
 }): React.JSX.Element {
   const view = workspace.workspace
-  const spec = view?.taskSpecs[0]
-  const taskId = spec?.spec.taskId ?? null
-  const taskSpecVersionId = spec?.spec.id ?? null
-  const projectId = view?.project.id ?? null
-  const criteria = useMemo(() => spec?.criteria ?? [], [spec])
+  const [runBinding, setRunBinding] = useState<{
+    taskId: string
+    taskSpecVersionId: string
+  } | null>(null)
   const [verdicts, setVerdicts] = useState<Record<string, 'PASSED' | 'FAILED'>>({})
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [evaluations, setEvaluations] = useState<readonly AcceptanceEvaluationAggregate[]>([])
@@ -526,17 +525,46 @@ function AcceptanceSection({
   const [completeBusy, setCompleteBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const loadEvaluations = useCallback(async (): Promise<void> => {
-    if (taskId === null) return
-    try {
-      setEvaluations(await workspace.listAcceptance(taskId))
-    } catch {
-      setEvaluations([])
+  // Bind the acceptance surface to the RUN being reviewed: the exact task and
+  // TaskSpecVersion come from run.get(runId), never from taskSpecs[0].
+  useEffect(() => {
+    if (runId === null) {
+      return
     }
-  }, [taskId, workspace])
+    let active = true
+    void workspace
+      .runGet(runId)
+      .then((aggregate) => {
+        if (active) {
+          setRunBinding({
+            taskId: aggregate.run.taskId,
+            taskSpecVersionId: aggregate.run.taskSpecVersionId
+          })
+          setVerdicts({})
+          setNotes({})
+        }
+      })
+      .catch(() => {
+        if (active) setRunBinding(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [runId, workspace])
+
+  const taskId = runBinding?.taskId ?? null
+  const taskSpecVersionId = runBinding?.taskSpecVersionId ?? null
+  const projectId = view?.project.id ?? null
+  const spec = useMemo(
+    () => view?.taskSpecs.find((aggregate) => aggregate.spec.id === taskSpecVersionId),
+    [view, taskSpecVersionId]
+  )
+  const criteria = useMemo(() => spec?.criteria ?? [], [spec])
 
   useEffect(() => {
-    if (taskId === null) return
+    if (taskId === null) {
+      return
+    }
     let active = true
     void workspace
       .listAcceptance(taskId)
@@ -576,24 +604,14 @@ function AcceptanceSection({
           note: notes[criterion.id]?.trim() || null
         }))
       })
-      await loadEvaluations()
+      setEvaluations(await workspace.listAcceptance(taskId))
       await workspace.refresh()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Evaluation failed')
     } finally {
       setBusy(false)
     }
-  }, [
-    workspace,
-    projectId,
-    taskId,
-    taskSpecVersionId,
-    runId,
-    criteria,
-    verdicts,
-    notes,
-    loadEvaluations
-  ])
+  }, [workspace, projectId, taskId, taskSpecVersionId, runId, criteria, verdicts, notes])
 
   const handleComplete = useCallback(async (): Promise<void> => {
     setError(null)

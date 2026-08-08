@@ -36,6 +36,7 @@ async function launch(repo, home, label) {
       ...process.env,
       CANVAS_AGENT_REPO: repo,
       CANVAS_AGENT_DEMO_SEED: '1',
+      CANVAS_AGENT_USER_DATA: home,
       HOME: home
     }
   })
@@ -52,7 +53,14 @@ async function launch(repo, home, label) {
 async function firstLaunch(repo, home) {
   const { app, page } = await launch(repo, home, 'A')
   try {
-    await page.getByText('Live workspace').click()
+    // Dismiss the CoreFlow welcome modal if present (it overlays the toggle).
+    const getStarted = page.getByRole('button', { name: 'Get started' })
+    if ((await getStarted.count()) > 0) {
+      await getStarted.first().click()
+      await page.waitForTimeout(500)
+    }
+    await page.getByRole('button', { name: 'Live workspace' }).waitFor({ timeout: 15000 })
+    await page.getByRole('button', { name: 'Live workspace' }).click()
     await page.getByText('MUSICDB Demo').waitFor({ timeout: 15000 })
     step('A project hydration', true)
 
@@ -93,6 +101,8 @@ async function firstLaunch(repo, home) {
   } catch (error) {
     step('A e2e flow', false)
     console.log('[e2e] A FLOW ERROR:', error && error.message)
+    console.log('=== A BODY ===')
+    console.log((await page.evaluate(() => document.body.innerText)).slice(0, 800))
   }
   await app.close()
 }
@@ -100,7 +110,13 @@ async function firstLaunch(repo, home) {
 async function secondLaunch(repo, home) {
   const { app, page } = await launch(repo, home, 'B')
   try {
-    await page.getByText('Live workspace').click()
+    const getStarted = page.getByRole('button', { name: 'Get started' })
+    if ((await getStarted.count()) > 0) {
+      await getStarted.first().click()
+      await page.waitForTimeout(500)
+    }
+    await page.getByRole('button', { name: 'Live workspace' }).waitFor({ timeout: 15000 })
+    await page.getByRole('button', { name: 'Live workspace' }).click()
     await page.getByText('MUSICDB Demo').waitFor({ timeout: 15000 })
 
     // Persisted run history must survive the restart: run.list shows the run
