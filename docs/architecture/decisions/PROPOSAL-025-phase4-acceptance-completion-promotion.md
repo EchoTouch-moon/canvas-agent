@@ -1,153 +1,185 @@
-# PROPOSAL-025 — Phase 4 #4: Acceptance evaluation → Task completion → Baseline promotion
+# PROPOSAL-025 — Phase 4 #4: Acceptance evaluation + Task lifecycle + Task completion
 
-- **Status:** Draft — awaiting architecture freeze
-- **Author:** DeepSeek V4 Flash
+- **Status:** APPROVED — direction frozen, entering implementation
+- **Author:** DeepSeek V4 Flash (architecture decisions by the lead)
 - **Date:** 2026-08-08
 - **Basis:** Phase 4 #3 close-out direction; the frozen
-  `Baseline N → Task → Run → Baseline N+1` product loop; Phase 3 review gates
-  (APPLY / COMPLETE / ACTIVATE were locked until the backend half was durable).
+  `Baseline N → Task → Run → Baseline N+1` product loop; the Phase 3 gates
+  (APPLY_ARTIFACT / COMPLETE_TASK / ACTIVATE_BASELINE).
 
-## Problem
+## Scope (frozen)
 
-The execution backend half is now durable (Run + ExecutionRequestRecord +
-RunEvent + Artifact). The front half of the loop is still **session-only**:
+Phase 4 #4 covers **AcceptanceEvaluation + Task lifecycle + Task completion only**.
+Baseline promotion is **explicitly out of this packet** (Phase 4 #5: Result
+Adoption + Baseline Promotion, with explicit Draft → Activate, never an atomic
+`baseline.promote`). This avoids a "fake closed loop": the Run's true change
+result is still a PATCH artifact, not applied repository state, so promoting a
+`Baseline N+1` now would only relabel the old project state.
 
-- Acceptance criteria are never evaluated durably; a Run's evidence is not
-  linked to a per-criterion verdict.
-- `COMPLETE_TASK` / `APPLY_ARTIFACT` / `ACTIVATE_BASELINE` are locked in the UI
-  (Phase 3 gate) with no real domain commands behind them.
-- There is no durable user-review record, no task-completion transition, and no
-  path from a completed task to a promoted `Baseline N+1`.
-
-Until this segment exists, "Agent 执行成功" cannot advance the project.
-
-## Goal (the loop)
+The three inequalities remain invariant:
 
 ```text
-Baseline N (ACTIVE)
-   │  task created against pinned spec + baseline
-   ▼
-ContextSnapshot → ExecutionRequest → Run (durable)
-   │
-   ▼
-user reviews Run evidence
-   │  acceptance.evaluate per criterion (durable)
-   ▼
-task complete (guards: all criteria passed + evidence)
-   │
-   ▼
-Baseline N+1 draft captures the evolved graph
-   │  baseline.activate → supersedes Baseline N
-   ▼
-Baseline N+1 (ACTIVE)
+Run SUCCEEDED        ≠ Task COMPLETED
+Task COMPLETED       ≠ Baseline accepted
+Artifact accepted    ≠ Artifact applied
 ```
 
-## Proposed domain surface
+## Endpoint of Phase 4 #4
 
-### 1. AcceptanceEvaluation (durable)
+```text
+Baseline N → Task → ContextSnapshot → Run → durable evidence
+→ AcceptanceEvaluation → Task COMPLETED
+```
 
-A persisted evaluation of one TaskSpecVersion's criteria against a Run's
-evidence, produced by the user.
+Result adoption / new RepositoryRevision / Baseline N+1 DRAFT → ACTIVE is
+Phase 4 #5.
+
+## Data model (frozen)
+
+### `acceptance_evaluation`
 
 ```ts
-AcceptanceEvaluation {
-  id
-  projectId
-  taskId
-  taskSpecVersionId
-  runId            // the evidence the user evaluated
-  status           // 'PENDING' | 'PASSED' | 'FAILED'  (derived at record time)
-  criteria: Array<{
-    criterionId
-    verdict           // 'PASSED' | 'FAILED'
-    note              // string | null
-  }>
+{
+  id, projectId, taskId, taskSpecVersionId, runId,
+  sequence,          // per-task, append-only; UNIQUE(task_id, sequence)
+  status,            // 'PASSED' | 'FAILED'   (no PENDING: no evaluation draft)
   createdAt
-  updatedAt
 }
 ```
 
-Command: `acceptance.evaluate({ projectId, taskId, taskSpecVersionId, runId,
-criteria: [{ criterionId, verdict, note? }] })` → creates/updates the
-evaluation. Invariants:
-- The Run must be `FINISHED` and belong to the task/project.
-- Verdicts must reference exactly the criteria of the pinned TaskSpecVersion.
-- A re-evaluation replaces the previous verdict (the newest evaluation wins).
+Immutable / append-only. A re-evaluation creates `sequence N+1`; historical
+verdicts are never overwritten. The effective (latest) evaluation is the
+read-side `max(sequence)` row.
 
-### 2. Task completion
+### `acceptance_evaluation_item`
 
-Command: `task.complete({ taskId })`. Guards (mirror the Phase 3 gates, now
-durable):
-- Task is not already COMPLETED / CANCELLED / ARCHIVED.
-- An AcceptanceEvaluation exists with `status = 'PASSED'`.
-- The evaluated Run is `FINISHED` with a usable outcome.
-- Optional: an applied artifact / promoted baseline prerequisite (decision 2).
+```ts
+{
+  id, evaluationId, criterionId,
+  verdict,           // 'PASSED' | 'FAILED'
+  note: string | null,
+  position           // UNIQUE(evaluation_id, criterion_id), UNIQUE(evaluation_id, position)
+}
+```
 
-Transition: `IN_PROGRESS / WAITING_REVIEW → COMPLETED` (exact previous status
-decides; a helper `assertTaskTransition`).
+One `acceptance.evaluate` is a complete, immutable user judgment: all criteria
+PASSED → evaluation PASSED; any FAILED → evaluation FAILED. `position`,
+`description`, `verificationMethod` all come from authoritative persistence —
+the renderer never declares them.
 
-### 3. Baseline N+1 draft + promotion
+## Commands (new surface)
 
-`baseline.createDraft` already exists (project-scoped, nodeVersionIds). Add a
-higher-level flow that materializes the post-task graph into a new draft and
-activates it, superseding the ACTIVE baseline:
+| command | payload | response |
+|---|---|---|
+| `acceptance.evaluate` | `{ projectId, taskId, taskSpecVersionId, runId, criteria: [{ criterionId, verdict, note? }] }` | `AcceptanceEvaluationAggregate` |
+| `acceptance.list` | `{ taskId }` | `AcceptanceEvaluationAggregate[]` (sequence ASC, items position ASC) |
+| `task.complete` | `{ taskId, evaluationId }` | `Task` |
 
-- `baseline.promote({ projectId, taskId, name, nodeVersionIds, note? })` —
-  creates a DRAFT from the task's resulting node versions, then
-  `baseline.activate` (existing, supersedes the current ACTIVE).
-  - Guard: only after the task is COMPLETED.
-- OR keep it as two explicit steps (createDraft → activate) and only add
-  `baseline.createDraft` wiring to the UI. (decision 3)
+### `acceptance.evaluate` guards
 
-## Open design decisions (awaiting freeze)
+- The submitted criterion ID set must **exactly equal** the authoritative
+  TaskSpecVersion criterion IDs (no missing, extra or duplicate; no cross-spec
+  references).
+- Four-way ownership, all must hold:
+  `Task.projectId == evaluation.projectId`,
+  `TaskSpecVersion.taskId == Task.id`,
+  `Run.taskId == Task.id`,
+  `Run.taskSpecVersionId == evaluation.taskSpecVersionId`.
+- `Run.status === FINISHED` (any FINISHED run may be evaluated).
+- A PASSED evaluation additionally requires the Run outcome to be usable:
+  `SUCCEEDED | PARTIAL | TIMED_OUT` (never `FAILED` / `CANCELLED`).
+- `sequence = max(sequence for task) + 1`; evaluation + items + the
+  `IN_PROGRESS → WAITING_REVIEW` task transition commit in one transaction;
+  `UNIQUE(task_id, sequence)` is the DB backstop.
 
-1. **Artifact apply**: does this packet include materializing the Run's patch
-   into new NodeVersions/Edges (so Baseline N+1 has real content), or is patch
-   apply a separate earlier packet and this one only wires the review/completion/
-   promotion commands over the existing graph authoring commands?
-2. **Task completion prerequisite**: is `baseline.promote` (or a drafted
-   Baseline N+1) required before `task.complete`, or is completion independent
-   and promotion a follow-up explicit step?
-3. **Promotion surface**: a single `baseline.promote` command (create+activate
-   atomic) vs. wiring the existing `baseline.createDraft` + `baseline.activate`
-   separately?
-4. **Artifact user review**: persist an `ArtifactReview` aggregate
-   (accept / reject / changes-requested) as part of completion, or keep artifact
-   review session-only and gate completion on the acceptance evaluation only?
-5. **Evaluation granularity**: per-criterion verdicts (recommended) vs. a single
-   overall verdict.
-6. **Renderer scope**: wire the review/completion/promotion flow into the Live
-   view (recommended) in this packet, and does the CoreFlow fixture screen
-   migrate its locked gates to the real commands?
+### `task.complete` guards (explicit `evaluationId`, no implicit latest)
+
+1. `Task.status === WAITING_REVIEW`
+2. `evaluation.taskId === task.id`
+3. `evaluation` is the **latest** evaluation for that task
+4. `evaluation.status === PASSED`
+5. `evaluation.taskSpecVersionId ===` the **latest published TaskSpecVersion** for the task
+6. `evaluation.runId` references a `FINISHED` Run
+7. `Run.taskId === Task.id`
+8. `Run.taskSpecVersionId === evaluation.taskSpecVersionId`
+
+Transition: `WAITING_REVIEW → COMPLETED`.
+
+## Task lifecycle (frozen, driven by real business actions)
+
+| action | transition |
+|---|---|
+| `taskSpec.publish` (first publish) | `DRAFT → READY` |
+| `execution.dispatch` | `READY → IN_PROGRESS`, `IN_PROGRESS → IN_PROGRESS`, `WAITING_REVIEW → IN_PROGRESS` |
+| `acceptance.evaluate` | `IN_PROGRESS → WAITING_REVIEW` (same transaction); `WAITING_REVIEW` stays |
+| `task.complete` | `WAITING_REVIEW → COMPLETED` |
+
+Rejected dispatch states: `DRAFT`, `COMPLETED`, `CANCELLED`, `ARCHIVED`. A Run
+outcome (FAILED / INTERRUPTED / CANCELLED) never rolls the Task back; Run and
+Task lifecycles stay decoupled.
+
+## Atomic boundaries (required invariants 13–15)
+
+- **13** The dispatch Task transition is part of the **same transaction** as
+  Run + ExecutionRequestRecord + DISPATCHED (extended `createDispatchedRun`);
+  there is no separate coordinator-side write.
+- **14** `publishTaskSpecVersion` does `DRAFT → READY` **inside the same
+  transaction** that publishes the immutable TaskSpecVersion.
+- **15** The migration backfills legacy data:
+
+  ```sql
+  UPDATE task SET status = 'READY'
+  WHERE status = 'DRAFT'
+    AND EXISTS (SELECT 1 FROM task_spec_version
+                WHERE task_spec_version.task_id = task.id);
+  ```
+
+  (The demo seed early-returns on existing projects; backfill must not depend on
+  the seed rerunning.)
+
+## Renderer (frozen)
+
+- **Live view**: Run detail → acceptance criteria → per-criterion
+  PASSED/FAILED + note → `acceptance.evaluate` → durable `acceptance.list`
+  history → `task.complete` (enabled only for the latest PASSED evaluation).
+- **CoreFlow**: `EVALUATE_ACCEPTANCE` and `COMPLETE_TASK` become real commands;
+  `APPLY_ARTIFACT` and `ACTIVATE_BASELINE` stay locked.
+
+No `ArtifactReview` aggregate: `AcceptanceEvaluation` is the durable user-review
+record for this phase. Phase 4 #5 introduces adoption authorization (an
+`ArtifactApplication` / approval), which is a different concept.
 
 ## Out of scope (this packet)
 
-- Patch application to the source repository (git) — deferred unless decision 1
-  chooses otherwise.
-- Multi-user approval / roles.
-- Checkpoint / resume.
-- Streaming acceptance events.
+Baseline promotion, patch application / result adoption, multi-user approval,
+checkpoint/resume, streaming acceptance events.
 
 ## Test matrix
 
-- persistence: acceptance.evaluate CRUD + re-evaluation; task completion guards
-  (wrong status / missing evaluation / failed evaluation); baseline promote
-  supersede semantics; run↔evaluation linkage.
-- contracts: new command request/response schemas.
-- main: WorkspaceService wiring + guards.
-- renderer: Live review flow (evaluate → complete → promote) via fake + real
-  E2E: full loop `freeze → dispatch → evaluate → complete → promote` against the
-  real backend.
-- restart persistence: the evaluation + completed task + promoted baseline
-  survive restart.
+- persistence: append-only sequence; exact criterion set; four-way ownership;
+  Run FINISHED + usable-outcome rules; task lifecycle transitions; complete
+  8-guards (incl. latest-eval + latest-spec); migration backfill.
+- contracts: new command request/response validation.
+- main: coordinator dispatch transition (no half state); smoke asserts
+  `task.status === IN_PROGRESS` after dispatch.
+- renderer: fake evaluate/list/complete; Live acceptance flow.
+- **Restart E2E**: publish → READY → freeze → dispatch → IN_PROGRESS → Run
+  FINISHED → evaluate → WAITING_REVIEW → acceptance.list → complete → COMPLETED
+  → close Electron → relaunch same userData DB → evaluation history + COMPLETED
+  Task + Run evidence still exist.
 
 ## Delivery
 
-- `packages/contracts`: `acceptance.evaluate`, `task.complete`,
-  `baseline.promote` (per decisions).
-- `packages/persistence`: acceptance_evaluation table + task transition +
-  baseline promotion.
-- `apps/desktop/src/main`: WorkspaceService + routes.
-- `apps/desktop/src/renderer`: Live review flow; fake transport.
+- `packages/contracts`: three commands + schemas.
+- `packages/persistence`: two tables + migration (with backfill) + commands.
+- `apps/desktop/src/main`: WorkspaceService + routes; smoke assertion.
+- `apps/desktop/src/renderer`: Live acceptance flow + CoreFlow unlock + fake.
 - docs: this ADR + verification packet. Gate: `pnpm check` + `phase3-smoke` +
   `e2e:live` + PR CI.
+
+## Next (Phase 4 #5, not this packet)
+
+Result Adoption + Baseline Promotion: apply the accepted Run's PATCH, produce a
+new RepositoryRevision, materialize `Baseline N+1` as a DRAFT from Main, then
+explicit `baseline.activate` (existing DRAFT → ACTIVE, supersede) — never an
+atomic promote. Possibly add `BaselineEdgeItem` for full graph freezing.
