@@ -8,6 +8,7 @@ import {
   freezeContextSnapshot,
   getActiveBaseline,
   getProject,
+  getRunAggregate,
   listBaselineItems,
   listBaselines,
   listCriteria,
@@ -16,6 +17,7 @@ import {
   listNodes,
   listNodeVersions,
   listProjects,
+  listRuns,
   listTaskSpecVersions,
   listTasks,
   listTaskTargets,
@@ -35,6 +37,8 @@ import {
   type ProjectRow,
   type PublishTaskSpecVersionResult,
   type RepositoryRevisionRow,
+  type RunAggregateView,
+  type RunSummaryRow,
   type SystemServices,
   type TaskRow
 } from '@canvas-agent/persistence'
@@ -215,6 +219,14 @@ export class WorkspaceService {
       items.push(await this.contextResolver.resolve(scope, ref))
     }
     return { items }
+  }
+
+  listRuns(payload: CommandInput<'run.list'>): RunSummaryRow[] {
+    return listRuns(this.p, payload.projectId)
+  }
+
+  getRun(payload: CommandInput<'run.get'>): RunAggregateView {
+    return getRunAggregate(this.p, payload.runId)
   }
 }
 

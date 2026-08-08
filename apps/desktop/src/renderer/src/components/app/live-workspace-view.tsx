@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { parseSourceRef } from '@canvas-agent/contracts'
 import {
+  ChevronRight,
   FileCheck2,
   FolderOpen,
   Layers3,
@@ -21,7 +22,13 @@ import { Separator } from '@/components/ui/separator'
 import { RunOutcomeBadge } from '@/components/domain'
 import { buildContextCandidates, type ContextCandidate } from '@/lib/context-candidates'
 import { useWorkspace, type UseWorkspaceResult } from '@/hooks/use-workspace'
-import type { DispatchResult, FrozenSnapshotView, ResolvedContextItem } from '@/lib/workspace-types'
+import type {
+  DispatchResult,
+  FrozenSnapshotView,
+  ResolvedContextItem,
+  RunAggregateView,
+  RunSummary
+} from '@/lib/workspace-types'
 
 interface RunState {
   readonly executionRequestId: string
@@ -319,6 +326,181 @@ function RepositorySection({
   )
 }
 
+function RunsHistorySection({
+  workspace
+}: {
+  readonly workspace: UseWorkspaceResult
+}): React.JSX.Element {
+  const projectId = workspace.workspace?.project.id ?? null
+  const [runs, setRuns] = useState<readonly RunSummary[] | null>(null)
+  const [detail, setDetail] = useState<RunAggregateView | null>(null)
+
+  const reloadRuns = useCallback(async (): Promise<void> => {
+    if (projectId === null) return
+    try {
+      setRuns(await workspace.runList(projectId))
+    } catch {
+      setRuns([])
+    }
+  }, [projectId, workspace])
+
+  useEffect(() => {
+    if (projectId === null) return
+    let active = true
+    void workspace
+      .runList(projectId)
+      .then((list) => {
+        if (active) setRuns(list)
+      })
+      .catch(() => {
+        if (active) setRuns([])
+      })
+    return () => {
+      active = false
+    }
+  }, [projectId, workspace])
+
+  const openRun = useCallback(
+    async (runId: string): Promise<void> => {
+      try {
+        setDetail(await workspace.runGet(runId))
+      } catch {
+        setDetail(null)
+      }
+    },
+    [workspace]
+  )
+
+  return (
+    <Section
+      eyebrow="run.list · run.get · persisted history"
+      title="Runs"
+      action={
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Refresh runs"
+          onClick={() => void reloadRuns()}
+        >
+          <RefreshCw className="size-3.5" aria-hidden="true" />
+        </Button>
+      }
+    >
+      {runs === null ? (
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+          Loading persisted runs…
+        </div>
+      ) : runs.length === 0 ? (
+        <div className="text-[11px] text-muted-foreground">No persisted runs yet.</div>
+      ) : (
+        <div className="space-y-2">
+          {runs.map((run) => (
+            <div key={run.id}>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded-[var(--radius-control)] border border-border bg-background px-3 py-2 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
+                onClick={() => void openRun(run.id)}
+              >
+                <span className="min-w-0 flex-1 truncate font-mono text-[10px] font-semibold">
+                  {run.id}
+                </span>
+                <Badge
+                  tone={
+                    run.status === 'FINISHED'
+                      ? 'success'
+                      : run.status === 'INTERRUPTED'
+                        ? 'danger'
+                        : 'info'
+                  }
+                >
+                  {run.status}
+                </Badge>
+                {run.outcome ? <RunOutcomeBadge outcome={run.outcome} /> : null}
+                <ChevronRight className="size-3.5 text-muted-foreground" aria-hidden="true" />
+              </button>
+              {detail && detail.run.id === run.id ? (
+                <div className="mt-2 space-y-3 rounded-[var(--radius-control)] border border-border bg-muted/40 p-3">
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[10px]">
+                    <dt className="text-muted-foreground">Snapshot</dt>
+                    <dd className="truncate text-right font-mono">
+                      {detail.run.contextSnapshotId}
+                    </dd>
+                    <dt className="text-muted-foreground">Task</dt>
+                    <dd className="truncate text-right font-mono">{detail.run.taskId}</dd>
+                    <dt className="text-muted-foreground">Started</dt>
+                    <dd className="truncate text-right">{detail.run.startedAt}</dd>
+                    <dt className="text-muted-foreground">Completed</dt>
+                    <dd className="truncate text-right">{detail.run.completedAt ?? '—'}</dd>
+                  </dl>
+
+                  <div>
+                    <p className="mb-1 text-[9px] font-semibold text-muted-foreground uppercase">
+                      Execution requests
+                    </p>
+                    <ul className="space-y-1">
+                      {detail.executionRequests.map((request) => (
+                        <li key={request.executionRequestId} className="text-[10px]">
+                          <span className="font-mono">{request.executionRequestId}</span>
+                          <Badge tone={request.dispatchOutcome ? 'neutral' : 'info'}>
+                            {request.dispatchOutcome ?? 'in-flight'}
+                          </Badge>
+                          <span className="ml-1 text-muted-foreground">
+                            attempt {request.workerAttemptNumber} · completed{' '}
+                            {request.completedAt ?? 'no'}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div>
+                    <p className="mb-1 text-[9px] font-semibold text-muted-foreground uppercase">
+                      Events
+                    </p>
+                    <ol className="space-y-0.5">
+                      {detail.events.map((event) => (
+                        <li key={event.id} className="flex gap-2 text-[10px]">
+                          <span className="tabular-nums text-muted-foreground">
+                            #{event.sequence}
+                          </span>
+                          <span className="font-semibold">{event.kind}</span>
+                          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                            {event.detail}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+
+                  {detail.artifacts.length > 0 ? (
+                    <div>
+                      <p className="mb-1 text-[9px] font-semibold text-muted-foreground uppercase">
+                        Artifacts
+                      </p>
+                      <ul className="space-y-1">
+                        {detail.artifacts.map((artifact) => (
+                          <li key={artifact.id} className="text-[10px]">
+                            <Badge tone="neutral">{artifact.kind}</Badge>
+                            <span className="ml-1 font-mono">{artifact.fileName}</span>
+                            <span className="ml-1 text-muted-foreground">
+                              {artifact.sizeBytes} B · {artifact.contentHash.slice(0, 12)}…
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </Section>
+  )
+}
+
 function FreezeSection({
   workspace,
   selectedIds,
@@ -554,11 +736,11 @@ export function LiveWorkspaceView(): React.JSX.Element {
     const executionRequestId = crypto.randomUUID()
     setRun({ executionRequestId, status: 'PENDING' })
     try {
-      const result = await workspace.execute({
+      const response = await workspace.execute({
         executionRequestId,
         contextSnapshotId: frozen.id
       })
-      setRun({ executionRequestId, status: 'DONE', result })
+      setRun({ executionRequestId, status: 'DONE', result: response.result })
     } catch (error) {
       setRun({
         executionRequestId,
@@ -666,6 +848,8 @@ export function LiveWorkspaceView(): React.JSX.Element {
           {run ? <EvidenceSection run={run} /> : null}
         </div>
       </div>
+
+      <RunsHistorySection workspace={workspace} />
     </div>
   )
 }

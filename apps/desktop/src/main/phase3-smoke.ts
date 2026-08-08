@@ -71,26 +71,30 @@ export async function runPhase3Smoke(deps: Phase3SmokeDeps): Promise<void> {
   const dispatch = await handleCommand(
     routes,
     req('execution.dispatch', {
-      executionRequestId: 'phase3-smoke-exec',
+      executionRequestId: `phase3-smoke-${Date.now()}`,
       contextSnapshotId: snapshotId
     })
   )
   if (!dispatch.ok)
     throw new Error(`execution.dispatch failed: ${dispatch.error.name}: ${dispatch.error.message}`)
-  const result = dispatch.data as {
-    outcome: string
-    patch?: string
-    verificationResults?: Array<{ exitCode: number | null }>
+  const response = dispatch.data as {
+    runId: string
+    executionRequestId: string
+    result: {
+      outcome: string
+      patch?: string
+      verificationResults?: Array<{ exitCode: number | null }>
+    }
   }
-  console.error(`[phase3-smoke] execution outcome=${result.outcome}`)
-  if (result.outcome !== 'SUCCEEDED') {
-    throw new Error(`execution outcome was ${result.outcome}`)
+  console.error(`[phase3-smoke] run=${response.runId} outcome=${response.result.outcome}`)
+  if (response.result.outcome !== 'SUCCEEDED') {
+    throw new Error(`execution outcome was ${response.result.outcome}`)
   }
-  if (!(result.patch ?? '').includes('docs/phase2.md')) {
+  if (!(response.result.patch ?? '').includes('docs/phase2.md')) {
     throw new Error('execution patch did not contain the fixture file')
   }
   console.error('[phase3-smoke] patch evidence PASSED')
-  if (result.verificationResults?.[0]?.exitCode !== 0) {
+  if (response.result.verificationResults?.[0]?.exitCode !== 0) {
     throw new Error('execution verification did not exit 0')
   }
   console.error('[phase3-smoke] verification exit=0')

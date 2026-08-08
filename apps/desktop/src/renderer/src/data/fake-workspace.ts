@@ -18,6 +18,8 @@ import type {
   ProjectStateView,
   RepositoryRevisionRecord,
   ResolvedContextItem,
+  RunAggregateView,
+  RunSummary,
   SnapshotFreezeResult
 } from '@/lib/workspace-types'
 
@@ -327,6 +329,100 @@ export function createFakeWorkspaceClient(options: FakeWorkspaceOptions = {}): W
   const cancelledRequests = new Set<string>()
   const executionDelayMs = options.executionDelayMs ?? 250
   const repositoryFiles = { ...defaultRepositoryFiles, ...(options.repositoryFiles ?? {}) }
+  const runsByProject = new Map<string, RunSummary[]>()
+  const runAggregates = new Map<string, RunAggregateView>()
+  let runCounter = 0
+
+  function recordRun(
+    projectId: string,
+    contextSnapshotId: string,
+    executionRequestId: string,
+    result: DispatchResult
+  ): RunSummary {
+    runCounter += 1
+    const runId = `run-${runCounter}`
+    const now = new Date().toISOString()
+    const outcome =
+      result.outcome === 'SUCCEEDED'
+        ? 'SUCCEEDED'
+        : result.outcome === 'CANCELLED'
+          ? 'CANCELLED'
+          : result.outcome === 'PARTIAL'
+            ? 'PARTIAL'
+            : 'FAILED'
+    const summary: RunSummary = {
+      id: runId,
+      projectId,
+      taskId: 'task-1',
+      taskSpecVersionId: 'spec-1',
+      contextSnapshotId,
+      repositoryRevisionId: 'rev-1',
+      status: 'FINISHED',
+      outcome,
+      startedAt: now,
+      completedAt: now,
+      createdAt: now,
+      updatedAt: now
+    }
+    const aggregate: RunAggregateView = {
+      run: summary,
+      executionRequests: [
+        {
+          executionRequestId,
+          runId,
+          workerAttemptNumber: 1,
+          checkpointId: null,
+          requestHash: 'f'.repeat(64),
+          schemaVersion: 1,
+          requestJson: '{"executionRequestId":"' + executionRequestId + '"}',
+          dispatchOutcome: result.outcome,
+          claimGranted: result.claimGranted,
+          rejectionReason: result.rejectionReason ?? null,
+          revisionMismatchField: null,
+          revisionMismatchExpected: null,
+          revisionMismatchActual: null,
+          patchHash: result.patchHash ?? null,
+          timedOut: null,
+          recoveryJson: null,
+          dispatchedAt: now,
+          completedAt: now
+        }
+      ],
+      events: [
+        {
+          id: `event-${runCounter}-0`,
+          runId,
+          sequence: 0,
+          kind: 'DISPATCHED',
+          detail: JSON.stringify({ executionRequestId }),
+          createdAt: now
+        },
+        {
+          id: `event-${runCounter}-1`,
+          runId,
+          sequence: 1,
+          kind: 'FINISHED',
+          detail: JSON.stringify({ dispatchOutcome: result.outcome, runOutcome: outcome }),
+          createdAt: now
+        }
+      ],
+      artifacts: (result.artifacts ?? []).map((artifact, position) => ({
+        id: `artifact-${runCounter}-${position}`,
+        runId,
+        executionRequestId,
+        kind: artifact.kind,
+        fileName: artifact.fileName,
+        contentHash: artifact.contentHash,
+        sizeBytes: artifact.sizeBytes,
+        content: result.patch ?? '',
+        position,
+        createdAt: now
+      }))
+    }
+    runsByProject.set(projectId, [summary, ...(runsByProject.get(projectId) ?? [])])
+    runAggregates.set(runId, aggregate)
+    return summary
+  }
 
   const transport: CommandTransport = {
     async command(request) {
@@ -508,41 +604,63 @@ export function createFakeWorkspaceClient(options: FakeWorkspaceOptions = {}): W
         case 'execution.dispatch': {
           const input = request.payload
           await delay(executionDelayMs)
-          if (cancelledRequests.has(input.executionRequestId)) {
-            return response(request, {
-              outcome: 'CANCELLED',
-              claimGranted: true,
-              artifacts: []
-            } satisfies DispatchResult)
-          }
+          const result: DispatchResult = cancelledRequests.has(input.executionRequestId)
+            ? { outcome: 'CANCELLED', claimGranted: true, artifacts: [] }
+            : {
+                outcome: 'SUCCEEDED',
+                claimGranted: true,
+                patch: `diff --git a/src/notes.ts b/src/notes.ts\n+recordingVersionId: string`,
+                patchHash: '7'.repeat(64),
+                verificationResults: [
+                  {
+                    argv: ['pnpm', 'test'],
+                    exitCode: 0,
+                    signal: null,
+                    stdout: '6 tests passed',
+                    stderr: '',
+                    timedOut: false,
+                    cancelled: false,
+                    outputTruncated: false,
+                    durationMs: 42
+                  }
+                ],
+                artifacts: [
+                  {
+                    kind: 'PATCH',
+                    fileName: 'patch.diff',
+                    contentHash: '7'.repeat(64),
+                    sizeBytes: 76
+                  }
+                ],
+                agentSummary: `Execution completed for ContextSnapshot ${input.contextSnapshotId}.`
+              }
+          const run = recordRun(
+            [...snapshotsByProject.entries()].find(([, snaps]) =>
+              snaps.some((snapshot) => snapshot.snapshot.id === input.contextSnapshotId)
+            )?.[0] ??
+              availableProjects[0]?.id ??
+              'project-musicdb',
+            input.contextSnapshotId,
+            input.executionRequestId,
+            result
+          )
           return response(request, {
-            outcome: 'SUCCEEDED',
-            claimGranted: true,
-            patch: `diff --git a/src/notes.ts b/src/notes.ts\n+recordingVersionId: string`,
-            patchHash: '7'.repeat(64),
-            verificationResults: [
-              {
-                argv: ['pnpm', 'test'],
-                exitCode: 0,
-                signal: null,
-                stdout: '6 tests passed',
-                stderr: '',
-                timedOut: false,
-                cancelled: false,
-                outputTruncated: false,
-                durationMs: 42
-              }
-            ],
-            artifacts: [
-              {
-                kind: 'PATCH',
-                fileName: 'patch.diff',
-                contentHash: '7'.repeat(64),
-                sizeBytes: 76
-              }
-            ],
-            agentSummary: `Execution completed for ContextSnapshot ${input.contextSnapshotId}.`
-          } satisfies DispatchResult)
+            runId: run.id,
+            executionRequestId: input.executionRequestId,
+            result
+          })
+        }
+        case 'run.list': {
+          const input = request.payload
+          return response(request, clone(runsByProject.get(input.projectId) ?? []))
+        }
+        case 'run.get': {
+          const input = request.payload
+          const aggregate = runAggregates.get(input.runId)
+          if (!aggregate) {
+            return failure(request, 'NotFoundError', `Cannot find Run ${input.runId}`)
+          }
+          return response(request, clone(aggregate))
         }
         case 'context.resolve': {
           const input = request.payload

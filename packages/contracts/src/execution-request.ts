@@ -3,6 +3,18 @@ import { z } from 'zod'
 const contentHash = z.string().regex(/^[a-f0-9]{64}$/i, 'Expected a SHA-256 hash')
 const gitObjectHash = z.string().regex(/^([a-f0-9]{40}|[a-f0-9]{64})$/i, 'Expected a Git object hash')
 
+// Runtime-safe opaque id: the worker uses executionRequestId directly as a
+// filesystem path segment (worktrees/<id>, artifacts/<id>, recovery/<id>.json),
+// so it must never contain separators, whitespace or path traversal.
+export const executionRequestIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9._-]+$/, 'Expected a runtime-safe execution request id')
+  .refine((value) => value !== '.' && value !== '..', {
+    message: 'invalid execution request id'
+  })
+
 export const repositoryRevisionSchema = z
   .object({
     baseCommit: gitObjectHash,
@@ -13,7 +25,7 @@ export const repositoryRevisionSchema = z
 
 export const executionRequestSchema = z
   .object({
-    executionRequestId: z.string().min(1),
+    executionRequestId: executionRequestIdSchema,
     runId: z.string().min(1),
     workerAttemptNumber: z.number().int().positive(),
     taskSpecVersionId: z.string().min(1),

@@ -178,16 +178,21 @@ describe('command response correlation', () => {
       ok: true,
       command: 'execution.dispatch',
       data: {
-        outcome: 'REVISION_MISMATCH',
-        claimGranted: true,
-        revisionMismatch: { field: 'baseCommit', expected: COMMIT, actual: 'c'.repeat(40) }
+        runId: 'run_1',
+        executionRequestId: 'exec-1',
+        result: {
+          outcome: 'REVISION_MISMATCH',
+          claimGranted: true,
+          revisionMismatch: { field: 'baseCommit', expected: COMMIT, actual: 'c'.repeat(40) }
+        }
       }
     }
     const parsed = commandResponseSchemas['execution.dispatch'].parse(
       response
     ) as Extract<CommandResponse<'execution.dispatch'>, { ok: true }>
     expect(parsed.ok).toBe(true)
-    expect(parsed.data.outcome).toBe('REVISION_MISMATCH')
+    expect(parsed.data.runId).toBe('run_1')
+    expect(parsed.data.result.outcome).toBe('REVISION_MISMATCH')
   })
 
   it('reports command failures separately as ok:false', () => {
@@ -279,5 +284,34 @@ describe('command error schema', () => {
       commandErrorSchema.parse({ name: 'HostUnavailableError', message: 'worker down' })
     ).not.toThrow()
     expect(() => commandErrorSchema.parse({ name: 'REVISION_MISMATCH', message: 'x' })).toThrow()
+  })
+})
+
+describe('executionRequestId and run commands', () => {
+  it('rejects path-unsafe execution request ids at the schema boundary', () => {
+    for (const id of ['', '.', '..', 'a/b', 'a\\b', 'a b', 'a%20b', 'a'.repeat(129)]) {
+      expect(() =>
+        commandRequestSchema.parse(
+          request('execution.dispatch', { executionRequestId: id, contextSnapshotId: 'snap_1' })
+        )
+      ).toThrow()
+    }
+    expect(() =>
+      commandRequestSchema.parse(
+        request('execution.dispatch', { executionRequestId: 'exec_1', contextSnapshotId: 'snap_1' })
+      )
+    ).not.toThrow()
+  })
+
+  it('validates run.list and run.get payloads', () => {
+    const list = commandRequestSchema.parse(
+      request('run.list', { projectId: 'proj_1' })
+    ) as CommandRequest<'run.list'>
+    expect(list.command).toBe('run.list')
+
+    const get = commandRequestSchema.parse(
+      request('run.get', { runId: 'run_1' })
+    ) as CommandRequest<'run.get'>
+    expect(get.command).toBe('run.get')
   })
 })
