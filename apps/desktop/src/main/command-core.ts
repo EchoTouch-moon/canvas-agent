@@ -67,6 +67,8 @@ export function buildRoutes(deps: CommandDeps): Record<string, CommandRoute> {
   workspaceRoute('revision.current', (ws) => ws.revisionCurrent())
   workspaceRoute('snapshot.freeze', (ws, payload) => ws.freezeSnapshot(payload))
   workspaceRoute('context.resolve', (ws, payload) => ws.resolveContext(payload))
+  workspaceRoute('run.list', (ws, payload) => ws.listRuns(payload))
+  workspaceRoute('run.get', (ws, payload) => ws.getRun(payload))
   coordinatorRoute('execution.dispatch', (coordinator, payload) => coordinator.dispatch(payload))
   coordinatorRoute('execution.cancel', (coordinator, payload) => coordinator.cancel(payload))
 

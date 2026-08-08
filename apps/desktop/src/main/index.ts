@@ -128,7 +128,9 @@ app.whenReady().then(async () => {
   const workerHost =
     appConfig !== null ? new UtilityProcessWorkerHost(appConfig) : new UnavailableWorkerHost()
   const coordinator =
-    persistence !== null ? new ExecutionCoordinator(persistence, workerHost) : null
+    persistence !== null && appConfig !== null
+      ? new ExecutionCoordinator(persistence, workerHost, appConfig.runtimeDirectory)
+      : null
 
   if (process.env['CANVAS_AGENT_DEMO_SEED'] === '1' && persistence !== null) {
     try {

@@ -2024,10 +2024,11 @@ export function CoreFlowWorkspace({
     })
 
     try {
-      const result = await hydrated.execute({
+      const response = await hydrated.execute({
         executionRequestId,
         contextSnapshotId: snapshotId
       })
+      const result = response.result
       setExecutionSession((current) => ({
         ...current,
         status: 'finished',

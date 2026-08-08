@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createWorkspaceClient, WorkspaceError, type CommandRequest } from './workspace-client'
+import {
+  createWorkspaceClient,
+  WorkspaceError,
+  type CommandRequest,
+  type CommandTransport
+} from './workspace-client'
 
 describe('WorkspaceClient', () => {
   it('returns data for a correlated ok response', async () => {
@@ -99,10 +104,14 @@ describe('WorkspaceClient', () => {
         schemaVersion: 1 as const,
         command: request.command,
         ok: true as const,
-        data: { outcome: 'SUCCEEDED' as const, claimGranted: true }
+        data: {
+          runId: 'run_1',
+          executionRequestId: 'execution-1',
+          result: { outcome: 'SUCCEEDED' as const, claimGranted: true }
+        }
       }))
     }
-    const client = createWorkspaceClient(transport)
+    const client = createWorkspaceClient(transport as unknown as CommandTransport)
 
     await client.command('execution.dispatch', {
       executionRequestId: 'execution-1',

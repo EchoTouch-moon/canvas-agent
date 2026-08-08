@@ -11,6 +11,7 @@ import {
   createProject,
   createTask,
   freezeContextSnapshot,
+  getRunAggregate,
   openDatabase,
   publishNodeVersion,
   publishTaskSpecVersion,
@@ -33,10 +34,13 @@ import {
   trackTempDir
 } from './testing/git-fixture'
 
+const UNUSED_RUNTIME = join(tmpdir(), 'ca-unused-runtime')
+
 function services(): SystemServices {
+  let counter = 0
   return {
     now: () => '2026-08-08T00:00:00.000Z',
-    nextId: (prefix: string) => `${prefix}1`
+    nextId: (prefix: string) => `${prefix}${++counter}`
   }
 }
 
@@ -113,9 +117,12 @@ describe('ExecutionCoordinator', () => {
     applyMigrations(p)
     await frozenSetup(p)
     const worker = new FakeWorkerHost()
-    const coordinator = new ExecutionCoordinator(p, worker, services())
+    const coordinator = new ExecutionCoordinator(p, worker, UNUSED_RUNTIME, services())
 
-    await coordinator.dispatch({ executionRequestId: 'exec-1', contextSnapshotId: 'snap_1' })
+    const response = await coordinator.dispatch({
+      executionRequestId: 'exec-1',
+      contextSnapshotId: 'snap_1'
+    })
 
     expect(worker.captured).toHaveLength(1)
     const request = worker.captured[0] as unknown as ExecutionRequestContract
@@ -133,6 +140,15 @@ describe('ExecutionCoordinator', () => {
     void _hash
     expect(request.requestHash).toBe(computeRequestHash(rest))
 
+    expect(response.runId).toBe('run_1')
+    expect(response.executionRequestId).toBe('exec-1')
+    expect(response.result.outcome).toBe('SUCCEEDED')
+    const run = getRunAggregate(p, 'run_1')
+    expect(run.run.status).toBe('FINISHED')
+    expect(run.run.outcome).toBe('SUCCEEDED')
+    expect(run.executionRequests[0]?.requestJson).toContain('"executionRequestId":"exec-1"')
+    expect(run.events.map((event) => event.kind)).toEqual(['DISPATCHED', 'FINISHED'])
+
     closeDatabase(p)
   })
 
@@ -143,7 +159,12 @@ describe('ExecutionCoordinator', () => {
     p.db.exec(
       "INSERT INTO context_snapshot (id, project_id, task_id, task_spec_version_id, base_baseline_id, expected_repository_revision_id, status, freshness, created_at, updated_at) VALUES ('snap_draft','proj_1','task_1','spec_1','baseline_1','rev_1','DRAFT','CURRENT','2026-08-08T00:00:00.000Z','2026-08-08T00:00:00.000Z')"
     )
-    const coordinator = new ExecutionCoordinator(p, new FakeWorkerHost(), services())
+    const coordinator = new ExecutionCoordinator(
+      p,
+      new FakeWorkerHost(),
+      UNUSED_RUNTIME,
+      services()
+    )
 
     await expect(
       coordinator.dispatch({ executionRequestId: 'exec-1', contextSnapshotId: 'snap_draft' })
@@ -155,7 +176,12 @@ describe('ExecutionCoordinator', () => {
   it('rejects a snapshot that does not exist', async () => {
     const p = openDatabase({ path: ':memory:', services: services() })
     applyMigrations(p)
-    const coordinator = new ExecutionCoordinator(p, new FakeWorkerHost(), services())
+    const coordinator = new ExecutionCoordinator(
+      p,
+      new FakeWorkerHost(),
+      UNUSED_RUNTIME,
+      services()
+    )
 
     await expect(
       coordinator.dispatch({ executionRequestId: 'exec-1', contextSnapshotId: 'missing' })
@@ -177,13 +203,13 @@ describe('ExecutionCoordinator', () => {
       sourceRepositoryPath: repoDir,
       runtimeDirectory: runtimeDir
     })
-    const coordinator = new ExecutionCoordinator(p, worker, services())
+    const coordinator = new ExecutionCoordinator(p, worker, runtimeDir, services())
 
     const result = await coordinator.dispatch({
       executionRequestId: 'exec-1',
       contextSnapshotId: snapshotId
     })
-    expect(result.outcome).toBe('REVISION_MISMATCH')
+    expect(result.result.outcome).toBe('REVISION_MISMATCH')
     await worker.dispose()
     closeDatabase(p)
   })
@@ -199,13 +225,13 @@ describe('ExecutionCoordinator', () => {
       sourceRepositoryPath: repoDir,
       runtimeDirectory: runtimeDir
     })
-    const coordinator = new ExecutionCoordinator(p, worker, services())
+    const coordinator = new ExecutionCoordinator(p, worker, runtimeDir, services())
 
     const result = await coordinator.dispatch({
       executionRequestId: 'exec-1',
       contextSnapshotId: snapshotId
     })
-    expect(result.outcome).toBe('SUCCEEDED')
+    expect(result.result.outcome).toBe('SUCCEEDED')
     await worker.dispose()
     closeDatabase(p)
   })
@@ -214,7 +240,7 @@ describe('ExecutionCoordinator', () => {
     const p = openDatabase({ path: ':memory:', services: services() })
     applyMigrations(p)
     const worker = new FakeWorkerHost()
-    const coordinator = new ExecutionCoordinator(p, worker, services())
+    const coordinator = new ExecutionCoordinator(p, worker, UNUSED_RUNTIME, services())
 
     await expect(coordinator.cancel({ executionRequestId: 'active-1' })).resolves.toEqual({
       cancelled: true
@@ -222,6 +248,34 @@ describe('ExecutionCoordinator', () => {
     await expect(coordinator.cancel({ executionRequestId: 'unknown' })).resolves.toEqual({
       cancelled: false
     })
+    closeDatabase(p)
+  })
+
+  it('interrupts the run on artifact integrity failure but keeps the terminal evidence', async () => {
+    const runtimeDir = trackTempDir(await mkdtemp(join(tmpdir(), 'ca-coord-runtime-')))
+    const p = openDatabase({ path: ':memory:', services: services() })
+    applyMigrations(p)
+    await frozenSetup(p)
+    const worker = new FakeWorkerHost()
+    worker.result = {
+      outcome: 'SUCCEEDED',
+      claimGranted: true,
+      artifacts: [
+        { kind: 'PATCH', fileName: 'patch.diff', contentHash: '0'.repeat(64), sizeBytes: 1 }
+      ]
+    }
+    const coordinator = new ExecutionCoordinator(p, worker, runtimeDir, services())
+
+    await expect(
+      coordinator.dispatch({ executionRequestId: 'exec-1', contextSnapshotId: 'snap_1' })
+    ).rejects.toThrow()
+
+    const run = getRunAggregate(p, 'run_1')
+    expect(run.run.status).toBe('INTERRUPTED')
+    expect(run.run.outcome).toBeNull()
+    expect(run.executionRequests[0]).toMatchObject({ dispatchOutcome: 'SUCCEEDED' })
+    expect(run.executionRequests[0]?.completedAt).not.toBeNull()
+    expect(run.events.map((event) => event.kind)).toEqual(['DISPATCHED', 'INTERRUPTED'])
     closeDatabase(p)
   })
 })

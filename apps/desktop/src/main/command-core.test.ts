@@ -70,7 +70,7 @@ describe('CommandRouter (command-core)', () => {
       sourceRepositoryPath: repoDir,
       runtimeDirectory: runtimeDir
     })
-    const coordinator = new ExecutionCoordinator(p, worker)
+    const coordinator = new ExecutionCoordinator(p, worker, runtimeDir)
     const routes = buildRoutes({ workspace: service, coordinator })
 
     const created = await handleCommand(routes, request('project.create', { name: 'MUSICDB' }))
@@ -167,7 +167,12 @@ describe('CommandRouter (command-core)', () => {
     }
     expect(dispatch.ok).toBe(true)
     if (!dispatch.ok) throw new Error('expected ok')
-    expect((dispatch.data as { outcome: string }).outcome).toBe('SUCCEEDED')
+    const dispatchData = dispatch.data as unknown as {
+      runId: string
+      result: { outcome: string }
+    }
+    expect(dispatchData.runId).toMatch(/^run_/)
+    expect(dispatchData.result.outcome).toBe('SUCCEEDED')
 
     const cancel = await handleCommand(
       routes,

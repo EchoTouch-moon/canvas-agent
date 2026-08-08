@@ -15,7 +15,9 @@ import type {
   ProjectRecord,
   ProjectStateView,
   RepositoryRevisionRecord,
-  ResolvedContextItem
+  ResolvedContextItem,
+  RunAggregateView,
+  RunSummary
 } from '@/lib/workspace-types'
 
 export interface HydratedWorkspace {
@@ -61,8 +63,14 @@ export interface UseWorkspaceResult {
   readonly execute: (input: {
     readonly executionRequestId: string
     readonly contextSnapshotId: string
-  }) => Promise<DispatchResult>
+  }) => Promise<{
+    readonly runId: string
+    readonly executionRequestId: string
+    readonly result: DispatchResult
+  }>
   readonly cancel: (executionRequestId: string) => Promise<{ readonly cancelled: boolean }>
+  readonly runList: (projectId: string) => Promise<readonly RunSummary[]>
+  readonly runGet: (runId: string) => Promise<RunAggregateView>
 }
 
 const defaultClient = createWorkspaceClient()
@@ -174,13 +182,28 @@ export function useWorkspace(
     (input: {
       readonly executionRequestId: string
       readonly contextSnapshotId: string
-    }): Promise<DispatchResult> => client.command('execution.dispatch', input),
+    }): Promise<{
+      readonly runId: string
+      readonly executionRequestId: string
+      readonly result: DispatchResult
+    }> => client.command('execution.dispatch', input),
     [client]
   )
 
   const cancel = useCallback(
     (executionRequestId: string): Promise<{ readonly cancelled: boolean }> =>
       client.command('execution.cancel', { executionRequestId }),
+    [client]
+  )
+
+  const runList = useCallback(
+    (projectId: string): Promise<readonly RunSummary[]> =>
+      client.command('run.list', { projectId }),
+    [client]
+  )
+
+  const runGet = useCallback(
+    (runId: string): Promise<RunAggregateView> => client.command('run.get', { runId }),
     [client]
   )
 
@@ -196,6 +219,8 @@ export function useWorkspace(
     saveNodeDraft,
     resolveContext,
     execute,
-    cancel
+    cancel,
+    runList,
+    runGet
   }
 }
