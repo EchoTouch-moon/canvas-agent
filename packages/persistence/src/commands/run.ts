@@ -48,6 +48,7 @@ export interface DispatchResultMetadata {
   revisionMismatchActual: string | null
   patchHash: string | null
   timedOut: boolean | null
+  recoveryJson: string | null
 }
 
 export interface ArtifactInput {
@@ -82,7 +83,9 @@ export interface RunSummaryRow {
   id: string
   projectId: string
   taskId: string
+  taskSpecVersionId: string
   contextSnapshotId: string
+  repositoryRevisionId: string
   status: RunStatus
   outcome: RunOutcome | null
   startedAt: string
@@ -103,7 +106,9 @@ function toRunSummary(run: RunRow): RunSummaryRow {
     id: run.id,
     projectId: run.projectId,
     taskId: run.taskId,
+    taskSpecVersionId: run.taskSpecVersionId,
     contextSnapshotId: run.contextSnapshotId,
+    repositoryRevisionId: run.repositoryRevisionId,
     status: run.status as RunStatus,
     outcome: (run.outcome as RunOutcome | null) ?? null,
     startedAt: run.startedAt,
@@ -236,7 +241,7 @@ export function getRunAggregate(p: Persistence, runId: string): RunAggregateView
     .select()
     .from(artifactTable)
     .where(eq(artifactTable.runId, runId))
-    .orderBy(asc(artifactTable.position))
+    .orderBy(asc(artifactTable.executionRequestId), asc(artifactTable.position), asc(artifactTable.id))
     .all()
   return { run: toRunSummary(run), executionRequests, events, artifacts }
 }
@@ -258,6 +263,7 @@ function finalizeRequestRecord(
       revisionMismatchActual: metadata.revisionMismatchActual,
       patchHash: metadata.patchHash,
       timedOut: metadata.timedOut,
+      recoveryJson: metadata.recoveryJson,
       completedAt
     })
     .where(eq(executionRequestRecordTable.executionRequestId, executionRequestId))
@@ -279,6 +285,7 @@ export interface FinalizeRunInput {
 export function finalizeRun(p: Persistence, input: FinalizeRunInput): void {
   withTransaction(p, () => {
     requireRunningRun(p, input.runId)
+    requireRequestForRun(p, input.runId, input.executionRequestId)
     for (const [position, artifact] of input.artifacts.entries()) {
       p.drizzle
         .insert(artifactTable)
@@ -350,6 +357,7 @@ export interface InterruptRunInput {
 export function interruptRun(p: Persistence, input: InterruptRunInput): void {
   withTransaction(p, () => {
     requireRunningRun(p, input.runId)
+    requireRequestForRun(p, input.runId, input.executionRequestId)
     if (input.terminalMetadata !== null) {
       finalizeRequestRecord(
         p,
@@ -392,4 +400,28 @@ function requireRunningRun(p: Persistence, runId: string): RunRow {
     throw new ValidationError(`Run ${runId} is not RUNNING; cannot transition`)
   }
   return run
+}
+
+// The request being finalized/interrupted must belong to this Run: a Run owns
+// exactly its own ExecutionRequestRecords (1:N), and crossing that boundary
+// would silently corrupt the aggregate.
+function requireRequestForRun(
+  p: Persistence,
+  runId: string,
+  executionRequestId: string
+): ExecutionRequestRecordRow {
+  const request = p.drizzle
+    .select()
+    .from(executionRequestRecordTable)
+    .where(eq(executionRequestRecordTable.executionRequestId, executionRequestId))
+    .get()
+  if (request === undefined) {
+    throw new NotFoundError('ExecutionRequestRecord', executionRequestId)
+  }
+  if (request.runId !== runId) {
+    throw new ValidationError(
+      `ExecutionRequest ${executionRequestId} does not belong to Run ${runId}`
+    )
+  }
+  return request
 }

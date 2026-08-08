@@ -32,7 +32,8 @@ function toDispatchMetadata(result: DispatchResult): DispatchResultMetadata {
     revisionMismatchExpected: result.revisionMismatch?.expected ?? null,
     revisionMismatchActual: result.revisionMismatch?.actual ?? null,
     patchHash: result.patchHash ?? null,
-    timedOut: result.timedOut ?? null
+    timedOut: result.timedOut ?? null,
+    recoveryJson: result.recovery ? stableStringify(result.recovery) : null
   }
 }
 

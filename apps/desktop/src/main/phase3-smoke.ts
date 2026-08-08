@@ -71,7 +71,7 @@ export async function runPhase3Smoke(deps: Phase3SmokeDeps): Promise<void> {
   const dispatch = await handleCommand(
     routes,
     req('execution.dispatch', {
-      executionRequestId: 'phase3-smoke-exec',
+      executionRequestId: `phase3-smoke-${Date.now()}`,
       contextSnapshotId: snapshotId
     })
   )

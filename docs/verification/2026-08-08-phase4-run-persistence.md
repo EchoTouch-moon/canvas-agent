@@ -18,6 +18,13 @@
 | Artifact per executionRequest, position per-request | `UNIQUE(execution_request_id, position)`; positions [0,1] | **PASS** |
 | `completedAt` = terminal worker response time; interrupt keeps evidence | interrupt-with-terminal test: record dispatchOutcome SUCCEEDED + completedAt set while Run INTERRUPTED/null | **PASS** (persistence + coordinator) |
 | Artifact ingestion trust boundary (realpath containment, lstat, size/hash, UTF-8) | ingestor test matrix (traversal, symlink file + parent dir, size/hash/UTF-8 mismatch) | **PASS** |
+| Cross-platform containment (POSIX + Windows) | `isStrictDescendant` tested with `path.posix` and `path.win32` | **PASS** |
+| Literal symlink rejection (in-dir too) | lstat before realpath; in-directory symlink rejected `artifact_symlink_unsupported` | **PASS** |
+| Bounded artifact read (no unbounded buffer) | size checked before read; >16 MiB artifact rejected | **PASS** |
+| Run owns its ExecutionRequestRecords | `requireRequestForRun` in finalizeRun/interruptRun; cross-run request rejected | **PASS** |
+| recoveryJson persisted (auditable) | DispatchResult.recovery -> canonical recoveryJson; run.get exposes it | **PASS** |
+| Full Run view (run.get) | run exposes taskSpecVersionId + repositoryRevisionId | **PASS** |
+| Deterministic multi-request artifact order | ordered by executionRequestId, position, id | **PASS** |
 | `executionRequestId` runtime-safe shared schema | contracts regex rejects `/`, `.`, `..`, spaces, over-long | **PASS** |
 | `execution.dispatch` → `{ runId, executionRequestId, result }` | contracts + coordinator + renderer + fake updated | **PASS** |
 | run.list / run.get (with executionRequests + events + artifacts) | persistence + routes + renderer fake tests | **PASS** |
@@ -35,19 +42,24 @@
 [e2e] A repository content resolve (encoded path) -> add
 [e2e] A real snapshot freeze (node version + repo content)
 [e2e] A execution dispatch -> SUCCEEDED evidence
-[e2e] first launch closed; relaunching with the SAME HOME/DB
+[e2e] first launch closed; relaunching against the SAME userData DB
 [e2e] B run.list shows the persisted run after restart     ← launch B
 [e2e] B run.get events (DISPATCHED + FINISHED) intact
-[e2e] B run.get patch artifact intact
+[e2e] B run.get patch artifact present
+[e2e] B PATCH content intact
+[e2e] B PATCH sha256(content) === contentHash
+[e2e] B PATCH sizeBytes === byteLength
 [e2e] B run.get snapshot binding present
 [e2e] ALL PASSED
 ```
 
 The Run, its ExecutionRequest, the DISPATCHED + FINISHED events and the PATCH
-artifact all survive a full Electron restart against the same HOME/DB.
+artifact (content / sha256 / size re-verified byte-for-byte via the real
+`run.get` bridge) all survive a full Electron restart against the same app
+userData database.
 
 ## Verification note
 
-`pnpm check` green (203 tests: domain 5, contracts 32, persistence 48,
-worker-runtime 19, desktop 99). `CANVAS_AGENT_PHASE3_SMOKE=1` PASSED
+`pnpm check` green (208 tests: domain 5, contracts 32, persistence 49,
+worker-runtime 19, desktop 103). `CANVAS_AGENT_PHASE3_SMOKE=1` PASSED twice
 (`run=<id> outcome=SUCCEEDED`). CI publishes commit status on the PR.

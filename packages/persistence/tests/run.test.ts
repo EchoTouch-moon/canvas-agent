@@ -135,6 +135,8 @@ describe('run persistence', () => {
     expect(view.run.status).toBe('RUNNING')
     expect(view.run.outcome).toBeNull()
     expect(view.run.completedAt).toBeNull()
+    expect(view.run.taskSpecVersionId).toBe(taskSpecVersionId)
+    expect(view.run.repositoryRevisionId).toBe(revisionId)
     expect(view.executionRequests).toHaveLength(1)
     expect(view.executionRequests[0]).toMatchObject({
       executionRequestId: 'exec-1',
@@ -171,7 +173,8 @@ describe('run persistence', () => {
         revisionMismatchExpected: null,
         revisionMismatchActual: null,
         patchHash: 'd'.repeat(64),
-        timedOut: false
+        timedOut: false,
+        recoveryJson: '{"state":"running","cleanupSucceeded":false}'
       },
       completedAt: '2026-08-08T10:00:05.000Z',
       now: '2026-08-08T10:00:05.000Z',
@@ -189,6 +192,7 @@ describe('run persistence', () => {
       dispatchOutcome: 'SUCCEEDED',
       claimGranted: true,
       patchHash: 'd'.repeat(64),
+      recoveryJson: '{"state":"running","cleanupSucceeded":false}',
       completedAt: '2026-08-08T10:00:05.000Z'
     })
     expect(view.events.map((event) => event.kind)).toEqual(['DISPATCHED', 'FINISHED'])
@@ -224,7 +228,8 @@ describe('run persistence', () => {
         revisionMismatchExpected: null,
         revisionMismatchActual: null,
         patchHash: null,
-        timedOut: false
+        timedOut: false,
+        recoveryJson: null
       },
       terminalCompletedAt: '2026-08-08T10:00:05.000Z'
     })
@@ -321,7 +326,8 @@ describe('run persistence', () => {
         revisionMismatchExpected: null,
         revisionMismatchActual: null,
         patchHash: null,
-        timedOut: false
+        timedOut: false,
+        recoveryJson: null
       },
       completedAt: '2026-08-08T10:00:05.000Z',
       now: '2026-08-08T10:00:05.000Z',
@@ -339,7 +345,8 @@ describe('run persistence', () => {
           revisionMismatchExpected: null,
           revisionMismatchActual: null,
           patchHash: null,
-          timedOut: false
+          timedOut: false,
+          recoveryJson: null
         },
         completedAt: '2026-08-08T10:00:06.000Z',
         now: '2026-08-08T10:00:06.000Z',
@@ -348,6 +355,65 @@ describe('run persistence', () => {
     ).toThrow(ValidationError)
 
     expect(() => getRunAggregate(p, 'missing')).toThrow(NotFoundError)
+    closeDatabase(p)
+  })
+
+  it('rejects finalizing a run with a request that belongs to another run', () => {
+    const { p, projectId, taskId, taskSpecVersionId, contextSnapshotId, revisionId } = seed()
+    createDispatchedRun(p, {
+      runId: 'run_a',
+      projectId,
+      taskId,
+      taskSpecVersionId,
+      contextSnapshotId,
+      repositoryRevisionId: revisionId,
+      startedAt: '2026-08-08T10:00:01.000Z',
+      now: '2026-08-08T10:00:01.000Z',
+      request: dispatchRequest('exec-a')
+    })
+    createDispatchedRun(p, {
+      runId: 'run_b',
+      projectId,
+      taskId,
+      taskSpecVersionId,
+      contextSnapshotId,
+      repositoryRevisionId: revisionId,
+      startedAt: '2026-08-08T10:00:02.000Z',
+      now: '2026-08-08T10:00:02.000Z',
+      request: dispatchRequest('exec-b')
+    })
+
+    expect(() =>
+      finalizeRun(p, {
+        runId: 'run_a',
+        executionRequestId: 'exec-b',
+        metadata: {
+          dispatchOutcome: 'SUCCEEDED',
+          claimGranted: true,
+          rejectionReason: null,
+          revisionMismatchField: null,
+          revisionMismatchExpected: null,
+          revisionMismatchActual: null,
+          patchHash: null,
+          timedOut: false,
+          recoveryJson: null
+        },
+        completedAt: '2026-08-08T10:00:03.000Z',
+        now: '2026-08-08T10:00:03.000Z',
+        artifacts: []
+      })
+    ).toThrow(/does not belong to Run/)
+
+    expect(() =>
+      interruptRun(p, {
+        runId: 'run_b',
+        executionRequestId: 'exec-a',
+        reasonCode: 'test',
+        now: '2026-08-08T10:00:03.000Z',
+        terminalMetadata: null,
+        terminalCompletedAt: null
+      })
+    ).toThrow(/does not belong to Run/)
     closeDatabase(p)
   })
 })

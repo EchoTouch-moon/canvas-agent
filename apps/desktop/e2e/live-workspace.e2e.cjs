@@ -1,6 +1,7 @@
 const path = require('node:path')
 const os = require('node:os')
 const fs = require('node:fs')
+const { createHash } = require('node:crypto')
 const { execSync } = require('node:child_process')
 const { _electron: electron } = require('playwright-core')
 
@@ -117,8 +118,36 @@ async function secondLaunch(repo, home) {
     const finishText = await page.evaluate(() => document.body.innerText.includes('FINISHED'))
     step('B run.get events (DISPATCHED + FINISHED) intact', requestText && finishText)
 
-    const patch = await page.getByText('PATCH', { exact: true }).count()
-    step('B run.get patch artifact intact', patch > 0)
+    // Byte-level durable evidence: call the real bridge run.get and verify the
+    // PATCH artifact's content, sha256 and size all survived the restart.
+    const runId = await page.evaluate(() => {
+      const match = document.body.textContent.match(/run__[0-9a-f-]+/)
+      return match ? match[0] : null
+    })
+    if (!runId) throw new Error('could not extract run id')
+    const aggregate = await page.evaluate(async (id) => {
+      const response = await window.canvasAgent.command({
+        requestId: 'e2e-restart',
+        schemaVersion: 1,
+        command: 'run.get',
+        payload: { runId: id }
+      })
+      return response.ok ? response.data : null
+    }, runId)
+    const patchArtifact = ((aggregate && aggregate.artifacts) || []).find(
+      (artifact) => artifact.kind === 'PATCH'
+    )
+    step('B run.get patch artifact present', Boolean(patchArtifact))
+    if (patchArtifact) {
+      const contentOk = String(patchArtifact.content).includes('docs/phase2.md')
+      const hashOk =
+        createHash('sha256').update(patchArtifact.content, 'utf8').digest('hex') ===
+        patchArtifact.contentHash
+      const sizeOk = patchArtifact.sizeBytes === Buffer.byteLength(patchArtifact.content, 'utf8')
+      step('B PATCH content intact', contentOk)
+      step('B PATCH sha256(content) === contentHash', hashOk)
+      step('B PATCH sizeBytes === byteLength', sizeOk)
+    }
 
     const evidence = await page.evaluate(() => document.body.innerText.includes('Snapshot'))
     step('B run.get snapshot binding present', evidence)
