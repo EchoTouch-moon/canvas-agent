@@ -1,166 +1,220 @@
-# PROPOSAL-026 — Phase 4 #5: Result Adoption + Baseline Promotion
+# PROPOSAL-026 — Phase 4 #5: Result Adoption + Baseline Promotion (durable side-effect protocol)
 
-- **Status:** Draft — awaiting architecture freeze
-- **Author:** DeepSeek V4 Flash
+- **Status:** APPROVED — direction frozen, entering implementation
+- **Author:** DeepSeek V4 Flash (architecture decisions by the lead)
 - **Date:** 2026-08-08
-- **Basis:** Phase 4 #4 close-out direction; the frozen MVP loop
-  `Baseline N → Task → Run → Baseline N+1`; the "adoption authorization" note in
-  PROPOSAL-025; the BaselineEdgeItem design debt.
+- **Basis:** Phase 4 #4 close-out; the frozen MVP loop
+  `Baseline N → Task → Run → Acceptance → Baseline N+1`.
 
-## Problem
+## Core problem
 
-The execution → human-judgement → completion chain is durable (Phase 4 #3/#4),
-but the last, most dangerous step is not: a COMPLETED Task's accepted PATCH never
-touches the real repository, so no `RepositoryRevision N+1` and no `Baseline
-N+1` exist. Until then the loop is not closed, and a naive "promote" would only
-relabel the old project state.
+Git and SQLite cannot form a single ACID transaction. Once this phase mutates
+the user's real repository, a "validate → apply → commit → write success row"
+model is unsafe: the dangerous window is `Git commit succeeded → Main crashed →
+SQLite has no RepositoryRevision / ArtifactApplication`. The system must
+therefore guarantee that the external side effect is **identifiable, retryable
+and reconcilable**, not pretend partial state never happens.
 
-Phase 4 #5 introduces the **adoption authorization**: a durable, explicit,
-auditable side effect that mutates real project state. This is a different
-concept from acceptance judgement (Phase 4 #4) — the user says "I authorize
-this accepted result to be applied".
-
-## Goal (the final loop)
+Three trusted terminal conclusions are allowed:
 
 ```text
-COMPLETED Task + accepted Run Artifact (PATCH)
-   │  explicit artifact.apply  (adoption authorization)
-   ▼
-real repository mutation
-   │  git apply → commit (or recorded working-tree change)
-   ▼
-RepositoryRevision N+1 (persisted)
-   │  baseline.createCandidateFromTask (Main materializes)
-   ▼
-Baseline N+1 DRAFT (NodeVersions + RepositoryRevision [+ edges])
-   │  user reviews the DRAFT
-   ▼
-baseline.activate (existing) → Baseline N SUPERSEDED, N+1 ACTIVE
+A. proven repository still at Base N
+B. proven adoption succeeded and persisted as N+1
+C. state unknown → INTERRUPTED / recovery required
 ```
 
-## Proposed surface
+Never: "the repository may have changed but the system reports FAILED/rolled
+back".
 
-### 1. `artifact.apply` — adoption authorization
+## Decisions
+
+1. **Patch → NodeVersion: no automatic mapping, no implicit latest NodeVersion.**
+   NodeVersion is project semantics, not a Git-file mirror. The candidate
+   inherits the parent Baseline's NodeVersion set exactly.
+2. **Commit strategy: Main-authored commit only.** Adoption yields a committed
+   `R2 (baseCommit = def456, workingTreePatchHash = null)`; dirty
+   working-tree revisions are unsupported. Runs with
+   `Run.repositoryRevision.workingTreePatchHash !== null` are rejected
+   (`dirty_run_revision_adoption_unsupported`).
+3. **BaselineEdgeItem: deferred.** MVP Baseline consensus = NodeVersions +
+   RepositoryRevision. No edge-set backfill.
+4. **Idempotency:** one logical application per Task / PATCH (UNIQUE taskId,
+   UNIQUE artifactId). A retry of an APPLIED application returns the existing
+   result; it never creates a second Git commit.
+5. **Renderer:** Live view gets the full flow; CoreFlow unlocks
+   APPLY_ARTIFACT / CREATE_BASELINE / ACTIVATE_BASELINE as three separate
+   explicit clicks.
+6. **Migration:** `artifact_application`, `artifact_application_event`,
+   `baseline_candidate_source`; no semantic backfill (legacy provenance absent).
+
+## Command surface
+
+| command | payload | response |
+|---|---|---|
+| `artifact.apply` | `{ taskId, evaluationId, artifactId }` | `ArtifactApplicationAggregate` |
+| `artifactApplication.list` | `{ taskId }` | `ArtifactApplicationAggregate[]` |
+| `baseline.createCandidateFromTask` | `{ applicationId, name, description? }` | `BaselineCandidateAggregate` |
+| `baseline.activate` | `{ baselineId }` (strengthened) | existing result |
+
+`artifact.apply` payload is narrow: Main derives run / executionRequest / project
+/ base state from the persisted graph.
+
+## Adoption guards (`artifact.apply`)
+
+1. `Task.status === COMPLETED`
+2. `evaluation.taskId === task.id`
+3. evaluation is the Task's latest evaluation
+4. `evaluation.status === PASSED`
+5. `evaluation.taskSpecVersionId ===` latest published TaskSpecVersion
+6. `evaluation.runId → Run`
+7. `Run.status === FINISHED`
+8. `Run.outcome ∈ SUCCEEDED | PARTIAL | TIMED_OUT`
+9. `Run.taskId === Task.id`
+10. `Run.taskSpecVersionId === evaluation.taskSpecVersionId`
+11. Artifact = selected `artifactId`
+12. `Artifact.kind === PATCH`
+13. `Artifact.runId === Run.id`
+14. `Artifact.executionRequestId` belongs to Run
+15. `sha256(artifact.content) === artifact.contentHash` (re-verified now)
+16. `byteLength(content) === sizeBytes`
+17. if `ExecutionRequestRecord.patchHash != null`: `artifact.contentHash === request.patchHash`
+18. patch content non-empty
+19. Run's repository revision is clean
+20. current real repository revision === Run's repository revision (exact base)
+21. current ACTIVE baseline === Snapshot.baseBaselineId (no stale adoption)
+22. no conflicting prior ArtifactApplication
+
+## Data model
+
+### `artifact_application` (immutable authorization binding)
 
 ```ts
-artifact.apply({ runId, executionRequestId, taskId })
-  → { repositoryRevisionId }   // the new RepositoryRevision N+1
+{ id, projectId, taskId, evaluationId, runId, executionRequestId, artifactId,
+  baseBaselineId, baseRepositoryRevisionId, patchHash, authorizedAt }
+// UNIQUE(taskId), UNIQUE(artifactId)
 ```
 
-Guards (mirror the existing trust boundaries):
-- The Task is COMPLETED.
-- The Run is FINISHED with a usable outcome.
-- The evaluated/complete evidence exists (latest PASSED evaluation → the Run).
-- The Run's PATCH artifact exists and its contentHash is verified (already
-  persisted byte-for-byte at ingest).
-- **Explicit authorization**: the user invoked `artifact.apply`; there is no
-  automatic adoption.
-
-Mechanics:
-- `GitRepositoryWriter` (new, Main-side) runs `git apply` of the patch in the
-  source repo, then `git add -A` + `git commit` with a deterministic message
-  (`canvas-agent: adopt <runId> <taskId>`), producing a new commit.
-- A new `RepositoryRevision` row is upserted from the resulting
-  baseCommit/treeHash/workingTreePatchHash (reusing `revision.current` after the
-  apply), and the Run is linked to it (or a new `artifact_application` record).
-- If the working tree is dirty or the patch fails to apply → ValidationError,
-  no mutation, no partial state.
-
-### 2. Adoption record (durable authorization)
-
-A new append-only aggregate recording the side effect:
+### `artifact_application_event` (append-only lifecycle)
 
 ```ts
-ArtifactApplication {
-  id
-  projectId
-  runId
-  executionRequestId
-  taskId
-  repositoryRevisionId    // N+1
-  patchHash               // the applied patch
-  appliedAt
-}
+{ id, applicationId, sequence, kind, repositoryRevisionId?, reasonCode?,
+  detail?, createdAt }   // UNIQUE(applicationId, sequence)
 ```
 
-This is the auditable "who/what/when" of the repository mutation.
+`kind: AUTHORIZED | APPLYING | APPLIED | FAILED | INTERRUPTED`; effective status
+is the latest event.
 
-### 3. `baseline.createCandidateFromTask` — Main materializes Baseline N+1
+- **FAILED**: system proved `repository == base` and clean.
+- **INTERRUPTED**: system cannot prove whether a side effect occurred
+  (process crash, rollback failed, unexpected Git state).
+- **APPLIED**: commit exists + repository clean + RepositoryRevision persisted.
 
-The Renderer does NOT submit a full candidate state. Main builds it:
+### `baseline_candidate_source` (provenance)
 
 ```ts
-baseline.createCandidateFromTask({ projectId, taskId, name })
-  → { baseline }   // DRAFT
+{ baselineId (PK), parentBaselineId, taskId, artifactApplicationId } // UNIQUE(artifactApplicationId)
 ```
 
-Materialization:
-- Reads the ACTIVE Baseline N (projectId-scoped).
-- Applies the task's target nodeVersion changes (decision: how adoption maps to
-  new NodeVersions) to produce the candidate item set.
-- Pins the new `RepositoryRevisionId` (N+1 from `artifact.apply`).
-- Creates a DRAFT baseline (reusing `createBaselineDraft` internals).
-- Leaves activation to the explicit existing `baseline.activate`
-  (DRAFT → ACTIVE, supersedes N). No atomic promote.
+## Protocol
 
-## Open design decisions (awaiting freeze)
+```text
+artifact.apply
+│  resolve Task / latest PASSED evaluation / Run / PATCH
+│  verify artifact bytes/hash; ACTIVE baseline == Snapshot.baseBaseline
+│  verify current repo == Run revision and clean
+│  DB TX: Application binding + event #0 AUTHORIZED + audit
+│  event #1 APPLYING
+│  re-check exact base
+│  GitRepositoryWriter:
+│    git apply --check → git apply --index → controlled commit → verify clean
+│  DB TX: upsert RepositoryRevision N+1 + event #2 APPLIED + audit
+```
 
-1. **Patch → NodeVersion mapping**: after `git apply`, how do the task's target
-   nodes get new NodeVersions? Options:
-   - (a) Adoption auto-publishes new NodeVersions for the task's targets whose
-     content is read from the patched files (Main resolves file content at the
-     new revision). Strongest "the loop closed" semantics.
-   - (b) The user explicitly authors the new NodeVersions with the existing
-     `nodeVersion.publish`; adoption only advances the repository revision, and
-     the baseline candidate uses the latest authored versions. Least magic.
-2. **Commit strategy**: deterministic Main-authored commit (recommended — one
-   commit per adoption, auditable) vs. record the working-tree state as the new
-   revision without committing (keeps user's git history untouched).
-3. **BaselineEdgeItem**: implement graph-edge freezing (BaselineEdgeItem) now
-   (decision A) vs. MVP freezes only NodeVersions + RepositoryRevision (B).
-4. **Re-apply safety**: forbid a second `artifact.apply` for the same Run, and
-   require a clean working tree before apply.
-5. **Renderer scope**: wire `artifact.apply` + baseline candidate review into the
-   Live view (recommended); CoreFlow APPLY_ARTIFACT / ACTIVATE_BASELINE unlock to
-   the real commands.
-6. **Idempotency / migration**: the migration backfills nothing new, but the new
-   tables need a migration.
+### Side-effect idempotency
 
-## Safety / trust boundary (the core of this packet)
+If the application is already APPLIED, a retry returns the existing application +
+revision; Git HEAD is untouched and no second commit is created.
 
-- Main performs the repository mutation through a narrow `GitRepositoryWriter`
-  (no shell interpolation; `git apply` / `add` / `commit` with argument arrays).
-- The applied patch is the already-verified PATCH artifact (contentHash matched
-  at ingest); it is never re-read from an untrusted path.
-- Everything is gated on an explicit user action; there is no automatic adoption.
-- The whole side effect is recorded in `ArtifactApplication` (append-only) and an
-  audit entry, and the resulting RepositoryRevision is durable.
-- A failed apply leaves no partial state (transactional-ish: validate clean
-  tree → apply → commit; on failure, no rows are written).
+### Crash-gap reconciliation
+
+On retry with latest event APPLYING / INTERRUPTED, inspect Git HEAD:
+
+- **Case A** `HEAD == original base` and clean → retry the writer.
+- **Case B** `HEAD.parent == original base` and commit trailers match
+  applicationId / artifactId / patchHash and clean → **do not reapply**; upsert
+  RepositoryRevision + append APPLIED.
+- **Case C** anything else → `application_recovery_conflict`, fail closed.
+
+Commit trailers:
+
+```text
+Canvas-Agent-Application: <applicationId>
+Canvas-Agent-Run: <runId>
+Canvas-Agent-Artifact: <artifactId>
+Canvas-Agent-Patch-SHA256: <patchHash>
+```
+
+## GitRepositoryWriter boundary
+
+- No shell interpolation; argument arrays only.
+- `git apply --check` then `git apply --index` (no `git add -A`).
+- Controlled identity (author/committer), `commit.gpgSign=false`,
+  `hooksPath` = trusted empty directory, dates = `authorizedAt`.
+- Main decides repo path / argv / message / working dir; the renderer never does.
+- Local commit only; never pushes.
+
+## Baseline candidate (`baseline.createCandidateFromTask`)
+
+- Requires the application to be APPLIED.
+- `current ACTIVE baseline.id === application.baseBaselineId`.
+- `current real repo === application result revision`.
+- Copies the parent Baseline's exact NodeVersion items + positions; pins the
+  result RepositoryRevision; creates a DRAFT baseline + `baseline_candidate_source`.
+- Idempotent: one candidate per application; a retry with a different
+  name/description → ValidationError (the DRAFT is never silently mutated).
+
+## `baseline.activate` (strengthened)
+
+For a baseline with `baseline_candidate_source`:
+
+- `current ACTIVE baseline.id === candidate.parentBaselineId`
+  (else `baseline_candidate_parent_is_stale`).
+- `current real repo === candidate RepositoryRevision` (Main reads Git before
+  the persistence activation).
+
+## Retiring session-only ArtifactReview
+
+The old CoreFlow Accept/Reject/Request-changes session controls are removed.
+`AcceptanceEvaluation` remains the judgement; `artifact.apply` is the adoption
+authorization. No second approval source.
 
 ## Out of scope (this packet)
 
-Checkpoint/resume, multi-user approval roles, streaming events, and any
-automatic (non-explicit) adoption.
+BaselineEdgeItem, checkpoint/resume, multi-user approval, streaming events,
+automatic (non-explicit) adoption, push.
 
 ## Test matrix
 
-- persistence: ArtifactApplication append-only; baseline candidate materializes
-  from ACTIVE baseline + new revision; BaselineEdgeItem (if decision 3 = A).
-- main: GitRepositoryWriter applies a fixture patch and commits; dirty-tree
-  rejection; re-apply rejection; revision.current reflects N+1.
-- contracts: `artifact.apply` / `baseline.createCandidateFromTask` schemas.
-- renderer: Live adoption flow; CoreFlow APPLY/ACTIVATE unlock.
-- **Restart E2E**: complete → apply → new revision → baseline candidate DRAFT →
-  restart → candidate + new revision durable → activate → Baseline N SUPERSEDED /
-  N+1 ACTIVE.
+- persistence: application lifecycle events; one-per-task/artifact idempotency;
+  candidate provenance + idempotency; candidate-parent-stale guard.
+- main: GitRepositoryWriter apply/commit/trailers; exact-base and stale-base
+  rejection; crash-gap reconciliation (commit succeeded / DB finalize failed →
+  retry detects matching commit → APPLIED, no reapply).
+- contracts: three commands + schemas.
+- **Restart E2E**: `C1 → apply → C2` (HEAD C2, parent C1, clean) → application
+  APPLIED → repeat apply → HEAD still C2, no second commit → create candidate →
+  Baseline N+1 DRAFT (parent N, source A1, revision R2, NodeVersion set == N) →
+  restart same userData + repo → application still APPLIED / candidate still
+  DRAFT / repo still C2 → `baseline.activate` → N SUPERSEDED / N+1 ACTIVE →
+  ACTIVE.repositoryRevision == actual Git HEAD.
 
 ## Delivery
 
-- `packages/contracts`: two commands + schemas.
-- `packages/persistence`: artifact_application (+ baseline_edge_item if A) tables
-  + commands + migration.
-- `apps/desktop/src/main`: `GitRepositoryWriter` + WorkspaceService + routes.
-- `apps/desktop/src/renderer`: Live adoption/review; CoreFlow unlock; fake.
+- `packages/contracts`: three commands + schemas.
+- `packages/persistence`: three tables + migration (no backfill) + commands.
+- `apps/desktop/src/main`: `GitRepositoryWriter` + WorkspaceService adoption
+  flow + candidate + strengthened activate.
+- `apps/desktop/src/renderer`: Live adoption flow; CoreFlow unlock + retire;
+  fake.
 - docs: this ADR + verification packet. Gate: `pnpm check` + `phase3-smoke` +
   `e2e:live` + PR CI.
