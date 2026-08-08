@@ -30,16 +30,16 @@
 ```text
 [e2e] PASS project hydration
 [e2e] PASS composer real candidates
-[e2e] PASS repository content resolve -> add selection   ← README.md via context.resolve
+[e2e] PASS repository content resolve -> add selection   ← docs/context file.md via context.resolve
 [e2e] PASS real snapshot freeze (node version + repo content)
 [e2e] PASS execution dispatch -> SUCCEEDED evidence
 [e2e] ALL PASSED
 ```
 
-`CANVAS_AGENT_PHASE3_SMOKE=1` PASSED. `pnpm check` green (179 tests: domain 5,
-contracts 30, persistence 42, worker-runtime 19, desktop 83).
+`CANVAS_AGENT_PHASE3_SMOKE=1` PASSED. `pnpm check` green (184 tests: domain 5,
+contracts 30, persistence 42, worker-runtime 19, desktop 88).
 
 ## Verification note
 
-CI publishes commit status on the PR. Housekeeping: Phase 4 #1 docs are updated
-to 169→179 test counts as part of this branch's verification packet.
+CI publishes commit status on the PR. The E2E drives a space-containing pinned
+path (`docs/context file.md`) so the `repo://` codec is exercised end to end.
