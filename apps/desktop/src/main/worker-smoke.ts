@@ -1,4 +1,4 @@
-import type { ExecutionRequestContract } from '@canvas-agent/contracts'
+import type { ExecutionRequestContractV1 } from '@canvas-agent/contracts'
 import { computeRequestHash } from '@canvas-agent/worker-runtime'
 import type { AppConfig } from './config'
 import { GitRevisionReader } from './git-revision-reader'
@@ -10,7 +10,7 @@ export async function runWorkerSmoke(appConfig: AppConfig, workerHost: WorkerHos
   const revisions = new GitRevisionReader(appConfig)
   const revision = await revisions.current()
 
-  const base: Omit<ExecutionRequestContract, 'requestHash'> = {
+  const base: Omit<ExecutionRequestContractV1, 'requestHash'> = {
     executionRequestId: 'smoke-exec-1',
     runId: 'smoke-run-1',
     workerAttemptNumber: 1,
@@ -31,7 +31,7 @@ export async function runWorkerSmoke(appConfig: AppConfig, workerHost: WorkerHos
     schemaVersion: 1,
     expiresAt: FUTURE
   }
-  const request: ExecutionRequestContract = { ...base, requestHash: computeRequestHash(base) }
+  const request: ExecutionRequestContractV1 = { ...base, requestHash: computeRequestHash(base) }
 
   const result = await workerHost.dispatch(request)
   console.error(`[worker-smoke] outcome=${result.outcome}`)

@@ -101,7 +101,17 @@ async function frozenSetup(
     taskSpecVersionId: 'spec_1',
     baseBaselineId: baseline.id,
     expectedRepositoryRevisionId: revision.id,
-    items: []
+    items: [
+      {
+        itemType: 'USER_INPUT',
+        sourceRef: 'task://spec_1',
+        resolvedContent: 'Implement X',
+        authority: 'TASK_INSTRUCTION',
+        priority: 'P0',
+        tokenEstimate: 5,
+        position: 0
+      }
+    ]
   })
 
   return { snapshotId: frozen.snapshot.id, revisionId: revision.id }
@@ -131,6 +141,12 @@ describe('ExecutionCoordinator', () => {
     expect(request.runId).toBe('run_1')
     expect(request.contextSnapshotId).toBe('snap_1')
     expect(request.taskSpecVersionId).toBe('spec_1')
+    expect(request.schemaVersion).toBe(2)
+    if (request.schemaVersion === 2) {
+      expect(request.contextBundle.items).toHaveLength(1)
+      expect(request.contextBundle.items[0]?.authority).toBe('TASK_INSTRUCTION')
+      expect(request.contextBundle.items[0]?.priority).toBe('P0')
+    }
     expect(request.expectedRepositoryRevision.baseCommit).toBe('a'.repeat(40))
     expect(request.requiredCapabilities).toEqual(['git', 'node'])
     expect(request.toolPolicy.allowNetwork).toBe(false)
@@ -186,6 +202,68 @@ describe('ExecutionCoordinator', () => {
     await expect(
       coordinator.dispatch({ executionRequestId: 'exec-1', contextSnapshotId: 'missing' })
     ).rejects.toThrow(NotFoundError)
+    closeDatabase(p)
+  })
+
+  it('rejects a dirty expected revision before any Run side effect', async () => {
+    const p = openDatabase({ path: ':memory:', services: services() })
+    applyMigrations(p)
+    createProject(p, { id: 'proj_dirty', name: 'P' })
+    createNode(p, { id: 'node_dirty', projectId: 'proj_dirty', type: 'GOAL' })
+    const version = publishNodeVersion(p, {
+      id: 'nv_dirty',
+      nodeId: 'node_dirty',
+      title: 'T',
+      body: 'body'
+    })
+    createTask(p, { id: 'task_dirty', projectId: 'proj_dirty', type: 'IMPLEMENT_CHANGE', title: 'T' })
+    publishTaskSpecVersion(p, {
+      id: 'spec_dirty',
+      taskId: 'task_dirty',
+      description: 'd',
+      scope: 's',
+      criteria: [{ description: 'c', position: 0 }]
+    })
+    const baseline = createBaselineDraft(p, {
+      id: 'baseline_dirty',
+      projectId: 'proj_dirty',
+      name: '0.1',
+      nodeVersionIds: [version.id]
+    })
+    activateBaseline(p, { baselineId: baseline.id })
+    const dirtyRevision = upsertRepositoryRevision(p, {
+      id: 'rev_dirty',
+      baseCommit: 'a'.repeat(40),
+      treeHash: 'b'.repeat(40),
+      workingTreePatchHash: 'c'.repeat(64)
+    })
+    freezeContextSnapshot(p, {
+      id: 'snap_dirty',
+      projectId: 'proj_dirty',
+      taskId: 'task_dirty',
+      taskSpecVersionId: 'spec_dirty',
+      baseBaselineId: baseline.id,
+      expectedRepositoryRevisionId: dirtyRevision.id,
+      items: [
+        {
+          itemType: 'USER_INPUT',
+          sourceRef: 'task://spec_dirty',
+          resolvedContent: 'Implement X',
+          authority: 'TASK_INSTRUCTION',
+          priority: 'P0',
+          tokenEstimate: 5,
+          position: 0
+        }
+      ]
+    })
+
+    const worker = new FakeWorkerHost()
+    const coordinator = new ExecutionCoordinator(p, worker, UNUSED_RUNTIME, services())
+    await expect(
+      coordinator.dispatch({ executionRequestId: 'exec-1', contextSnapshotId: 'snap_dirty' })
+    ).rejects.toThrow(/DIRTY_REPOSITORY_EXECUTION_UNSUPPORTED/)
+    expect(worker.captured).toHaveLength(0)
+    expect(() => getRunAggregate(p, 'run_1')).toThrow()
     closeDatabase(p)
   })
 

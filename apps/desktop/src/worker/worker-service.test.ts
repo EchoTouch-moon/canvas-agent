@@ -10,7 +10,7 @@ import {
   type AgentContext,
   type AgentSummary
 } from '@canvas-agent/worker-runtime'
-import type { ExecutionRequestContract } from '@canvas-agent/contracts'
+import type { ExecutionRequestContractV1 } from '@canvas-agent/contracts'
 import { WorkerService, type WorkerTransport } from './worker-service'
 import type { WorkerHostResponse } from './protocol'
 import { cleanupTempDirs, createTempGitRepo, trackTempDir } from '../main/testing/git-fixture'
@@ -77,8 +77,8 @@ function workerRequest(
     workingTreePatchHash: string | null
   },
   executionRequestId = 'exec-1'
-): ExecutionRequestContract {
-  const request: Omit<ExecutionRequestContract, 'requestHash'> = {
+): ExecutionRequestContractV1 {
+  const request: Omit<ExecutionRequestContractV1, 'requestHash'> = {
     executionRequestId,
     runId: 'run-1',
     workerAttemptNumber: 1,
