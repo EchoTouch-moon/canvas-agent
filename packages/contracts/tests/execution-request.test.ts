@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { createHash } from 'node:crypto'
 import {
   executionContextBundleV2Schema,
   executionContextItemV2Schema,
@@ -14,7 +13,19 @@ import {
 } from '../src'
 
 function sha256(content: string): string {
-  return createHash('sha256').update(content, 'utf8').digest('hex')
+  // The contract schemas only validate the 64-hex format; real hashing is done
+  // by worker-runtime semantic validation. Use a deterministic 64-hex stand-in
+  // so the contracts package stays free of node:crypto/Buffer types.
+  return content.length.toString(16).padStart(64, '0')
+}
+
+function utf8Bytes(content: string): number {
+  let bytes = 0
+  for (const ch of content) {
+    const code = ch.codePointAt(0) ?? 0
+    bytes += code > 0xffff ? 4 : code > 0x7ff ? 3 : code > 0x7f ? 2 : 1
+  }
+  return bytes
 }
 
 function stableStringify(value: unknown): string {
@@ -74,7 +85,7 @@ function bundle(items: ExecutionContextItemV2[]): {
   return {
     items,
     canonicalItems,
-    totalBytes: Buffer.byteLength(canonicalItems, 'utf8'),
+    totalBytes: utf8Bytes(canonicalItems),
     contentHash: contentHashOf(canonicalItems)
   }
 }
@@ -101,7 +112,7 @@ function v2Request(): ExecutionRequestContractV2 {
       allowNetwork: false,
       allowShell: true
     },
-    workspaceStrategy: 'ISOLATED_WORKTREE',
+    workspaceStrategy: 'ISOLATED_WORKTREE' as const,
     resourceBudget: { maxDurationMs: 900_000, maxToolCalls: 100, maxDiskBytes: 1_000_000_000 },
     schemaVersion: 2 as const,
     contextBundle: { items: b.items, totalBytes: b.totalBytes, contentHash: b.contentHash },
@@ -112,7 +123,7 @@ function v2Request(): ExecutionRequestContractV2 {
 
 describe('ExecutionRequest v1/v2 (PROPOSAL-028A)', () => {
   it('parses a historical v1 request unchanged', () => {
-    const v1: ExecutionRequestContractV1 = {
+    const v1Base = {
       executionRequestId: 'req_v1',
       runId: 'run_1',
       workerAttemptNumber: 1,
@@ -132,12 +143,15 @@ describe('ExecutionRequest v1/v2 (PROPOSAL-028A)', () => {
         allowNetwork: false,
         allowShell: true
       },
-      workspaceStrategy: 'ISOLATED_WORKTREE',
+      workspaceStrategy: 'ISOLATED_WORKTREE' as const,
       resourceBudget: { maxDurationMs: 30_000, maxToolCalls: 20, maxDiskBytes: 1_000_000_000 },
-      schemaVersion: 1,
+      schemaVersion: 1 as const,
       expiresAt: '2099-01-01T00:00:00.000Z'
     }
-    const request = { ...v1, requestHash: computeRequestHash(v1) }
+    const request: ExecutionRequestContractV1 = {
+      ...v1Base,
+      requestHash: computeRequestHash(v1Base)
+    }
     const parsed = executionRequestSchema.parse(request)
     expect(parsed.schemaVersion).toBe(1)
     expect(executionRequestV1Schema.parse(request).schemaVersion).toBe(1)
@@ -159,12 +173,13 @@ describe('ExecutionRequest v1/v2 (PROPOSAL-028A)', () => {
 
   it('rejects v1 with a bundle and v2 without a bundle', () => {
     const v2 = v2Request()
-    expect(() =>
-      executionRequestSchema.parse({ ...v2, schemaVersion: 1, contextBundle: undefined })
-    ).toThrow()
-    const v1 = { ...v2, schemaVersion: 1 }
-    delete (v1 as { contextBundle?: unknown }).contextBundle
-    expect(() => executionRequestSchema.parse({ ...v1, contextBundle: v2.contextBundle })).toThrow()
+    const v1WithBundle = { ...v2, schemaVersion: 1 }
+    expect(executionRequestSchema.safeParse(v1WithBundle as unknown).success).toBe(false)
+
+    const v2WithoutBundle = { ...v2 }
+    delete (v2WithoutBundle as { contextBundle?: unknown }).contextBundle
+    v2WithoutBundle.schemaVersion = 2
+    expect(executionRequestSchema.safeParse(v2WithoutBundle as unknown).success).toBe(false)
   })
 
   it('enforces the item and bundle shapes and limits', () => {
@@ -172,13 +187,19 @@ describe('ExecutionRequest v1/v2 (PROPOSAL-028A)', () => {
       executionContextItemV2Schema.parse(item({ position: -1 }))
     ).toThrow()
     expect(() =>
-      executionContextItemV2Schema.parse(item({ authority: 'TASK_INSTRUCTION', priority: 'P9' }))
+      executionContextItemV2Schema.parse(
+        item({ authority: 'TASK_INSTRUCTION', priority: 'P9' as 'P0' })
+      )
     ).toThrow()
     const many = Array.from({ length: MAX_EXECUTION_CONTEXT_ITEMS + 1 }, (_, i) =>
       item({ position: i, resolvedContent: `c${i}`, contentHash: contentHashOf(`c${i}`) })
     )
     expect(() =>
-      executionContextBundleV2Schema.parse({ items: many, totalBytes: 1, contentHash: '0'.repeat(64) })
+      executionContextBundleV2Schema.parse({
+        items: many,
+        totalBytes: 1,
+        contentHash: '0'.repeat(64)
+      })
     ).toThrow()
     expect(() =>
       executionContextBundleV2Schema.parse({
@@ -192,10 +213,9 @@ describe('ExecutionRequest v1/v2 (PROPOSAL-028A)', () => {
   it('keeps the union discriminant on schemaVersion and exports the limits', () => {
     expect(MAX_EXECUTION_CONTEXT_ITEMS).toBe(256)
     expect(MAX_EXECUTION_CONTEXT_BYTES).toBe(4 * 1024 * 1024)
-    const v1 = v2Request()
+    const v1 = { ...v2Request(), schemaVersion: 1 }
     delete (v1 as { contextBundle?: unknown }).contextBundle
-    ;(v1 as { schemaVersion: number }).schemaVersion = 1
-    const parsed = executionRequestSchema.safeParse(v1)
+    const parsed = executionRequestSchema.safeParse(v1 as unknown)
     expect(parsed.success).toBe(true)
     if (parsed.success) expect(parsed.data.schemaVersion).toBe(1)
   })

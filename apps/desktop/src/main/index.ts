@@ -11,6 +11,11 @@ import { isTrustedSender } from './security'
 import { MigrationFolderNotFoundError, resolveMigrationFolder } from './migration-path'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager'
 import { NativeDirectoryPicker, pickerFromEnvironment } from './repository-picker'
+import {
+  AgentRuntimeLocator,
+  NativeExecutablePicker,
+  executablePickerFromEnvironment
+} from './agent-runtime-locator'
 
 const allowedExternalOrigins = new Set(['https://deerflow.tech'])
 
@@ -115,6 +120,20 @@ app.whenReady().then(async () => {
     throw error
   }
 
+  const probePath = [process.env['PATH'], '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
+    .filter((entry): entry is string => entry !== undefined && entry.length > 0)
+    .join(':')
+  const agent = new AgentRuntimeLocator({
+    userData: app.getPath('userData'),
+    homePath: app.getPath('home'),
+    environment: {
+      PATH: probePath,
+      HOME: app.getPath('home')
+    },
+    picker: executablePickerFromEnvironment() ?? new NativeExecutablePicker(),
+    isChangeBlocked: () => manager.hasActiveRuns()
+  })
+
   const startupStatus = await manager.startup()
   if (startupStatus.state !== 'CLOSED' && startupStatus.lastError !== null) {
     console.error(
@@ -135,7 +154,7 @@ app.whenReady().then(async () => {
   }
 
   registerRuntimeInfoHandler()
-  registerCommandRouter({ manager })
+  registerCommandRouter({ manager, agent })
 
   if (process.env['CANVAS_AGENT_SMOKE'] === '1') {
     const runtime = manager.getReadyRuntime()
@@ -151,7 +170,7 @@ app.whenReady().then(async () => {
   }
 
   if (process.env['CANVAS_AGENT_PHASE3_SMOKE'] === '1') {
-    void runPhase3Smoke({ manager })
+    void runPhase3Smoke({ manager, agent })
       .catch((error) => {
         console.error('[phase3-smoke] FAILED:', error instanceof Error ? error.message : error)
       })

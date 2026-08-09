@@ -11,6 +11,7 @@ import {
 import { mapCommandError, WorkspaceUnavailableError } from './command-errors'
 import type { WorkspaceService } from './workspace-service'
 import type { WorkspaceRuntimeManager } from './workspace-runtime-manager'
+import type { AgentRuntimeLocator } from './agent-runtime-locator'
 
 export interface CommandRoute {
   execute: (payload: unknown, context?: CommandRouteContext) => Promise<unknown>
@@ -22,6 +23,7 @@ export interface CommandRouteContext {
 
 export interface CommandDeps {
   manager: WorkspaceRuntimeManager
+  agent: AgentRuntimeLocator
 }
 
 const INTERNAL_FAILURE = 'Internal command failure'
@@ -96,6 +98,17 @@ export function buildRoutes(deps: CommandDeps): Record<string, CommandRoute> {
   }
   routes['workspace.close'] = {
     execute: async () => deps.manager.close()
+  }
+
+  routes['agent.status'] = {
+    execute: async () => deps.agent.status()
+  }
+  routes['agent.chooseExecutable'] = {
+    execute: async (_payload: unknown, context?: CommandRouteContext) =>
+      deps.agent.chooseExecutable(context?.window)
+  }
+  routes['agent.clearExecutable'] = {
+    execute: async () => deps.agent.clearExecutable()
   }
 
   return routes

@@ -3,8 +3,9 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager'
+import { AgentRuntimeLocator } from './agent-runtime-locator'
 import { InProcessWorkerHost } from './testing/in-process-worker-host'
-import { buildRoutes, handleCommand } from './command-core'
+import { buildRoutes, handleCommand, type CommandDeps } from './command-core'
 import { cleanupTempDirs, createTempGitRepo, trackTempDir } from './testing/git-fixture'
 import type { CommandRequest } from '@canvas-agent/contracts'
 import type { RepositoryPicker } from './repository-picker'
@@ -32,6 +33,20 @@ async function makeManager(repoDir: string | null): Promise<WorkspaceRuntimeMana
   })
 }
 
+function makeAgent(): AgentRuntimeLocator {
+  return new AgentRuntimeLocator({
+    userData: '/tmp/ca-agent-test',
+    homePath: '/tmp',
+    environment: { PATH: '/usr/bin:/bin', HOME: '/tmp' },
+    picker: { pick: async () => ({ cancelled: true, path: null }) },
+    isChangeBlocked: () => false
+  })
+}
+
+function deps(manager: WorkspaceRuntimeManager): CommandDeps {
+  return { manager, agent: makeAgent() }
+}
+
 describe('CommandRouter (command-core)', () => {
   afterEach(async () => {
     await cleanupTempDirs()
@@ -39,7 +54,7 @@ describe('CommandRouter (command-core)', () => {
 
   it('rejects malformed and unknown commands at the transport boundary', async () => {
     const manager = await makeManager(null)
-    const routes = buildRoutes({ manager })
+    const routes = buildRoutes(deps(manager))
 
     await expect(
       handleCommand(routes, { requestId: 'r', command: 'project.create' })
@@ -59,7 +74,7 @@ describe('CommandRouter (command-core)', () => {
 
   it('reports workspace commands as HostUnavailableError before a workspace is READY', async () => {
     const manager = await makeManager(null)
-    const routes = buildRoutes({ manager })
+    const routes = buildRoutes(deps(manager))
     const result = await handleCommand(routes, request('project.create', { name: 'X' }))
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.name).toBe('HostUnavailableError')
@@ -81,7 +96,7 @@ describe('CommandRouter (command-core)', () => {
 
   it('workspace.status reports CLOSED before any repository is opened', async () => {
     const manager = await makeManager(null)
-    const routes = buildRoutes({ manager })
+    const routes = buildRoutes(deps(manager))
     const result = await handleCommand(routes, request('workspace.status', {}))
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error('expected ok')
@@ -106,7 +121,7 @@ describe('CommandRouter (command-core)', () => {
       bootstrapPath: null,
       workerHostFactory: (appConfig) => new InProcessWorkerHost(appConfig)
     })
-    const routes = buildRoutes({ manager })
+    const routes = buildRoutes(deps(manager))
 
     const opened = await handleCommand(routes, request('workspace.chooseRepository', {}))
     expect(opened.ok).toBe(true)
@@ -136,7 +151,7 @@ describe('CommandRouter (command-core)', () => {
     const repoDir = await createTempGitRepo()
     const manager = await makeManager(repoDir)
     await manager.openPath(repoDir)
-    const routes = buildRoutes({ manager })
+    const routes = buildRoutes(deps(manager))
 
     const created = await handleCommand(routes, request('project.create', { name: 'MUSICDB' }))
     expect(created.ok).toBe(true)

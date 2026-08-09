@@ -216,7 +216,12 @@ describe('ExecutionCoordinator', () => {
       title: 'T',
       body: 'body'
     })
-    createTask(p, { id: 'task_dirty', projectId: 'proj_dirty', type: 'IMPLEMENT_CHANGE', title: 'T' })
+    createTask(p, {
+      id: 'task_dirty',
+      projectId: 'proj_dirty',
+      type: 'IMPLEMENT_CHANGE',
+      title: 'T'
+    })
     publishTaskSpecVersion(p, {
       id: 'spec_dirty',
       taskId: 'task_dirty',

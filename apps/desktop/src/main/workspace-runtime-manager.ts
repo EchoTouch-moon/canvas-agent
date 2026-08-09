@@ -84,6 +84,10 @@ export class WorkspaceRuntimeManager {
     return this.state.kind === 'READY' ? this.state.runtime : null
   }
 
+  hasActiveRuns(): boolean {
+    return this.activeRuns > 0
+  }
+
   async withActiveRun<T>(run: (runtime: ActiveWorkspaceRuntime) => Promise<T>): Promise<T> {
     const runtime = this.acquireLease()
     this.activeRuns += 1

@@ -1,10 +1,11 @@
 import type { ProjectStateView } from '@canvas-agent/contracts'
 import { seedDemoWorkspace } from './demo-seed'
-import { buildRoutes, handleCommand } from './command-core'
+import { buildRoutes, handleCommand, type CommandDeps } from './command-core'
 import type { WorkspaceRuntimeManager } from './workspace-runtime-manager'
 
 interface Phase3SmokeDeps {
   manager: WorkspaceRuntimeManager
+  agent: CommandDeps['agent']
 }
 
 function frame(command: string, payload: unknown): Record<string, unknown> {
@@ -17,7 +18,7 @@ export async function runPhase3Smoke(deps: Phase3SmokeDeps): Promise<void> {
     throw new Error('phase3 smoke requires a READY workspace')
   }
   const projectId = await seedDemoWorkspace(runtime.persistence)
-  const routes = buildRoutes({ manager: deps.manager })
+  const routes = buildRoutes({ manager: deps.manager, agent: deps.agent })
   const req = (command: string, payload: unknown): Record<string, unknown> =>
     frame(command, payload)
 
