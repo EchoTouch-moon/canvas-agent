@@ -1,3 +1,5 @@
-{"type":"data","data":{"type":"agent_message","payload":{"message":{"role":"assistant","content":"starting"}}}}
-this is not json at all
-{"type":"data","data":{"type":"result","payload":{"item":{"type":"agent_message","message":{"role":"assistant","content":"{\"summary\":\"should never be trusted\"}"}},"model_id":"gpt-5.2-codex"}}}
+{"type":"thread.started","thread_id":"thr_<redacted>"}
+{"type":"turn.started"}
+not valid json at all
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"{\"summary\":\"should never be trusted\",\"changes\":[],\"tool_calls_observed\":0,\"tests_run\":[],\"success\":true}"}}
+{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":20,"reasoning_output_tokens":0}}

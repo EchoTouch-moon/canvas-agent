@@ -1,0 +1,9 @@
+{
+  "name": "unknown-event",
+  "cliVersion": "codex-cli 0.146.0",
+  "capture": "constructed from exec_events.rs release schema (0.146.0)",
+  "exitCode": 0,
+  "stderrClassification": "empty",
+  "expectedErrorCode": null,
+  "parserRequirement": "unknown item types (reasoning, todo_list) are skipped defensively; the final message is the last qualified agent_message before turn.completed"
+}

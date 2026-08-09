@@ -1,0 +1,9 @@
+{
+  "name": "non-zero-exit",
+  "cliVersion": "codex-cli 0.146.0",
+  "capture": "schema-verified (0.146.0 release exec_events.rs)",
+  "exitCode": 1,
+  "stderrClassification": "process failure after partial events",
+  "expectedErrorCode": "AGENT_PROCESS_FAILED",
+  "parserRequirement": "without turn.completed and a zero exit, the agent's own summary is NOT proof of success; map to a stable failure"
+}

@@ -1,0 +1,9 @@
+{
+  "name": "auth-required",
+  "cliVersion": "codex-cli 0.146.0",
+  "capture": "schema-verified (0.146.0 release exec_events.rs); real auth probe is `codex login status` non-zero",
+  "exitCode": 1,
+  "stderrClassification": "auth: not logged in",
+  "expectedErrorCode": "AGENT_AUTH_REQUIRED",
+  "note": "no logout or credential mutation was performed to produce this fixture"
+}

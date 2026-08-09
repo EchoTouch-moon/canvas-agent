@@ -1,5 +1,5 @@
-{"type":"data","data":{"type":"agent_message","payload":{"message":{"role":"assistant","content":"I'll add a small README section."}}}}
-{"type":"data","data":{"type":"tool_call","payload":{"call_id":"call_1","input":{"command":"ls","description":"List the worktree"},"tool_name":"shell"}}}
-{"type":"data","data":{"type":"tool_call_output","payload":{"call_id":"call_1","output":"README.md\n"}}}
-{"type":"data","data":{"type":"agent_message","payload":{"message":{"role":"assistant","content":"Done. Summary:\n{\"summary\":\"Added a usage note to README.md\",\"changes\":[{\"file\":\"README.md\",\"change_type\":\"modified\",\"description\":\"Append a usage note\"}],\"tool_calls_observed\":1,\"tests_run\":[],\"success\":true}"}}}}
-{"type":"data","data":{"type":"result","payload":{"item":{"type":"agent_message","message":{"role":"assistant","content":"{\"summary\":\"Added a usage note to README.md\",\"changes\":[{\"file\":\"README.md\",\"change_type\":\"modified\",\"description\":\"Append a usage note\"}],\"tool_calls_observed\":1,\"tests_run\":[],\"success\":true}"}},"input_tokens":1200,"output_tokens":180,"reasoning_tokens":0,"model_id":"gpt-5.2-codex"}}}
+{"type":"thread.started","thread_id":"thr_<redacted>"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest."}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"OK"}}
+{"type":"turn.completed","usage":{"input_tokens":18235,"cached_input_tokens":6912,"cache_write_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0}}

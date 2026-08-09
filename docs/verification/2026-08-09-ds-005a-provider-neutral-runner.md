@@ -1,6 +1,6 @@
 # DS-005A verification packet — Provider-neutral local CLI runner
 
-- **Status:** VERIFIED — branch `agent/deepseek-ds-005-local-cli-adapter`; pending architecture merge review
+- **Status:** VERIFIED (rev 2, addressing the blocking commit review) — branch `agent/deepseek-ds-005-local-cli-adapter`; pending architecture merge review
 - **Date:** 2026-08-09
 - **Basis:** PROPOSAL-028 (DS-005A authorized), PROPOSAL-028A (v2 Context Bundle), PROPOSAL-028B (locator), PROPOSAL-028C (agent command contract), `docs/tasks/deepseek/DS-005-local-cli-adapter.md`
 - **Branches:** base `main@7c83999` → `agent/deepseek-ds-005-local-cli-adapter`
@@ -14,6 +14,17 @@ All commands ran under Node 24 (`.nvmrc`/`.node-version` pin `24.14.0`):
 node --version
 v24.15.0
 ```
+
+## PR blocking review — fixes (rev 2)
+
+| Review item | Fix | Evidence |
+|---|---|---|
+| P1 shared validator omits the 256-item cap | `assertValidExecutionContextBundle` now rejects `items.length < 1 \|\| > MAX_EXECUTION_CONTEXT_ITEMS` (Main calls it without Zod) | `context-bundle.test.ts` (257 items, empty); `execution-coordinator.test.ts` "rejects a snapshot with more than 256 context items before any Run side effect" (no Run record, zero worker capture) |
+| P1 Abort only terminates the direct child | `local-cli-runner.ts` routes abort and deadline through one explicit process-group shutdown state machine (SIGTERM → bounded SIGKILL), first termination reason wins (`timedOut` XOR `cancelled`), pre-aborted signal returns `cancelled` without spawning, and resolution waits for `close` or the bounded forced phase | runner tests: pre-abort, grandchild PID liveness after timeout, timeout-vs-cancel mutual exclusivity |
+| P1 failed launcher selection destroys prior READY | `chooseExecutable`/`clearExecutable` commit only after the atomic settings write succeeds; a failed candidate (including `AUTH_REQUIRED`) never overwrites a prior READY launcher; settings write failure returns `SETTINGS_INVALID` preserving prior state; `AUTH_REQUIRED` is saved only when no READY launcher exists | locator tests: bad-candidate rollback keeps READY + settings unchanged, settings-write failure → `SETTINGS_INVALID`, AUTH-preserved-when-READY vs AUTH-saved-when-none |
+| P1 active-run guard picker race | `WorkspaceRuntimeManager.withConfigurationChange` is atomic with `withActiveRun` only (ordinary `withReadyRuntime` project commands are not blocked), serializes concurrent changes via a promise chain (no public `OPERATION_IN_PROGRESS`), releases its flag in `finally`; the locator uses `configurationGate` for the picker-then-probe/persist critical section | manager tests (run-active block, config-changing blocks runs but not project commands, concurrent serialization); locator race test (run starts during picker → `ACTIVE_RUN_BLOCKS_CHANGE`, launcher unchanged) |
+| P1 runner breaks legal UTF-8 JSONL | the runner buffers bounded byte slices and decodes once via `Buffer.concat().toString('utf8')`, preserving multi-byte characters split across pipe chunks | runner UTF-8 tests (Chinese/emoji cross-chunk exact decode; byte-cap truncation) |
+| P2 locator classification + tests incomplete | `probeCandidate` distinguishes a missing path (`EXECUTABLE_NOT_FOUND`) from an existing non-executable file (`EXECUTABLE_NOT_READABLE`); new shared `codex-version.ts` freezes the v1 adapter to stable `0.146.x` (other minors/majors/prereleases → `UNSUPPORTED_VERSION`), used by both the locator and the future Worker adapter | locator tests (non-executable, `0.145/0.147/prerelease` → unsupported, `0.146.9` → READY); `codex-version.test.ts` |
 
 ## DS-005A item → evidence
 
@@ -79,23 +90,28 @@ pnpm --filter @canvas-agent/desktop e2e:packaged-smoke     ALL PASSED
 packages/domain          5   (unchanged)
 packages/contracts      56   (+8 v2/agent contract tests)
 packages/persistence    68   (unchanged)
-packages/worker-runtime 42   (+20 runner/bundle/dirty/v2)
-apps/desktop           173   (+12 locator + coordinator dirty)
+packages/worker-runtime 51   (+29 runner/bundle/dirty/v2/codex-version)
+apps/desktop           185   (+24 locator/manager/coordinator rev-2)
 -----------------------
-total                  344   (baseline 304)
+total                  365   (baseline 304)
 ```
 
-## Commands run (all under Node 24)
+## Commands run (all under Node 24, rev 2)
 
 ```text
 pnpm --filter @canvas-agent/worker-runtime typecheck   PASS
-pnpm --filter @canvas-agent/worker-runtime test       42 passed
-pnpm --filter @canvas-agent/desktop test             173 passed
-pnpm check                                            all green (344)
+pnpm --filter @canvas-agent/worker-runtime test       51 passed
+pnpm --filter @canvas-agent/desktop test             185 passed
+pnpm check                                            all green (365)
 pnpm --filter @canvas-agent/desktop e2e:live          ALL PASSED
 pnpm --filter @canvas-agent/desktop e2e:workspace     ALL PASSED
 pnpm --filter @canvas-agent/desktop e2e:packaged-smoke ALL PASSED
 ```
+
+The Codex argv/schema fixture package was rewritten (rev 2) with a **real 0.146.0 `codex exec
+--json` capture** for `success` plus `schema-verified` (0.146.0 release `exec_events.rs`) auth /
+non-zero cases, per-fixture sidecar manifests, and the added isolation argv
+(`--ignore-user-config --ignore-rules -c project_doc_max_bytes=0`).
 
 ## Handoff additions
 
