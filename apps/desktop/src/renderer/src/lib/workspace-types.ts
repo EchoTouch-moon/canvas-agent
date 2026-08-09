@@ -13,6 +13,10 @@ export type {
 } from '@canvas-agent/contracts'
 
 export type ProjectStateView = ContractProjectStateView
+export type WorkspaceRuntimeStatus = CommandOutput<'workspace.status'>
+export type WorkspaceChooseResult = CommandOutput<'workspace.chooseRepository'>
+export type AgentRuntimeStatus = CommandOutput<'agent.status'>
+export type AgentChooseExecutableResult = CommandOutput<'agent.chooseExecutable'>
 export type ProjectRecord = ProjectStateView['project']
 export type NodeRecord = ProjectStateView['nodes'][number]
 export type NodeDraftRecord = ProjectStateView['nodeDrafts'][number]

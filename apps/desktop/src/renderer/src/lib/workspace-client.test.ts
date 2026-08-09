@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   createWorkspaceClient,
+  createWorkspaceLifecycleClient,
   WorkspaceError,
   type CommandRequest,
-  type CommandTransport
+  type CommandTransport,
+  type WorkspaceClient
 } from './workspace-client'
 
 describe('WorkspaceClient', () => {
@@ -122,5 +124,36 @@ describe('WorkspaceClient', () => {
       executionRequestId: 'execution-1',
       contextSnapshotId: 'snapshot-1'
     })
+  })
+
+  it('keeps workspace and Agent lifecycle commands path-free', async () => {
+    const commands: Array<{ readonly command: string; readonly payload: unknown }> = []
+    const recordingClient: WorkspaceClient = {
+      async command(command, payload) {
+        commands.push({ command, payload })
+        throw new Error('recorded')
+      }
+    }
+    const lifecycle = createWorkspaceLifecycleClient(recordingClient)
+
+    await Promise.allSettled([
+      lifecycle.getWorkspaceStatus(),
+      lifecycle.chooseRepository(),
+      lifecycle.reopenLast(),
+      lifecycle.closeWorkspace(),
+      lifecycle.getAgentStatus(),
+      lifecycle.chooseAgentExecutable(),
+      lifecycle.clearAgentExecutable()
+    ])
+
+    expect(commands).toEqual([
+      { command: 'workspace.status', payload: {} },
+      { command: 'workspace.chooseRepository', payload: {} },
+      { command: 'workspace.reopenLast', payload: {} },
+      { command: 'workspace.close', payload: {} },
+      { command: 'agent.status', payload: {} },
+      { command: 'agent.chooseExecutable', payload: {} },
+      { command: 'agent.clearExecutable', payload: {} }
+    ])
   })
 })
