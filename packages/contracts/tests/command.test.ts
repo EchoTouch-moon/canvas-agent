@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  agentChooseExecutableResultSchema,
+  agentRuntimeReasonSchema,
+  agentRuntimeStateSchema,
+  agentRuntimeStatusSchema,
   commandErrorSchema,
   commandRequestSchema,
   commandResponseSchemas,
@@ -691,6 +695,115 @@ describe('result adoption commands', () => {
     it('round-trips the workspace summary and operation error inferred types', () => {
       expect(workspaceSummarySchema.parse(STATUS.activeWorkspace)).toEqual(STATUS.activeWorkspace)
       expect(workspaceOperationErrorSchema.parse(ERRORED.lastError)).toEqual(ERRORED.lastError)
+    })
+  })
+
+  describe('agent readiness commands (PROPOSAL-028C)', () => {
+    const READY = {
+      provider: 'codex-cli',
+      state: 'READY',
+      version: 'codex-cli 0.146.0',
+      source: 'PATH',
+      displayPath: '/opt/homebrew/bin/codex',
+      lastError: null
+    }
+    const NOT_FOUND = {
+      provider: 'codex-cli',
+      state: 'NOT_FOUND',
+      version: null,
+      source: null,
+      displayPath: null,
+      lastError: { reasonCode: 'EXECUTABLE_NOT_FOUND', recoverable: true }
+    }
+
+    it('accepts strict empty payloads for all three agent commands', () => {
+      for (const command of ['agent.status', 'agent.chooseExecutable', 'agent.clearExecutable']) {
+        const parsed = commandRequestSchema.parse(request(command, {}))
+        expect(parsed.command).toBe(command)
+        expect(() => commandRequestSchema.parse(request(command, { path: '/bin/codex' }))).toThrow()
+        expect(() =>
+          commandRequestSchema.parse(request(command, { provider: 'claude' }))
+        ).toThrow()
+      }
+    })
+
+    it('enforces the agent status schema shape', () => {
+      expect(agentRuntimeStatusSchema.parse(READY)).toEqual(READY)
+      expect(agentRuntimeStatusSchema.parse(NOT_FOUND)).toEqual(NOT_FOUND)
+      // provider is fixed to codex-cli
+      expect(() => agentRuntimeStatusSchema.parse({ ...READY, provider: 'claude' })).toThrow()
+      // strict: unknown keys rejected
+      expect(() => agentRuntimeStatusSchema.parse({ ...READY, extra: true })).toThrow()
+    })
+
+    it('round-trips every agent state and reason enum', () => {
+      for (const state of [
+        'READY',
+        'NOT_FOUND',
+        'UNSUPPORTED_VERSION',
+        'AUTH_REQUIRED',
+        'INTERPRETER_MISSING',
+        'ERROR'
+      ]) {
+        expect(agentRuntimeStateSchema.parse(state)).toBe(state)
+      }
+      for (const reason of [
+        'EXECUTABLE_NOT_FOUND',
+        'EXECUTABLE_NOT_READABLE',
+        'EXECUTABLE_NOT_SUPPORTED',
+        'INTERPRETER_MISSING',
+        'AUTH_REQUIRED',
+        'PROBE_TIMED_OUT',
+        'ACTIVE_RUN_BLOCKS_CHANGE',
+        'SETTINGS_INVALID',
+        'UNKNOWN'
+      ]) {
+        expect(agentRuntimeReasonSchema.parse(reason)).toBe(reason)
+      }
+      expect(() => agentRuntimeStateSchema.parse('BOGUS')).toThrow()
+      expect(() => agentRuntimeReasonSchema.parse('BOGUS')).toThrow()
+    })
+
+    it('parses the chooseExecutable picker-cancellation shape', () => {
+      expect(agentChooseExecutableResultSchema.parse({ cancelled: true, status: READY })).toEqual({
+        cancelled: true,
+        status: READY
+      })
+      expect(() =>
+        agentChooseExecutableResultSchema.parse({ cancelled: false, status: READY })
+      ).not.toThrow()
+    })
+
+    it('validates the agent command response envelope', () => {
+      for (const command of ['agent.status', 'agent.clearExecutable'] as const) {
+        expect(() =>
+          commandResponseSchemas[command].parse({
+            requestId: 'req',
+            schemaVersion: 1,
+            ok: true,
+            command,
+            data: READY
+          })
+        ).not.toThrow()
+      }
+      expect(() =>
+        commandResponseSchemas['agent.chooseExecutable'].parse({
+          requestId: 'req',
+          schemaVersion: 1,
+          ok: true,
+          command: 'agent.chooseExecutable',
+          data: { cancelled: false, status: READY }
+        })
+      ).not.toThrow()
+      expect(() =>
+        commandResponseSchemas['agent.chooseExecutable'].parse({
+          requestId: 'req',
+          schemaVersion: 1,
+          ok: true,
+          command: 'agent.chooseExecutable',
+          data: READY
+        })
+      ).toThrow()
     })
   })
 })
