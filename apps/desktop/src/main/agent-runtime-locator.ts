@@ -134,10 +134,7 @@ export class AgentRuntimeLocator {
   }
 
   async status(): Promise<AgentRuntimeStatus> {
-    if (this.statusCache === null) {
-      this.statusCache = await this.discover()
-    }
-    return this.statusCache
+    return this.committedStatus()
   }
 
   async chooseExecutable(
@@ -151,21 +148,44 @@ export class AgentRuntimeLocator {
       return { cancelled: true, status: await this.status() }
     }
     const path = picked.path
-    const gated = await this.options.configurationGate(async () => {
+    const gated = await this.options.configurationGate(async (): Promise<AgentRuntimeStatus> => {
+      // Prime the committed status FIRST (restart-safe): a fresh Locator with a
+      // previously saved READY launcher must protect it even when statusCache is
+      // still null. Only a prior READY state is protected; AUTH_REQUIRED is a
+      // candidate awaiting external login, never a carrier for other errors.
+      const committed = await this.committedStatus()
+      const priorReady = committed.state === 'READY'
       const candidate = await this.probeCandidate(path, 'USER_SELECTED')
-      // Commit only when the candidate is READY, or AUTH_REQUIRED with no
-      // existing READY launcher (so the user can log in externally). A failed
-      // candidate never overwrites a working launcher.
       const commit =
-        candidate.state === 'READY' ||
-        (candidate.state === 'AUTH_REQUIRED' && this.statusCache?.state !== 'READY')
+        candidate.state === 'READY' || (candidate.state === 'AUTH_REQUIRED' && !priorReady)
       if (!commit) {
-        return this.preservePriorOrCandidate(candidate)
+        if (priorReady) {
+          return {
+            ...committed,
+            lastError:
+              candidate.lastError ??
+              ({ reasonCode: 'UNKNOWN', recoverable: true } as AgentRuntimeError)
+          }
+        }
+        return candidate
       }
       try {
         await this.settings.writeLauncher(path)
       } catch {
-        return this.preservePriorWithError('SETTINGS_INVALID')
+        if (priorReady) {
+          return {
+            ...committed,
+            lastError: { reasonCode: 'SETTINGS_INVALID', recoverable: true } as AgentRuntimeError
+          }
+        }
+        return {
+          provider: 'codex-cli',
+          state: 'ERROR',
+          version: null,
+          source: null,
+          displayPath: null,
+          lastError: { reasonCode: 'SETTINGS_INVALID', recoverable: true }
+        }
       }
       this.statusCache = candidate
       return candidate
@@ -180,11 +200,25 @@ export class AgentRuntimeLocator {
     if (this.options.isChangeBlocked()) {
       return this.blockedStatus()
     }
-    const gated = await this.options.configurationGate(async () => {
+    const gated = await this.options.configurationGate(async (): Promise<AgentRuntimeStatus> => {
       try {
         await this.settings.writeLauncher(null)
       } catch {
-        return this.preservePriorWithError('SETTINGS_INVALID')
+        const committed = await this.committedStatus()
+        if (committed.state === 'READY') {
+          return {
+            ...committed,
+            lastError: { reasonCode: 'SETTINGS_INVALID', recoverable: true } as AgentRuntimeError
+          }
+        }
+        return {
+          provider: 'codex-cli',
+          state: 'ERROR',
+          version: null,
+          source: null,
+          displayPath: null,
+          lastError: { reasonCode: 'SETTINGS_INVALID', recoverable: true }
+        }
       }
       this.statusCache = null
       return this.discover()
@@ -195,37 +229,18 @@ export class AgentRuntimeLocator {
     return gated.value
   }
 
+  private async committedStatus(): Promise<AgentRuntimeStatus> {
+    if (this.statusCache === null) {
+      this.statusCache = await this.discover()
+    }
+    return this.statusCache
+  }
+
   private async blockedStatus(): Promise<AgentRuntimeStatus> {
     const current = await this.status()
     return {
       ...current,
       lastError: { reasonCode: 'ACTIVE_RUN_BLOCKS_CHANGE', recoverable: true }
-    }
-  }
-
-  private preservePriorOrCandidate(candidate: AgentRuntimeStatus): AgentRuntimeStatus {
-    const prior = this.statusCache
-    if (prior !== null && (prior.state === 'READY' || prior.state === 'AUTH_REQUIRED')) {
-      return {
-        ...prior,
-        lastError: candidate.lastError ?? { reasonCode: 'UNKNOWN', recoverable: true }
-      }
-    }
-    return candidate
-  }
-
-  private preservePriorWithError(reasonCode: 'SETTINGS_INVALID'): AgentRuntimeStatus {
-    const prior = this.statusCache
-    if (prior !== null && (prior.state === 'READY' || prior.state === 'AUTH_REQUIRED')) {
-      return { ...prior, lastError: { reasonCode, recoverable: true } }
-    }
-    return {
-      provider: 'codex-cli',
-      state: 'ERROR',
-      version: null,
-      source: null,
-      displayPath: null,
-      lastError: { reasonCode, recoverable: true }
     }
   }
 

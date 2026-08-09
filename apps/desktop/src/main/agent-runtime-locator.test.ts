@@ -386,6 +386,35 @@ describe('AgentRuntimeLocator', () => {
     expect(chosen.status.source).toBe('USER_SELECTED')
   })
 
+  it('a fresh Locator protects the saved READY launcher on the first bad choose (restart case)', async () => {
+    const bin = await makeDir()
+    created.push(bin)
+    const good = await writeScript(bin, 'codex', REAL_CODEX)
+    const bad = await writeScript(bin, 'bad-codex', '#!/usr/bin/env node\nprocess.exit(2)\n')
+    const userData = await makeDir()
+    created.push(userData)
+    await writeFile(
+      join(userData, 'agent-settings-v1.json'),
+      JSON.stringify({ schemaVersion: 1, codexCliLauncherPath: good }),
+      'utf8'
+    )
+    // Fresh Locator: statusCache is null, exactly like after an app restart.
+    const { locator } = await makeLocator({
+      userData,
+      picker: { pick: async () => ({ cancelled: false, path: bad }) }
+    })
+    const chosen = await locator.chooseExecutable(undefined)
+    expect(chosen.status.state).toBe('READY')
+    expect(chosen.status.displayPath).toBe(good)
+    expect(chosen.status.lastError?.reasonCode).toBe('EXECUTABLE_NOT_SUPPORTED')
+    const settings = JSON.parse(
+      await (
+        await import('node:fs/promises')
+      ).readFile(join(userData, 'agent-settings-v1.json'), 'utf8')
+    ) as { codexCliLauncherPath: string }
+    expect(settings.codexCliLauncherPath).toBe(good)
+  })
+
   it('a run starting while the picker is open is caught by the atomic gate', async () => {
     const bin = await makeDir()
     created.push(bin)

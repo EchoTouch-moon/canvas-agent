@@ -175,6 +175,36 @@ describe('runLocalCli (provider-neutral boundary)', () => {
     await rm(pidFile, { force: true })
   })
 
+  it('kills the whole process group on cancel and the descendant is not alive after resolve', async () => {
+    const script = await makeScript(
+      `const{spawn}=require('node:child_process');const{writeFileSync}=require('node:fs');` +
+        `const pidFile=process.env.GRANDCHILD_PID_FILE;` +
+        `const c=spawn(process.execPath,['-e','setTimeout(()=>{},60000)']);` +
+        `c.on('spawn',()=>writeFileSync(pidFile,String(c.pid)));c.on('exit',()=>process.exit(0));`
+    )
+    const pidFile = join(tmpdir(), `ca-gc-cancel-${process.pid}-${Date.now()}.pid`)
+    const controller = new AbortController()
+    const promise = runLocalCli(
+      invoke(script, {
+        timeoutMs: 60_000,
+        signal: controller.signal,
+        environment: {
+          GRANDCHILD_PID_FILE: pidFile,
+          PATH: process.env['PATH'] ?? '/usr/bin:/bin',
+          HOME: tmpdir()
+        }
+      })
+    )
+    await waitForFile(pidFile)
+    controller.abort()
+    const result = await promise
+    expect(result.cancelled).toBe(true)
+    expect(result.timedOut).toBe(false)
+    const grandchildPid = Number((await readFile(pidFile, 'utf8')).trim())
+    await waitForProcessGone(grandchildPid)
+    await rm(pidFile, { force: true })
+  })
+
   it('preserves multi-byte UTF-8 across small pipe chunks (no replacement characters)', async () => {
     const payload = '中文 测试 émoji 🚀 ✓ こんにちは'
     const script = await makeScript(
@@ -207,6 +237,21 @@ function pidAlive(pid: number): boolean {
     return true
   } catch {
     return false
+  }
+}
+
+async function waitForFile(file: string, timeoutMs = 5000): Promise<void> {
+  const started = Date.now()
+  while (true) {
+    try {
+      await readFile(file)
+      return
+    } catch {
+      if (Date.now() - started > timeoutMs) {
+        throw new Error(`file ${file} was not created within ${timeoutMs}ms`)
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
   }
 }
 

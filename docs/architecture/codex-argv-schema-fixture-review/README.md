@@ -92,6 +92,9 @@ Real success capture (`fixtures/jsonl/success.jsonl`, thread_id sanitized):
    test evidence and final success are derived independently by the Worker from the worktree
    patch + `git diff --cached --check`; the agent's prose is bounded diagnostic evidence.
 5. A malformed line inside the stream → `AGENT_OUTPUT_INVALID` (no fallback to the last message).
+6. **Item-level vs terminal errors**: a top-level `error` or `turn.failed` is a failure; an
+   `item.completed` with `item.type = "error"` is bounded diagnostic only and does not by itself
+   fail the run (the success capture includes such a non-fatal skill-budget item).
 
 ### Fixture set + sidecar manifests
 
@@ -100,16 +103,22 @@ Each `.jsonl` has an adjacent `*.manifest.json` recording `cliVersion`, `exitCod
 
 | File | Manifest | capture | exitCode | expected |
 |---|---|---|---|---|
-| `success.jsonl` | `success.manifest.json` | real 0.146.0 | 0 | – |
-| `unknown-event.jsonl` | `unknown-event.manifest.json` | schema-verified | 0 | – (skip unknown items) |
+| `success.jsonl` | `success.manifest.json` | real 0.146.0 (full argv + schema) | 0 | – |
+| `unknown-event.jsonl` | `unknown-event.manifest.json` | forward-compat construction | 0 | – (skip unknown events) |
 | `malformed.jsonl` | `malformed.manifest.json` | schema-verified | 0 | `AGENT_OUTPUT_INVALID` |
 | `auth-required.jsonl` | `auth-required.manifest.json` | schema-verified | 1 | `AGENT_AUTH_REQUIRED` |
 | `non-zero-exit.jsonl` | `non-zero-exit.manifest.json` | schema-verified | 1 | `AGENT_PROCESS_FAILED` |
 
-`auth-required` / `non-zero-exit` were constructed from the **0.146.0 release** event schema
-(marked `schema-verified`), not from a live logout or failing run. `success` is the sanitized
-real capture (only `thread_id`/absolute paths redacted; event types, field names and order
-preserved).
+- `success` is the sanitized real capture (only `thread_id`/absolute paths redacted; event types,
+  field names and order preserved) run with the **exact `argv.json` invocation including
+  `--output-schema <final-response.schema.json>`**; the final `agent_message.text` is a JSON
+  string satisfying `final-response.schema.json` (schema SHA-256 `86855a2c…17b0050` is recorded
+  in the manifest). This proves the submitted argv + schema combination actually works.
+- `auth-required` / `non-zero-exit` were constructed from the **0.146.0 release** event schema
+  (marked `schema-verified`), not from a live logout or failing run.
+- `unknown-event` is an explicit **forward-compatibility construction** (marked NOT
+  schema-verified): `session.configured` and `item.type = "future_item_v2"` are synthetic
+  events absent from 0.146.0, added to exercise the skip-unknown-event path.
 
 ## 6. Final response JSON Schema
 

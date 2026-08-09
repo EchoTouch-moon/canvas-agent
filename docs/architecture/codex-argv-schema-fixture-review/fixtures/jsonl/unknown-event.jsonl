@@ -1,7 +1,6 @@
 {"type":"thread.started","thread_id":"thr_<redacted>"}
+{"type":"session.configured","session_id":"sess_<redacted>","model":"future-model","tools":["shell","apply_patch"]}
 {"type":"turn.started"}
-{"type":"item.started","item":{"id":"item_0","type":"reasoning","text":"planning"}}
-{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"planning"}}
-{"type":"item.completed","item":{"id":"item_1","type":"todo_list","items":[{"text":"investigate","completed":true}]}}
-{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"{\"summary\":\"inspected only\",\"changes\":[],\"tool_calls_observed\":0,\"tests_run\":[],\"success\":true}"}}
+{"type":"item.completed","item":{"id":"item_0","type":"future_item_v2","payload":{"field":"unknown shape the parser must not choke on"}}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"{\"summary\":\"inspected only\",\"changes\":[],\"tool_calls_observed\":0,\"tests_run\":[],\"success\":true}"}}
 {"type":"turn.completed","usage":{"input_tokens":800,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":40,"reasoning_output_tokens":5}}
