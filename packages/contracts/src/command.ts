@@ -741,6 +741,60 @@ export const commandErrorSchema = z
   .strict()
 export type CommandError = z.infer<typeof commandErrorSchema>
 
+// --- Workspace lifecycle (PROPOSAL-027A, frozen) ---------------------------
+
+export const workspaceLifecycleSchema = z.enum(['CLOSED', 'OPENING', 'READY', 'CLOSING', 'ERROR'])
+export type WorkspaceLifecycle = z.infer<typeof workspaceLifecycleSchema>
+
+export const workspaceErrorReasonSchema = z.enum([
+  'PATH_UNREADABLE',
+  'NOT_GIT_WORKTREE',
+  'MISSING_HEAD',
+  'RUNTIME_NOT_WRITABLE',
+  'SETTINGS_INVALID',
+  'DATABASE_OPEN_FAILED',
+  'WORKER_DISPOSE_FAILED',
+  'ACTIVE_RUN_BLOCKS_SWITCH',
+  'OPERATION_IN_PROGRESS',
+  'PICKER_FAILED',
+  'UNKNOWN'
+])
+export type WorkspaceErrorReason = z.infer<typeof workspaceErrorReasonSchema>
+
+export const workspaceSummarySchema = z
+  .object({
+    identity: contentHashSchema,
+    repositoryName: z.string().min(1),
+    displayPath: z.string().min(1)
+  })
+  .strict()
+export type WorkspaceSummary = z.infer<typeof workspaceSummarySchema>
+
+export const workspaceOperationErrorSchema = z
+  .object({
+    reasonCode: workspaceErrorReasonSchema,
+    message: z.string().min(1),
+    recoverable: z.boolean()
+  })
+  .strict()
+export type WorkspaceOperationError = z.infer<typeof workspaceOperationErrorSchema>
+
+export const workspaceRuntimeStatusSchema = z
+  .object({
+    state: workspaceLifecycleSchema,
+    activeWorkspace: workspaceSummarySchema.nullable(),
+    lastError: workspaceOperationErrorSchema.nullable()
+  })
+  .strict()
+export type WorkspaceRuntimeStatus = z.infer<typeof workspaceRuntimeStatusSchema>
+
+export const workspaceChooseResultSchema = z
+  .object({
+    cancelled: z.boolean(),
+    status: workspaceRuntimeStatusSchema
+  })
+  .strict()
+
 // --- Command map ------------------------------------------------------------
 
 export interface CommandMap {
@@ -768,6 +822,10 @@ export interface CommandMap {
   'artifact.apply': { request: z.infer<typeof artifactApplySchema>; response: z.infer<typeof artifactApplicationAggregateSchema> }
   'artifactApplication.list': { request: z.infer<typeof artifactApplicationListRequestSchema>; response: z.infer<typeof artifactApplicationAggregateSchema>[] }
   'baseline.createCandidateFromTask': { request: z.infer<typeof baselineCreateCandidateSchema>; response: z.infer<typeof baselineCandidateAggregateSchema> }
+  'workspace.status': { request: z.infer<typeof emptyObjectSchema>; response: z.infer<typeof workspaceRuntimeStatusSchema> }
+  'workspace.chooseRepository': { request: z.infer<typeof emptyObjectSchema>; response: z.infer<typeof workspaceChooseResultSchema> }
+  'workspace.reopenLast': { request: z.infer<typeof emptyObjectSchema>; response: z.infer<typeof workspaceRuntimeStatusSchema> }
+  'workspace.close': { request: z.infer<typeof emptyObjectSchema>; response: z.infer<typeof workspaceRuntimeStatusSchema> }
 }
 
 export type WorkspaceCommand = keyof CommandMap
@@ -822,7 +880,11 @@ export const commandRequestSchema = z.discriminatedUnion('command', [
   commandRequestMember('task.complete', taskCompleteSchema),
   commandRequestMember('artifact.apply', artifactApplySchema),
   commandRequestMember('artifactApplication.list', artifactApplicationListRequestSchema),
-  commandRequestMember('baseline.createCandidateFromTask', baselineCreateCandidateSchema)
+  commandRequestMember('baseline.createCandidateFromTask', baselineCreateCandidateSchema),
+  commandRequestMember('workspace.status', emptyObjectSchema),
+  commandRequestMember('workspace.chooseRepository', emptyObjectSchema),
+  commandRequestMember('workspace.reopenLast', emptyObjectSchema),
+  commandRequestMember('workspace.close', emptyObjectSchema)
 ])
 
 // --- Response schemas (command-correlated, no z.unknown data) ----------------
@@ -876,7 +938,11 @@ export const commandResponseSchemas = {
   'task.complete': commandResponseMember('task.complete', taskSchema),
   'artifact.apply': commandResponseMember('artifact.apply', artifactApplicationAggregateSchema),
   'artifactApplication.list': commandResponseMember('artifactApplication.list', z.array(artifactApplicationAggregateSchema)),
-  'baseline.createCandidateFromTask': commandResponseMember('baseline.createCandidateFromTask', baselineCandidateAggregateSchema)
+  'baseline.createCandidateFromTask': commandResponseMember('baseline.createCandidateFromTask', baselineCandidateAggregateSchema),
+  'workspace.status': commandResponseMember('workspace.status', workspaceRuntimeStatusSchema),
+  'workspace.chooseRepository': commandResponseMember('workspace.chooseRepository', workspaceChooseResultSchema),
+  'workspace.reopenLast': commandResponseMember('workspace.reopenLast', workspaceRuntimeStatusSchema),
+  'workspace.close': commandResponseMember('workspace.close', workspaceRuntimeStatusSchema)
 } as const
 
 // --- Runtime route-registry skeleton (main process fills `execute`) ----------
@@ -905,5 +971,9 @@ export const commandSchemas = {
   'task.complete': { input: taskCompleteSchema, output: taskSchema },
   'artifact.apply': { input: artifactApplySchema, output: artifactApplicationAggregateSchema },
   'artifactApplication.list': { input: artifactApplicationListRequestSchema, output: z.array(artifactApplicationAggregateSchema) },
-  'baseline.createCandidateFromTask': { input: baselineCreateCandidateSchema, output: baselineCandidateAggregateSchema }
+  'baseline.createCandidateFromTask': { input: baselineCreateCandidateSchema, output: baselineCandidateAggregateSchema },
+  'workspace.status': { input: emptyObjectSchema, output: workspaceRuntimeStatusSchema },
+  'workspace.chooseRepository': { input: emptyObjectSchema, output: workspaceChooseResultSchema },
+  'workspace.reopenLast': { input: emptyObjectSchema, output: workspaceRuntimeStatusSchema },
+  'workspace.close': { input: emptyObjectSchema, output: workspaceRuntimeStatusSchema }
 }

@@ -3,19 +3,14 @@ import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { DESKTOP_CHANNELS, runtimeInfoSchema } from '@canvas-agent/contracts'
 import icon from '../../resources/icon.png?asset'
-import { resolveAppConfig } from './config'
-import { openWorkspaceDatabase, closeWorkspaceDatabase } from './database'
-import { GitRevisionReader } from './git-revision-reader'
-import { WorkspaceService } from './workspace-service'
-import { ExecutionCoordinator } from './execution-coordinator'
 import { seedDemoWorkspace } from './demo-seed'
-import { UnavailableWorkerHost } from './worker-host'
-import { UtilityProcessWorkerHost } from './utility-process-worker-host'
 import { runWorkerSmoke } from './worker-smoke'
 import { runPhase3Smoke } from './phase3-smoke'
 import { registerCommandRouter } from './command-router'
 import { isTrustedSender } from './security'
 import { MigrationFolderNotFoundError, resolveMigrationFolder } from './migration-path'
+import { WorkspaceRuntimeManager } from './workspace-runtime-manager'
+import { NativeDirectoryPicker, pickerFromEnvironment } from './repository-picker'
 
 const allowedExternalOrigins = new Set(['https://deerflow.tech'])
 
@@ -96,87 +91,67 @@ app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // Composition root for the real core loop.
-  let persistence: ReturnType<typeof openWorkspaceDatabase> | null = null
-  let workspace: WorkspaceService | null = null
-  let appConfig: Awaited<ReturnType<typeof resolveAppConfig>>['config'] = null
+  // Composition root: one Main-owned WorkspaceRuntimeManager.
+  let manager: WorkspaceRuntimeManager
   try {
-    const configResult = await resolveAppConfig(app.getPath('userData'))
-    if (configResult.error !== null) {
-      console.error(`[workspace] configuration error: ${configResult.error}`)
-    }
-    if (configResult.config !== null) {
-      appConfig = configResult.config
-      let migrationFolder: string
-      try {
-        migrationFolder = resolveMigrationFolder({
-          mode: app.isPackaged ? 'packaged' : 'source',
-          appPath: app.getAppPath(),
-          resourcesPath: process.resourcesPath
-        })
-      } catch (error) {
-        if (error instanceof MigrationFolderNotFoundError && app.isPackaged) {
-          console.error(`[workspace] FATAL: ${error.message}`)
-          app.exit(1)
-          return
-        }
-        throw error
-      }
-      persistence = openWorkspaceDatabase(
-        join(app.getPath('userData'), 'canvas-agent.db'),
-        undefined,
-        migrationFolder
-      )
-      workspace = new WorkspaceService(persistence, new GitRevisionReader(configResult.config))
-      console.error(`[workspace] ready at ${configResult.config.sourceRepositoryPath}`)
-    } else if (configResult.error === null) {
-      console.error(
-        '[workspace] CANVAS_AGENT_REPO is not set; workspace commands are unavailable (fixture UI only). ' +
-          'This is a Phase-1 bootstrap mechanism, not the final workspace-selection UX.'
-      )
-    }
+    const migrationFolder = resolveMigrationFolder({
+      mode: app.isPackaged ? 'packaged' : 'source',
+      appPath: app.getAppPath(),
+      resourcesPath: process.resourcesPath
+    })
+    const picker = pickerFromEnvironment() ?? new NativeDirectoryPicker()
+    manager = new WorkspaceRuntimeManager({
+      userData: app.getPath('userData'),
+      picker,
+      migrationsFolder: migrationFolder,
+      bootstrapPath: process.env['CANVAS_AGENT_REPO'] ?? null
+    })
   } catch (error) {
-    console.error('[workspace] failed to start the workspace service', error)
+    if (error instanceof MigrationFolderNotFoundError && app.isPackaged) {
+      console.error(`[workspace] FATAL: ${error.message}`)
+      app.exit(1)
+      return
+    }
+    throw error
   }
-  const workerHost =
-    appConfig !== null ? new UtilityProcessWorkerHost(appConfig) : new UnavailableWorkerHost()
-  const coordinator =
-    persistence !== null && appConfig !== null
-      ? new ExecutionCoordinator(persistence, workerHost, appConfig.runtimeDirectory)
-      : null
 
-  if (process.env['CANVAS_AGENT_DEMO_SEED'] === '1' && persistence !== null) {
-    try {
-      const demoProjectId = await seedDemoWorkspace(persistence)
-      console.error(`[workspace] demo seed ready at ${demoProjectId}`)
-    } catch (error) {
-      console.error('[workspace] demo seed failed', error)
+  const startupStatus = await manager.startup()
+  if (startupStatus.state !== 'CLOSED' && startupStatus.lastError !== null) {
+    console.error(
+      `[workspace] startup left the runtime in ${startupStatus.state} (${startupStatus.lastError.reasonCode})`
+    )
+  }
+
+  if (process.env['CANVAS_AGENT_DEMO_SEED'] === '1') {
+    const runtime = manager.getReadyRuntime()
+    if (runtime !== null) {
+      try {
+        const demoProjectId = await seedDemoWorkspace(runtime.persistence)
+        console.error(`[workspace] demo seed ready at ${demoProjectId}`)
+      } catch (error) {
+        console.error('[workspace] demo seed failed', error)
+      }
     }
   }
 
   registerRuntimeInfoHandler()
-  registerCommandRouter({ workspace, coordinator })
+  registerCommandRouter({ manager })
 
-  if (process.env['CANVAS_AGENT_SMOKE'] === '1' && appConfig !== null) {
-    void runWorkerSmoke(appConfig, workerHost)
-      .catch((error) => {
-        console.error('[worker-smoke] FAILED:', error instanceof Error ? error.message : error)
-      })
-      .finally(() => {
-        app.quit()
-      })
+  if (process.env['CANVAS_AGENT_SMOKE'] === '1') {
+    const runtime = manager.getReadyRuntime()
+    if (runtime !== null) {
+      void runWorkerSmoke(runtime.appConfig, runtime.workerHost)
+        .catch((error) => {
+          console.error('[worker-smoke] FAILED:', error instanceof Error ? error.message : error)
+        })
+        .finally(() => {
+          app.quit()
+        })
+    }
   }
 
-  if (
-    process.env['CANVAS_AGENT_PHASE3_SMOKE'] === '1' &&
-    workspace !== null &&
-    coordinator !== null &&
-    persistence !== null
-  ) {
-    void (async () => {
-      const demoProjectId = await seedDemoWorkspace(persistence)
-      await runPhase3Smoke({ workspace, coordinator, projectId: demoProjectId })
-    })()
+  if (process.env['CANVAS_AGENT_PHASE3_SMOKE'] === '1') {
+    void runPhase3Smoke({ manager })
       .catch((error) => {
         console.error('[phase3-smoke] FAILED:', error instanceof Error ? error.message : error)
       })
@@ -185,21 +160,19 @@ app.whenReady().then(async () => {
       })
   }
 
-  let shuttingDown = false
+  let quitting = false
   app.on('before-quit', (event) => {
-    if (shuttingDown) return
+    if (quitting) return
     event.preventDefault()
-    shuttingDown = true
+    quitting = true
     void (async () => {
-      try {
-        await workerHost.dispose()
-      } catch (error) {
-        console.error('[workspace] worker dispose failed', error)
+      const status = await manager.close()
+      if (status.state === 'CLOSED') {
+        app.quit()
+      } else {
+        quitting = false
+        console.error(`[workspace] quit blocked: state=${status.state}`)
       }
-      if (persistence !== null) {
-        closeWorkspaceDatabase(persistence)
-      }
-      app.quit()
     })()
   })
 

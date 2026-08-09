@@ -1,12 +1,10 @@
 import type { ProjectStateView } from '@canvas-agent/contracts'
-import type { WorkspaceService } from './workspace-service'
-import type { ExecutionCoordinator } from './execution-coordinator'
+import { seedDemoWorkspace } from './demo-seed'
 import { buildRoutes, handleCommand } from './command-core'
+import type { WorkspaceRuntimeManager } from './workspace-runtime-manager'
 
 interface Phase3SmokeDeps {
-  workspace: WorkspaceService
-  coordinator: ExecutionCoordinator
-  projectId: string
+  manager: WorkspaceRuntimeManager
 }
 
 function frame(command: string, payload: unknown): Record<string, unknown> {
@@ -14,14 +12,19 @@ function frame(command: string, payload: unknown): Record<string, unknown> {
 }
 
 export async function runPhase3Smoke(deps: Phase3SmokeDeps): Promise<void> {
-  const routes = buildRoutes({ workspace: deps.workspace, coordinator: deps.coordinator })
+  const runtime = deps.manager.getReadyRuntime()
+  if (runtime === null) {
+    throw new Error('phase3 smoke requires a READY workspace')
+  }
+  const projectId = await seedDemoWorkspace(runtime.persistence)
+  const routes = buildRoutes({ manager: deps.manager })
   const req = (command: string, payload: unknown): Record<string, unknown> =>
     frame(command, payload)
 
   const listed = await handleCommand(routes, req('project.list', {}))
   if (!listed.ok) throw new Error(`project.list failed: ${listed.error.message}`)
 
-  const state = await handleCommand(routes, req('project.state', { projectId: deps.projectId }))
+  const state = await handleCommand(routes, req('project.state', { projectId }))
   if (!state.ok) throw new Error(`project.state failed: ${state.error.message}`)
   const view = state.data as ProjectStateView
   if (view.tasks.length === 0 || view.taskSpecs.length === 0 || view.nodeVersions.length === 0) {
@@ -46,7 +49,7 @@ export async function runPhase3Smoke(deps: Phase3SmokeDeps): Promise<void> {
   const frozen = await handleCommand(
     routes,
     req('snapshot.freeze', {
-      projectId: deps.projectId,
+      projectId,
       taskId: task.id,
       taskSpecVersionId: spec.id,
       baseBaselineId: (view.activeBaseline as { id: string }).id,
@@ -95,7 +98,7 @@ export async function runPhase3Smoke(deps: Phase3SmokeDeps): Promise<void> {
   }
   console.error('[phase3-smoke] patch evidence PASSED')
 
-  const refreshed = await handleCommand(routes, req('project.state', { projectId: deps.projectId }))
+  const refreshed = await handleCommand(routes, req('project.state', { projectId }))
   if (!refreshed.ok) throw new Error(`project.state re-read failed: ${refreshed.error.message}`)
   const refreshedView = refreshed.data as ProjectStateView
   const taskStatus = refreshedView.tasks.find((item) => item.id === task.id)?.status

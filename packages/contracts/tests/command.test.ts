@@ -3,6 +3,12 @@ import {
   commandErrorSchema,
   commandRequestSchema,
   commandResponseSchemas,
+  workspaceChooseResultSchema,
+  workspaceErrorReasonSchema,
+  workspaceLifecycleSchema,
+  workspaceOperationErrorSchema,
+  workspaceRuntimeStatusSchema,
+  workspaceSummarySchema,
   type CommandRequest,
   type CommandResponse
 } from '../src'
@@ -547,5 +553,144 @@ describe('result adoption commands', () => {
         data: candidate
       })
     ).not.toThrow()
+  })
+
+  describe('workspace commands (PROPOSAL-027A)', () => {
+    const STATUS = {
+      state: 'READY',
+      activeWorkspace: {
+        identity: 'a'.repeat(64),
+        repositoryName: 'canvas-agent',
+        displayPath: '/Users/me/canvas-agent'
+      },
+      lastError: null
+    }
+    const ERRORED = {
+      state: 'ERROR',
+      activeWorkspace: null,
+      lastError: { reasonCode: 'PATH_UNREADABLE', message: 'not readable', recoverable: true }
+    }
+
+    it('accepts strict empty payloads for all four workspace commands', () => {
+      for (const command of [
+        'workspace.status',
+        'workspace.chooseRepository',
+        'workspace.reopenLast',
+        'workspace.close'
+      ]) {
+        const parsed = commandRequestSchema.parse(request(command, {}))
+        expect(parsed.command).toBe(command)
+        expect(() => commandRequestSchema.parse(request(command, { path: '/tmp/repo' }))).toThrow()
+        expect(() => commandRequestSchema.parse(request(command, { extra: true }))).toThrow()
+      }
+    })
+
+    it('parses and round-trips every lifecycle and error reason enum', () => {
+      const lifecycles = ['CLOSED', 'OPENING', 'READY', 'CLOSING', 'ERROR'] as const
+      for (const state of lifecycles) {
+        expect(workspaceLifecycleSchema.parse(state)).toBe(state)
+      }
+      const reasons = [
+        'PATH_UNREADABLE',
+        'NOT_GIT_WORKTREE',
+        'MISSING_HEAD',
+        'RUNTIME_NOT_WRITABLE',
+        'SETTINGS_INVALID',
+        'DATABASE_OPEN_FAILED',
+        'WORKER_DISPOSE_FAILED',
+        'ACTIVE_RUN_BLOCKS_SWITCH',
+        'OPERATION_IN_PROGRESS',
+        'PICKER_FAILED',
+        'UNKNOWN'
+      ] as const
+      for (const reason of reasons) {
+        expect(workspaceErrorReasonSchema.parse(reason)).toBe(reason)
+      }
+      expect(() => workspaceLifecycleSchema.parse('BOGUS')).toThrow()
+      expect(() => workspaceErrorReasonSchema.parse('BOGUS')).toThrow()
+    })
+
+    it('enforces the workspace status shape and impossible combinations', () => {
+      expect(() => workspaceRuntimeStatusSchema.parse(STATUS)).not.toThrow()
+      expect(() => workspaceRuntimeStatusSchema.parse(ERRORED)).not.toThrow()
+      expect(() =>
+        workspaceRuntimeStatusSchema.parse({ state: 'READY', activeWorkspace: null, lastError: null })
+      ).not.toThrow()
+      expect(() =>
+        workspaceRuntimeStatusSchema.parse({ state: 'READY', activeWorkspace: null, extra: true })
+      ).toThrow()
+      expect(() => workspaceRuntimeStatusSchema.parse({ state: 'READY' })).toThrow()
+    })
+
+    it('allows READY to retain an active workspace plus a failed-switch lastError', () => {
+      const status = {
+        state: 'READY',
+        activeWorkspace: STATUS.activeWorkspace,
+        lastError: { reasonCode: 'NOT_GIT_WORKTREE', message: 'candidate failed', recoverable: true }
+      }
+      expect(() => workspaceRuntimeStatusSchema.parse(status)).not.toThrow()
+      expect(status.state).toBe('READY')
+      expect(status.lastError.reasonCode).toBe('NOT_GIT_WORKTREE')
+    })
+
+    it('parses the picker cancellation result shape', () => {
+      const cancelled = { cancelled: true, status: STATUS }
+      expect(() => workspaceChooseResultSchema.parse(cancelled)).not.toThrow()
+      expect(cancelled.status).toEqual(STATUS)
+      expect(() => workspaceChooseResultSchema.parse({ cancelled: false, status: STATUS })).not.toThrow()
+      expect(() =>
+        workspaceChooseResultSchema.parse({ cancelled: true, status: { state: 'BOGUS' } })
+      ).toThrow()
+    })
+
+    it('validates the workspace response envelope for all four commands', () => {
+      for (const command of [
+        'workspace.status',
+        'workspace.reopenLast',
+        'workspace.close'
+      ] as const) {
+        expect(() =>
+          commandResponseSchemas[command].parse({
+            requestId: 'req',
+            schemaVersion: 1,
+            ok: true,
+            command,
+            data: STATUS
+          })
+        ).not.toThrow()
+        expect(() =>
+          commandResponseSchemas[command].parse({
+            requestId: 'req',
+            schemaVersion: 1,
+            ok: false,
+            command,
+            error: { name: 'HostUnavailableError', message: 'not ready' }
+          })
+        ).not.toThrow()
+      }
+      expect(() =>
+        commandResponseSchemas['workspace.chooseRepository'].parse({
+          requestId: 'req',
+          schemaVersion: 1,
+          ok: true,
+          command: 'workspace.chooseRepository',
+          data: { cancelled: false, status: STATUS }
+        })
+      ).not.toThrow()
+      expect(() =>
+        commandResponseSchemas['workspace.chooseRepository'].parse({
+          requestId: 'req',
+          schemaVersion: 1,
+          ok: true,
+          command: 'workspace.chooseRepository',
+          data: STATUS
+        })
+      ).toThrow()
+    })
+
+    it('round-trips the workspace summary and operation error inferred types', () => {
+      expect(workspaceSummarySchema.parse(STATUS.activeWorkspace)).toEqual(STATUS.activeWorkspace)
+      expect(workspaceOperationErrorSchema.parse(ERRORED.lastError)).toEqual(ERRORED.lastError)
+    })
   })
 })

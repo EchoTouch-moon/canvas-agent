@@ -56,6 +56,12 @@ jobs:
           set -o pipefail
           pnpm --filter @canvas-agent/desktop build:unpack:unsigned 2>&1 | tee apps/desktop/dist/logs/unpack-build.log
 
+      - name: Workspace lifecycle E2E (cancel/choose/reopen/switch + packaged open)
+        run: |
+          mkdir -p apps/desktop/dist/logs
+          set -o pipefail
+          pnpm --filter @canvas-agent/desktop e2e:workspace 2>&1 | tee apps/desktop/dist/logs/workspace-e2e.log
+
       - name: Packaged cold-start smoke
         run: |
           mkdir -p apps/desktop/dist/logs

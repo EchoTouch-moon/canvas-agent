@@ -11,7 +11,12 @@ export function openWorkspaceDatabase(
   migrationsFolder?: string
 ): Persistence {
   const persistence = openDatabase({ path, services })
-  applyMigrations(persistence, migrationsFolder)
+  try {
+    applyMigrations(persistence, migrationsFolder)
+  } catch (error) {
+    closeDatabase(persistence)
+    throw error
+  }
   return persistence
 }
 
