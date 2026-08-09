@@ -1,6 +1,6 @@
 # DS-003 verification packet — Release Reliability
 
-- **Status:** VERIFIED — evidence recorded on branch `agent/deepseek-ds-003-release-reliability`; pending architecture merge review
+- **Status:** MERGED — architecture review passed; PR #7 merged to `main@7adc20a`
 - **Date:** 2026-08-09
 - **Basis:** `docs/tasks/deepseek/DS-003-release-reliability.md` (APPROVED 2026-08-09 with clock/smoke constraints) + Product MVP v0.2 plan Wave 1
 - **Branches:** base `main@aafb7a5` (planning freeze) → `agent/deepseek-ds-003-release-reliability`
