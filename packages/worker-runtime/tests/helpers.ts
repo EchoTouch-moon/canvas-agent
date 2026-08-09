@@ -1,7 +1,7 @@
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ExecutionRequestContract } from '@canvas-agent/contracts'
+import type { ExecutionRequestContractV1 } from '@canvas-agent/contracts'
 import { ISOLATED_GIT_ENV, computeRequestHash, runCommand, type RunCommandResult } from '../src'
 
 export const TEST_ALLOWLIST = ['git', 'node', 'sh', 'sleep', 'true', 'false', 'cat']
@@ -60,9 +60,9 @@ export async function createTempGitRepo(): Promise<TempRepo> {
 const FUTURE = '2099-01-01T00:00:00.000Z'
 
 export function buildRequest(
-  overrides: Partial<ExecutionRequestContract> = {}
-): ExecutionRequestContract {
-  const request: Omit<ExecutionRequestContract, 'requestHash'> = {
+  overrides: Partial<ExecutionRequestContractV1> = {}
+): ExecutionRequestContractV1 {
+  const request: Omit<ExecutionRequestContractV1, 'requestHash'> = {
     executionRequestId: `req_${Math.random().toString(36).slice(2)}`,
     runId: 'run_1',
     workerAttemptNumber: 1,
@@ -96,7 +96,10 @@ export function buildRequest(
   return { ...request, requestHash }
 }
 
-export function requestForRepo(repo: TempRepo, overrides: Partial<ExecutionRequestContract> = {}): ExecutionRequestContract {
+export function requestForRepo(
+  repo: TempRepo,
+  overrides: Partial<ExecutionRequestContractV1> = {}
+): ExecutionRequestContractV1 {
   return buildRequest({
     expectedRepositoryRevision: {
       baseCommit: repo.baseCommit,
