@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { validateRepository } from './config'
@@ -23,6 +23,20 @@ describe('validateRepository', () => {
     expect(result.ok).toBe(false)
     if (!result.ok) {
       expect(result.reasonCode).toBe('NOT_GIT_WORKTREE')
+    }
+  })
+
+  it('rejects a permission-denied repository as PATH_UNREADABLE without a spawn EACCES throw', async () => {
+    const repo = await createTempGitRepo()
+    await chmod(repo, 0o000)
+    try {
+      const result = await validateRepository(repo)
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.reasonCode).toBe('PATH_UNREADABLE')
+      }
+    } finally {
+      await chmod(repo, 0o755)
     }
   })
 

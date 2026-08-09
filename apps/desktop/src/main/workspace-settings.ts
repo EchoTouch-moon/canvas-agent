@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
 import type { WorkspaceErrorReason } from '@canvas-agent/contracts'
@@ -66,7 +66,23 @@ export class WorkspaceSettingsStore {
     const file = this.filePath()
     await mkdir(dirname(file), { recursive: true })
     const temp = join(dirname(file), `.settings-v1.json.${process.pid}.${Date.now()}.tmp`)
-    await writeFile(temp, JSON.stringify(settings, null, 2), 'utf8')
-    await rename(temp, file)
+    try {
+      await writeFile(temp, JSON.stringify(settings, null, 2), 'utf8')
+      await rename(temp, file)
+    } catch (error) {
+      await rm(temp, { force: true }).catch(() => undefined)
+      throw new SettingsWriteError(`settings write failed: ${describe(error)}`)
+    }
   }
+}
+
+function describe(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+  return String(error)
+}
+
+export class SettingsWriteError extends Error {
+  override readonly name = 'SettingsWriteError'
 }

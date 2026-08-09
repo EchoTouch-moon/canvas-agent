@@ -15,7 +15,7 @@ import { ExecutionCoordinator } from './execution-coordinator'
 import { UtilityProcessWorkerHost } from './utility-process-worker-host'
 import type { WorkerHost } from './worker-host'
 import { WorkspaceUnavailableError } from './command-errors'
-import { WorkspaceSettingsStore } from './workspace-settings'
+import { SettingsWriteError, WorkspaceSettingsStore } from './workspace-settings'
 import { repositoryName, workspaceIdentity, workspaceStorageRoots } from './workspace-storage'
 import type { RepositoryPicker } from './repository-picker'
 
@@ -321,7 +321,9 @@ export class WorkspaceRuntimeManager {
         }
       }
       closeDatabase(persistence)
-      return this.failOpen(held, 'UNKNOWN', `workspace open failed: ${describe(error)}`)
+      const reason: WorkspaceErrorReason =
+        error instanceof SettingsWriteError ? 'RUNTIME_NOT_WRITABLE' : 'UNKNOWN'
+      return this.failOpen(held, reason, `workspace open failed: ${describe(error)}`)
     }
   }
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdir, mkdtemp, realpath, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -436,8 +436,9 @@ describe('WorkspaceRuntimeManager', () => {
     const status = await manager.openPath(repoB)
     expect(status.state).toBe('READY')
     expect(status.activeWorkspace?.displayPath).toBe(canonicalA)
-    expect(status.lastError?.reasonCode).toBe('UNKNOWN')
+    expect(status.lastError?.reasonCode).toBe('RUNTIME_NOT_WRITABLE')
     expect(manager.getReadyRuntime()?.repositoryPath).toBe(canonicalA)
+    expect((await readdir(userData)).some((name) => name.endsWith('.tmp'))).toBe(false)
 
     await rm(settingsPath, { recursive: true, force: true })
     const closed = await manager.close()

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { WorkspaceSettingsStore } from './workspace-settings'
+import { SettingsWriteError, WorkspaceSettingsStore } from './workspace-settings'
 
 async function makeStore(): Promise<{ store: WorkspaceSettingsStore; dir: string }> {
   const dir = await mkdtemp(join(tmpdir(), 'ca-settings-'))
@@ -64,6 +64,18 @@ describe('WorkspaceSettingsStore', () => {
     if (!read.ok) {
       expect(read.reasonCode).toBe('SETTINGS_INVALID')
     }
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('a failed atomic write throws SettingsWriteError and leaves no temp file', async () => {
+    const { store, dir } = await makeStore()
+    const settingsPath = join(dir, 'settings-v1.json')
+    await writeFile(settingsPath, 'x', 'utf8')
+    await rm(settingsPath, { force: true })
+    await mkdir(settingsPath)
+
+    await expect(store.writeLast('/tmp/repo-a')).rejects.toThrow(SettingsWriteError)
+    expect((await readdir(dir)).some((name) => name.endsWith('.tmp'))).toBe(false)
     await rm(dir, { recursive: true, force: true })
   })
 })

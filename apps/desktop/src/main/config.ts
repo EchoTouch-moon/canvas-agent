@@ -1,4 +1,4 @@
-import { realpath, stat } from 'node:fs/promises'
+import { access, constants, realpath, stat } from 'node:fs/promises'
 import { ISOLATED_GIT_ENV, runCommand } from '@canvas-agent/worker-runtime'
 
 export interface AppConfig {
@@ -17,19 +17,25 @@ export type ValidateRepositoryResult =
 const GIT_TIMEOUT_MS = 30_000
 
 async function runGitOutput(repoPath: string, args: readonly string[]): Promise<string | null> {
-  const result = await runCommand({
-    argv: ['git', ...args],
-    cwd: repoPath,
-    timeoutMs: GIT_TIMEOUT_MS,
-    maxOutputBytes: 64 * 1024,
-    commandAllowlist: ['git'],
-    signal: undefined,
-    env: ISOLATED_GIT_ENV
-  })
-  if (result.exitCode !== 0) {
+  try {
+    const result = await runCommand({
+      argv: ['git', ...args],
+      cwd: repoPath,
+      timeoutMs: GIT_TIMEOUT_MS,
+      maxOutputBytes: 64 * 1024,
+      commandAllowlist: ['git'],
+      signal: undefined,
+      env: ISOLATED_GIT_ENV
+    })
+    if (result.exitCode !== 0) {
+      return null
+    }
+    return result.stdout.trim()
+  } catch {
+    // spawn/cwd errors (e.g. EACCES entering the directory) are a validation
+    // failure, not a thrown internal error.
     return null
   }
-  return result.stdout.trim()
 }
 
 export async function validateRepository(
@@ -46,6 +52,10 @@ export async function validateRepository(
         message: `repository path is not a directory: ${sourceRepositoryPath}`
       }
     }
+    // `realpath`/`stat` do not prove the directory is readable and searchable;
+    // probe read + execute permission so a chmod-000 repository is rejected as
+    // PATH_UNREADABLE instead of letting `git` spawn fail with EACCES.
+    await access(canonical, constants.R_OK | constants.X_OK)
   } catch {
     return {
       ok: false,

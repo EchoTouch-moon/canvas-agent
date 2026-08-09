@@ -1,6 +1,6 @@
 # DS-004 verification packet — Workspace runtime & native repository selection
 
-- **Status:** VERIFIED (rev 2, addressing PR #8 blocking review) — branch `agent/deepseek-ds-004-workspace-runtime`; pending architecture merge review
+- **Status:** VERIFIED (rev 3, addressing PR #8 blocking review rounds 1+2) — branch `agent/deepseek-ds-004-workspace-runtime`; pending architecture merge review
 - **Date:** 2026-08-09
 - **Basis:** PROPOSAL-027 (workspace runtime), PROPOSAL-027A (workspace command contract), `docs/tasks/deepseek/DS-004-workspace-runtime.md` incl. the LEAD mandatory addendum
 - **Branches:** base `main@8276e48` → `agent/deepseek-ds-004-workspace-runtime`
@@ -67,21 +67,25 @@ no preload method added (`CanvasAgentDesktopApi` unchanged).
 
 ## Resource dispose order & transactional candidate assembly
 
-- Candidate open: validate (no side effect) → `mkdir` runtime dir + writability → `OPENING`
-  → `openWorkspaceDatabase` (migration failure closes the opened Persistence — `database.ts`
-  fix) → assemble `revisions/workspace/workerHost/coordinator` → on any later failure dispose
-  `workerHost` then `closeDatabase` (reverse order) → `failOpen`.
-- Only after the candidate is fully assembled is the held runtime disposed
-  (`workerHost.dispose()` awaited, then `closeDatabase`), then `READY` + settings write.
+- Candidate open: enter `OPENING` synchronously **before the first `await`** (after the
+  `activeRuns` guard) so no new run/command lease can acquire the held runtime → `waitForIdle()`
+  → validate (no side effect) → `mkdir` runtime dir + writability → `openWorkspaceDatabase`
+  (migration failure closes the opened Persistence — `database.ts` fix) → assemble
+  `revisions/workspace/workerHost/coordinator` → write settings (part of the commit) →
+  dispose held runtime → `READY`.
+- On any failure after the Persistence opens, dispose `workerHost` then `closeDatabase` in
+  reverse order and `failOpen` (preserving a held runtime and the prior last-workspace path).
 - A failed candidate never tears down the held runtime and never overwrites the last-workspace
-  path (settings written only after a successful open).
+  path; a settings **write** failure rolls the open back with `RUNTIME_NOT_WRITABLE`.
 - `close()` and `before-quit` share the same `manager.close()` path.
 
 ## Settings file
 
 `settings-v1.json` (Zod: `{ schemaVersion: 1, lastRepositoryPath: string | null }` strict),
-written via temp file + atomic rename, no credentials. Corrupt/invalid file is preserved for
-diagnosis and yields `SETTINGS_INVALID` (recoverable), never an arbitrary open.
+written via temp file + atomic rename, no credentials. A failed write removes the temp file
+(best effort) and throws a typed `SettingsWriteError` that the manager maps to
+`RUNTIME_NOT_WRITABLE`. Corrupt/invalid file is preserved for diagnosis and yields
+`SETTINGS_INVALID` (recoverable), never an arbitrary open.
 
 ## Storage layout & legacy DB
 
@@ -140,16 +144,17 @@ packages/domain          5   (unchanged)
 packages/contracts      48   (+7 workspace command tests)
 packages/persistence    68   (unchanged)
 packages/worker-runtime 22   (unchanged)
-apps/desktop           156   (+38: manager 19, settings 5, picker 4, security 4, config 4, command-core +2)
+apps/desktop           161   (+43: manager 19, settings 6, picker 4, security 4, config 5,
+                             command-router 3, command-core +2)
 -----------------------
-total                  299   (baseline 254)
+total                  304   (baseline 254)
 ```
 
-## Commands run (all under Node 24, rev 2)
+## Commands run (all under Node 24, rev 3)
 
 ```text
 pnpm --filter @canvas-agent/contracts test    48 passed
-pnpm --filter @canvas-agent/desktop test     156 passed
+pnpm --filter @canvas-agent/desktop test     161 passed
 pnpm check                                   format/lint/typecheck/test/build all green
 pnpm --filter @canvas-agent/desktop e2e:workspace    ALL PASSED
 pnpm --filter @canvas-agent/desktop e2e:live         ALL PASSED
@@ -157,7 +162,7 @@ pnpm --filter @canvas-agent/desktop build:unpack:unsigned  PASS
 pnpm --filter @canvas-agent/desktop e2e:packaged-smoke     ALL PASSED
 ```
 
-Full workspace/packaged E2E was re-run on the revised SHA after the PR #8 fixes.
+Full workspace/packaged E2E was re-run on the revised SHA after each PR #8 review round.
 
 ## Scope disclosure (narrow add-on authorization, accepted by lead)
 
@@ -182,6 +187,14 @@ was removed and replaced with a truthful schema round-trip test.
 | P1-2 async workspace commands need leases | `workspaceRoute` executes under `manager.withReadyRuntime(...)` (general READY-runtime lease); `close()`/`doOpen()` enter `CLOSING`/`OPENING` then `await waitForIdle()` before disposing. `execution.cancel` remains exempt (direct `getReadyRuntime`) | manager test "close waits for in-flight workspace commands to release their runtime lease" — close stays `CLOSING` until the leased command finishes, then `CLOSED` |
 | P1-3 settings write failure reported as success | `settings.writeLast` moved into the candidate commit: a write failure rolls the open back (candidate worker/DB cleaned in reverse order), keeps the held runtime, sets a typed `lastError`, and does not overwrite the prior last-workspace preference | manager test "a settings write failure rolls the open back and preserves the held runtime" — READY with repo A + `UNKNOWN` lastError after a forced settings rename failure |
 | P1-4 bare repositories pass the worktree check | `validateRepository` now requires `git rev-parse --is-inside-work-tree` stdout to equal exactly `true` (bare repos exit 0 printing `false`), checks the path is a directory, and keeps the HEAD check | `config.test.ts` — bare repo → `NOT_GIT_WORKTREE`; plain file/missing path → `PATH_UNREADABLE`; valid worktree accepted |
+
+## PR #8 review round 2 — fixes (rev 3)
+
+| Review item | Fix | Evidence |
+|---|---|---|
+| Settings rename failure leaves `.tmp` and maps to generic `UNKNOWN` | `writeLast` removes the temp file in a `finally`-style catch and throws a typed `SettingsWriteError`; the manager maps it to `RUNTIME_NOT_WRITABLE` and rolls the open back | `workspace-settings.test.ts` "a failed atomic write throws SettingsWriteError and leaves no temp file"; manager test asserts `RUNTIME_NOT_WRITABLE` + no `.tmp` leftover |
+| `chmod 000` repo escapes as `spawn git EACCES` | `validateRepository` probes `access(canonical, R_OK \| X_OK)` before any Git call and `runGitOutput` catches spawn/cwd errors → stable `PATH_UNREADABLE` | `config.test.ts` "rejects a permission-denied repository as PATH_UNREADABLE without a spawn EACCES throw" (chmod 000, restored in `finally`); the "path missing" test is kept as a distinct case, not reused as permission evidence |
+| Main-frame guard lacks a real IPC regression test | `command-router.test.ts` mocks `electron` (`ipcMain.handle` / `BrowserWindow.fromWebContents`) and drives the captured handler: trusted `file:` **subframe** rejected before `fromWebContents`; untrusted origin rejected; trusted **main frame** served through the real `handleCommand` path | router tests (3): subframe → throw `/non-main renderer frame/`, `fromWebContents` not called; evil origin → throw `/untrusted renderer/`; main frame → `{ ok: true, state: CLOSED }` |
 | P1-5 packaged mode trusts any `file:` frame | `command-router` rejects IPC when `event.senderFrame !== event.sender.mainFrame` before associating the sender with a `BrowserWindow`/picker | `command-router.ts` guard; `security.test.ts` continues to gate trusted origins |
 | P2-6 extra frozen-contract export | removed `export type WorkspaceChooseResult` (PROPOSAL-027A authorizes only the five inferred types); `workspaceChooseResultSchema` remains for the command envelope; Main types the result inline | `packages/contracts/src/command.ts`; no `WorkspaceChooseResult` references remain |
 
