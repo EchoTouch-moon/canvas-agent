@@ -17,19 +17,19 @@ DeepSeek is the primary implementer. Luna receives one consolidated visual task 
 | 0 | Lead architect | PROPOSAL-029 First Workspace Bootstrap Flow | — | ✅ approved | — |
 | 1 | DeepSeek V4 Flash | [DS-003 release reliability](deepseek/DS-003-release-reliability.md) | `agent/deepseek-ds-003-release-reliability` | ✅ MERGED — PR #7 | `main@7adc20a` |
 | 2 | DeepSeek V4 Flash | [DS-004 workspace runtime](deepseek/DS-004-workspace-runtime.md) | `agent/deepseek-ds-004-workspace-runtime` | ✅ MERGED — PR #8 | `main@7cbaf18` |
-| 3 | DeepSeek V4 Flash | [DS-005 local CLI adapter](deepseek/DS-005-local-cli-adapter.md) | `agent/deepseek-ds-005-local-cli-adapter` | DS-005A ✅ LEAD APPROVED @ `2d6b9c3` / PR #9; DS-005B READY | Exact argv/schema fixture review ✅ @ `2d6b9c3`; DS-005 final merge pending |
-| 4 | DeepSeek V4 Flash | [DS-006 Live client state/onboarding](deepseek/DS-006-live-client-state.md) | `agent/deepseek-ds-006-live-client-state` | BLOCKED | DS-004 + DS-005 merged |
+| 3 | DeepSeek V4 Flash | [DS-005 local CLI adapter](deepseek/DS-005-local-cli-adapter.md) | `agent/deepseek-ds-005-local-cli-adapter` | ✅ MERGED — PR #9 | `main@3459d6d` |
+| 4 | DeepSeek V4 Flash | [DS-006 Live client state/onboarding](deepseek/DS-006-live-client-state.md) | `agent/deepseek-ds-006-live-client-state` | READY | DS-004 + DS-005 ✅ merged |
 | 5 | GPT-5.6 Luna | [UI-003 Live-first product shell](luna/UI-003-live-first-product-shell.md) | `agent/luna-ui-003-live-first-shell` | BLOCKED | DS-006 merged |
 | 6 | DeepSeek V4 Flash | [DS-007 RC gates](deepseek/DS-007-release-candidate-gates.md) | `agent/deepseek-ds-007-product-mvp-rc` | BLOCKED | all implementation packets merged |
 
-DS-004 is merged through PR #8 at reviewed `main@7cbaf18`. DS-005A and its exact Codex argv/schema fixture review are LEAD APPROVED at `2d6b9c3` on PR #9, so DeepSeek may begin DS-005B on the same branch. DS-006 begins only after DS-005 is fully merged. DS-006 and UI-003 remain strictly sequential because they divide functional state/forms from final visual ownership.
+DS-005 is LEAD APPROVED at reviewed head `eb53fe7` and merged through PR #9 at `main@3459d6d`. DS-006 is the only newly unlocked implementation packet; DeepSeek may start its exact branch from this reviewed `main`. UI-003 remains blocked until DS-006 is merged, and DS-007 remains blocked until both DS-006 and UI-003 are merged.
 
 ## Current release gates
 
 ```text
-DS-003 ✅ + DS-004 ✅ → DS-005A ✅
-DS-005A ✅ + exact argv/schema fixture review ✅ → DS-005B (READY) / DS-005 final
-DS-005 final → DS-006 → UI-003 → DS-007 → architect RC decision
+DS-003 ✅ + DS-004 ✅ + DS-005 ✅ → DS-006 (READY)
+DS-006 merged → UI-003
+DS-006 merged + UI-003 merged → DS-007 → architect RC decision
 ```
 
 No Checkpoint/Resume, Canvas or second Agent adapter packet may start during this milestone without a new scope decision.
