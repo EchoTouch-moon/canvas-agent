@@ -71,3 +71,46 @@ export class BudgetExceededError extends WorkerError {
 export class CancelledError extends WorkerError {
   override readonly name: string = 'CancelledError'
 }
+
+// --- Local CLI adapter taxonomy (PROPOSAL-028) ------------------------------
+
+export const AGENT_EXECUTABLE_NOT_FOUND = 'AGENT_EXECUTABLE_NOT_FOUND'
+export const AGENT_VERSION_UNSUPPORTED = 'AGENT_VERSION_UNSUPPORTED'
+export const AGENT_AUTH_REQUIRED = 'AGENT_AUTH_REQUIRED'
+export const AGENT_POLICY_REJECTED = 'AGENT_POLICY_REJECTED'
+export const AGENT_OUTPUT_INVALID = 'AGENT_OUTPUT_INVALID'
+export const AGENT_OUTPUT_LIMIT_EXCEEDED = 'AGENT_OUTPUT_LIMIT_EXCEEDED'
+export const AGENT_PROCESS_FAILED = 'AGENT_PROCESS_FAILED'
+export const AGENT_REPOSITORY_STATE_VIOLATION = 'AGENT_REPOSITORY_STATE_VIOLATION'
+export const AGENT_TIMED_OUT = 'AGENT_TIMED_OUT'
+export const AGENT_CANCELLED = 'AGENT_CANCELLED'
+export const AGENT_INTERPRETER_MISSING = 'AGENT_INTERPRETER_MISSING'
+export const EXECUTION_CONTEXT_REQUIRED = 'EXECUTION_CONTEXT_REQUIRED'
+
+export class LocalCliError extends WorkerError {
+  override readonly name: string = 'LocalCliError'
+  constructor(
+    readonly code: string,
+    message: string
+  ) {
+    super(message)
+  }
+}
+
+export class LocalCliSpawnError extends LocalCliError {
+  override readonly name: string = 'LocalCliSpawnError'
+  constructor(
+    readonly errno: string,
+    message: string,
+    readonly originalError: unknown
+  ) {
+    super('SPAWN_ERROR', message)
+  }
+}
+
+export class LocalCliOutputInvalidError extends LocalCliError {
+  override readonly name: string = 'LocalCliOutputInvalidError'
+  constructor(message: string) {
+    super(AGENT_OUTPUT_INVALID, message)
+  }
+}

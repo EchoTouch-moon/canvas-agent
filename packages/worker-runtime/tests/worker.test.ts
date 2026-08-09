@@ -1,19 +1,56 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { createHash } from 'node:crypto'
 import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
-import { FixtureAgentAdapter, createWorker, type DispatchResult } from '../src'
+import type { ExecutionContextItemV2, ExecutionRequestContractV2 } from '@canvas-agent/contracts'
+import {
+  FixtureAgentAdapter,
+  computeExecutionContextBundle,
+  computeRequestHash,
+  createWorker,
+  type DispatchResult
+} from '../src'
 import {
   TEST_ALLOWLIST,
   cleanupTempDirs,
   createTempGitRepo,
   git,
-  requestForRepo
+  requestForRepo,
+  type TempRepo
 } from './helpers'
 
 async function runtimeDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'ca-runtime-'))
+}
+
+function buildV2Request(repo: TempRepo): ExecutionRequestContractV2 {
+  const sha = (content: string): string =>
+    createHash('sha256').update(content, 'utf8').digest('hex')
+  const instruction: ExecutionContextItemV2 = {
+    position: 0,
+    itemType: 'USER_INPUT',
+    sourceRef: 'task://spec_1',
+    resolvedContent: 'Make the change',
+    contentHash: sha('Make the change'),
+    authority: 'TASK_INSTRUCTION',
+    priority: 'P0',
+    tokenEstimate: 5
+  }
+  const computed = computeExecutionContextBundle([instruction])
+  const base = {
+    ...requestForRepo(repo),
+    schemaVersion: 2 as const,
+    contextBundle: {
+      items: [instruction],
+      totalBytes: computed.totalBytes,
+      contentHash: computed.contentHash
+    }
+  }
+  const { requestHash: _requestHash, ...rest } = base
+  void _requestHash
+  return { ...rest, requestHash: computeRequestHash(rest) }
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -254,5 +291,51 @@ describe('worker dispatch against a temporary git repository', () => {
     expect(result.outcome).toBe('CANCELLED')
     expect(result.claimGranted).toBe(true)
     expect(await pathExists(join(runtime, 'worktrees'))).toBe(false)
+  })
+
+  it('rejects a dirty expected revision before any claim or worktree', async () => {
+    const repo = await createTempGitRepo()
+    const runtime = await runtimeDir()
+    const worker = createWorker({
+      runtimeDirectory: runtime,
+      sourceRepositoryPath: repo.dir,
+      capabilities: ['git', 'node'],
+      commandAllowlist: TEST_ALLOWLIST,
+      verificationCommands: [],
+      agent: new FixtureAgentAdapter({ steps: [], summary: 'no-op' })
+    })
+
+    const result = await worker.dispatch({
+      request: requestForRepo(repo, {
+        expectedRepositoryRevision: {
+          baseCommit: repo.baseCommit,
+          treeHash: repo.treeHash,
+          workingTreePatchHash: 'c'.repeat(64)
+        }
+      })
+    })
+
+    expect(result.outcome).toBe('VALIDATION_REJECTED')
+    expect(result.claimGranted).toBe(false)
+    expect(result.rejectionReason).toContain('DIRTY_REPOSITORY_EXECUTION_UNSUPPORTED')
+    expect(await pathExists(join(runtime, 'worktrees'))).toBe(false)
+  })
+
+  it('dispatches a valid v2 request with a context bundle through the fixture', async () => {
+    const repo = await createTempGitRepo()
+    const runtime = await runtimeDir()
+    const worker = createWorker({
+      runtimeDirectory: runtime,
+      sourceRepositoryPath: repo.dir,
+      capabilities: ['git', 'node'],
+      commandAllowlist: TEST_ALLOWLIST,
+      verificationCommands: [],
+      agent: new FixtureAgentAdapter({ steps: [], summary: 'no-op' })
+    })
+
+    const v2 = buildV2Request(repo)
+    const result = await worker.dispatch({ request: v2 })
+    expect(result.outcome).toBe('SUCCEEDED')
+    expect(result.claimGranted).toBe(true)
   })
 })

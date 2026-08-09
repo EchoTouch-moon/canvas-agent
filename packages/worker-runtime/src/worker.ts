@@ -7,7 +7,7 @@ import type { AgentAdapter } from './agent-adapter'
 import { BudgetExceededError, CancelledError, RevisionMismatchError } from './errors'
 import { runCommand } from './process-runner'
 import { ISOLATED_GIT_ENV, verifyRepositoryRevision, type GitRunOptions } from './revision'
-import { sha256Hex, validateExecutionRequest } from './validation'
+import { sha256Hex, validateExecutionRequest, DIRTY_REPOSITORY_EXECUTION_UNSUPPORTED } from './validation'
 import { createIsolatedWorktree, exportWorktreePatch, removeWorktree } from './worktree'
 import type {
   ArtifactDescriptor,
@@ -71,6 +71,14 @@ export function createWorker(config: WorkerConfig): Worker {
         outcome: 'VALIDATION_REJECTED',
         claimGranted: false,
         rejectionReason: describe(error)
+      }
+    }
+
+    if (request.expectedRepositoryRevision.workingTreePatchHash !== null) {
+      return {
+        outcome: 'VALIDATION_REJECTED',
+        claimGranted: false,
+        rejectionReason: DIRTY_REPOSITORY_EXECUTION_UNSUPPORTED
       }
     }
 
