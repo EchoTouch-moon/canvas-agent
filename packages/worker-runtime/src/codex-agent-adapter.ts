@@ -136,8 +136,8 @@ export function createCodexAgentAdapter(options: CodexAgentAdapterOptions): Agen
         cwd: context.cwd,
         stdin: prompt,
         timeoutMs: context.maxDurationMs,
-        maxStdoutBytes: 64 * 1024,
-        maxStderrBytes: 64 * 1024,
+        maxStdoutBytes: 4 * 1024 * 1024,
+        maxStderrBytes: 1024 * 1024,
         environment: { PATH: options.environment.PATH, HOME: options.environment.HOME },
         signal: controller.signal,
         onLine
@@ -182,14 +182,18 @@ export function createCodexAgentAdapter(options: CodexAgentAdapterOptions): Agen
         stderrClass
       }
 
-      if (stderrClass === 'auth') {
-        throw new LocalCliError(AGENT_AUTH_REQUIRED, 'codex requires authentication')
-      }
-      if (events.topLevelError !== null || events.turnFailed !== null || !events.turnCompleted) {
+      const succeeded =
+        events.topLevelError === null &&
+        events.turnFailed === null &&
+        events.turnCompleted &&
+        result.exitCode === 0
+      if (!succeeded) {
+        // Auth is classified from a failed run; a successful run with an
+        // auth-looking warning on stderr is not an auth failure.
+        if (stderrClass === 'auth') {
+          throw new LocalCliError(AGENT_AUTH_REQUIRED, 'codex requires authentication')
+        }
         throw new LocalCliError(AGENT_PROCESS_FAILED, 'codex turn did not complete successfully')
-      }
-      if (result.exitCode !== 0) {
-        throw new LocalCliError(AGENT_PROCESS_FAILED, `codex exited with ${result.exitCode}`)
       }
       if (events.lastAgentMessage === null) {
         throw new LocalCliError(AGENT_OUTPUT_INVALID, 'codex produced no final agent message')

@@ -225,7 +225,7 @@ process.stdout.write('{"type":"turn.started"}\\nnot json at all\\n')`
   it('maps an oversized output to AGENT_OUTPUT_LIMIT_EXCEEDED', async () => {
     const script = await makeScript(
       `if (process.argv[2] === '--version') { process.stdout.write('codex-cli 0.146.0\\n'); process.exit(0) }
-process.stdout.write('x'.repeat(300000))`
+process.stdout.write('x'.repeat(5 * 1024 * 1024))`
     )
     clean.push(dirname(script))
     const runtime = await mkdtemp(join(tmpdir(), 'ca-ca-runtime-'))
