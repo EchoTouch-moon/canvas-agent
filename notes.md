@@ -75,3 +75,20 @@
 - Scope：`docs/product/scope-register.md`
 - Work board：`docs/tasks/README.md`
 - Task packets：`docs/tasks/deepseek/DS-003...DS-007` 与 `docs/tasks/luna/UI-003...`
+
+## 2026-08-10 takeover and DS-006 audit
+
+- 用户已将 DS-006、UI-003、DS-007 的剩余实现与门禁全权交给首席架构师；执行顺序保持 DS-006 → UI-003 → DS-007。
+- `main@8ecb08f` 已包含 PR #9 / DS-005，Node 24 下 409 tests + build 连续两次通过。
+- DS-006 不需要新 IPC、公共契约或数据库形状；现有 `workspace.*`、`agent.*`、Project/NodeVersion/Baseline/Task/TaskSpec 命令足够完成 PROPOSAL-029。
+- Renderer 当前差距：`App.tsx` 默认 Fixture 且暴露切换器；`useWorkspace` 只做 Project 水合并会在错误时丢掉稳定视图；没有 workspace/agent 生命周期模型、无 seed onboarding、dirty revision overlay 或完整 dispatch prerequisites。
+- 最小实现路线：新增纯 lifecycle/onboarding selectors + runtime reducer/hook；扩展 typed client；用现有 primitive 组成中性表单；只在 `live-workspace-view.tsx` 增加窄接线；API fake 覆盖状态、竞态和每个持久步骤的失败恢复。
+- 视觉层不会提前启动。DS-006 合并并冻结 view-model seam 后，再接任 UI-003 并做真实 light/dark、1080×720、1440×960 QA。
+
+## 2026-08-10 DS-006 merge gate
+
+- PR #10 已在 `main@19c0690` 合并；功能提交 `d34366a`，Live restart 回归修复 `84c7d0e`。
+- 最终 Node 24 `pnpm check`：469 tests + build 全绿；GitHub `check` 与 `macos-electron` 均通过。
+- Live E2E 证实首次执行、验收、采纳，以及同 userData 重启后的 Run/证据/应用/候选 Baseline/显式激活全部持久。
+- E2E 发现并修复“已有 ACTIVE Baseline 时把后续候选 DRAFT 当成首次引导 DRAFT”的 P1 selector 顺序问题。
+- UI-003 现已解锁；其边界严格限制为视觉组件、语义文案、主题、无障碍和截图 QA，不得修改 DS-006 hooks/reducer/lib 状态逻辑。

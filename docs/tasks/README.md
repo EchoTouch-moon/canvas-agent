@@ -6,42 +6,42 @@ The remote repository is the coordination point. Implementers exchange reviewed 
 
 DeepSeek is the primary implementer. Luna receives one consolidated visual task after backend and state contracts are stable.
 
-| Order | Owner | Packet | Branch | Status | Merge dependency |
-|---:|---|---|---|---|---|
-| 0 | Lead architect | PROPOSAL-027 Workspace Runtime | — | ✅ approved | — |
-| 0 | Lead architect | PROPOSAL-027A Workspace Command Contract | — | ✅ approved | — |
-| 0 | Lead architect | PROPOSAL-028 Local CLI Adapter v1 | — | ✅ approved | — |
-| 0 | Lead architect | PROPOSAL-028A ExecutionRequest v2 Context Bundle | — | ✅ approved | — |
-| 0 | Lead architect | PROPOSAL-028B Local Agent Runtime Discovery | — | ✅ approved | — |
-| 0 | Lead architect | PROPOSAL-028C Agent Readiness Command Contract | — | ✅ approved | — |
-| 0 | Lead architect | PROPOSAL-029 First Workspace Bootstrap Flow | — | ✅ approved | — |
-| 1 | DeepSeek V4 Flash | [DS-003 release reliability](deepseek/DS-003-release-reliability.md) | `agent/deepseek-ds-003-release-reliability` | ✅ MERGED — PR #7 | `main@7adc20a` |
-| 2 | DeepSeek V4 Flash | [DS-004 workspace runtime](deepseek/DS-004-workspace-runtime.md) | `agent/deepseek-ds-004-workspace-runtime` | ✅ MERGED — PR #8 | `main@7cbaf18` |
-| 3 | DeepSeek V4 Flash | [DS-005 local CLI adapter](deepseek/DS-005-local-cli-adapter.md) | `agent/deepseek-ds-005-local-cli-adapter` | ✅ MERGED — PR #9 | `main@3459d6d` |
-| 4 | DeepSeek V4 Flash | [DS-006 Live client state/onboarding](deepseek/DS-006-live-client-state.md) | `agent/deepseek-ds-006-live-client-state` | READY | DS-004 + DS-005 ✅ merged |
-| 5 | GPT-5.6 Luna | [UI-003 Live-first product shell](luna/UI-003-live-first-product-shell.md) | `agent/luna-ui-003-live-first-shell` | BLOCKED | DS-006 merged |
-| 6 | DeepSeek V4 Flash | [DS-007 RC gates](deepseek/DS-007-release-candidate-gates.md) | `agent/deepseek-ds-007-product-mvp-rc` | BLOCKED | all implementation packets merged |
+| Order | Owner             | Packet                                                                      | Branch                                      | Status             | Merge dependency                  |
+| ----: | ----------------- | --------------------------------------------------------------------------- | ------------------------------------------- | ------------------ | --------------------------------- |
+|     0 | Lead architect    | PROPOSAL-027 Workspace Runtime                                              | —                                           | ✅ approved        | —                                 |
+|     0 | Lead architect    | PROPOSAL-027A Workspace Command Contract                                    | —                                           | ✅ approved        | —                                 |
+|     0 | Lead architect    | PROPOSAL-028 Local CLI Adapter v1                                           | —                                           | ✅ approved        | —                                 |
+|     0 | Lead architect    | PROPOSAL-028A ExecutionRequest v2 Context Bundle                            | —                                           | ✅ approved        | —                                 |
+|     0 | Lead architect    | PROPOSAL-028B Local Agent Runtime Discovery                                 | —                                           | ✅ approved        | —                                 |
+|     0 | Lead architect    | PROPOSAL-028C Agent Readiness Command Contract                              | —                                           | ✅ approved        | —                                 |
+|     0 | Lead architect    | PROPOSAL-029 First Workspace Bootstrap Flow                                 | —                                           | ✅ approved        | —                                 |
+|     1 | DeepSeek V4 Flash | [DS-003 release reliability](deepseek/DS-003-release-reliability.md)        | `agent/deepseek-ds-003-release-reliability` | ✅ MERGED — PR #7  | `main@7adc20a`                    |
+|     2 | DeepSeek V4 Flash | [DS-004 workspace runtime](deepseek/DS-004-workspace-runtime.md)            | `agent/deepseek-ds-004-workspace-runtime`   | ✅ MERGED — PR #8  | `main@7cbaf18`                    |
+|     3 | DeepSeek V4 Flash | [DS-005 local CLI adapter](deepseek/DS-005-local-cli-adapter.md)            | `agent/deepseek-ds-005-local-cli-adapter`   | ✅ MERGED — PR #9  | `main@3459d6d`                    |
+|     4 | DeepSeek V4 Flash | [DS-006 Live client state/onboarding](deepseek/DS-006-live-client-state.md) | `agent/deepseek-ds-006-live-client-state`   | ✅ MERGED — PR #10 | `main@19c0690`                    |
+|     5 | GPT-5.6 Luna      | [UI-003 Live-first product shell](luna/UI-003-live-first-product-shell.md)  | `agent/luna-ui-003-live-first-shell`        | READY              | DS-006 ✅ merged                  |
+|     6 | DeepSeek V4 Flash | [DS-007 RC gates](deepseek/DS-007-release-candidate-gates.md)               | `agent/deepseek-ds-007-product-mvp-rc`      | BLOCKED            | all implementation packets merged |
 
-DS-005 is LEAD APPROVED at reviewed head `eb53fe7` and merged through PR #9 at `main@3459d6d`. DS-006 is the only newly unlocked implementation packet; DeepSeek may start its exact branch from this reviewed `main`. UI-003 remains blocked until DS-006 is merged, and DS-007 remains blocked until both DS-006 and UI-003 are merged.
+DS-006 is LEAD APPROVED and merged through PR #10 at `main@19c0690`: both CI jobs passed, including Live, workspace and packaged Electron gates. UI-003 is the only newly unlocked implementation packet. DS-007 remains blocked until UI-003 is merged.
 
 ## Current release gates
 
 ```text
-DS-003 ✅ + DS-004 ✅ + DS-005 ✅ → DS-006 (READY)
-DS-006 merged → UI-003
-DS-006 merged + UI-003 merged → DS-007 → architect RC decision
+DS-003 ✅ + DS-004 ✅ + DS-005 ✅ + DS-006 ✅
+DS-006 merged → UI-003 (READY)
+UI-003 merged → DS-007 → architect RC decision
 ```
 
 No Checkpoint/Resume, Canvas or second Agent adapter packet may start during this milestone without a new scope decision.
 
 ## Completed foundation
 
-| Owner | Task | Branch | Integrated |
-|---|---|---|---|
-| DeepSeek V4 Flash | DS-001 persistence foundation | `agent/deepseek-ds-001-persistence` | ✅ `50d4c1f` |
+| Owner             | Task                           | Branch                                 | Integrated   |
+| ----------------- | ------------------------------ | -------------------------------------- | ------------ |
+| DeepSeek V4 Flash | DS-001 persistence foundation  | `agent/deepseek-ds-001-persistence`    | ✅ `50d4c1f` |
 | DeepSeek V4 Flash | DS-002 isolated Worker runtime | `agent/deepseek-ds-002-worker-runtime` | ✅ `2bf86e8` |
-| GPT-5.6 Luna | UI-001 UI foundation | `agent/luna-ui-001-foundation` | ✅ `c54e15c` |
-| GPT-5.6 Luna | UI-002 core flow prototype | `agent/luna-ui-002-core-flow` | ✅ `79ad0a5` |
+| GPT-5.6 Luna      | UI-001 UI foundation           | `agent/luna-ui-001-foundation`         | ✅ `c54e15c` |
+| GPT-5.6 Luna      | UI-002 core flow prototype     | `agent/luna-ui-002-core-flow`          | ✅ `79ad0a5` |
 
 Phase 1–4 integration work is already in `main`; `docs/PROGRESS.md` records the engineering-loop baseline.
 
