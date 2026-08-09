@@ -3,14 +3,16 @@ import {
   commandRequestSchema,
   commandResponseSchemas,
   commandSchemas,
+  type AgentRuntimeState,
   type CommandError,
   type CommandInput,
   type CommandResponse,
   type WorkspaceCommand
 } from '@canvas-agent/contracts'
-import { mapCommandError, WorkspaceUnavailableError } from './command-errors'
+import { AgentNotReadyError, mapCommandError, WorkspaceUnavailableError } from './command-errors'
 import type { WorkspaceService } from './workspace-service'
 import type { WorkspaceRuntimeManager } from './workspace-runtime-manager'
+import type { AgentRuntimeLocator } from './agent-runtime-locator'
 
 export interface CommandRoute {
   execute: (payload: unknown, context?: CommandRouteContext) => Promise<unknown>
@@ -22,9 +24,27 @@ export interface CommandRouteContext {
 
 export interface CommandDeps {
   manager: WorkspaceRuntimeManager
+  agent: AgentRuntimeLocator
 }
 
 const INTERNAL_FAILURE = 'Internal command failure'
+
+function agentReadinessCode(state: AgentRuntimeState): string | null {
+  switch (state) {
+    case 'NOT_FOUND':
+      return 'AGENT_EXECUTABLE_NOT_FOUND'
+    case 'UNSUPPORTED_VERSION':
+      return 'AGENT_VERSION_UNSUPPORTED'
+    case 'AUTH_REQUIRED':
+      return 'AGENT_AUTH_REQUIRED'
+    case 'INTERPRETER_MISSING':
+      return 'AGENT_INTERPRETER_MISSING'
+    case 'ERROR':
+      return 'AGENT_NOT_READY'
+    default:
+      return null
+  }
+}
 
 export function buildRoutes(deps: CommandDeps): Record<string, CommandRoute> {
   const routes: Record<string, CommandRoute> = {}
@@ -68,9 +88,17 @@ export function buildRoutes(deps: CommandDeps): Record<string, CommandRoute> {
 
   routes['execution.dispatch'] = {
     execute: (payload: unknown) =>
-      deps.manager.withActiveRun((runtime) =>
-        runtime.coordinator.dispatch(payload as CommandInput<'execution.dispatch'>)
-      )
+      deps.manager.withActiveRun(async (runtime) => {
+        // Main Agent READY gate inside the atomic run lease: mutually exclusive
+        // with executable changes (withConfigurationChange) and checked before
+        // createDispatchedRun. Non-READY maps to the approved stable taxonomy.
+        const agentStatus = await deps.agent.status()
+        const reasonCode = agentReadinessCode(agentStatus.state)
+        if (reasonCode !== null) {
+          throw new AgentNotReadyError(`${reasonCode}: codex runtime is ${agentStatus.state}`)
+        }
+        return runtime.coordinator.dispatch(payload as CommandInput<'execution.dispatch'>)
+      })
   }
 
   // cancel is callable during an active run and must not acquire a new run lease.
@@ -96,6 +124,17 @@ export function buildRoutes(deps: CommandDeps): Record<string, CommandRoute> {
   }
   routes['workspace.close'] = {
     execute: async () => deps.manager.close()
+  }
+
+  routes['agent.status'] = {
+    execute: async () => deps.agent.status()
+  }
+  routes['agent.chooseExecutable'] = {
+    execute: async (_payload: unknown, context?: CommandRouteContext) =>
+      deps.agent.chooseExecutable(context?.window)
+  }
+  routes['agent.clearExecutable'] = {
+    execute: async () => deps.agent.clearExecutable()
   }
 
   return routes

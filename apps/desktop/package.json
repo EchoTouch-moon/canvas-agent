@@ -17,6 +17,7 @@
     "build": "pnpm typecheck && electron-vite build",
     "e2e:live": "electron-vite build && node e2e/live-workspace.e2e.cjs",
     "e2e:workspace": "node e2e/workspace.e2e.cjs",
+    "e2e:agent": "node e2e/agent.e2e.cjs",
     "e2e:packaged-smoke": "node e2e/packaged-smoke.e2e.cjs",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "pnpm build && electron-builder --dir",

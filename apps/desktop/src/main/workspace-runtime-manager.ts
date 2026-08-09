@@ -18,6 +18,7 @@ import { WorkspaceUnavailableError } from './command-errors'
 import { SettingsWriteError, WorkspaceSettingsStore } from './workspace-settings'
 import { repositoryName, workspaceIdentity, workspaceStorageRoots } from './workspace-storage'
 import type { RepositoryPicker } from './repository-picker'
+import type { AgentLaunchPlan } from './agent-runtime-locator'
 
 export interface ActiveWorkspaceRuntime {
   readonly identity: string
@@ -35,6 +36,7 @@ export interface WorkspaceRuntimeManagerOptions {
   migrationsFolder?: string
   bootstrapPath: string | null
   workerHostFactory?: (appConfig: AppConfig) => WorkerHost
+  agentLaunchPlanProvider?: () => AgentLaunchPlan | null
 }
 
 type RuntimeState =
@@ -66,6 +68,8 @@ export class WorkspaceRuntimeManager {
   private activeRuns = 0
   private leaseCount = 0
   private idleWaiter: (() => void) | null = null
+  private configChanging = false
+  private configChangeTail: Promise<unknown> = Promise.resolve()
   private readonly settings: WorkspaceSettingsStore
 
   constructor(private readonly options: WorkspaceRuntimeManagerOptions) {
@@ -84,7 +88,14 @@ export class WorkspaceRuntimeManager {
     return this.state.kind === 'READY' ? this.state.runtime : null
   }
 
+  hasActiveRuns(): boolean {
+    return this.activeRuns > 0
+  }
+
   async withActiveRun<T>(run: (runtime: ActiveWorkspaceRuntime) => Promise<T>): Promise<T> {
+    if (this.configChanging) {
+      throw new WorkspaceUnavailableError('Agent configuration change in progress')
+    }
     const runtime = this.acquireLease()
     this.activeRuns += 1
     try {
@@ -93,6 +104,38 @@ export class WorkspaceRuntimeManager {
       this.activeRuns -= 1
       this.releaseLease()
     }
+  }
+
+  /**
+   * Atomic Agent configuration-change gate. The critical section is serialized
+   * (a concurrent change waits) and is mutually exclusive with starting a new
+   * Run: entry checks the active-run counter and sets the config-changing flag
+   * in one synchronous step, and `withActiveRun` refuses to start while the flag
+   * is set. Ordinary `withReadyRuntime` project commands are not blocked. No
+   * public OPERATION_IN_PROGRESS reason is introduced.
+   */
+  async withConfigurationChange<T>(
+    fn: () => Promise<T>
+  ): Promise<{ ok: true; value: T } | { ok: false; reason: 'ACTIVE_RUN_BLOCKS_CHANGE' }> {
+    if (this.activeRuns > 0) {
+      return { ok: false, reason: 'ACTIVE_RUN_BLOCKS_CHANGE' }
+    }
+    const run = this.configChangeTail.then(async () => {
+      if (this.activeRuns > 0) {
+        return { ok: false as const, reason: 'ACTIVE_RUN_BLOCKS_CHANGE' as const }
+      }
+      this.configChanging = true
+      try {
+        return { ok: true as const, value: await fn() }
+      } finally {
+        this.configChanging = false
+      }
+    })
+    this.configChangeTail = run.then(
+      () => undefined,
+      () => undefined
+    )
+    return run
   }
 
   async withReadyRuntime<T>(run: (runtime: ActiveWorkspaceRuntime) => Promise<T>): Promise<T> {
@@ -287,7 +330,9 @@ export class WorkspaceRuntimeManager {
       workerHost =
         this.options.workerHostFactory !== undefined
           ? this.options.workerHostFactory(appConfig)
-          : new UtilityProcessWorkerHost(appConfig)
+          : new UtilityProcessWorkerHost(appConfig, undefined, {
+              agentLaunchPlanProvider: this.options.agentLaunchPlanProvider ?? (() => null)
+            })
       const coordinator = new ExecutionCoordinator(persistence, workerHost, roots.runtimeDirectory)
       const candidate: ActiveWorkspaceRuntime = {
         identity,

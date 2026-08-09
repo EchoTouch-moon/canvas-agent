@@ -795,6 +795,62 @@ export const workspaceChooseResultSchema = z
   })
   .strict()
 
+// --- Agent runtime readiness (PROPOSAL-028C, frozen) -----------------------
+
+export const agentRuntimeStateSchema = z.enum([
+  'READY',
+  'NOT_FOUND',
+  'UNSUPPORTED_VERSION',
+  'AUTH_REQUIRED',
+  'INTERPRETER_MISSING',
+  'ERROR'
+])
+export type AgentRuntimeState = z.infer<typeof agentRuntimeStateSchema>
+
+export const agentRuntimeSourceSchema = z.enum(['USER_SELECTED', 'PATH', 'KNOWN_LOCATION'])
+export type AgentRuntimeSource = z.infer<typeof agentRuntimeSourceSchema>
+
+export const agentRuntimeReasonSchema = z.enum([
+  'EXECUTABLE_NOT_FOUND',
+  'EXECUTABLE_NOT_READABLE',
+  'EXECUTABLE_NOT_SUPPORTED',
+  'INTERPRETER_MISSING',
+  'AUTH_REQUIRED',
+  'PROBE_TIMED_OUT',
+  'ACTIVE_RUN_BLOCKS_CHANGE',
+  'SETTINGS_INVALID',
+  'UNKNOWN'
+])
+export type AgentRuntimeReason = z.infer<typeof agentRuntimeReasonSchema>
+
+export const agentRuntimeErrorSchema = z
+  .object({
+    reasonCode: agentRuntimeReasonSchema,
+    recoverable: z.boolean()
+  })
+  .strict()
+export type AgentRuntimeError = z.infer<typeof agentRuntimeErrorSchema>
+
+export const agentRuntimeStatusSchema = z
+  .object({
+    provider: z.literal('codex-cli'),
+    state: agentRuntimeStateSchema,
+    version: z.string().min(1).nullable(),
+    source: agentRuntimeSourceSchema.nullable(),
+    displayPath: z.string().min(1).nullable(),
+    lastError: agentRuntimeErrorSchema.nullable()
+  })
+  .strict()
+export type AgentRuntimeStatus = z.infer<typeof agentRuntimeStatusSchema>
+
+export const agentChooseExecutableResultSchema = z
+  .object({
+    cancelled: z.boolean(),
+    status: agentRuntimeStatusSchema
+  })
+  .strict()
+export type AgentChooseExecutableResult = z.infer<typeof agentChooseExecutableResultSchema>
+
 // --- Command map ------------------------------------------------------------
 
 export interface CommandMap {
@@ -826,6 +882,9 @@ export interface CommandMap {
   'workspace.chooseRepository': { request: z.infer<typeof emptyObjectSchema>; response: z.infer<typeof workspaceChooseResultSchema> }
   'workspace.reopenLast': { request: z.infer<typeof emptyObjectSchema>; response: z.infer<typeof workspaceRuntimeStatusSchema> }
   'workspace.close': { request: z.infer<typeof emptyObjectSchema>; response: z.infer<typeof workspaceRuntimeStatusSchema> }
+  'agent.status': { request: z.infer<typeof emptyObjectSchema>; response: z.infer<typeof agentRuntimeStatusSchema> }
+  'agent.chooseExecutable': { request: z.infer<typeof emptyObjectSchema>; response: z.infer<typeof agentChooseExecutableResultSchema> }
+  'agent.clearExecutable': { request: z.infer<typeof emptyObjectSchema>; response: z.infer<typeof agentRuntimeStatusSchema> }
 }
 
 export type WorkspaceCommand = keyof CommandMap
@@ -884,7 +943,10 @@ export const commandRequestSchema = z.discriminatedUnion('command', [
   commandRequestMember('workspace.status', emptyObjectSchema),
   commandRequestMember('workspace.chooseRepository', emptyObjectSchema),
   commandRequestMember('workspace.reopenLast', emptyObjectSchema),
-  commandRequestMember('workspace.close', emptyObjectSchema)
+  commandRequestMember('workspace.close', emptyObjectSchema),
+  commandRequestMember('agent.status', emptyObjectSchema),
+  commandRequestMember('agent.chooseExecutable', emptyObjectSchema),
+  commandRequestMember('agent.clearExecutable', emptyObjectSchema)
 ])
 
 // --- Response schemas (command-correlated, no z.unknown data) ----------------
@@ -942,7 +1004,10 @@ export const commandResponseSchemas = {
   'workspace.status': commandResponseMember('workspace.status', workspaceRuntimeStatusSchema),
   'workspace.chooseRepository': commandResponseMember('workspace.chooseRepository', workspaceChooseResultSchema),
   'workspace.reopenLast': commandResponseMember('workspace.reopenLast', workspaceRuntimeStatusSchema),
-  'workspace.close': commandResponseMember('workspace.close', workspaceRuntimeStatusSchema)
+  'workspace.close': commandResponseMember('workspace.close', workspaceRuntimeStatusSchema),
+  'agent.status': commandResponseMember('agent.status', agentRuntimeStatusSchema),
+  'agent.chooseExecutable': commandResponseMember('agent.chooseExecutable', agentChooseExecutableResultSchema),
+  'agent.clearExecutable': commandResponseMember('agent.clearExecutable', agentRuntimeStatusSchema)
 } as const
 
 // --- Runtime route-registry skeleton (main process fills `execute`) ----------
@@ -975,5 +1040,8 @@ export const commandSchemas = {
   'workspace.status': { input: emptyObjectSchema, output: workspaceRuntimeStatusSchema },
   'workspace.chooseRepository': { input: emptyObjectSchema, output: workspaceChooseResultSchema },
   'workspace.reopenLast': { input: emptyObjectSchema, output: workspaceRuntimeStatusSchema },
-  'workspace.close': { input: emptyObjectSchema, output: workspaceRuntimeStatusSchema }
+  'workspace.close': { input: emptyObjectSchema, output: workspaceRuntimeStatusSchema },
+  'agent.status': { input: emptyObjectSchema, output: agentRuntimeStatusSchema },
+  'agent.chooseExecutable': { input: emptyObjectSchema, output: agentChooseExecutableResultSchema },
+  'agent.clearExecutable': { input: emptyObjectSchema, output: agentRuntimeStatusSchema }
 }

@@ -1,4 +1,5 @@
 import { utilityProcess } from 'electron'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import type { DispatchResult, ExecutionRequestContract } from '@canvas-agent/contracts'
 import {
@@ -8,6 +9,7 @@ import {
 } from '../worker/protocol'
 import type { AppConfig } from './config'
 import { HostUnavailableError } from './command-errors'
+import type { AgentLaunchPlan } from './agent-runtime-locator'
 import type { WorkerHost } from './worker-host'
 
 export interface UtilityProcessLike {
@@ -40,6 +42,7 @@ const DISPOSE_TIMEOUT_MS = 10_000
 export interface UtilityProcessWorkerHostOptions {
   initTimeoutMs?: number
   disposeTimeoutMs?: number
+  agentLaunchPlanProvider?: () => AgentLaunchPlan | null
 }
 
 export class UtilityProcessWorkerHost implements WorkerHost {
@@ -54,8 +57,10 @@ export class UtilityProcessWorkerHost implements WorkerHost {
   private initTimer: ReturnType<typeof setTimeout> | null = null
   private disposeResolve: (() => void) | null = null
   private disposeTimer: ReturnType<typeof setTimeout> | null = null
+  private initializedLaunchFingerprint: string | null = null
   private readonly initTimeoutMs: number
   private readonly disposeTimeoutMs: number
+  private readonly agentLaunchPlanProvider: () => AgentLaunchPlan | null
 
   constructor(
     private readonly appConfig: AppConfig,
@@ -64,6 +69,19 @@ export class UtilityProcessWorkerHost implements WorkerHost {
   ) {
     this.initTimeoutMs = options.initTimeoutMs ?? INIT_TIMEOUT_MS
     this.disposeTimeoutMs = options.disposeTimeoutMs ?? DISPOSE_TIMEOUT_MS
+    this.agentLaunchPlanProvider = options.agentLaunchPlanProvider ?? (() => null)
+  }
+
+  private launchFingerprint(): string | null {
+    const plan = this.agentLaunchPlanProvider()
+    if (plan === null) {
+      return null
+    }
+    return createHash('sha256').update(plan.executable, 'utf8').digest('hex')
+  }
+
+  private currentLaunchPlan(): AgentLaunchPlan | null {
+    return this.agentLaunchPlanProvider()
   }
 
   async dispatch(request: ExecutionRequestContract): Promise<DispatchResult> {
@@ -135,7 +153,14 @@ export class UtilityProcessWorkerHost implements WorkerHost {
 
   private ensureStarted(): Promise<void> {
     if (this.state === 'READY') {
-      return Promise.resolve()
+      // Launcher lifecycle: if the trusted launch plan's fingerprint changed
+      // since init (user switched/cleared the executable), dispose the old
+      // Utility Process and re-init so dispatch never reuses a stale launcher.
+      const fingerprint = this.launchFingerprint()
+      if (fingerprint === this.initializedLaunchFingerprint) {
+        return Promise.resolve()
+      }
+      return this.restartForLaunchPlan()
     }
     if (this.state === 'DISPOSING' || this.state === 'DISPOSED') {
       return Promise.reject(new HostUnavailableError('worker host is shutting down or disposed'))
@@ -143,6 +168,17 @@ export class UtilityProcessWorkerHost implements WorkerHost {
     if (this.state === 'STARTING' && this.startPromise !== null) {
       return this.startPromise
     }
+    this.state = 'STARTING'
+    this.startPromise = this.start()
+    return this.startPromise
+  }
+
+  private async restartForLaunchPlan(): Promise<void> {
+    await this.dispose()
+    if (this.state === 'DISPOSED') {
+      this.state = 'STOPPED'
+    }
+    this.startPromise = null
     this.state = 'STARTING'
     this.startPromise = this.start()
     return this.startPromise
@@ -160,6 +196,8 @@ export class UtilityProcessWorkerHost implements WorkerHost {
       this.handleExit(code)
     })
 
+    this.initializedLaunchFingerprint = this.launchFingerprint()
+
     try {
       await new Promise<void>((resolve, reject) => {
         this.initResolve = resolve
@@ -168,7 +206,8 @@ export class UtilityProcessWorkerHost implements WorkerHost {
           protocolVersion: 1,
           type: 'init',
           sourceRepositoryPath: this.appConfig.sourceRepositoryPath,
-          runtimeDirectory: this.appConfig.runtimeDirectory
+          runtimeDirectory: this.appConfig.runtimeDirectory,
+          agentLaunchPlan: this.currentLaunchPlan()
         })
         this.initTimer = setTimeout(() => {
           reject(new HostUnavailableError('worker init timed out'))

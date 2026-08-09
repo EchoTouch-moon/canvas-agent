@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"thr_<redacted>"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"make test","aggregated_output":"ERROR: build failed","exit_code":1,"status":"failed"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"{\"summary\":\"tests failed\",\"changes\":[],\"tool_calls_observed\":1,\"tests_run\":[\"make test\"],\"success\":false}"}}

@@ -4,14 +4,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   CancelledError,
+  FixtureAgentAdapter,
   computeRequestHash,
   readRepositoryRevision,
   type AgentAdapter,
   type AgentContext,
   type AgentSummary
 } from '@canvas-agent/worker-runtime'
-import type { ExecutionRequestContract } from '@canvas-agent/contracts'
-import { WorkerService, type WorkerTransport } from './worker-service'
+import type { ExecutionRequestContractV1 } from '@canvas-agent/contracts'
+import { WorkerService, type WorkerServiceOverrides, type WorkerTransport } from './worker-service'
 import type { WorkerHostResponse } from './protocol'
 import { cleanupTempDirs, createTempGitRepo, trackTempDir } from '../main/testing/git-fixture'
 
@@ -77,8 +78,8 @@ function workerRequest(
     workingTreePatchHash: string | null
   },
   executionRequestId = 'exec-1'
-): ExecutionRequestContract {
-  const request: Omit<ExecutionRequestContract, 'requestHash'> = {
+): ExecutionRequestContractV1 {
+  const request: Omit<ExecutionRequestContractV1, 'requestHash'> = {
     executionRequestId,
     runId: 'run-1',
     workerAttemptNumber: 1,
@@ -105,14 +106,16 @@ function workerRequest(
 async function initService(
   transport: CapturingTransport,
   repoDir: string,
-  runtimeDir: string
+  runtimeDir: string,
+  overrides: WorkerServiceOverrides = {}
 ): Promise<WorkerService> {
-  const service = new WorkerService(transport)
+  const service = new WorkerService(transport, overrides)
   await service.onRequest({
     protocolVersion: 1,
     type: 'init',
     sourceRepositoryPath: repoDir,
-    runtimeDirectory: runtimeDir
+    runtimeDirectory: runtimeDir,
+    agentLaunchPlan: null
   })
   await transport.waitFor((response) => response.type === 'init:ack')
   return service
@@ -123,11 +126,22 @@ describe('WorkerService', () => {
     await cleanupTempDirs()
   })
 
-  it('dispatches a fixture execution and returns real patch evidence', async () => {
+  it('dispatches an injected fixture execution and returns real patch evidence', async () => {
     const repoDir = await createTempGitRepo()
     const runtimeDir = trackTempDir(await mkdtemp(join(tmpdir(), 'ca-worker-service-')))
     const transport = new CapturingTransport()
-    const service = await initService(transport, repoDir, runtimeDir)
+    const service = await initService(transport, repoDir, runtimeDir, {
+      agent: new FixtureAgentAdapter({
+        steps: [
+          {
+            kind: 'appendFile',
+            file: 'docs/phase2.md',
+            lines: ['# phase2', 'written by the fixture']
+          }
+        ],
+        summary: 'fixture: wrote docs/phase2.md'
+      })
+    })
 
     const revision = await readRepositoryRevision(repoDir, {
       cwd: repoDir,
@@ -172,7 +186,8 @@ describe('WorkerService', () => {
       protocolVersion: 1,
       type: 'init',
       sourceRepositoryPath: repoDir,
-      runtimeDirectory: runtimeDir
+      runtimeDirectory: runtimeDir,
+      agentLaunchPlan: null
     })
     await transport.waitFor((response) => response.type === 'init:ack')
 

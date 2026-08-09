@@ -1,0 +1,9 @@
+{
+  "name": "malformed",
+  "cliVersion": "codex-cli 0.146.0",
+  "capture": "constructed from exec_events.rs release schema (0.146.0)",
+  "exitCode": 0,
+  "stderrClassification": "empty",
+  "expectedErrorCode": "AGENT_OUTPUT_INVALID",
+  "parserRequirement": "a non-JSON line inside the event stream is a hard parse failure; do not fall back to the last agent_message"
+}

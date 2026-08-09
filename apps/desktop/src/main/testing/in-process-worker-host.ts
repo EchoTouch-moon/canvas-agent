@@ -1,5 +1,11 @@
-import { FixtureAgentAdapter, createWorker } from '@canvas-agent/worker-runtime'
+import {
+  FixtureAgentAdapter,
+  createCodexAgentAdapter,
+  createWorker
+} from '@canvas-agent/worker-runtime'
 import type { DispatchResult, ExecutionRequestContract } from '@canvas-agent/contracts'
+import { dirname } from 'node:path'
+import { tmpdir } from 'node:os'
 import type { AppConfig } from '../config'
 import type { WorkerHost } from '../worker-host'
 
@@ -7,12 +13,15 @@ export class InProcessWorkerHost implements WorkerHost {
   private readonly controllers = new Map<string, AbortController>()
   private readonly workers = new Map<string, ReturnType<typeof createWorker>>()
   private readonly now: () => string
+  private readonly codexExecutable: string | null
 
   constructor(
     private readonly appConfig: AppConfig,
-    now?: () => string
+    now?: () => string,
+    codexExecutable?: string
   ) {
     this.now = now ?? (() => new Date().toISOString())
+    this.codexExecutable = codexExecutable ?? null
   }
 
   async dispatch(request: ExecutionRequestContract): Promise<DispatchResult> {
@@ -24,7 +33,19 @@ export class InProcessWorkerHost implements WorkerHost {
       commandAllowlist: ['git', 'node'],
       verificationCommands: [],
       now: this.now,
-      agent: new FixtureAgentAdapter({ steps: [], summary: 'no-op' })
+      agent: new FixtureAgentAdapter({ steps: [], summary: 'no-op' }),
+      ...(this.codexExecutable !== null
+        ? {
+            codexAdapter: createCodexAgentAdapter({
+              executable: this.codexExecutable,
+              environment: {
+                PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
+                HOME: tmpdir()
+              },
+              runtimeDirectory: this.appConfig.runtimeDirectory
+            })
+          }
+        : {})
     })
     this.controllers.set(request.executionRequestId, controller)
     this.workers.set(request.executionRequestId, worker)

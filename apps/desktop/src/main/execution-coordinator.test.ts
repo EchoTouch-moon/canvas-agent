@@ -25,6 +25,7 @@ import type { DispatchResult, ExecutionRequestContract } from '@canvas-agent/con
 import { computeRequestHash } from '@canvas-agent/worker-runtime'
 import { ExecutionCoordinator } from './execution-coordinator'
 import { InProcessWorkerHost } from './testing/in-process-worker-host'
+import { FAKE_CODEX_SUCCESS_EXEC, writeFakeCodex } from './testing/fake-codex'
 import type { WorkerHost } from './worker-host'
 import {
   cleanupTempDirs,
@@ -101,7 +102,17 @@ async function frozenSetup(
     taskSpecVersionId: 'spec_1',
     baseBaselineId: baseline.id,
     expectedRepositoryRevisionId: revision.id,
-    items: []
+    items: [
+      {
+        itemType: 'USER_INPUT',
+        sourceRef: 'task://spec_1',
+        resolvedContent: 'Implement X',
+        authority: 'TASK_INSTRUCTION',
+        priority: 'P0',
+        tokenEstimate: 5,
+        position: 0
+      }
+    ]
   })
 
   return { snapshotId: frozen.snapshot.id, revisionId: revision.id }
@@ -131,10 +142,16 @@ describe('ExecutionCoordinator', () => {
     expect(request.runId).toBe('run_1')
     expect(request.contextSnapshotId).toBe('snap_1')
     expect(request.taskSpecVersionId).toBe('spec_1')
+    expect(request.schemaVersion).toBe(2)
+    if (request.schemaVersion === 2) {
+      expect(request.contextBundle.items).toHaveLength(1)
+      expect(request.contextBundle.items[0]?.authority).toBe('TASK_INSTRUCTION')
+      expect(request.contextBundle.items[0]?.priority).toBe('P0')
+    }
     expect(request.expectedRepositoryRevision.baseCommit).toBe('a'.repeat(40))
     expect(request.requiredCapabilities).toEqual(['git', 'node'])
     expect(request.toolPolicy.allowNetwork).toBe(false)
-    expect(request.resourceBudget.maxDurationMs).toBe(30_000)
+    expect(request.resourceBudget.maxDurationMs).toBe(900_000)
     expect(request.workspaceStrategy).toBe('ISOLATED_WORKTREE')
     const { requestHash: _hash, ...rest } = request
     void _hash
@@ -189,6 +206,151 @@ describe('ExecutionCoordinator', () => {
     closeDatabase(p)
   })
 
+  it('rejects a dirty expected revision before any Run side effect', async () => {
+    const p = openDatabase({ path: ':memory:', services: services() })
+    applyMigrations(p)
+    createProject(p, { id: 'proj_dirty', name: 'P' })
+    createNode(p, { id: 'node_dirty', projectId: 'proj_dirty', type: 'GOAL' })
+    const version = publishNodeVersion(p, {
+      id: 'nv_dirty',
+      nodeId: 'node_dirty',
+      title: 'T',
+      body: 'body'
+    })
+    createTask(p, {
+      id: 'task_dirty',
+      projectId: 'proj_dirty',
+      type: 'IMPLEMENT_CHANGE',
+      title: 'T'
+    })
+    publishTaskSpecVersion(p, {
+      id: 'spec_dirty',
+      taskId: 'task_dirty',
+      description: 'd',
+      scope: 's',
+      criteria: [{ description: 'c', position: 0 }]
+    })
+    const baseline = createBaselineDraft(p, {
+      id: 'baseline_dirty',
+      projectId: 'proj_dirty',
+      name: '0.1',
+      nodeVersionIds: [version.id]
+    })
+    activateBaseline(p, { baselineId: baseline.id })
+    const dirtyRevision = upsertRepositoryRevision(p, {
+      id: 'rev_dirty',
+      baseCommit: 'a'.repeat(40),
+      treeHash: 'b'.repeat(40),
+      workingTreePatchHash: 'c'.repeat(64)
+    })
+    freezeContextSnapshot(p, {
+      id: 'snap_dirty',
+      projectId: 'proj_dirty',
+      taskId: 'task_dirty',
+      taskSpecVersionId: 'spec_dirty',
+      baseBaselineId: baseline.id,
+      expectedRepositoryRevisionId: dirtyRevision.id,
+      items: [
+        {
+          itemType: 'USER_INPUT',
+          sourceRef: 'task://spec_dirty',
+          resolvedContent: 'Implement X',
+          authority: 'TASK_INSTRUCTION',
+          priority: 'P0',
+          tokenEstimate: 5,
+          position: 0
+        }
+      ]
+    })
+
+    const worker = new FakeWorkerHost()
+    const coordinator = new ExecutionCoordinator(p, worker, UNUSED_RUNTIME, services())
+    await expect(
+      coordinator.dispatch({ executionRequestId: 'exec-1', contextSnapshotId: 'snap_dirty' })
+    ).rejects.toThrow(/DIRTY_REPOSITORY_EXECUTION_UNSUPPORTED/)
+    expect(worker.captured).toHaveLength(0)
+    expect(() => getRunAggregate(p, 'run_1')).toThrow()
+    closeDatabase(p)
+  })
+
+  it('rejects a snapshot with more than 256 context items before any Run side effect', async () => {
+    const p = openDatabase({ path: ':memory:', services: services() })
+    applyMigrations(p)
+    createProject(p, { id: 'proj_many', name: 'P' })
+    createNode(p, { id: 'node_many', projectId: 'proj_many', type: 'GOAL' })
+    const version = publishNodeVersion(p, {
+      id: 'nv_many',
+      nodeId: 'node_many',
+      title: 'T',
+      body: 'body'
+    })
+    createTask(p, {
+      id: 'task_many',
+      projectId: 'proj_many',
+      type: 'IMPLEMENT_CHANGE',
+      title: 'T'
+    })
+    publishTaskSpecVersion(p, {
+      id: 'spec_many',
+      taskId: 'task_many',
+      description: 'd',
+      scope: 's',
+      criteria: [{ description: 'c', position: 0 }]
+    })
+    const baseline = createBaselineDraft(p, {
+      id: 'baseline_many',
+      projectId: 'proj_many',
+      name: '0.1',
+      nodeVersionIds: [version.id]
+    })
+    activateBaseline(p, { baselineId: baseline.id })
+    const revision = upsertRepositoryRevision(p, {
+      id: 'rev_many',
+      baseCommit: 'a'.repeat(40),
+      treeHash: 'b'.repeat(40),
+      workingTreePatchHash: null
+    })
+    const items = Array.from({ length: 257 }, (_, i) =>
+      i === 0
+        ? {
+            itemType: 'USER_INPUT' as const,
+            sourceRef: 'task://spec_many',
+            resolvedContent: 'Implement X',
+            authority: 'TASK_INSTRUCTION' as const,
+            priority: 'P0' as const,
+            tokenEstimate: 5,
+            position: 0
+          }
+        : {
+            itemType: 'NODE_VERSION' as const,
+            sourceRef: `repo://docs/f${i}.md`,
+            resolvedContent: `content-${i}`,
+            authority: 'PROJECT_FACT' as const,
+            priority: 'P1' as const,
+            tokenEstimate: 1,
+            position: i
+          }
+    )
+    freezeContextSnapshot(p, {
+      id: 'snap_many',
+      projectId: 'proj_many',
+      taskId: 'task_many',
+      taskSpecVersionId: 'spec_many',
+      baseBaselineId: baseline.id,
+      expectedRepositoryRevisionId: revision.id,
+      items
+    })
+
+    const worker = new FakeWorkerHost()
+    const coordinator = new ExecutionCoordinator(p, worker, UNUSED_RUNTIME, services())
+    await expect(
+      coordinator.dispatch({ executionRequestId: 'exec-1', contextSnapshotId: 'snap_many' })
+    ).rejects.toThrow(/item count out of range/)
+    expect(worker.captured).toHaveLength(0)
+    expect(() => getRunAggregate(p, 'run_1')).toThrow()
+    closeDatabase(p)
+  })
+
   it('does not chase the current revision: repo changed after freeze -> REVISION_MISMATCH', async () => {
     const repoDir = await createTempGitRepo()
     const runtimeDir = trackTempDir(await mkdtemp(join(tmpdir(), 'ca-coord-runtime-')))
@@ -200,12 +362,14 @@ describe('ExecutionCoordinator', () => {
     await git(repoDir, ['commit', '-am', 'post-freeze change'])
 
     const svc = services()
+    const fakeCodex = await writeFakeCodex({ execBody: FAKE_CODEX_SUCCESS_EXEC })
     const worker = new InProcessWorkerHost(
       {
         sourceRepositoryPath: repoDir,
         runtimeDirectory: runtimeDir
       },
-      svc.now
+      svc.now,
+      fakeCodex
     )
     const coordinator = new ExecutionCoordinator(p, worker, runtimeDir, svc)
 
@@ -226,12 +390,14 @@ describe('ExecutionCoordinator', () => {
     const { snapshotId } = await frozenSetup(p, repoDir)
 
     const svc = services()
+    const fakeCodex = await writeFakeCodex({ execBody: FAKE_CODEX_SUCCESS_EXEC })
     const worker = new InProcessWorkerHost(
       {
         sourceRepositoryPath: repoDir,
         runtimeDirectory: runtimeDir
       },
-      svc.now
+      svc.now,
+      fakeCodex
     )
     const coordinator = new ExecutionCoordinator(p, worker, runtimeDir, svc)
 

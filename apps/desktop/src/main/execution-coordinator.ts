@@ -1,6 +1,7 @@
 import {
   defaultServices,
   getSnapshot,
+  listSnapshotItems,
   requireRepositoryRevision,
   requireTaskSpecVersion,
   ValidationError,
@@ -14,9 +15,17 @@ import {
 import type {
   CommandInput,
   DispatchResult,
-  ExecutionRequestContract
+  ExecutionContextBundleV2,
+  ExecutionContextItemV2,
+  ExecutionRequestContractV2
 } from '@canvas-agent/contracts'
-import { computeRequestHash, stableStringify } from '@canvas-agent/worker-runtime'
+import {
+  assertValidExecutionContextBundle,
+  computeExecutionContextBundle,
+  computeRequestHash,
+  stableStringify,
+  DIRTY_REPOSITORY_EXECUTION_UNSUPPORTED
+} from '@canvas-agent/worker-runtime'
 import { PHASE3_EXECUTION_PROFILE } from './execution-profile'
 import { ArtifactIngestor } from './artifact-ingestor'
 import type { WorkerHost } from './worker-host'
@@ -65,11 +74,19 @@ export class ExecutionCoordinator {
     requireTaskSpecVersion(this.p, snapshot.taskSpecVersionId)
     const revision = requireRepositoryRevision(this.p, snapshot.expectedRepositoryRevisionId)
 
+    if (revision.workingTreePatchHash !== null) {
+      throw new ValidationError(
+        `${DIRTY_REPOSITORY_EXECUTION_UNSUPPORTED}: the repository has uncommitted changes and v0.2 does not materialize dirty source state`
+      )
+    }
+
+    const contextBundle = this.materializeContextBundle(snapshot.id)
+
     const runId = this.services.nextId('run_')
     const now = this.services.now()
     const executionRequestId = payload.executionRequestId
 
-    const base: Omit<ExecutionRequestContract, 'requestHash'> = {
+    const base: Omit<ExecutionRequestContractV2, 'requestHash'> = {
       executionRequestId,
       runId,
       workerAttemptNumber: 1,
@@ -86,10 +103,14 @@ export class ExecutionCoordinator {
       toolPolicy: PHASE3_EXECUTION_PROFILE.toolPolicy,
       workspaceStrategy: PHASE3_EXECUTION_PROFILE.workspaceStrategy,
       resourceBudget: PHASE3_EXECUTION_PROFILE.resourceBudget,
-      schemaVersion: 1,
+      contextBundle,
+      schemaVersion: 2,
       expiresAt: new Date(Date.parse(now) + EXPIRY_OFFSET_MS).toISOString()
     }
-    const request: ExecutionRequestContract = { ...base, requestHash: computeRequestHash(base) }
+    const request: ExecutionRequestContractV2 = {
+      ...base,
+      requestHash: computeRequestHash(base)
+    }
 
     // Durable Run + request record + DISPATCHED BEFORE the worker starts. If
     // this throws, the worker must never be dispatched.
@@ -161,6 +182,41 @@ export class ExecutionCoordinator {
 
   async cancel(payload: CommandInput<'execution.cancel'>): Promise<{ cancelled: boolean }> {
     return { cancelled: await this.worker.cancel(payload.executionRequestId) }
+  }
+
+  private materializeContextBundle(snapshotId: string): ExecutionContextBundleV2 {
+    const rows = listSnapshotItems(this.p, snapshotId)
+    const items: ExecutionContextItemV2[] = rows.map((row) => ({
+      position: row.position,
+      itemType: row.itemType,
+      sourceRef: row.sourceRef,
+      resolvedContent: row.resolvedContent,
+      contentHash: row.contentHash,
+      authority: row.authority,
+      priority: row.priority,
+      tokenEstimate: row.tokenEstimate
+    }))
+    if (items.length === 0) {
+      throw new ValidationError(
+        `ContextSnapshot ${snapshotId} has no materialized context items; dispatch is blocked`
+      )
+    }
+    const computed = computeExecutionContextBundle(items)
+    const bundle: ExecutionContextBundleV2 = {
+      items,
+      totalBytes: computed.totalBytes,
+      contentHash: computed.contentHash
+    }
+    try {
+      assertValidExecutionContextBundle(bundle)
+    } catch (error) {
+      throw new ValidationError(
+        `ContextSnapshot ${snapshotId} failed bundle validation: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    }
+    return bundle
   }
 
   private async interrupt(

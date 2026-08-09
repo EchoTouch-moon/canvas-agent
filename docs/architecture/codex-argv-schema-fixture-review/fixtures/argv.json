@@ -1,0 +1,19 @@
+[
+  "codex",
+  "exec",
+  "--json",
+  "--cd",
+  "<isolated-worktree-path>",
+  "--sandbox",
+  "workspace-write",
+  "--color",
+  "never",
+  "--ephemeral",
+  "--ignore-user-config",
+  "--ignore-rules",
+  "-c",
+  "project_doc_max_bytes=0",
+  "--output-schema",
+  "<schema-file-path>",
+  "-"
+]

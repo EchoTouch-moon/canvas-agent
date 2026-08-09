@@ -1,6 +1,11 @@
-import { FixtureAgentAdapter, createWorker, type AgentAdapter } from '@canvas-agent/worker-runtime'
+import {
+  createCodexAgentAdapter,
+  createWorker,
+  type AgentAdapter
+} from '@canvas-agent/worker-runtime'
 import type { DispatchResult } from '@canvas-agent/contracts'
 import {
+  agentLaunchPlanSchema,
   workerHostRequestSchema,
   type WorkerHostRequest,
   type WorkerHostResponse
@@ -80,26 +85,29 @@ export class WorkerService {
   }
 
   private init(request: Extract<WorkerHostRequest, { type: 'init' }>): void {
+    const launchPlan = agentLaunchPlanSchema.nullable().parse(request.agentLaunchPlan)
     this.worker = createWorker({
       runtimeDirectory: request.runtimeDirectory,
       sourceRepositoryPath: request.sourceRepositoryPath,
       capabilities: ['git', 'node'],
       commandAllowlist: ['git', 'node'],
-      verificationCommands: this.overrides.verificationCommands ?? [
-        ['node', '-e', 'process.exit(require("fs").existsSync("docs/phase2.md") ? 0 : 1)']
-      ],
-      agent:
-        this.overrides.agent ??
-        new FixtureAgentAdapter({
-          steps: [
-            {
-              kind: 'appendFile',
-              file: 'docs/phase2.md',
-              lines: ['# phase2', 'written by the utility process']
+      verificationCommands: this.overrides.verificationCommands ?? [],
+      // Fixture is injectable for tests and development smoke only; production
+      // builds the real Codex adapter from the Main-owned launch plan.
+      ...(this.overrides.agent !== undefined
+        ? { agent: this.overrides.agent }
+        : launchPlan !== null
+          ? {
+              codexAdapter: createCodexAgentAdapter({
+                executable: launchPlan.executable,
+                environment: {
+                  PATH: launchPlan.environment.PATH,
+                  HOME: launchPlan.environment.HOME
+                },
+                runtimeDirectory: request.runtimeDirectory
+              })
             }
-          ],
-          summary: 'phase2: wrote docs/phase2.md'
-        })
+          : {})
     })
     this.initialized = true
     this.transport.send({ protocolVersion: 1, type: 'init:ack' })

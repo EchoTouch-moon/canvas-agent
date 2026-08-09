@@ -26,7 +26,30 @@ function step(name, ok) {
   if (!ok) failures += 1
 }
 
-async function launch(repo, home, label) {
+function tempFakeCodex() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ca-e2e-fake-codex-'))
+  const file = path.join(dir, 'codex')
+  const body = `#!/usr/bin/env node
+if (process.argv[2] === '--version') { process.stdout.write('codex-cli 0.146.0\\n'); process.exit(0) }
+if (process.argv[2] === 'login') { process.exit(0) }
+const fs=require('node:fs');const path=require('node:path')
+const cdIdx=process.argv.indexOf('--cd');const cwd=process.argv[cdIdx+1]
+fs.mkdirSync(path.join(cwd,'docs'),{recursive:true})
+fs.writeFileSync(path.join(cwd,'docs','change.md'),'# change\\nwritten by the deterministic fake codex\\n')
+const summary={summary:'added docs/change.md',changes:[{file:'docs/change.md',change_type:'created',description:'add'}],tool_calls_observed:1,tests_run:[],success:true}
+const out=(o)=>process.stdout.write(JSON.stringify(o)+'\\n')
+out({type:'thread.started',thread_id:'thr_1'})
+out({type:'turn.started'})
+out({type:'item.completed',item:{id:'item_1',type:'command_execution',command:'write',aggregated_output:'',exit_code:0,status:'completed'}})
+out({type:'item.completed',item:{id:'item_2',type:'agent_message',text:JSON.stringify(summary)}})
+out({type:'turn.completed',usage:{input_tokens:1,cached_input_tokens:0,cache_write_input_tokens:0,output_tokens:1,reasoning_output_tokens:0}})
+`
+  fs.writeFileSync(file, body, 'utf8')
+  fs.chmodSync(file, 0o755)
+  return { dir, file }
+}
+
+async function launch(repo, home, label, fakeCodexDir) {
   const electronPath = require(path.join(DESKTOP, 'node_modules', 'electron'))
   const app = await electron.launch({
     executablePath: electronPath,
@@ -37,7 +60,8 @@ async function launch(repo, home, label) {
       CANVAS_AGENT_REPO: repo,
       CANVAS_AGENT_DEMO_SEED: '1',
       CANVAS_AGENT_USER_DATA: home,
-      HOME: home
+      HOME: home,
+      PATH: fakeCodexDir ? fakeCodexDir + ':' + (process.env.PATH || '') : process.env.PATH
     }
   })
   console.log(`[e2e] ${label} launched pid=`, app.process().pid)
@@ -50,8 +74,8 @@ async function launch(repo, home, label) {
   return { app, page }
 }
 
-async function firstLaunch(repo, home) {
-  const { app, page } = await launch(repo, home, 'A')
+async function firstLaunch(repo, home, fakeCodexDir) {
+  const { app, page } = await launch(repo, home, 'A', fakeCodexDir)
   try {
     // Dismiss the CoreFlow welcome modal if present (it overlays the toggle).
     const getStarted = page.getByRole('button', { name: 'Get started' })
@@ -83,7 +107,7 @@ async function firstLaunch(repo, home) {
     step('A real snapshot freeze (node version + repo content)', true)
 
     await page.getByRole('button', { name: 'Dispatch execution' }).click()
-    await page.getByText('docs/phase2.md').first().waitFor({ timeout: 60000 })
+    await page.getByText('docs/change.md').first().waitFor({ timeout: 60000 })
     step('A execution dispatch -> SUCCEEDED evidence', true)
 
     const claim = await page.getByText('Claim granted').count()
@@ -116,8 +140,8 @@ async function firstLaunch(repo, home) {
   await app.close()
 }
 
-async function secondLaunch(repo, home) {
-  const { app, page } = await launch(repo, home, 'B')
+async function secondLaunch(repo, home, fakeCodexDir) {
+  const { app, page } = await launch(repo, home, 'B', fakeCodexDir)
   try {
     const getStarted = page.getByRole('button', { name: 'Get started' })
     if ((await getStarted.count()) > 0) {
@@ -174,7 +198,7 @@ async function secondLaunch(repo, home) {
     )
     step('B run.get patch artifact present', Boolean(patchArtifact))
     if (patchArtifact) {
-      const contentOk = String(patchArtifact.content).includes('docs/phase2.md')
+      const contentOk = String(patchArtifact.content).includes('docs/change.md')
       const hashOk =
         createHash('sha256').update(patchArtifact.content, 'utf8').digest('hex') ===
         patchArtifact.contentHash
@@ -320,11 +344,13 @@ async function secondLaunch(repo, home) {
 async function main() {
   const repo = tempRepo()
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ca-e2e-home-'))
+  const fakeCodex = tempFakeCodex()
   console.log('[e2e] repo=', repo)
+  console.log('[e2e] fake codex=', fakeCodex.file)
 
-  await firstLaunch(repo, home)
+  await firstLaunch(repo, home, fakeCodex.dir)
   console.log('[e2e] first launch closed; relaunching with the SAME HOME/DB')
-  await secondLaunch(repo, home)
+  await secondLaunch(repo, home, fakeCodex.dir)
 
   console.log(failures === 0 ? '[e2e] ALL PASSED' : `[e2e] FAILED (${failures})`)
   process.exit(failures === 0 ? 0 : 1)

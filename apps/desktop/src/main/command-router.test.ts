@@ -12,12 +12,24 @@ vi.mock('electron', () => ({
 
 import { registerCommandRouter } from './command-router'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager'
+import { AgentRuntimeLocator } from './agent-runtime-locator'
 
 function makeManager(): WorkspaceRuntimeManager {
   return new WorkspaceRuntimeManager({
     userData: '/tmp/ca-router-test-userdata',
     picker: { pick: async () => ({ cancelled: true, path: null }) },
     bootstrapPath: null
+  })
+}
+
+function makeAgent(): AgentRuntimeLocator {
+  return new AgentRuntimeLocator({
+    userData: '/tmp/ca-router-agent-userdata',
+    homePath: '/tmp',
+    environment: { PATH: '/usr/bin:/bin', HOME: '/tmp' },
+    picker: { pick: async () => ({ cancelled: true, path: null }) },
+    isChangeBlocked: () => false,
+    configurationGate: async (fn) => ({ ok: true, value: await fn() })
   })
 }
 
@@ -31,7 +43,7 @@ function commandFrame(): {
 }
 
 function captureHandler(): (event: unknown, payload: unknown) => Promise<unknown> {
-  registerCommandRouter({ manager: makeManager() })
+  registerCommandRouter({ manager: makeManager(), agent: makeAgent() })
   const calls = electronMocks.handle.mock.calls
   expect(calls.length).toBeGreaterThan(0)
   return calls[calls.length - 1][1] as (event: unknown, payload: unknown) => Promise<unknown>

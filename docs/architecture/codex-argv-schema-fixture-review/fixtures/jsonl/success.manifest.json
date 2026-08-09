@@ -1,0 +1,29 @@
+{
+  "name": "success",
+  "cliVersion": "codex-cli 0.146.0",
+  "capture": "real (2026-08-09, temp git repo, --ephemeral, prompt via stdin)",
+  "exitCode": 0,
+  "stderrClassification": "benign: models-cache load warning; run succeeded",
+  "expectedErrorCode": null,
+  "invocation": {
+    "argv": [
+      "codex", "exec", "--json", "--cd", "<isolated-worktree-path>",
+      "--sandbox", "workspace-write", "--color", "never", "--ephemeral",
+      "--ignore-user-config", "--ignore-rules", "-c", "project_doc_max_bytes=0",
+      "--output-schema", "<schema-file-path>", "-"
+    ],
+    "schemaFile": "final-response.schema.json",
+    "schemaSha256": "86855a2c1c755597f340a13b2dd7279936023a65fddcf41b55d35676917b0050",
+    "prompt": "Make no file changes. Respond with exactly one JSON object conforming to the provided output schema."
+  },
+  "finalMessageSelection": {
+    "requiresTurnCompleted": true,
+    "requiresExitZero": true,
+    "selector": "last qualified agent_message item.completed before termination",
+    "note": "Do not consume the first schema-valid message; --output-schema can shape intermediate agent messages"
+  },
+  "resultSemantics": {
+    "topLevelErrorOrTurnFailedIsFailure": true,
+    "itemLevelErrorIsBoundedDiagnosticOnly": true
+  }
+}

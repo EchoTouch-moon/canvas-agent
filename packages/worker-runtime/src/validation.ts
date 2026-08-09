@@ -1,6 +1,15 @@
 import { createHash } from 'node:crypto'
-import { executionRequestSchema, type ExecutionRequestContract } from '@canvas-agent/contracts'
+import {
+  executionRequestSchema,
+  MAX_EXECUTION_CONTEXT_BYTES,
+  MAX_EXECUTION_CONTEXT_ITEMS,
+  type ExecutionContextItemV2,
+  type ExecutionContextBundleV2,
+  type ExecutionRequestContract
+} from '@canvas-agent/contracts'
 import { ExpiredRequestError, MissingCapabilityError, RequestValidationError } from './errors'
+
+export const DIRTY_REPOSITORY_EXECUTION_UNSUPPORTED = 'DIRTY_REPOSITORY_EXECUTION_UNSUPPORTED'
 
 export interface ValidateRequestOptions {
   capabilities: readonly string[]
@@ -37,6 +46,10 @@ export function validateExecutionRequest(
     }
   }
 
+  if (request.schemaVersion === 2) {
+    assertValidExecutionContextBundle(request.contextBundle)
+  }
+
   return request
 }
 
@@ -67,4 +80,72 @@ export function stableStringify(value: unknown): string {
     return `{${body}}`
   }
   return JSON.stringify(value)
+}
+
+export interface ComputedExecutionContextBundle {
+  readonly canonicalItems: string
+  readonly totalBytes: number
+  readonly contentHash: string
+}
+
+export function computeExecutionContextBundle(
+  items: readonly ExecutionContextItemV2[]
+): ComputedExecutionContextBundle {
+  const canonicalItems = stableStringify(items)
+  const totalBytes = Buffer.byteLength(canonicalItems, 'utf8')
+  const contentHash = sha256Hex(canonicalItems)
+  return { canonicalItems, totalBytes, contentHash }
+}
+
+/**
+ * Semantic bundle validation shared by Main materialization and Worker
+ * pre-claim validation. Checks contiguous positions, per-item content hashes,
+ * canonical byte/hash recomputation, the byte/item limits and the P0
+ * TASK_INSTRUCTION requirement beyond the Zod shape.
+ */
+export function assertValidExecutionContextBundle(bundle: ExecutionContextBundleV2): void {
+  const { items } = bundle
+  if (items.length < 1 || items.length > MAX_EXECUTION_CONTEXT_ITEMS) {
+    throw new RequestValidationError(
+      'context bundle item count out of range',
+      `expected 1..${MAX_EXECUTION_CONTEXT_ITEMS} items, got ${items.length}`
+    )
+  }
+  if (!items.every((item, index) => item.position === index)) {
+    throw new RequestValidationError(
+      'context bundle positions must be contiguous',
+      'positions are not 0..items.length-1 in array order'
+    )
+  }
+  for (const item of items) {
+    if (sha256Hex(item.resolvedContent) !== item.contentHash) {
+      throw new RequestValidationError('context item hash mismatch', `item position ${item.position}`)
+    }
+  }
+  const computed = computeExecutionContextBundle(items)
+  if (computed.totalBytes !== bundle.totalBytes) {
+    throw new RequestValidationError(
+      'context bundle totalBytes mismatch',
+      `expected ${bundle.totalBytes} got ${computed.totalBytes}`
+    )
+  }
+  if (computed.totalBytes > MAX_EXECUTION_CONTEXT_BYTES) {
+    throw new RequestValidationError(
+      'context bundle exceeds byte limit',
+      `totalBytes ${computed.totalBytes}`
+    )
+  }
+  if (computed.contentHash !== bundle.contentHash) {
+    throw new RequestValidationError('context bundle hash mismatch', 'content has been tampered with')
+  }
+  if (
+    !items.some(
+      (item) => item.authority === 'TASK_INSTRUCTION' && item.priority === 'P0'
+    )
+  ) {
+    throw new RequestValidationError(
+      'missing P0 task instruction',
+      'no context item has authority TASK_INSTRUCTION and priority P0'
+    )
+  }
 }

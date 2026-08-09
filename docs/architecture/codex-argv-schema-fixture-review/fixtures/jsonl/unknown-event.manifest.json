@@ -1,0 +1,10 @@
+{
+  "name": "unknown-event",
+  "cliVersion": "codex-cli 0.146.0",
+  "capture": "forward-compatibility construction (NOT schema-verified)",
+  "provenanceNote": "session.configured and item type future_item_v2 are synthetic events intentionally not present in the 0.146.0 exec_events.rs; they simulate future protocol additions to exercise the skip-unknown-event compatibility path.",
+  "exitCode": 0,
+  "stderrClassification": "empty",
+  "expectedErrorCode": null,
+  "parserRequirement": "unknown top-level events and unknown item.completed item types are skipped defensively; the final message is the last qualified agent_message before turn.completed"
+}

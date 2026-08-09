@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"thr_<redacted>"}
+{"type":"turn.started"}
+{"type":"error","message":"not logged in: run `codex login` first"}
+{"type":"turn.failed","error":{"message":"not logged in: run `codex login` first"}}
