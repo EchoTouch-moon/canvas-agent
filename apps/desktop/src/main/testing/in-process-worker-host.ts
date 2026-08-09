@@ -6,8 +6,14 @@ import type { WorkerHost } from '../worker-host'
 export class InProcessWorkerHost implements WorkerHost {
   private readonly controllers = new Map<string, AbortController>()
   private readonly workers = new Map<string, ReturnType<typeof createWorker>>()
+  private readonly now: () => string
 
-  constructor(private readonly appConfig: AppConfig) {}
+  constructor(
+    private readonly appConfig: AppConfig,
+    now?: () => string
+  ) {
+    this.now = now ?? (() => new Date().toISOString())
+  }
 
   async dispatch(request: ExecutionRequestContract): Promise<DispatchResult> {
     const controller = new AbortController()
@@ -17,6 +23,7 @@ export class InProcessWorkerHost implements WorkerHost {
       capabilities: ['git', 'node'],
       commandAllowlist: ['git', 'node'],
       verificationCommands: [],
+      now: this.now,
       agent: new FixtureAgentAdapter({ steps: [], summary: 'no-op' })
     })
     this.controllers.set(request.executionRequestId, controller)

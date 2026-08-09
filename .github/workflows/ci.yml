@@ -25,3 +25,47 @@ jobs:
 
       - name: Check (format / lint / typecheck / test / build)
         run: pnpm check
+
+  macos-electron:
+    runs-on: macos-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Electron live E2E
+        run: |
+          mkdir -p apps/desktop/dist/logs
+          set -o pipefail
+          pnpm --filter @canvas-agent/desktop e2e:live 2>&1 | tee apps/desktop/dist/logs/live-e2e.log
+
+      - name: Build unsigned unpacked app
+        run: |
+          mkdir -p apps/desktop/dist/logs
+          set -o pipefail
+          pnpm --filter @canvas-agent/desktop build:unpack:unsigned 2>&1 | tee apps/desktop/dist/logs/unpack-build.log
+
+      - name: Packaged cold-start smoke
+        run: |
+          mkdir -p apps/desktop/dist/logs
+          set -o pipefail
+          pnpm --filter @canvas-agent/desktop e2e:packaged-smoke 2>&1 | tee apps/desktop/dist/logs/packaged-smoke.log
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-electron-logs
+          path: apps/desktop/dist/logs
+          if-no-files-found: ignore

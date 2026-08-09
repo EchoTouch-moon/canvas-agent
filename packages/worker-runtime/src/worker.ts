@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ClaimStore } from './claim'
@@ -61,7 +62,10 @@ export function createWorker(config: WorkerConfig): Worker {
 
     let request
     try {
-      request = validateExecutionRequest(options.request, { capabilities: config.capabilities })
+      request = validateExecutionRequest(options.request, {
+        capabilities: config.capabilities,
+        now: Date.parse(now())
+      })
     } catch (error) {
       return {
         outcome: 'VALIDATION_REJECTED',
@@ -150,7 +154,7 @@ export function createWorker(config: WorkerConfig): Worker {
       maxDurationMs: request.resourceBudget.maxDurationMs,
       maxToolCalls: request.resourceBudget.maxToolCalls
     }
-    const startedAt = Date.now()
+    const startedAt = performance.now()
     const partial: {
       agentSummary?: string
       agentEvidence?: string
@@ -197,7 +201,7 @@ export function createWorker(config: WorkerConfig): Worker {
           outcome = 'CANCELLED'
           break
         }
-        const remaining = budget.maxDurationMs - (Date.now() - startedAt)
+        const remaining = budget.maxDurationMs - (performance.now() - startedAt)
         if (remaining <= 0) {
           outcome = 'PARTIAL'
           reason = 'budget exceeded: maxDurationMs'

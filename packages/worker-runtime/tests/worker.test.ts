@@ -172,6 +172,34 @@ describe('worker dispatch against a temporary git repository', () => {
     expect(result.recovery?.state).toBe('interrupted')
   })
 
+  it('a frozen logical wall clock cannot freeze the elapsed budget', async () => {
+    const repo = await createTempGitRepo()
+    const runtime = await runtimeDir()
+    const worker = createWorker({
+      runtimeDirectory: runtime,
+      sourceRepositoryPath: repo.dir,
+      capabilities: ['git', 'node'],
+      commandAllowlist: TEST_ALLOWLIST,
+      verificationCommands: [['true']],
+      now: () => '2030-01-01T00:00:00.000Z',
+      agent: new FixtureAgentAdapter({
+        steps: [{ kind: 'runCommand', argv: ['node', '-e', 'setTimeout(() => {}, 100)'] }],
+        summary: 'busy'
+      })
+    })
+
+    const result = await worker.dispatch({
+      request: requestForRepo(repo, {
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        resourceBudget: { maxDurationMs: 1, maxToolCalls: 5, maxDiskBytes: 100_000_000 }
+      })
+    })
+
+    expect(result.outcome).toBe('PARTIAL')
+    expect(result.rejectionReason).toBe('budget exceeded: maxDurationMs')
+    expect(result.recovery?.state).toBe('interrupted')
+  })
+
   it('cancels a running dispatch and returns a bounded partial result', async () => {
     const repo = await createTempGitRepo()
     const runtime = await runtimeDir()
