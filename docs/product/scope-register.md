@@ -36,6 +36,7 @@ These items are required because the existing engineering loop cannot be used as
 | richer Inspector / command palette | useful speed improvement | observed workflow friction after Live-first use |
 | fuller Run event visualization | current evidence is adequate for the loop | real Agent event data exposes recurring diagnosis gaps |
 | local one-hop relationship mini-map | improves orientation but does not unlock execution | impact-analysis need repeatedly observed |
+| stable elapsed-budget test timing (DS-003 budget flake) | one local timing flake in the frozen-clock elapsed-budget test; five consecutive reruns and a full `pnpm check` were green, so it is not a release blocker | the flake recurs or budget/timeout tests get a dedicated deterministic monotonic harness |
 
 ## Future directions — require explicit trigger
 
