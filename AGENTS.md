@@ -63,3 +63,18 @@ Never treat fixture values, screenshots, Canvas coordinates, or Agent suggestion
 - GPT-5.6 Luna owns `apps/desktop/src/renderer/**` according to its task packet.
 - The lead architect owns `packages/domain/**`, `packages/contracts/**`, Electron main/preload security boundaries and ADRs.
 - Do not edit another owner's files. If a contract must change, stop and open a short proposal in the task handoff.
+
+### Product MVP v0.2 temporary delegation
+
+For the Product MVP closeout, the user has directed that most implementation go to DeepSeek. The following task packets are lead-approved, task-scoped exceptions to the default ownership above:
+
+| Packet | Assignee | Temporary scope |
+|---|---|---|
+| DS-003 | DeepSeek | deterministic clock, package resources, package/Electron CI smoke; exact whitelist in packet |
+| DS-004 | DeepSeek | approved workspace Contracts and Electron Main/Preload runtime wiring; exact whitelist in packet |
+| DS-005 | DeepSeek | Worker/runtime and concrete local CLI integration; exact whitelist in packet |
+| DS-006 | DeepSeek | Renderer client/hooks/reducers plus narrowly named functional onboarding components using existing primitives; no visual CSS/design-system work |
+| DS-007 | DeepSeek | E2E/CI/release documentation, not unscoped production changes |
+| UI-003 | GPT-5.6 Luna | visual Renderer components/CSS/i18n only, after DS-006 is merged |
+
+The file whitelist and stop conditions in each packet are mandatory. Public contract, database shape, domain state or security-boundary deviations still require a new lead-accepted proposal. Temporary delegation ends when the named packet is merged or closed.

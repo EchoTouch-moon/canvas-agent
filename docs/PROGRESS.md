@@ -1,9 +1,11 @@
 # Canvas Agent — 项目进度文档
 
-- **日期：** 2026-08-08
-- **里程碑：** `CANVAS AGENT MVP CORE LOOP — VERIFIED / COMPLETE`
+- **日期：** 2026-08-09
+- **里程碑：** `ENGINEERING CORE LOOP COMPLETE / PRODUCT MVP v0.2 CLOSEOUT PLANNED`
 - **仓库：** https://github.com/EchoTouch-moon/canvas-agent（私有）
-- **分支：** `main`（当前 HEAD `7f3c8c7`，88 commits）
+- **分支：** `main`（当前 HEAD `26ef285`，89 commits）
+
+> **2026-08-09 audit correction:** 工程闭环已经完成，但产品 MVP 尚未完成。format、lint、typecheck、build 和 production audit 通过；单测当前为 **244/246**，两个失败来自 Main 固定时钟与 Worker 实时时钟不一致；真实 Electron live E2E 通过；unpacked 应用因 migration 资源路径错误而无法冷启动。新的权威执行顺序见 `docs/PRODUCT_MVP_V0.2_PLAN.md`。下文的阶段历史保留，但任何“`pnpm check` 全绿”或立即进入旧 Phase 5 的表述均被本段取代。
 
 ---
 
@@ -56,7 +58,7 @@ Result adoption ≠ Baseline activation
 | `packages/worker-runtime` | 隔离 Worker 执行循环：不可变 ExecutionRequest、worktree、验证、artifact 输出、取消 |
 | `apps/desktop` | Electron 桌面端：Main（路由/协调器/Git 读写/采纳协议）、preload bridge、Renderer（CoreFlow + Live workspace） |
 
-**当前测试（246 个，`pnpm check` 全绿）：**
+**当前测试审计（246 个，244 通过 / 2 失败）：**
 
 ```text
 domain            5
@@ -65,10 +67,10 @@ persistence      68
 worker-runtime   19
 desktop         113
 -------------------
-total           246 ✅
+total           246（当前 244 ✅ / 2 ❌）
 ```
 
-**CI：** `.github/workflows/ci.yml`（push main / PR 触发，Node 24 + pnpm，format / lint / typecheck / test / build）。
+**CI：** `.github/workflows/ci.yml` 当前只覆盖 Node 24 + pnpm 的 format / lint / typecheck / test / build；Electron live E2E 与 packaged smoke 是 v0.2 必补门禁。
 
 **E2E：** `pnpm --filter @canvas-agent/desktop e2e:live`（Playwright `_electron` 驱动真实 Electron，隔离 userData + 真实 Git 仓库，含**跨重启持久化**验证）。
 
@@ -88,6 +90,13 @@ total           246 ✅
 | PROPOSAL-024 | Phase 4 #3 Run + RunEvent + Artifact 持久化 |
 | PROPOSAL-025 | Phase 4 #4 AcceptanceEvaluation + Task 生命周期 + 完成 |
 | PROPOSAL-026 | Phase 4 #5 Result Adoption + Baseline Promotion（durable side-effect protocol） |
+| PROPOSAL-027 | Product Workspace Runtime + Main-owned repository selection |
+| PROPOSAL-027A | path-free workspace command/Zod contract |
+| PROPOSAL-028 | Provider-neutral Local CLI + Codex Adapter v1 |
+| PROPOSAL-028A | ExecutionRequest v2 immutable Context Bundle |
+| PROPOSAL-028B | packaged-safe local Agent executable discovery/readiness |
+| PROPOSAL-028C | path-free Agent readiness command/Zod contract |
+| PROPOSAL-029 | fresh workspace Project/Baseline/Task bootstrap without demo seed |
 
 ### 3.2 信任边界（逐步建立）
 
@@ -110,12 +119,11 @@ total           246 ✅
 - 采纳：`artifact.apply`（22 guards + 幂等 + crash 对账）+ `artifactApplication.list` + `baseline.createCandidateFromTask` + 强化 `baseline.activate`（parent-stale guard + real-repo guard）；`GitRepositoryWriter`（受控 commit，trailers 绑定 application/run/artifact/hash）。
 - 产品面：Live Workspace 视图（hydration / composer / repository resolve / freeze / run / acceptance / adoption / runs history）+ CoreFlow 流程原型（APPLY/ACTIVATE 已解锁为真实命令，旧 session-only ArtifactReview 退休）。
 
-### 尚未实现（未来阶段）
+### 尚未实现（按新的产品优先级）
 
-- Checkpoint / Resume、ToolInvocation、Approval、多 ExecutionRequest continuation（Phase 5）。
-- 真实 Agent Adapter / Provider-Model profiles / ToolPolicy（Phase 6）。
-- 完整 Product Workbench（Phase 7）。
-- Canvas / Graph Intelligence（Phase 8）。
+- Product MVP v0.2 Core：确定性时钟、packaged migrations、原生仓库选择/切换、真实 Codex CLI Adapter、Live-first Product Workbench、RC 自动化门。
+- Future：Checkpoint / Resume、ToolInvocation、Approval、多 ExecutionRequest continuation；触发条件见 scope register。
+- Future：Canvas / Graph Intelligence。
 - BaselineEdgeItem（关系快照）——MVP 明确冻结为 NodeVersions + RepositoryRevision。
 
 ---
@@ -204,10 +212,12 @@ total           246 ✅
 
 ---
 
-## 6. 未来方向（路线图）
+## 6. 下一阶段（权威顺序）
 
-- **Phase 5**：Checkpoint / Resume、ToolInvocation、Approval、副作用恢复完善。
-- **Phase 6**：真实 Agent Adapter、Provider/Model profiles、ToolPolicy、多 ExecutionRequest continuation。
-- **Phase 7**：真正的 Product Workbench（产品化）。
-- **Phase 8**：Canvas / Graph Intelligence。
-- **建议的下一节点**：**MVP Core Loop Productization Review**——从“用户每天怎么用”审视这条已能跑的 `0 → 1 → 1.1` 闭环（产物形态、可见状态、onboarding、恢复入口、错误可读性），而不是立刻加后端 aggregate。
+1. **DS-003：Release Reliability**——时钟、migration packaging、packaged/CI smoke。
+2. **DS-004：Workspace Runtime**——原生选择仓库、单活动运行时、仓库隔离状态。
+3. **DS-005：Real Local Agent**——通用 CLI boundary + 首个 Codex Adapter。
+4. **DS-006 → UI-003：Live-first Product Workbench**——DeepSeek 完成数据状态，Luna 只做视觉壳与 QA。
+5. **DS-007：RC Gates**——全链、重启、采纳幂等、package、文档收口。
+
+Checkpoint/Resume、第二 Adapter 与 Canvas 均被范围门延后。详细依赖、所有权和验收矩阵见 `docs/PRODUCT_MVP_V0.2_PLAN.md` 与 `docs/tasks/README.md`。

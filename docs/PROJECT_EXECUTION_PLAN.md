@@ -1,6 +1,8 @@
-# Canvas Agent 首版执行计划
+# Canvas Agent 首版执行计划（历史归档）
 
-**状态：** 工程与协作基线已建立，等待远端发布后进入 Wave 1  
+> 本计划的 Wave 1/Wave 2 已完成，不再用于安排下一项工作。Product MVP v0.2 的权威计划是 [`PRODUCT_MVP_V0.2_PLAN.md`](PRODUCT_MVP_V0.2_PLAN.md)，当前任务板是 [`tasks/README.md`](tasks/README.md)。
+
+**状态：** 已完成 / 被 Product MVP v0.2 计划取代
 **日期：** 2026-08-06
 
 ## 1. 本轮结论

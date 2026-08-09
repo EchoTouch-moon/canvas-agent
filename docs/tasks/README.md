@@ -1,39 +1,59 @@
 # Cross-computer task board
 
-The remote repository is the coordination point. The two implementers never exchange uncommitted folders.
+The remote repository is the coordination point. Implementers exchange reviewed commits, never uncommitted folders. The lead architect owns merge ordering and boundary review.
 
-## Status — 2026-08-06
+## Active milestone — Product MVP v0.2 closeout
 
-| Owner | Task | Branch | Status |
+DeepSeek is the primary implementer. Luna receives one consolidated visual task after backend and state contracts are stable.
+
+| Order | Owner | Packet | Branch | Status | Merge dependency |
+|---:|---|---|---|---|---|
+| 0 | Lead architect | PROPOSAL-027 Workspace Runtime | — | ✅ approved | — |
+| 0 | Lead architect | PROPOSAL-027A Workspace Command Contract | — | ✅ approved | — |
+| 0 | Lead architect | PROPOSAL-028 Local CLI Adapter v1 | — | ✅ approved | — |
+| 0 | Lead architect | PROPOSAL-028A ExecutionRequest v2 Context Bundle | — | ✅ approved | — |
+| 0 | Lead architect | PROPOSAL-028B Local Agent Runtime Discovery | — | ✅ approved | — |
+| 0 | Lead architect | PROPOSAL-028C Agent Readiness Command Contract | — | ✅ approved | — |
+| 0 | Lead architect | PROPOSAL-029 First Workspace Bootstrap Flow | — | ✅ approved | — |
+| 1 | DeepSeek V4 Flash | [DS-003 release reliability](deepseek/DS-003-release-reliability.md) | `agent/deepseek-ds-003-release-reliability` | APPROVED — start after planning commit | planning commit on `origin/main` |
+| 2 | DeepSeek V4 Flash | [DS-004 workspace runtime](deepseek/DS-004-workspace-runtime.md) | `agent/deepseek-ds-004-workspace-runtime` | BLOCKED | DS-003 merged + schema review |
+| 3 | DeepSeek V4 Flash | [DS-005 local CLI adapter](deepseek/DS-005-local-cli-adapter.md) | `agent/deepseek-ds-005-local-cli-adapter` | BLOCKED | DS-003 merged + argv/schema fixture review |
+| 4 | DeepSeek V4 Flash | [DS-006 Live client state/onboarding](deepseek/DS-006-live-client-state.md) | `agent/deepseek-ds-006-live-client-state` | BLOCKED | DS-004 + DS-005 merged |
+| 5 | GPT-5.6 Luna | [UI-003 Live-first product shell](luna/UI-003-live-first-product-shell.md) | `agent/luna-ui-003-live-first-shell` | BLOCKED | DS-006 merged |
+| 6 | DeepSeek V4 Flash | [DS-007 RC gates](deepseek/DS-007-release-candidate-gates.md) | `agent/deepseek-ds-007-product-mvp-rc` | BLOCKED | all implementation packets merged |
+
+DS-005A Worker work may begin beside DS-004 after DS-003. DS-005's Main/command integration and final merge wait for DS-004, then DS-006 begins from both merged contracts. DS-006 and UI-003 are strictly sequential because they divide functional state/forms from final visual ownership.
+
+## Current release gates
+
+```text
+DS-003 → DS-004
+DS-003 → DS-005A
+DS-004 + DS-005A → DS-005 final
+DS-004 + DS-005 final → DS-006 → UI-003 → DS-007 → architect RC decision
+```
+
+No Checkpoint/Resume, Canvas or second Agent adapter packet may start during this milestone without a new scope decision.
+
+## Completed foundation
+
+| Owner | Task | Branch | Integrated |
 |---|---|---|---|
-| DeepSeek V4 Flash | DS-001 persistence foundation | `agent/deepseek-ds-001-persistence` | ✅ reviewed, merged into `main` (`50d4c1f`) |
-| DeepSeek V4 Flash | DS-002 isolated Worker runtime | `agent/deepseek-ds-002-worker-runtime` | ✅ reviewed, merged into `main` (`2bf86e8`) |
-| GPT-5.6 Luna | UI-001 UI foundation | `agent/luna-ui-001-foundation` | ✅ reviewed, merged into `main` (`c54e15c`) |
-| GPT-5.6 Luna | UI-002 core flow prototype | `agent/luna-ui-002-core-flow` | ✅ reviewed, merged into `main` (`79ad0a5`) |
+| DeepSeek V4 Flash | DS-001 persistence foundation | `agent/deepseek-ds-001-persistence` | ✅ `50d4c1f` |
+| DeepSeek V4 Flash | DS-002 isolated Worker runtime | `agent/deepseek-ds-002-worker-runtime` | ✅ `2bf86e8` |
+| GPT-5.6 Luna | UI-001 UI foundation | `agent/luna-ui-001-foundation` | ✅ `c54e15c` |
+| GPT-5.6 Luna | UI-002 core flow prototype | `agent/luna-ui-002-core-flow` | ✅ `79ad0a5` |
 
-Wave 1 and Wave 2 are complete and fully integrated. All four cross-computer tasks
-(DS-001, DS-002, UI-001, UI-002) are merged into `main`. Future work is tracked in
-`docs/product/scope-register.md` (deferred Canvas, multi-worker, collaboration).
+Phase 1–4 integration work is already in `main`; `docs/PROGRESS.md` records the engineering-loop baseline.
 
-Wave 1 and Wave 2 are no longer gated on each other: the DeepSeek side is fully
-integrated, so Luna may branch UI-001 from current `main` and run UI-001 → UI-002
-sequentially.
+## Start protocol
 
-## Wave 1 — start in parallel from the foundation commit
-
-| Owner | Task | Branch | Exclusive file ownership |
-|---|---|---|---|
-| DeepSeek V4 Flash | DS-001 persistence foundation | `agent/deepseek-ds-001-persistence` | `packages/persistence/**` |
-| GPT-5.6 Luna | UI-001 UI foundation | `agent/luna-ui-001-foundation` | `apps/desktop/src/renderer/**` |
-
-Neither task may edit `packages/domain`, `packages/contracts`, Electron main/preload or architecture ADRs. A required contract change is reported, not implemented.
-
-## Wave 2 — start after Wave 1 is reviewed and merged
-
-| Owner | Task | Branch | Exclusive file ownership |
-|---|---|---|---|
-| DeepSeek V4 Flash | DS-002 isolated Worker runtime | `agent/deepseek-ds-002-worker-runtime` | `packages/worker-runtime/**` |
-| GPT-5.6 Luna | UI-002 core flow prototype | `agent/luna-ui-002-core-flow` | `apps/desktop/src/renderer/**` |
+1. Pull reviewed `main`; confirm a clean tree.
+2. Read `AGENTS.md`, the master plan, required proposals and the assigned packet.
+3. Create the packet's exact branch.
+4. Before a public contract/security/database deviation, stop and submit a short proposal.
+5. Run packet-specific checks and `pnpm check` before handoff.
+6. Push the branch and request architecture review; do not merge another computer's branch locally.
 
 ## Handoff contract
 
@@ -45,6 +65,7 @@ Every implementer returns:
 4. exact commands run and results;
 5. acceptance-criterion evidence;
 6. unresolved questions and risks;
-7. explicit disclosure of any scope deviation.
+7. explicit disclosure of any scope deviation;
+8. confirmation that files outside the task whitelist were not modified.
 
-Do not merge branches locally across computers. Push the branch and request an architecture review.
+The lead architect, not the implementer, changes task status to merged or declares the milestone complete.

@@ -1,51 +1,96 @@
-# Task Plan: Canvas Agent 首版核心闭环与开发基线
+# Canvas Agent — Product MVP v0.2 收口计划
 
 ## Goal
-从现有设计资料中收敛首版核心闭环，搭建可运行、可验证、可协作的工程基线，并形成 GPT-5.6 Luna 与 DeepSeek V4 Flash 可直接领取的任务包；初始化 Git 并在具备远端地址与权限时完成推送。
 
-## Scope Classification
-- 核心功能：项目资料审计、MVP 核心闭环、工程骨架、质量门禁、协作规范、首批任务分配、Git 初始化与远端发布。
-- 增强功能：只记录候选，不在本轮实现。
-- 未来方向：只保留在路线图或 backlog。
-- 灵感仓库：不进入当前开发排期。
+把已经跑通的工程核心闭环收口为可交付的产品 MVP：用户无需环境变量即可选择本地 Git 仓库，在默认 Live 工作区中创建并执行任务，至少通过一个真实本地 Agent CLI 产出变更，完成验收、采纳、候选 Baseline 创建与显式激活，并且打包后的 macOS 应用能冷启动完成同一条主链路。
 
-## Phases
-- [x] Phase 1: 审计全部设计资料、视觉参考和当前环境
-- [x] Phase 2: 决定首版核心闭环、技术栈与系统边界
-- [x] Phase 3: 搭建可运行开发框架、工程约束与质量门禁
-- [x] Phase 4: 编写 Luna/DeepSeek 分工与可执行工单
-- [ ] Phase 5: 验证、初始化 Git、提交并推送远端
-- [ ] Phase 6: 完成交付文档与复核
+详细执行基线：`docs/PRODUCT_MVP_V0.2_PLAN.md`
 
-## Key Questions
-1. 用户第一次完成的最短价值闭环是什么？
-2. 哪些能力是首版必需，哪些必须延期？
-3. 视觉基线如何转化为可复用设计 token 与组件约束？
-4. 两个模型如何按“视觉/无视觉”边界分工并减少文件冲突？
-5. 当前是否已有可用远端地址、GitHub 凭据和仓库创建权限？
+## Scope decision
 
-## Decisions Made
-- 使用现有 `canvas_agent_design_baseline_v1.1` 作为唯一产品事实源；新增想法先分类，不自动进入实现。
-- GPT-5.6 Luna 负责视觉资料审计；DeepSeek V4 Flash 当前不可调用，改为输出仓库内可直接执行的任务包。
-- 首版只实现可追溯闭环：`Project/Node/Edge → Baseline → Task/TaskSpecVersion/AcceptanceCriterion → ContextSnapshot → Run/ExecutionRequest → 单 Worker 隔离 worktree → Diff/Test/Artifact 评审 → Baseline Draft → 用户激活`。
-- 技术基线为 pnpm TypeScript workspace、Electron + electron-vite + React、Zod、SQLite/Drizzle、内容寻址 Blob 目录与 Git。
-- Renderer 无 Node 权限；Main 持有特权适配器；未来 Worker 进入 Utility Process，外部 CLI 禁用 shell 字符串调用。
-- Wave 1 允许 Luna 与 DeepSeek 并行且文件独占；Wave 2 必须在第一波合并后开始。
+- **Core**：确定性时钟、打包迁移资源、真实仓库选择与运行时切换、真实 Agent CLI、Live-first UI、发布候选质量门。
+- **Enhancement**：大文件拆分、前端包体优化、开发者诊断面板、第二个 Agent Provider。
+- **Future direction**：Checkpoint/Resume、Canvas/Graph、多 Provider 编排、远程协作。
+- **Idea repository**：自治多 Agent 团队、云端执行、插件市场。
 
-## Errors Encountered
-- `create_goal` 返回已有 active goal：沿用现有目标，不重复创建。
-- 当前目录不是 Git 仓库：在完成资料审计与骨架搭建后初始化。
-- `pnpm create @quick-start/electron` 首次停在交互式包名确认并退出，未生成文件：改用 PTY 完成交互。
-- Electron 脚手架不会递归创建父目录，因缺少 `apps/` 返回 ENOENT：先创建父目录后重试。
-- shadcn CLI 的 Rhea 参数是 `--preset rhea`，不是 `base-rhea`：组件底层通过 `--base base` 单独指定。
-- Electron 项目不是标准 Vite 根目录，shadcn CLI 无法自动识别：按官方 manual installation 配置 `components.json`、Tailwind v4 与依赖。
-- pnpm 11 移除了 `onlyBuiltDependencies` 并用 `allowBuilds`：显式允许 Electron/esbuild，拒绝当前不需要的 electron-winstaller 构建脚本。
-- pnpm 配置变化后无 TTY 不允许自动重建 `node_modules`：在验证安装时使用 `CI=true` 进行确定性重建。
-- pnpm 11 会在脚本前自动校验并尝试重装依赖，且继承本机失效镜像：设置 `verifyDepsBeforeRun: false`，团队统一显式运行 frozen install。
-- pnpm 11 默认会联网复核整个 lockfile 的发布时间：保留 `minimumReleaseAge: 1440`，并对经审查提交的 frozen lockfile 设置 `trustLockfile: true`，避免离线/CI 重复联网。
-- GitHub CLI 当前账号 `EchoTouch-moon` 的凭据失效；本地仓库与首个提交不受影响，但创建/推送远端需要重新登录。
-- Playwright CLI 不在本机缓存，网络额度又无法下载；内置浏览器同时禁止本地端口与 `file://`，因此运行时视觉截图未执行，不能标记为已通过。
-- 工作区策略把 `/Users/v/Documents/V/.git` 设为只读；`git init -b main` 的权限申请因当前额度上限被拒绝，不能绕过。源代码和验证产物已完成，但 Git 初始化/提交/推送仍待执行。
+## Architecture decisions required before implementation
 
-## Status
-**Currently in Phase 5** - Node 24 下的 frozen install 与完整质量门禁已通过；真实浏览器视觉复核受运行环境限制，Git 初始化受 `.git` 写权限限制，远端发布还需要有效 GitHub 身份。
+1. Workspace Runtime Manager 与单活动仓库生命周期。
+2. 工作区路径信任边界、持久化与仓库隔离的 SQLite 目录策略。
+3. Provider-agnostic Local CLI Adapter v1 的进程、超时、取消、输出和错误契约。
+4. ExecutionRequest v2 必须携带由 FROZEN Snapshot 物化、逐项和整体哈希绑定的 Context Bundle。
+5. Agent 可执行文件由 Main 自动探测或原生选择器选择；Renderer 不提交路径，应用不保存凭据。
+6. Fixture 模式只允许在测试或显式开发开关中启用。
+
+## Execution waves
+
+### Wave 0 — 首席架构师冻结接口
+
+- [x] 写并接受 Workspace Runtime Proposal。
+- [x] 冻结 Workspace path-free Command/Zod 契约附录。
+- [x] 写并接受 Local CLI Adapter Proposal。
+- [x] 冻结 ExecutionRequest v2 Context Bundle 契约附录。
+- [x] 冻结打包态 Agent executable discovery / readiness 契约。
+- [x] 冻结 Workspace 与 Agent readiness 新增 Command 的意图、Zod shape 和错误语义；实现若需新增字段必须停下复审。
+- [x] 确认首个真实 CLI：本机 `codex-cli 0.146.0`，支持 `codex exec`/JSONL/output schema；具体 argv fixture 仍须评审。
+
+### Wave 1 — DeepSeek：P0 发布可靠性
+
+- [ ] DS-003：修复跨进程时钟不一致导致的 2 个单测失败。
+- [ ] DS-003：将 Drizzle migrations 纳入打包资源并使用 production-safe 路径解析。
+- [ ] DS-003：增加 packaged-app 冷启动 smoke 与 CI 质量门。
+
+退出条件：`pnpm check` 全绿；unpacked 应用在隔离 userData 下启动无 migration ENOENT。
+
+### Wave 2 — DeepSeek：真实工作区与真实 Agent
+
+- [ ] DS-004：实现 Main-owned 仓库选择、校验、最近工作区与 Workspace Runtime Manager。
+- [ ] DS-005A：实现 Provider-agnostic Local CLI Runner，不绑定具体品牌。
+- [ ] DS-005A：实现 ExecutionRequest v2 Context Bundle 的 Main 物化与 Worker 双重验证。
+- [ ] DS-005B：在 Codex argv/schema fixture 评审后实现真实 Provider 绑定和端到端用例。
+
+退出条件：不设置 `CANVAS_AGENT_REPO` 也能选择仓库；真实 CLI 能在隔离 worktree 中完成一次任务并返回结构化结果。
+
+### Wave 3 — DeepSeek 先接数据，Luna 后做视觉
+
+- [ ] DS-006：完成 renderer 非视觉 client/state、loading/empty/error/disabled/read-only 状态与测试。
+- [ ] DS-006：用既有命令完成无 seed 的 Project/charter/初始 DRAFT Baseline/显式激活/Task/TaskSpec 功能表单与断点续做。
+- [ ] UI-003：Luna 只负责 Live-first 壳层、工作区入口、文案、主题与视觉验收。
+
+退出条件：生产构建默认 Live；Fixture 不出现在普通用户主界面；主链路不依赖内部 ID 或 schema 命令名才能操作。
+
+### Wave 4 — DeepSeek：RC 收口
+
+- [ ] DS-007：补齐 real CLI、重启恢复、采纳、Baseline 激活、packaged smoke 的自动化门。
+- [ ] 同步 README、PROGRESS、运行手册和发布清单。
+- [ ] 明确签名/公证是 RC 阻断项还是后续分发项。
+
+退出条件：产品 MVP 验收矩阵全绿，且没有 P0/P1 未关闭项。
+
+## Ownership strategy
+
+- **DeepSeek 主力（约 80–85%）**：可靠性、Main 运行时、Worker/CLI、非视觉 renderer 状态层、自动化与文档。
+- **Luna 精简（约 15–20%）**：仅在后端契约冻结并合并后，完成一个整合视觉工单。
+- **首席架构师**：实体/状态/公共契约、Main/Preload 安全边界、ADR 与最终门禁；不把未经评审的契约设计下放。
+- DeepSeek 跨越原所有权边界，只能依据本计划列出的具体工单与文件白名单执行。
+
+## Current verified baseline — 2026-08-09
+
+- Git：`main` 与 `origin/main` 同步，HEAD `26ef285`，工作树干净。
+- 工程闭环：Task → Run → Acceptance → Apply → Revision → Candidate Baseline → Activate 已实现。
+- 检查：format、lint、typecheck、build、production audit 通过。
+- 单测：244/246，通过率不足；失败根因是 Main 固定时钟与 Worker 真实时钟不一致。
+- Electron live E2E：通过，包括重启恢复和采纳闭环。
+- 打包：unpacked app 可生成，但 migration 路径错误导致冷启动失败。
+- 产品缺口：默认 Fixture、仓库依赖环境变量、Worker 固定 FixtureAgentAdapter。
+
+## Blockers
+
+| Blocker | Owner | Resolution |
+|---|---|---|
+| 首个真实 Agent CLI 尚未指定 | 首席架构师 + 用户环境事实 | 只做通用 Runner；通过本机只读探测或用户明确选择冻结首个绑定 |
+| macOS 签名行为会等待本机钥匙串 | 首席架构师 | 本地 smoke 使用禁用签名的隔离构建；分发签名另立发布决策 |
+
+## Completion rule
+
+只有用户可从打包应用完成“选择仓库 → 创建任务 → 真实 Agent 执行 → 验收 → 采纳 → 新 Baseline 激活”，并且对应自动化门全部通过，Product MVP v0.2 才算完成。

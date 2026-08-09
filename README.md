@@ -2,7 +2,7 @@
 
 Canvas Agent is a local-first project control system for developers who build software with AI coding agents. It keeps project facts, task specifications, frozen execution context, code revisions and execution evidence traceable across repeated agent runs.
 
-The first product loop is deliberately narrow:
+The first engineering loop is deliberately narrow:
 
 ```text
 Project facts → Baseline → Task → ContextSnapshot → Run
@@ -13,14 +13,11 @@ The design source of truth is [`canvas_agent_design_baseline_v1.1/00_README.md`]
 
 ## Development status
 
-The repository contains the architectural kernel and collaboration foundation for the MVP:
+The engineering core loop is implemented end to end: SQLite project state, immutable execution contracts, an isolated Utility Process Worker, durable Run/Artifact evidence, explicit acceptance and Task completion, recoverable Git adoption, candidate Baseline creation and explicit activation.
 
-- Electron + React + TypeScript desktop shell;
-- framework-independent domain states and invariant checks;
-- versioned runtime contracts for IPC and `ExecutionRequest`;
-- Base UI + shadcn/ui Rhea-compatible UI foundation;
-- reserved persistence and Worker package boundaries;
-- model-specific task packets for two developers working on separate computers.
+The current milestone is **Product MVP v0.2 closeout**. Remaining blockers are packaged migration resources, product-level repository selection, first-workspace Project/Baseline/Task onboarding, an immutable ExecutionRequest v2 Context Bundle, a real local Agent CLI adapter, Live-first UI and release-candidate automation. See [`docs/PRODUCT_MVP_V0.2_PLAN.md`](docs/PRODUCT_MVP_V0.2_PLAN.md) and [`docs/tasks/README.md`](docs/tasks/README.md).
+
+Until DS-004 lands, the existing Live development workspace still uses `CANVAS_AGENT_REPO`. Until DS-005 lands, execution still uses the deterministic Fixture adapter. These are known product gaps, not completed capabilities.
 
 ## Prerequisites
 
@@ -31,7 +28,7 @@ The repository contains the architectural kernel and collaboration foundation fo
 ## Start
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 pnpm dev
 ```
 
@@ -47,8 +44,8 @@ pnpm check
 apps/desktop                 Electron main, preload and React renderer
 packages/domain              Framework-free domain language and invariants
 packages/contracts           Runtime-validated IPC and Worker contracts
-packages/persistence         SQLite adapter boundary (DeepSeek task)
-packages/worker-runtime      Isolated worker boundary (DeepSeek task)
+packages/persistence         SQLite project-state implementation
+packages/worker-runtime      Isolated Worker and Agent adapter boundary
 docs/architecture            Accepted implementation decisions
 docs/tasks                   Cross-computer execution packets
 canvas_agent_design_baseline_v1.1
