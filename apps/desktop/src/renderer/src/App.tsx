@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { CoreFlowWorkspace } from '@/components/app/core-flow-workspace'
-import { LiveWorkspaceView } from '@/components/app/live-workspace-view'
+import { ProductOnboarding } from '@/components/app/product-onboarding'
 import { useRuntimeInfo } from '@/hooks/use-runtime-info'
 import { useI18n } from '@/lib/i18n'
 
@@ -9,7 +9,11 @@ type AppMode = 'live' | 'fixture'
 function App(): React.JSX.Element {
   const runtimeInfo = useRuntimeInfo()
   const { locale } = useI18n()
-  const [mode, setMode] = useState<AppMode>('fixture')
+  const [mode, setMode] = useState<AppMode>('live')
+  const fixtureEnabled =
+    import.meta.env.DEV && import.meta.env.VITE_CANVAS_AGENT_ENABLE_FIXTURE === 'true'
+
+  if (!fixtureEnabled) return <ProductOnboarding />
 
   return (
     <div className="relative">
@@ -38,7 +42,7 @@ function App(): React.JSX.Element {
         </button>
       </div>
       {mode === 'live' ? (
-        <LiveWorkspaceView />
+        <ProductOnboarding />
       ) : (
         <CoreFlowWorkspace key={locale} runtimeInfo={runtimeInfo} />
       )}

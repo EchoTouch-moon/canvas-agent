@@ -233,6 +233,7 @@ function ComposerSection({
 function RepositorySection({
   input,
   busy,
+  disabled,
   preview,
   selectedPaths,
   onInputChange,
@@ -242,6 +243,7 @@ function RepositorySection({
 }: {
   readonly input: string
   readonly busy: boolean
+  readonly disabled: boolean
   readonly preview: ResolvedContextItem | null
   readonly selectedPaths: readonly string[]
   readonly onInputChange: (value: string) => void
@@ -265,6 +267,7 @@ function RepositorySection({
             aria-label="Repository file path"
             placeholder="e.g. src/foo.ts"
             value={input}
+            disabled={disabled}
             onChange={(event) => onInputChange(event.target.value)}
             className="h-7 pl-7 text-[11px]"
           />
@@ -272,7 +275,7 @@ function RepositorySection({
         <Button
           size="sm"
           variant="outline"
-          disabled={busy || input.trim().length === 0}
+          disabled={disabled || busy || input.trim().length === 0}
           onClick={onResolve}
         >
           {busy ? (
@@ -297,7 +300,7 @@ function RepositorySection({
             <Button
               size="sm"
               variant="secondary"
-              disabled={selectedPaths.includes(repositoryPathOf(preview))}
+              disabled={disabled || selectedPaths.includes(repositoryPathOf(preview))}
               onClick={() => onAdd(repositoryPathOf(preview))}
             >
               <Plus className="size-3.5" aria-hidden="true" />
@@ -509,11 +512,13 @@ function RunsHistorySection({
 function AcceptanceSection({
   workspace,
   runId,
-  runOutcome
+  runOutcome,
+  disabled
 }: {
   readonly workspace: UseWorkspaceResult
   readonly runId: string | null
   readonly runOutcome: string | null
+  readonly disabled: boolean
 }): React.JSX.Element {
   const view = workspace.workspace
   const [runBinding, setRunBinding] = useState<{
@@ -586,6 +591,7 @@ function AcceptanceSection({
 
   const handleSubmit = useCallback(async (): Promise<void> => {
     setError(null)
+    if (disabled) return
     if (projectId === null || taskId === null || taskSpecVersionId === null || runId === null)
       return
     if (criteria.length === 0) return
@@ -613,10 +619,11 @@ function AcceptanceSection({
     } finally {
       setBusy(false)
     }
-  }, [workspace, projectId, taskId, taskSpecVersionId, runId, criteria, verdicts, notes])
+  }, [disabled, workspace, projectId, taskId, taskSpecVersionId, runId, criteria, verdicts, notes])
 
   const handleComplete = useCallback(async (): Promise<void> => {
     setError(null)
+    if (disabled) return
     if (taskId === null || latest === undefined) return
     setCompleteBusy(true)
     try {
@@ -627,7 +634,7 @@ function AcceptanceSection({
     } finally {
       setCompleteBusy(false)
     }
-  }, [workspace, taskId, latest])
+  }, [disabled, workspace, taskId, latest])
 
   return (
     <Section
@@ -672,6 +679,7 @@ function AcceptanceSection({
                     <div className="flex shrink-0 gap-1">
                       <button
                         type="button"
+                        disabled={disabled}
                         onClick={() =>
                           setVerdicts((current) => ({ ...current, [criterion.id]: 'PASSED' }))
                         }
@@ -685,6 +693,7 @@ function AcceptanceSection({
                       </button>
                       <button
                         type="button"
+                        disabled={disabled}
                         onClick={() =>
                           setVerdicts((current) => ({ ...current, [criterion.id]: 'FAILED' }))
                         }
@@ -702,6 +711,7 @@ function AcceptanceSection({
                     aria-label={`Note for ${criterion.description}`}
                     placeholder="note (optional)"
                     value={notes[criterion.id] ?? ''}
+                    disabled={disabled}
                     onChange={(event) =>
                       setNotes((current) => ({ ...current, [criterion.id]: event.target.value }))
                     }
@@ -716,7 +726,7 @@ function AcceptanceSection({
             <Button
               size="sm"
               variant="secondary"
-              disabled={busy}
+              disabled={disabled || busy}
               onClick={() => void handleSubmit()}
             >
               {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
@@ -724,7 +734,7 @@ function AcceptanceSection({
             </Button>
             <Button
               size="sm"
-              disabled={!latestPassed || completeBusy}
+              disabled={disabled || !latestPassed || completeBusy}
               onClick={() => void handleComplete()}
             >
               <CheckCircle2 className="size-3.5" aria-hidden="true" />
@@ -762,10 +772,12 @@ function AcceptanceSection({
 
 function AdoptionSection({
   workspace,
-  runId
+  runId,
+  disabled
 }: {
   readonly workspace: UseWorkspaceResult
   readonly runId: string | null
+  readonly disabled: boolean
 }): React.JSX.Element {
   const view = workspace.workspace
   const [taskId, setTaskId] = useState<string | null>(null)
@@ -830,6 +842,7 @@ function AdoptionSection({
 
   const handleApply = useCallback(async (): Promise<void> => {
     setError(null)
+    if (disabled) return
     // P1-4: a retry / reconcile uses the application's own stored binding, so
     // AUTHORIZED / APPLYING / INTERRUPTED states are recoverable from the UI.
     if (application !== null) {
@@ -860,10 +873,11 @@ function AdoptionSection({
     } finally {
       setBusy(false)
     }
-  }, [workspace, taskId, evaluationId, artifactId, application])
+  }, [disabled, workspace, taskId, evaluationId, artifactId, application])
 
   const handleCreateCandidate = useCallback(async (): Promise<void> => {
     setError(null)
+    if (disabled) return
     if (application === null || candidateName.trim().length === 0) return
     setBusy(true)
     try {
@@ -879,10 +893,11 @@ function AdoptionSection({
     } finally {
       setBusy(false)
     }
-  }, [workspace, application, candidateName])
+  }, [disabled, workspace, application, candidateName])
 
   const handleActivate = useCallback(async (): Promise<void> => {
     setError(null)
+    if (disabled) return
     if (candidate === null) return
     setBusy(true)
     try {
@@ -893,7 +908,7 @@ function AdoptionSection({
     } finally {
       setBusy(false)
     }
-  }, [workspace, candidate])
+  }, [disabled, workspace, candidate])
 
   const applied = application?.effectiveStatus === 'APPLIED'
   const activeBaseline = view?.activeBaseline
@@ -944,7 +959,7 @@ function AdoptionSection({
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled={busy}
+                  disabled={disabled || busy}
                   onClick={() => void handleApply()}
                 >
                   {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
@@ -954,7 +969,13 @@ function AdoptionSection({
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled={!taskCompleted || artifactId === null || busy || application !== null}
+                  disabled={
+                    disabled ||
+                    !taskCompleted ||
+                    artifactId === null ||
+                    busy ||
+                    application !== null
+                  }
                   onClick={() => void handleApply()}
                 >
                   {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
@@ -966,10 +987,15 @@ function AdoptionSection({
                   <Input
                     aria-label="Candidate baseline name"
                     value={candidateName}
+                    disabled={disabled}
                     onChange={(event) => setCandidateName(event.target.value)}
                     className="h-7 w-40 text-[11px]"
                   />
-                  <Button size="sm" disabled={busy} onClick={() => void handleCreateCandidate()}>
+                  <Button
+                    size="sm"
+                    disabled={disabled || busy}
+                    onClick={() => void handleCreateCandidate()}
+                  >
                     Create baseline candidate
                   </Button>
                 </div>
@@ -977,7 +1003,7 @@ function AdoptionSection({
               {candidate !== null ? (
                 <Button
                   size="sm"
-                  disabled={busy || candidate.baseline.id === activeBaseline?.id}
+                  disabled={disabled || busy || candidate.baseline.id === activeBaseline?.id}
                   onClick={() => void handleActivate()}
                 >
                   Activate baseline
@@ -1022,15 +1048,18 @@ function FreezeSection({
   selectedIds,
   selectedRepoPaths,
   frozen,
+  disabled,
   onFreeze
 }: {
   readonly workspace: UseWorkspaceResult
   readonly selectedIds: readonly string[]
   readonly selectedRepoPaths: readonly string[]
   readonly frozen: FrozenSnapshotView | null
+  readonly disabled: boolean
   readonly onFreeze: () => void
 }): React.JSX.Element {
   const canFreeze =
+    !disabled &&
     workspace.workspace !== null &&
     (selectedIds.length > 0 || selectedRepoPaths.length > 0) &&
     frozen === null
@@ -1151,8 +1180,19 @@ function EvidenceSection({ run }: { readonly run: RunState }): React.JSX.Element
   )
 }
 
-export function LiveWorkspaceView(): React.JSX.Element {
-  const workspace = useWorkspace()
+export interface LiveWorkspaceContentProps {
+  readonly workspace: UseWorkspaceResult
+  readonly executionAvailable?: boolean
+  readonly executionUnavailableReason?: string | null
+  readonly mutationsAvailable?: boolean
+}
+
+export function LiveWorkspaceContent({
+  workspace,
+  executionAvailable = true,
+  executionUnavailableReason = null,
+  mutationsAvailable = true
+}: LiveWorkspaceContentProps): React.JSX.Element {
   const view = workspace.workspace
   const candidates = useMemo(() => (view ? buildContextCandidates(view) : []), [view])
   const [selectedIds, setSelectedIds] = useState<readonly string[]>([])
@@ -1172,6 +1212,10 @@ export function LiveWorkspaceView(): React.JSX.Element {
 
   const handleResolveRepo = useCallback(async (): Promise<void> => {
     setActionError(null)
+    if (!executionAvailable) {
+      setActionError(executionUnavailableReason ?? 'Execution is unavailable for this workspace.')
+      return
+    }
     const path = repoPathInput.trim()
     if (path.length === 0 || view === null) return
     const spec = view.taskSpecs[0]
@@ -1196,7 +1240,7 @@ export function LiveWorkspaceView(): React.JSX.Element {
     } finally {
       setRepoBusy(false)
     }
-  }, [view, repoPathInput, workspace])
+  }, [executionAvailable, executionUnavailableReason, view, repoPathInput, workspace])
 
   const addRepoSelection = useCallback((path: string): void => {
     setSelectedRepoPaths((current) => (current.includes(path) ? current : [...current, path]))
@@ -1208,6 +1252,10 @@ export function LiveWorkspaceView(): React.JSX.Element {
 
   const handleFreeze = useCallback(async (): Promise<void> => {
     setActionError(null)
+    if (!executionAvailable) {
+      setActionError(executionUnavailableReason ?? 'Execution is unavailable for this workspace.')
+      return
+    }
     if (view === null) return
     const spec = view.taskSpecs[0]
     if (!spec) {
@@ -1244,10 +1292,22 @@ export function LiveWorkspaceView(): React.JSX.Element {
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Freeze failed')
     }
-  }, [view, candidates, selectedIds, selectedRepoPaths, workspace])
+  }, [
+    executionAvailable,
+    executionUnavailableReason,
+    view,
+    candidates,
+    selectedIds,
+    selectedRepoPaths,
+    workspace
+  ])
 
   const handleDispatch = useCallback(async (): Promise<void> => {
     setActionError(null)
+    if (!executionAvailable) {
+      setActionError(executionUnavailableReason ?? 'Execution is unavailable for this workspace.')
+      return
+    }
     if (frozen === null) return
     const executionRequestId = crypto.randomUUID()
     setRun({ executionRequestId, status: 'PENDING' })
@@ -1269,7 +1329,7 @@ export function LiveWorkspaceView(): React.JSX.Element {
         error: error instanceof Error ? error.message : 'Dispatch failed'
       })
     }
-  }, [frozen, workspace])
+  }, [executionAvailable, executionUnavailableReason, frozen, workspace])
 
   const handleCancel = useCallback(async (): Promise<void> => {
     if (run === null || run.status !== 'PENDING') return
@@ -1305,6 +1365,7 @@ export function LiveWorkspaceView(): React.JSX.Element {
           <RepositorySection
             input={repoPathInput}
             busy={repoBusy}
+            disabled={!executionAvailable}
             preview={repoPreview}
             selectedPaths={selectedRepoPaths}
             onInputChange={setRepoPathInput}
@@ -1319,6 +1380,7 @@ export function LiveWorkspaceView(): React.JSX.Element {
             selectedIds={selectedIds}
             selectedRepoPaths={selectedRepoPaths}
             frozen={frozen}
+            disabled={!executionAvailable}
             onFreeze={() => void handleFreeze()}
           />
           <Section
@@ -1346,7 +1408,7 @@ export function LiveWorkspaceView(): React.JSX.Element {
                 ) : null}
                 <Button
                   size="sm"
-                  disabled={frozen === null || run?.status === 'PENDING'}
+                  disabled={!executionAvailable || frozen === null || run?.status === 'PENDING'}
                   onClick={() => void handleDispatch()}
                 >
                   {run?.status === 'PENDING' ? (
@@ -1374,11 +1436,21 @@ export function LiveWorkspaceView(): React.JSX.Element {
         workspace={workspace}
         runId={run?.runId ?? null}
         runOutcome={run?.result?.outcome ?? null}
+        disabled={!mutationsAvailable}
       />
 
-      <AdoptionSection workspace={workspace} runId={run?.runId ?? null} />
+      <AdoptionSection
+        workspace={workspace}
+        runId={run?.runId ?? null}
+        disabled={!mutationsAvailable}
+      />
 
       <RunsHistorySection workspace={workspace} />
     </div>
   )
+}
+
+export function LiveWorkspaceView(): React.JSX.Element {
+  const workspace = useWorkspace()
+  return <LiveWorkspaceContent workspace={workspace} />
 }

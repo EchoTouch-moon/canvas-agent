@@ -164,6 +164,16 @@ export interface WorkspaceClient {
   ): Promise<CommandOutput<C>>
 }
 
+export interface WorkspaceLifecycleClient {
+  getWorkspaceStatus(): Promise<CommandOutput<'workspace.status'>>
+  chooseRepository(): Promise<CommandOutput<'workspace.chooseRepository'>>
+  reopenLast(): Promise<CommandOutput<'workspace.reopenLast'>>
+  closeWorkspace(): Promise<CommandOutput<'workspace.close'>>
+  getAgentStatus(): Promise<CommandOutput<'agent.status'>>
+  chooseAgentExecutable(): Promise<CommandOutput<'agent.chooseExecutable'>>
+  clearAgentExecutable(): Promise<CommandOutput<'agent.clearExecutable'>>
+}
+
 export function createWorkspaceClient(
   transport: CommandTransport = windowTransport()
 ): WorkspaceClient {
@@ -217,5 +227,19 @@ export function createWorkspaceClient(
       }
       return rawResponse.data as CommandOutput<C>
     }
+  }
+}
+
+export function createWorkspaceLifecycleClient(
+  client: WorkspaceClient = createWorkspaceClient()
+): WorkspaceLifecycleClient {
+  return {
+    getWorkspaceStatus: () => client.command('workspace.status', {}),
+    chooseRepository: () => client.command('workspace.chooseRepository', {}),
+    reopenLast: () => client.command('workspace.reopenLast', {}),
+    closeWorkspace: () => client.command('workspace.close', {}),
+    getAgentStatus: () => client.command('agent.status', {}),
+    chooseAgentExecutable: () => client.command('agent.chooseExecutable', {}),
+    clearAgentExecutable: () => client.command('agent.clearExecutable', {})
   }
 }
