@@ -37,7 +37,11 @@ export async function removeWorktree(options: RemoveWorktreeOptions): Promise<bo
 }
 
 export async function exportWorktreePatch(options: { worktreePath: string } & GitRunOptions): Promise<string> {
-  await runGitCommand(['add', '-A'], options)
+  // The worker stages the worktree once and validates the staged diff before
+  // calling this; a failed diff must not be silently turned into an empty patch.
   const diff = await runGitCommand(['diff', '--cached', 'HEAD'], options)
-  return diff.exitCode === 0 ? diff.stdout : ''
+  if (diff.exitCode !== 0) {
+    throw new Error(`Failed to export the staged patch: ${diff.stderr.trim() || diff.stdout.trim()}`)
+  }
+  return diff.stdout
 }

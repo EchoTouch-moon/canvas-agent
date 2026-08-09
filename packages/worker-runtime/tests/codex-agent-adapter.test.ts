@@ -8,6 +8,7 @@ import type { ExecutionContextBundleV2, ExecutionContextItemV2 } from '@canvas-a
 import {
   AGENT_AUTH_REQUIRED,
   AGENT_EXECUTABLE_NOT_FOUND,
+  AGENT_INTERPRETER_MISSING,
   AGENT_OUTPUT_INVALID,
   AGENT_OUTPUT_LIMIT_EXCEEDED,
   AGENT_PROCESS_FAILED,
@@ -357,5 +358,86 @@ out({type:'turn.completed',usage:{input_tokens:1,cached_input_tokens:0,cache_wri
     await expect(
       adapter(script, runtime).run(makeContext(cwd, runtime, { contextBundle: undefined }))
     ).rejects.toMatchObject({ code: AGENT_OUTPUT_INVALID })
+  })
+
+  it('a slow version probe is cut by the shared hard deadline (AGENT_TIMED_OUT)', async () => {
+    const script = await makeScript(
+      `if (process.argv[2] === '--version') { setTimeout(()=>{ process.stdout.write('codex-cli 0.146.0\\n'); process.exit(0) }, 900) }`
+    )
+    clean.push(dirname(script))
+    const runtime = await mkdtemp(join(tmpdir(), 'ca-ca-runtime-'))
+    clean.push(runtime)
+    const cwd = await mkdtemp(join(tmpdir(), 'ca-ca-worktree-'))
+    clean.push(cwd)
+    const started = Date.now()
+
+    await expect(
+      adapter(script, runtime).run(makeContext(cwd, runtime, { maxDurationMs: 150 }))
+    ).rejects.toMatchObject({ code: AGENT_TIMED_OUT })
+    expect(Date.now() - started).toBeLessThan(1200)
+  })
+
+  it('a cancellation during the version probe surfaces as CancelledError', async () => {
+    const script = await makeScript(
+      `if (process.argv[2] === '--version') { setTimeout(()=>{}, 60000) }`
+    )
+    clean.push(dirname(script))
+    const runtime = await mkdtemp(join(tmpdir(), 'ca-ca-runtime-'))
+    clean.push(runtime)
+    const cwd = await mkdtemp(join(tmpdir(), 'ca-ca-worktree-'))
+    clean.push(cwd)
+    const controller = new AbortController()
+
+    const promise = adapter(script, runtime).run(
+      makeContext(cwd, runtime, { signal: controller.signal, maxDurationMs: 60_000 })
+    )
+    setTimeout(() => controller.abort(), 150)
+    await expect(promise).rejects.toThrow(CancelledError)
+  })
+
+  it('a non-zero version probe fails closed as AGENT_VERSION_UNSUPPORTED', async () => {
+    const script = await makeScript(
+      `if (process.argv[2] === '--version') { process.stderr.write('boom\\n'); process.exit(3) }`
+    )
+    clean.push(dirname(script))
+    const runtime = await mkdtemp(join(tmpdir(), 'ca-ca-runtime-'))
+    clean.push(runtime)
+    const cwd = await mkdtemp(join(tmpdir(), 'ca-ca-worktree-'))
+    clean.push(cwd)
+
+    await expect(adapter(script, runtime).run(makeContext(cwd, runtime))).rejects.toMatchObject({
+      code: AGENT_VERSION_UNSUPPORTED
+    })
+  })
+
+  it('a truncated version probe fails closed as AGENT_OUTPUT_LIMIT_EXCEEDED', async () => {
+    const script = await makeScript(
+      `if (process.argv[2] === '--version') { process.stdout.write('x'.repeat(1024 * 1024)); process.exit(0) }`
+    )
+    clean.push(dirname(script))
+    const runtime = await mkdtemp(join(tmpdir(), 'ca-ca-runtime-'))
+    clean.push(runtime)
+    const cwd = await mkdtemp(join(tmpdir(), 'ca-ca-worktree-'))
+    clean.push(cwd)
+
+    await expect(adapter(script, runtime).run(makeContext(cwd, runtime))).rejects.toMatchObject({
+      code: AGENT_OUTPUT_LIMIT_EXCEEDED
+    })
+  })
+
+  it('an existing executable with a missing shebang interpreter maps to AGENT_INTERPRETER_MISSING', async () => {
+    const bin = await mkdtemp(join(tmpdir(), 'ca-ca-interp-'))
+    clean.push(bin)
+    const file = join(bin, 'codex')
+    await writeFile(file, '#!/nonexistent/interpreter\nconsole.log(1)\n', 'utf8')
+    await chmod(file, 0o755)
+    const runtime = await mkdtemp(join(tmpdir(), 'ca-ca-runtime-'))
+    clean.push(runtime)
+    const cwd = await mkdtemp(join(tmpdir(), 'ca-ca-worktree-'))
+    clean.push(cwd)
+
+    await expect(adapter(file, runtime).run(makeContext(cwd, runtime))).rejects.toMatchObject({
+      code: AGENT_INTERPRETER_MISSING
+    })
   })
 })

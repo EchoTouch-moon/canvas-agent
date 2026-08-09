@@ -91,7 +91,8 @@ export class LocalCliError extends WorkerError {
   override readonly name: string = 'LocalCliError'
   constructor(
     readonly code: string,
-    message: string
+    message: string,
+    readonly transport?: unknown
   ) {
     super(message)
   }

@@ -1,6 +1,6 @@
 # DS-005B verification packet — Concrete Codex CLI adapter binding
 
-- **Status:** VERIFIED — branch `agent/deepseek-ds-005-local-cli-adapter`; pending final architecture merge review (PR #9)
+- **Status:** VERIFIED (rev 4, addressing the blocking contract review) — branch `agent/deepseek-ds-005-local-cli-adapter`; pending final architecture merge review (PR #9)
 - **Date:** 2026-08-09
 - **Basis:** PROPOSAL-028/028A/028B/028C, DS-005 ticket (DS-005B items), the approved Codex argv/schema fixture review, and the LEAD conditional-approval revisions (streaming budget, private launch plan, host lifecycle, v2 requirement, prompt order, stable-code separation, frozen order)
 - **Branches:** base `main@7c83999` → `agent/deepseek-ds-005-local-cli-adapter`
@@ -14,6 +14,17 @@ All commands ran under Node 24 (`.nvmrc`/`.node-version` pin `24.14.0`):
 node --version
 v24.15.0
 ```
+
+## Blocking review (rev 4) — fixes
+
+| Review item | Fix | Evidence |
+|---|---|---|
+| P1 stable adapter codes discarded | the Worker persists `LocalCliError.code` verbatim as `rejectionReason` (never provider prose); cancellation records `AGENT_CANCELLED`; `AGENT_TIMED_OUT` sets `timedOut: true`; the bounded message stays only in diagnostic evidence | worker tests: non-zero exit → `AGENT_PROCESS_FAILED`, unsupported version → `AGENT_VERSION_UNSUPPORTED`, cancel → `AGENT_CANCELLED`, timeout → `AGENT_TIMED_OUT` + `timedOut: true` |
+| P1 version probe escapes the hard deadline | one monotonic deadline spans version probe, schema preparation and `codex exec`; the probe receives the AbortSignal and the remaining budget and fails closed on cancelled / timed out / truncated / non-zero / exit-127 results | adapter tests: slow probe cut to `AGENT_TIMED_OUT` within a bound, cancel during probe → `CancelledError`, non-zero probe → `AGENT_VERSION_UNSUPPORTED`, truncated probe → `AGENT_OUTPUT_LIMIT_EXCEEDED` |
+| P1 ENOENT conflates launcher and interpreter | on spawn ENOENT the adapter checks whether the launcher still exists and is executable: existing+executable → `AGENT_INTERPRETER_MISSING`, absent → `AGENT_EXECUTABLE_NOT_FOUND` | adapter test: existing executable with a missing shebang → `AGENT_INTERPRETER_MISSING` |
+| P1 failed staging can become SUCCEEDED | `git add -A` exit is checked; `exportWorktreePatch` no longer re-stages or swallows a diff failure; an unstageable worktree entry that yields an empty staged diff while the agent claimed changes → `PARTIAL` ("agent claimed changes but produced an empty patch") — never an empty success | worker test: a FIFO left by the agent → `PARTIAL`, empty patch, `AGENT_PARTIAL` evidence |
+| P1 failure transport evidence dropped | the bounded transport is carried on every typed `LocalCliError` (auth / process / output-invalid / timeout / truncation / cancel) and the Worker persists it into `AGENT_PARTIAL/partial-evidence.json` (no raw stdout/stderr/prompt) | worker test: auth failure → partial-evidence contains `transport['transport.json']` with `stderrClass: 'auth'` and no `stderr` key |
+| P1 READY gate collapses the taxonomy | the Main gate maps NOT_FOUND / UNSUPPORTED_VERSION / AUTH_REQUIRED / INTERPRETER_MISSING / ERROR to their approved `AGENT_*` codes | command-core test: AUTH_REQUIRED agent → `HostUnavailableError` message contains `AGENT_AUTH_REQUIRED` |
 
 ## DS-005B item → evidence
 
@@ -69,19 +80,19 @@ a real failure result. (command-core route + a Main gate guard in the flow.)
 packages/domain          5   (unchanged)
 packages/contracts      56   (unchanged)
 packages/persistence    68   (unchanged)
-packages/worker-runtime 79   (+27 schema/adapter/provider/guard/runner)
-apps/desktop           189   (+10 fake-codex/coordinator/worker-service/host/protocol)
+packages/worker-runtime 89   (+37 schema/adapter/provider/guard/runner/probe/interpreter/transport)
+apps/desktop           190   (+11 fake-codex/coordinator/worker-service/host/protocol/gate)
 -----------------------
-total                  397   (baseline 367)
+total                  408   (baseline 367)
 ```
 
 ## Commands run (all under Node 24)
 
 ```text
 pnpm --filter @canvas-agent/worker-runtime typecheck   PASS
-pnpm --filter @canvas-agent/worker-runtime test       79 passed
-pnpm --filter @canvas-agent/desktop test             189 passed
-pnpm check                                            all green (397)
+pnpm --filter @canvas-agent/worker-runtime test       89 passed
+pnpm --filter @canvas-agent/desktop test             190 passed
+pnpm check                                            all green (408)
 pnpm --filter @canvas-agent/desktop e2e:live          ALL PASSED (real adapter, fake codex)
 pnpm --filter @canvas-agent/desktop e2e:workspace     ALL PASSED
 pnpm --filter @canvas-agent/desktop build:unpack:unsigned  PASS

@@ -6,11 +6,14 @@ import type { ClaimStore } from './claim'
 import { createInMemoryClaimStore } from './claim'
 import type { AgentAdapter, AgentArtifact } from './agent-adapter'
 import {
+  AGENT_CANCELLED,
   AGENT_EXECUTABLE_NOT_FOUND,
   AGENT_POLICY_REJECTED,
+  AGENT_TIMED_OUT,
   BudgetExceededError,
   CancelledError,
   EXECUTION_CONTEXT_REQUIRED,
+  LocalCliError,
   RevisionMismatchError
 } from './errors'
 import { runCommand } from './process-runner'
@@ -237,8 +240,20 @@ export function createWorker(config: WorkerConfig): Worker {
       partial.agentSummary = agentResult.text
       partial.agentArtifacts = agentResult.artifacts
     } catch (error) {
-      if (error instanceof CancelledError || signal.aborted) {
+      if (error instanceof LocalCliError) {
+        // Preserve the stable adapter code in rejectionReason; keep only the
+        // bounded message as diagnostic evidence and carry bounded transport on
+        // failure so AGENT_PARTIAL retains the failure diagnostics.
+        outcome = error.code === AGENT_CANCELLED ? 'CANCELLED' : 'PARTIAL'
+        reason = error.code
+        if (error.transport !== undefined) {
+          partial.agentArtifacts = [
+            { fileName: 'transport.json', content: JSON.stringify(error.transport, null, 2) }
+          ]
+        }
+      } else if (error instanceof CancelledError || signal.aborted) {
         outcome = 'CANCELLED'
+        reason = AGENT_CANCELLED
       } else if (error instanceof BudgetExceededError) {
         outcome = 'PARTIAL'
         reason = error.message
@@ -270,10 +285,20 @@ export function createWorker(config: WorkerConfig): Worker {
       }
     }
 
+    let stagingFailed = false
     if (outcome !== 'CANCELLED' && !repositoryStateViolation) {
+      const stage = await runGitCommand(['add', '-A'], gitOptions(worktreePath, signal))
+      if (stage.exitCode !== 0) {
+        stagingFailed = true
+        outcome = 'PARTIAL'
+        reason = 'git add failed'
+      }
+    }
+    const skipPostAgent = repositoryStateViolation || stagingFailed
+
+    if (outcome !== 'CANCELLED' && !skipPostAgent) {
       // Worker-owned universal integrity check after staging the isolated patch
       // (non-closeable; injected verificationCommands only append below).
-      await runGitCommand(['add', '-A'], gitOptions(worktreePath, signal))
       const check = await runGitCommand(['diff', '--cached', '--check'], gitOptions(worktreePath, signal))
       partial.verificationResults.push({
         argv: ['git', 'diff', '--cached', '--check'],
@@ -335,11 +360,20 @@ export function createWorker(config: WorkerConfig): Worker {
 
     let patch: string | undefined
     let patchHash: string | undefined
-    if (outcome !== 'CANCELLED' && !repositoryStateViolation) {
+    if (outcome !== 'CANCELLED' && !skipPostAgent) {
       try {
         patch = await exportWorktreePatch({ ...gitOptions(worktreePath, signal), worktreePath })
-        patchHash = patch.length > 0 ? sha256Hex(patch) : undefined
+        if (patch.length > 0) {
+          patchHash = sha256Hex(patch)
+        }
         partial.patch = patch
+        // An unstageable worktree entry (e.g. a FIFO) makes `git add` silently
+        // skip it, leaving an empty staged diff. If the agent claimed changes
+        // but git could not stage anything, never report an empty success.
+        if (patch.length === 0 && summaryClaimsChanges(partial.agentSummary)) {
+          outcome = 'PARTIAL'
+          reason = 'agent claimed changes but produced an empty patch'
+        }
       } catch (error) {
         outcome = 'PARTIAL'
         reason = `patch export failed: ${describe(error)}`
@@ -396,7 +430,7 @@ export function createWorker(config: WorkerConfig): Worker {
     }
     if (reason !== undefined) {
       result.rejectionReason = reason
-      if (reason === 'verification command timed out') {
+      if (reason === 'verification command timed out' || reason === AGENT_TIMED_OUT) {
         result.timedOut = true
       }
     }
@@ -519,6 +553,18 @@ function describe(error: unknown): string {
     return error.message
   }
   return String(error)
+}
+
+function summaryClaimsChanges(text: string | undefined): boolean {
+  if (text === undefined) {
+    return false
+  }
+  try {
+    const parsed = JSON.parse(text) as { changes?: readonly unknown[] }
+    return Array.isArray(parsed.changes) && parsed.changes.length > 0
+  } catch {
+    return false
+  }
 }
 
 async function verifyWorktreeRepositoryState(

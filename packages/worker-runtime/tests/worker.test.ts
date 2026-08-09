@@ -29,7 +29,8 @@ async function runtimeDir(): Promise<string> {
 
 function buildV2Request(
   repo: TempRepo,
-  agentConfiguration: { provider: string; model: string } = { provider: 'fixture', model: 'deterministic' }
+  agentConfiguration: { provider: string; model: string } = { provider: 'fixture', model: 'deterministic' },
+  resourceBudget?: { maxDurationMs: number; maxToolCalls: number; maxDiskBytes: number }
 ): ExecutionRequestContractV2 {
   const sha = (content: string): string =>
     createHash('sha256').update(content, 'utf8').digest('hex')
@@ -47,6 +48,7 @@ function buildV2Request(
   const base = {
     ...requestForRepo(repo),
     agentConfiguration,
+    resourceBudget: resourceBudget ?? { maxDurationMs: 30_000, maxToolCalls: 20, maxDiskBytes: 1_000_000_000 },
     schemaVersion: 2 as const,
     contextBundle: {
       items: [instruction],
@@ -521,6 +523,187 @@ out({type:'turn.completed',usage:{input_tokens:1,cached_input_tokens:0,cache_wri
     expect(result.outcome).toBe('PARTIAL')
     expect(result.rejectionReason).toContain('AGENT_REPOSITORY_STATE_VIOLATION')
     expect(result.patch).toBeUndefined()
+    expect(result.artifacts?.some((a) => a.kind === 'AGENT_PARTIAL')).toBe(true)
+  })
+
+  it('persists the stable adapter code as rejectionReason (not provider prose)', async () => {
+    const repo = await createTempGitRepo()
+    const runtime = await runtimeDir()
+    const script = await makeCodexScript(
+      `if (process.argv[2] === '--version') { process.stdout.write('codex-cli 0.146.0\\n'); process.exit(0) }
+const out=(o)=>process.stdout.write(JSON.stringify(o)+'\\n')
+out({type:'thread.started',thread_id:'thr_1'})
+out({type:'turn.started'})
+out({type:'item.completed',item:{id:'item_1',type:'agent_message',text:'{"summary":"x","changes":[],"tool_calls_observed":0,"tests_run":[],"success":false}'}})
+process.exit(1)`
+    )
+    const worker = createWorker({
+      runtimeDirectory: runtime,
+      sourceRepositoryPath: repo.dir,
+      capabilities: ['git', 'node'],
+      commandAllowlist: TEST_ALLOWLIST,
+      verificationCommands: [],
+      codexAdapter: createCodexAgentAdapter({
+        executable: script,
+        environment: { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: tmpdir() },
+        runtimeDirectory: runtime
+      })
+    })
+
+    const result = await worker.dispatch({
+      request: buildV2Request(repo, { provider: 'codex-cli', model: 'configured-by-user' })
+    })
+    expect(result.outcome).toBe('PARTIAL')
+    expect(result.rejectionReason).toBe('AGENT_PROCESS_FAILED')
+  })
+
+  it('persists AGENT_VERSION_UNSUPPORTED from the dispatch-time version probe', async () => {
+    const repo = await createTempGitRepo()
+    const runtime = await runtimeDir()
+    const script = await makeCodexScript(
+      `if (process.argv[2] === '--version') { process.stdout.write('codex-cli 0.147.0\\n'); process.exit(0) }`
+    )
+    const worker = createWorker({
+      runtimeDirectory: runtime,
+      sourceRepositoryPath: repo.dir,
+      capabilities: ['git', 'node'],
+      commandAllowlist: TEST_ALLOWLIST,
+      verificationCommands: [],
+      codexAdapter: createCodexAgentAdapter({
+        executable: script,
+        environment: { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: tmpdir() },
+        runtimeDirectory: runtime
+      })
+    })
+
+    const result = await worker.dispatch({
+      request: buildV2Request(repo, { provider: 'codex-cli', model: 'configured-by-user' })
+    })
+    expect(result.outcome).toBe('PARTIAL')
+    expect(result.rejectionReason).toBe('AGENT_VERSION_UNSUPPORTED')
+  })
+
+  it('records AGENT_CANCELLED and timedOut correctly for timeout / cancellation', async () => {
+    const repo = await createTempGitRepo()
+    const runtime = await runtimeDir()
+    const script = await makeCodexScript(
+      `if (process.argv[2] === '--version') { process.stdout.write('codex-cli 0.146.0\\n'); process.exit(0) }
+setTimeout(()=>{},60000)`
+    )
+    const adapter = createCodexAgentAdapter({
+      executable: script,
+      environment: { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: tmpdir() },
+      runtimeDirectory: runtime
+    })
+
+    const timeoutWorker = createWorker({
+      runtimeDirectory: runtime,
+      sourceRepositoryPath: repo.dir,
+      capabilities: ['git', 'node'],
+      commandAllowlist: TEST_ALLOWLIST,
+      verificationCommands: [],
+      codexAdapter: adapter
+    })
+    const timedOut = await timeoutWorker.dispatch({
+      request: buildV2Request(
+        repo,
+        { provider: 'codex-cli', model: 'configured-by-user' },
+        { maxDurationMs: 300, maxToolCalls: 5, maxDiskBytes: 100_000_000 }
+      )
+    })
+    expect(timedOut.outcome).toBe('PARTIAL')
+    expect(timedOut.rejectionReason).toBe('AGENT_TIMED_OUT')
+    expect(timedOut.timedOut).toBe(true)
+
+    const cancelWorker = createWorker({
+      runtimeDirectory: runtime,
+      sourceRepositoryPath: repo.dir,
+      capabilities: ['git', 'node'],
+      commandAllowlist: TEST_ALLOWLIST,
+      verificationCommands: [],
+      codexAdapter: adapter
+    })
+    const controller = new AbortController()
+    const cancelRequest = buildV2Request(repo, { provider: 'codex-cli', model: 'configured-by-user' })
+    const cancelPromise = cancelWorker.dispatch({
+      request: cancelRequest,
+      signal: controller.signal
+    })
+    setTimeout(() => controller.abort(), 150)
+    const cancelled = await cancelPromise
+    expect(cancelled.outcome).toBe('CANCELLED')
+    expect(cancelled.rejectionReason).toBe('AGENT_CANCELLED')
+    expect(cancelled.timedOut).not.toBe(true)
+  })
+
+  it('carries bounded transport diagnostics into AGENT_PARTIAL on failure', async () => {
+    const repo = await createTempGitRepo()
+    const runtime = await runtimeDir()
+    const script = await makeCodexScript(
+      `if (process.argv[2] === '--version') { process.stdout.write('codex-cli 0.146.0\\n'); process.exit(0) }
+process.stderr.write('not logged in: run codex login\\n'); process.exit(1)`
+    )
+    const worker = createWorker({
+      runtimeDirectory: runtime,
+      sourceRepositoryPath: repo.dir,
+      capabilities: ['git', 'node'],
+      commandAllowlist: TEST_ALLOWLIST,
+      verificationCommands: [],
+      codexAdapter: createCodexAgentAdapter({
+        executable: script,
+        environment: { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: tmpdir() },
+        runtimeDirectory: runtime
+      })
+    })
+
+    const result = await worker.dispatch({
+      request: buildV2Request(repo, { provider: 'codex-cli', model: 'configured-by-user' })
+    })
+    expect(result.outcome).toBe('PARTIAL')
+    expect(result.rejectionReason).toBe('AGENT_AUTH_REQUIRED')
+    const artifactDir = join(runtime, 'artifacts', (await readdir(join(runtime, 'artifacts')))[0] as string)
+    const evidence = JSON.parse(
+      await readFile(join(artifactDir, 'partial-evidence.json'), 'utf8')
+    ) as { transport?: Record<string, { stderrClass?: string; exitCode?: number | null }> }
+    const diagnostics = evidence.transport?.['transport.json']
+    expect(diagnostics).toBeDefined()
+    expect(diagnostics?.stderrClass).toBe('auth')
+    expect('stderr' in (diagnostics ?? {})).toBe(false)
+  })
+
+  it('a worktree entry that git cannot stage produces PARTIAL, never an empty success', async () => {
+    const repo = await createTempGitRepo()
+    const runtime = await runtimeDir()
+    const script = await makeCodexScript(
+      `if (process.argv[2] === '--version') { process.stdout.write('codex-cli 0.146.0\\n'); process.exit(0) }
+const path=require('node:path');const{execSync}=require('node:child_process')
+const cdIdx=process.argv.indexOf('--cd');const cwd=process.argv[cdIdx+1]
+execSync('mkfifo ' + path.join(cwd,'pipe.fifo'))
+const out=(o)=>process.stdout.write(JSON.stringify(o)+'\\n')
+out({type:'thread.started',thread_id:'thr_1'})
+out({type:'turn.started'})
+out({type:'item.completed',item:{id:'item_1',type:'agent_message',text:'{"summary":"done","changes":[{"file":"pipe.fifo","change_type":"created","description":"x"}],"tool_calls_observed":0,"tests_run":[],"success":true}'}})
+out({type:'turn.completed',usage:{input_tokens:1,cached_input_tokens:0,cache_write_input_tokens:0,output_tokens:1,reasoning_output_tokens:0}})`
+    )
+    const worker = createWorker({
+      runtimeDirectory: runtime,
+      sourceRepositoryPath: repo.dir,
+      capabilities: ['git', 'node'],
+      commandAllowlist: TEST_ALLOWLIST,
+      verificationCommands: [],
+      codexAdapter: createCodexAgentAdapter({
+        executable: script,
+        environment: { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: tmpdir() },
+        runtimeDirectory: runtime
+      })
+    })
+
+    const result = await worker.dispatch({
+      request: buildV2Request(repo, { provider: 'codex-cli', model: 'configured-by-user' })
+    })
+    expect(result.outcome).toBe('PARTIAL')
+    expect(result.rejectionReason).toBe('agent claimed changes but produced an empty patch')
+    expect(result.patch).toBe('')
     expect(result.artifacts?.some((a) => a.kind === 'AGENT_PARTIAL')).toBe(true)
   })
 })

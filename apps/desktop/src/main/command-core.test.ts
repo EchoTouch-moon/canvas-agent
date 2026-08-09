@@ -36,8 +36,8 @@ async function makeManager(repoDir: string | null): Promise<WorkspaceRuntimeMana
   })
 }
 
-async function makeAgent(): Promise<AgentRuntimeLocator> {
-  const fakeCodex = await writeFakeCodex({ execBody: FAKE_CODEX_SUCCESS_EXEC })
+async function makeAgent(loginExit = 0): Promise<AgentRuntimeLocator> {
+  const fakeCodex = await writeFakeCodex({ execBody: FAKE_CODEX_SUCCESS_EXEC, loginExit })
   return new AgentRuntimeLocator({
     userData: '/tmp/ca-agent-test',
     homePath: '/tmp',
@@ -113,6 +113,24 @@ describe('CommandRouter (command-core)', () => {
       activeWorkspace: null,
       lastError: null
     })
+  })
+
+  it('the Agent READY gate maps a non-READY state to its stable code', async () => {
+    const repoDir = await createTempGitRepo()
+    const manager = await makeManager(repoDir)
+    await manager.openPath(repoDir)
+    const routes = buildRoutes({ manager, agent: await makeAgent(1) })
+
+    const dispatch = await handleCommand(
+      routes,
+      request('execution.dispatch', { executionRequestId: 'exec-1', contextSnapshotId: 'snap_1' })
+    )
+    expect(dispatch.ok).toBe(false)
+    if (!dispatch.ok) {
+      expect(dispatch.error.name).toBe('HostUnavailableError')
+      expect(dispatch.error.message).toContain('AGENT_AUTH_REQUIRED')
+    }
+    await manager.close()
   })
 
   it('workspace.chooseRepository cancel leaves the prior status unchanged with no lastError', async () => {

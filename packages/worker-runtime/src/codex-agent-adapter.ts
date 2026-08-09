@@ -1,10 +1,12 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { access, constants, mkdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { performance } from 'node:perf_hooks'
 import type { ExecutionContextItemV2 } from '@canvas-agent/contracts'
 import { isSupportedCodexVersion } from './codex-version'
 import { CODEX_FINAL_RESPONSE_SCHEMA_JSON, codexFinalResponseSchema } from './codex-output-schema'
 import {
   AGENT_AUTH_REQUIRED,
+  AGENT_CANCELLED,
   AGENT_EXECUTABLE_NOT_FOUND,
   AGENT_INTERPRETER_MISSING,
   AGENT_OUTPUT_INVALID,
@@ -27,7 +29,6 @@ export interface CodexAgentAdapterOptions {
   runtimeDirectory: string
 }
 
-const VERSION_PROBE_TIMEOUT_MS = 5_000
 const VERSION_PROBE_OUTPUT_BYTES = 16 * 1024
 
 const KNOWN_NON_TOOL_ITEM_TYPES = new Set(['agent_message', 'reasoning', 'todo_list', 'error'])
@@ -52,6 +53,8 @@ export interface CodexTransportDiagnostics {
   stderrClass: 'empty' | 'warning' | 'auth' | 'other'
 }
 
+type ParsedCodexEvents = ReturnType<typeof parseCodexEvents>
+
 function toStderrClass(stderr: string): CodexTransportDiagnostics['stderrClass'] {
   if (stderr.trim().length === 0) return 'empty'
   if (/not logged in|authentication required|api key|unauthorized|401/i.test(stderr)) return 'auth'
@@ -59,11 +62,22 @@ function toStderrClass(stderr: string): CodexTransportDiagnostics['stderrClass']
   return 'other'
 }
 
-function describeSpawnError(error: LocalCliSpawnError): LocalCliError {
+async function describeSpawnError(executable: string, error: LocalCliSpawnError): Promise<LocalCliError> {
   if (error.errno === 'ENOENT') {
-    return new LocalCliError(AGENT_EXECUTABLE_NOT_FOUND, `executable not found`)
+    // Distinguish an absent launcher from an existing, executable launcher whose
+    // shebang interpreter is missing (both surface as a spawn ENOENT).
+    try {
+      const info = await stat(executable)
+      await access(executable, constants.X_OK)
+      if (info.isFile()) {
+        return new LocalCliError(AGENT_INTERPRETER_MISSING, 'launcher interpreter missing')
+      }
+    } catch {
+      // launcher absent or not executable
+    }
+    return new LocalCliError(AGENT_EXECUTABLE_NOT_FOUND, 'executable not found')
   }
-  return new LocalCliError(AGENT_INTERPRETER_MISSING, `launcher interpreter missing`)
+  return new LocalCliError(AGENT_INTERPRETER_MISSING, 'launcher interpreter missing')
 }
 
 export function createCodexAgentAdapter(options: CodexAgentAdapterOptions): AgentAdapter {
@@ -74,17 +88,27 @@ export function createCodexAgentAdapter(options: CodexAgentAdapterOptions): Agen
         throw new LocalCliError(AGENT_OUTPUT_INVALID, 'codex adapter requires a v2 context bundle')
       }
 
+      // One monotonic deadline spans the version probe, schema preparation and
+      // `codex exec`; cancellation is threaded through the probe too.
+      const deadlineMs = performance.now() + context.maxDurationMs
+      const remainingMs = (): number => Math.max(0, deadlineMs - performance.now())
+
       const controller = new AbortController()
       let budgetExceeded = false
       if (context.signal !== undefined) {
         context.signal.addEventListener('abort', () => controller.abort(), { once: true })
       }
 
-      const version = await probeVersion(options)
-      const schemaPath = await writeSchemaFile(options, context.executionRequestId)
-
+      const version = await probeVersion(options, controller.signal, remainingMs())
       if (context.signal?.aborted) {
         throw new CancelledError()
+      }
+      if (remainingMs() <= 0) {
+        throw new LocalCliError(AGENT_TIMED_OUT, 'codex exceeded maxDurationMs before exec')
+      }
+      const schemaPath = await writeSchemaFile(options, context.executionRequestId)
+      if (remainingMs() <= 0) {
+        throw new LocalCliError(AGENT_TIMED_OUT, 'codex exceeded maxDurationMs before exec')
       }
 
       const toolIds = new Set<string>()
@@ -135,7 +159,7 @@ export function createCodexAgentAdapter(options: CodexAgentAdapterOptions): Agen
         ],
         cwd: context.cwd,
         stdin: prompt,
-        timeoutMs: context.maxDurationMs,
+        timeoutMs: remainingMs(),
         maxStdoutBytes: 4 * 1024 * 1024,
         maxStderrBytes: 1024 * 1024,
         environment: { PATH: options.environment.PATH, HOME: options.environment.HOME },
@@ -144,6 +168,27 @@ export function createCodexAgentAdapter(options: CodexAgentAdapterOptions): Agen
       })
 
       const stderrClass = toStderrClass(result.stderr)
+      const makeTransport = (events?: ParsedCodexEvents): CodexTransportDiagnostics => ({
+        version,
+        exitCode: result.exitCode,
+        signal: result.signal,
+        timedOut: result.timedOut,
+        cancelled: result.cancelled,
+        stdoutTruncated: result.stdoutTruncated,
+        stderrTruncated: result.stderrTruncated,
+        eventCounts: events
+          ? {
+              turnStarted: events.turnStarted,
+              turnCompleted: events.turnCompleted ? 1 : 0,
+              turnFailed: events.turnFailed !== null ? 1 : 0,
+              topLevelError: events.topLevelError !== null ? 1 : 0,
+              agentMessage: events.agentMessageCount
+            }
+          : { turnStarted: 0, turnCompleted: 0, turnFailed: 0, topLevelError: 0, agentMessage: 0 },
+        toolCallCount: events?.toolCallCount ?? streamToolCalls,
+        usage: events?.usage ?? null,
+        stderrClass
+      })
 
       if (budgetExceeded) {
         throw new BudgetExceededError('maxToolCalls', context.maxToolCalls)
@@ -152,35 +197,26 @@ export function createCodexAgentAdapter(options: CodexAgentAdapterOptions): Agen
         if (context.signal?.aborted) {
           throw new CancelledError()
         }
-        throw new LocalCliError(AGENT_TIMED_OUT, 'codex process cancelled without a worker abort')
+        throw new LocalCliError(AGENT_CANCELLED, 'codex process was cancelled', makeTransport())
       }
       if (result.timedOut) {
-        throw new LocalCliError(AGENT_TIMED_OUT, 'codex process exceeded maxDurationMs')
+        throw new LocalCliError(AGENT_TIMED_OUT, 'codex process exceeded maxDurationMs', makeTransport())
       }
       if (result.stdoutTruncated || result.stderrTruncated) {
-        throw new LocalCliError(AGENT_OUTPUT_LIMIT_EXCEEDED, 'codex output exceeded its limit')
+        throw new LocalCliError(
+          AGENT_OUTPUT_LIMIT_EXCEEDED,
+          'codex output exceeded its limit',
+          makeTransport()
+        )
       }
 
-      const events = parseCodexEvents(result.stdout)
-      const transport: CodexTransportDiagnostics = {
-        version,
-        exitCode: result.exitCode,
-        signal: result.signal,
-        timedOut: result.timedOut,
-        cancelled: result.cancelled,
-        stdoutTruncated: result.stdoutTruncated,
-        stderrTruncated: result.stderrTruncated,
-        eventCounts: {
-          turnStarted: events.turnStarted,
-          turnCompleted: events.turnCompleted ? 1 : 0,
-          turnFailed: events.turnFailed !== null ? 1 : 0,
-          topLevelError: events.topLevelError !== null ? 1 : 0,
-          agentMessage: events.agentMessageCount
-        },
-        toolCallCount: events.toolCallCount,
-        usage: events.usage,
-        stderrClass
+      let events: ParsedCodexEvents
+      try {
+        events = parseCodexEvents(result.stdout)
+      } catch {
+        throw new LocalCliError(AGENT_OUTPUT_INVALID, 'malformed JSONL in codex output', makeTransport())
       }
+      const transport = makeTransport(events)
 
       const succeeded =
         events.topLevelError === null &&
@@ -191,22 +227,22 @@ export function createCodexAgentAdapter(options: CodexAgentAdapterOptions): Agen
         // Auth is classified from a failed run; a successful run with an
         // auth-looking warning on stderr is not an auth failure.
         if (stderrClass === 'auth') {
-          throw new LocalCliError(AGENT_AUTH_REQUIRED, 'codex requires authentication')
+          throw new LocalCliError(AGENT_AUTH_REQUIRED, 'codex requires authentication', transport)
         }
-        throw new LocalCliError(AGENT_PROCESS_FAILED, 'codex turn did not complete successfully')
+        throw new LocalCliError(AGENT_PROCESS_FAILED, 'codex turn did not complete successfully', transport)
       }
       if (events.lastAgentMessage === null) {
-        throw new LocalCliError(AGENT_OUTPUT_INVALID, 'codex produced no final agent message')
+        throw new LocalCliError(AGENT_OUTPUT_INVALID, 'codex produced no final agent message', transport)
       }
 
       let final: ReturnType<typeof codexFinalResponseSchema.safeParse>
       try {
         final = codexFinalResponseSchema.safeParse(JSON.parse(events.lastAgentMessage))
       } catch {
-        throw new LocalCliOutputInvalidError('final agent message is not valid JSON')
+        throw new LocalCliError(AGENT_OUTPUT_INVALID, 'final agent message is not valid JSON', transport)
       }
       if (!final.success) {
-        throw new LocalCliOutputInvalidError('final agent message does not match the output schema')
+        throw new LocalCliError(AGENT_OUTPUT_INVALID, 'final agent message does not match the output schema', transport)
       }
 
       const artifacts: AgentArtifact[] = [
@@ -220,26 +256,46 @@ export function createCodexAgentAdapter(options: CodexAgentAdapterOptions): Agen
   }
 }
 
-async function probeVersion(options: CodexAgentAdapterOptions): Promise<string> {
+async function probeVersion(
+  options: CodexAgentAdapterOptions,
+  signal: AbortSignal,
+  remainingMs: number
+): Promise<string> {
   let result: LocalCliResult
   try {
     result = await runLocalCli({
       executable: options.executable,
       argv: ['--version'],
       cwd: dirname(options.executable),
-      timeoutMs: VERSION_PROBE_TIMEOUT_MS,
+      timeoutMs: Math.max(1, remainingMs),
       maxStdoutBytes: VERSION_PROBE_OUTPUT_BYTES,
       maxStderrBytes: VERSION_PROBE_OUTPUT_BYTES,
-      environment: { PATH: options.environment.PATH, HOME: options.environment.HOME }
+      environment: { PATH: options.environment.PATH, HOME: options.environment.HOME },
+      signal
     })
   } catch (error) {
     if (error instanceof LocalCliSpawnError) {
-      throw describeSpawnError(error)
+      throw await describeSpawnError(options.executable, error)
     }
     throw new LocalCliError(AGENT_EXECUTABLE_NOT_FOUND, 'codex version probe failed')
   }
+  if (result.cancelled) {
+    if (signal.aborted) {
+      throw new CancelledError()
+    }
+    throw new LocalCliError(AGENT_CANCELLED, 'codex version probe was cancelled')
+  }
   if (result.timedOut) {
     throw new LocalCliError(AGENT_TIMED_OUT, 'codex version probe timed out')
+  }
+  if (result.stdoutTruncated || result.stderrTruncated) {
+    throw new LocalCliError(AGENT_OUTPUT_LIMIT_EXCEEDED, 'codex version probe output exceeded its limit')
+  }
+  if (result.exitCode === 127) {
+    throw new LocalCliError(AGENT_INTERPRETER_MISSING, 'codex launcher interpreter missing')
+  }
+  if (result.exitCode !== 0) {
+    throw new LocalCliError(AGENT_VERSION_UNSUPPORTED, `codex version probe exited with ${result.exitCode}`)
   }
   const version = result.stdout.trim()
   if (!isSupportedCodexVersion(version)) {
