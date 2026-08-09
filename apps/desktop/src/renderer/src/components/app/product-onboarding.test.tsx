@@ -49,7 +49,11 @@ function lifecycle(
   }
 }
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  document.documentElement.classList.remove('dark')
+  window.localStorage.clear()
+})
 
 describe('ProductOnboarding API-fake interaction', () => {
   it('offers path-free choose and reopen actions from no-workspace', async () => {
@@ -61,10 +65,27 @@ describe('ProductOnboarding API-fake interaction', () => {
       />
     )
 
-    expect(await screen.findByText('Open a Git repository')).toBeTruthy()
+    expect(await screen.findByText('Open a repository to begin')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Choose repository' }))
     await waitFor(() => expect(client.chooseRepository).toHaveBeenCalledTimes(1))
     expect(screen.queryByText('Fixture flow')).toBeNull()
+  })
+
+  it('persists the explicit light and dark theme choice', async () => {
+    render(
+      <ProductOnboarding
+        workspaceClient={createFakeWorkspaceClient({ projects: [], states: [] })}
+        lifecycleClient={lifecycle(closed)}
+      />
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Switch to dark theme' }))
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    expect(window.localStorage.getItem('canvas-agent-theme')).toBe('dark')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to light theme' }))
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
+    expect(window.localStorage.getItem('canvas-agent-theme')).toBe('light')
   })
 
   it('hydrates the READY Project and keeps Run disabled until a snapshot is frozen', async () => {
@@ -75,12 +96,12 @@ describe('ProductOnboarding API-fake interaction', () => {
       />
     )
 
-    expect(await screen.findByText('Project hydration')).toBeTruthy()
+    expect(await screen.findByText('Workspace overview')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Dispatch execution' })).toHaveProperty(
       'disabled',
       true
     )
-    expect(screen.getByText('Agent READY')).toBeTruthy()
+    expect(screen.getByText('Agent ready')).toBeTruthy()
   })
 
   it('keeps Project inspection visible but blocks execution when Agent authentication is required', async () => {
@@ -99,8 +120,8 @@ describe('ProductOnboarding API-fake interaction', () => {
       />
     )
 
-    expect(await screen.findByRole('button', { name: 'Choose Agent CLI' })).toBeTruthy()
-    expect(await screen.findByText('Project hydration')).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'Configure Agent' })).toBeTruthy()
+    expect(await screen.findByText('Workspace overview')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Dispatch execution' })).toHaveProperty(
       'disabled',
       true
