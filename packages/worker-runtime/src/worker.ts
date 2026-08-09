@@ -61,7 +61,10 @@ export function createWorker(config: WorkerConfig): Worker {
 
     let request
     try {
-      request = validateExecutionRequest(options.request, { capabilities: config.capabilities })
+      request = validateExecutionRequest(options.request, {
+        capabilities: config.capabilities,
+        now: Date.parse(now())
+      })
     } catch (error) {
       return {
         outcome: 'VALIDATION_REJECTED',

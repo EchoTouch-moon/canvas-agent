@@ -1,5 +1,4 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
-import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { DESKTOP_CHANNELS, runtimeInfoSchema } from '@canvas-agent/contracts'
@@ -16,6 +15,7 @@ import { runWorkerSmoke } from './worker-smoke'
 import { runPhase3Smoke } from './phase3-smoke'
 import { registerCommandRouter } from './command-router'
 import { isTrustedSender } from './security'
+import { MigrationFolderNotFoundError, resolveMigrationFolder } from './migration-path'
 
 const allowedExternalOrigins = new Set(['https://deerflow.tech'])
 
@@ -23,14 +23,6 @@ const allowedExternalOrigins = new Set(['https://deerflow.tech'])
 // runs isolate the workspace database (fresh DB per run).
 if (process.env['CANVAS_AGENT_USER_DATA']) {
   app.setPath('userData', process.env['CANVAS_AGENT_USER_DATA'])
-}
-
-function resolveMigrationsFolder(): string {
-  const sourceDrizzle = join(app.getAppPath(), '..', '..', 'packages', 'persistence', 'drizzle')
-  if (existsSync(sourceDrizzle)) {
-    return sourceDrizzle
-  }
-  return join(app.getAppPath(), 'drizzle')
 }
 
 function registerRuntimeInfoHandler(): void {
@@ -115,10 +107,25 @@ app.whenReady().then(async () => {
     }
     if (configResult.config !== null) {
       appConfig = configResult.config
+      let migrationFolder: string
+      try {
+        migrationFolder = resolveMigrationFolder({
+          mode: app.isPackaged ? 'packaged' : 'source',
+          appPath: app.getAppPath(),
+          resourcesPath: process.resourcesPath
+        })
+      } catch (error) {
+        if (error instanceof MigrationFolderNotFoundError && app.isPackaged) {
+          console.error(`[workspace] FATAL: ${error.message}`)
+          app.exit(1)
+          return
+        }
+        throw error
+      }
       persistence = openWorkspaceDatabase(
         join(app.getPath('userData'), 'canvas-agent.db'),
         undefined,
-        resolveMigrationsFolder()
+        migrationFolder
       )
       workspace = new WorkspaceService(persistence, new GitRevisionReader(configResult.config))
       console.error(`[workspace] ready at ${configResult.config.sourceRepositoryPath}`)

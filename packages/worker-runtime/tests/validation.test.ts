@@ -78,4 +78,46 @@ describe('execution request validation gate', () => {
     expect(result.outcome).toBe('SUCCEEDED')
     expect(result.claimGranted).toBe(true)
   })
+
+  it('accepts a request that has not yet reached expiry when the logical clock is one millisecond before it', async () => {
+    const repo = await createTempGitRepo()
+    const runtimeDir = await mkdtemp(join(tmpdir(), 'ca-runtime-'))
+    const expiresAt = '2030-01-01T00:00:00.000Z'
+    const worker = createWorker({
+      runtimeDirectory: runtimeDir,
+      sourceRepositoryPath: repo.dir,
+      capabilities: ['git', 'node'],
+      commandAllowlist: TEST_ALLOWLIST,
+      verificationCommands: [],
+      now: () => '2029-12-31T23:59:59.999Z',
+      agent: new FixtureAgentAdapter({ steps: [], summary: 'no-op' })
+    })
+
+    const result = await worker.dispatch({ request: requestForRepo(repo, { expiresAt }) })
+
+    expect(result.outcome).toBe('SUCCEEDED')
+    expect(result.claimGranted).toBe(true)
+  })
+
+  it('rejects a request whose logical clock is exactly at expiresAt', async () => {
+    const repo = await createTempGitRepo()
+    const runtimeDir = await mkdtemp(join(tmpdir(), 'ca-runtime-'))
+    const expiresAt = '2030-01-01T00:00:00.000Z'
+    const worker = createWorker({
+      runtimeDirectory: runtimeDir,
+      sourceRepositoryPath: repo.dir,
+      capabilities: ['git', 'node'],
+      commandAllowlist: TEST_ALLOWLIST,
+      verificationCommands: [],
+      now: () => expiresAt,
+      agent: new FixtureAgentAdapter({ steps: [], summary: 'no-op' })
+    })
+
+    const result = await worker.dispatch({ request: requestForRepo(repo, { expiresAt }) })
+
+    expect(result.outcome).toBe('VALIDATION_REJECTED')
+    expect(result.claimGranted).toBe(false)
+    expect(result.rejectionReason).toContain('expired')
+    expect(await pathExists(join(runtimeDir, 'worktrees'))).toBe(false)
+  })
 })

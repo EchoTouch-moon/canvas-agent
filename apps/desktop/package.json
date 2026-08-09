@@ -16,8 +16,10 @@
     "dev": "electron-vite dev",
     "build": "pnpm typecheck && electron-vite build",
     "e2e:live": "electron-vite build && node e2e/live-workspace.e2e.cjs",
+    "e2e:packaged-smoke": "node e2e/packaged-smoke.e2e.cjs",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "pnpm build && electron-builder --dir",
+    "build:unpack:unsigned": "pnpm build && electron-builder --dir -c.mac.identity=null",
     "build:win": "pnpm build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux"

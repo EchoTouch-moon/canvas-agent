@@ -199,11 +199,15 @@ describe('ExecutionCoordinator', () => {
     await writeFile(join(repoDir, 'README.md'), '# test repository\nchanged after freeze\n')
     await git(repoDir, ['commit', '-am', 'post-freeze change'])
 
-    const worker = new InProcessWorkerHost({
-      sourceRepositoryPath: repoDir,
-      runtimeDirectory: runtimeDir
-    })
-    const coordinator = new ExecutionCoordinator(p, worker, runtimeDir, services())
+    const svc = services()
+    const worker = new InProcessWorkerHost(
+      {
+        sourceRepositoryPath: repoDir,
+        runtimeDirectory: runtimeDir
+      },
+      svc.now
+    )
+    const coordinator = new ExecutionCoordinator(p, worker, runtimeDir, svc)
 
     const result = await coordinator.dispatch({
       executionRequestId: 'exec-1',
@@ -221,11 +225,15 @@ describe('ExecutionCoordinator', () => {
     applyMigrations(p)
     const { snapshotId } = await frozenSetup(p, repoDir)
 
-    const worker = new InProcessWorkerHost({
-      sourceRepositoryPath: repoDir,
-      runtimeDirectory: runtimeDir
-    })
-    const coordinator = new ExecutionCoordinator(p, worker, runtimeDir, services())
+    const svc = services()
+    const worker = new InProcessWorkerHost(
+      {
+        sourceRepositoryPath: repoDir,
+        runtimeDirectory: runtimeDir
+      },
+      svc.now
+    )
+    const coordinator = new ExecutionCoordinator(p, worker, runtimeDir, svc)
 
     const result = await coordinator.dispatch({
       executionRequestId: 'exec-1',
