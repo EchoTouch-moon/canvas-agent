@@ -149,7 +149,8 @@ export function createWorker(config: WorkerConfig): Worker {
       if (signal.aborted) {
         return {
           outcome: 'CANCELLED',
-          claimGranted: true
+          claimGranted: true,
+          rejectionReason: AGENT_CANCELLED
         }
       }
       if (error instanceof RevisionMismatchError) {
@@ -188,7 +189,8 @@ export function createWorker(config: WorkerConfig): Worker {
         }
         return {
           outcome: 'CANCELLED',
-          claimGranted: true
+          claimGranted: true,
+          rejectionReason: AGENT_CANCELLED
         }
       }
       return {
@@ -222,6 +224,10 @@ export function createWorker(config: WorkerConfig): Worker {
     let agentSummary: string | undefined
     let outcome: DispatchOutcome = 'SUCCEEDED'
     let reason: string | undefined
+    const markCancelled = (): void => {
+      outcome = 'CANCELLED'
+      reason = AGENT_CANCELLED
+    }
 
     try {
       const agentResult = await adapter.run({
@@ -265,7 +271,7 @@ export function createWorker(config: WorkerConfig): Worker {
     }
 
     if (signal.aborted) {
-      outcome = 'CANCELLED'
+      markCancelled()
     }
 
     // Repository-state guard: the detached worktree must still point at the
@@ -318,7 +324,7 @@ export function createWorker(config: WorkerConfig): Worker {
 
       for (const argv of config.verificationCommands) {
         if (signal.aborted) {
-          outcome = 'CANCELLED'
+          markCancelled()
           break
         }
         const remaining = budget.maxDurationMs - (performance.now() - startedAt)
@@ -354,7 +360,7 @@ export function createWorker(config: WorkerConfig): Worker {
       }
 
       if (signal.aborted) {
-        outcome = 'CANCELLED'
+        markCancelled()
       }
     }
 
@@ -381,7 +387,7 @@ export function createWorker(config: WorkerConfig): Worker {
     }
 
     if (signal.aborted) {
-      outcome = 'CANCELLED'
+      markCancelled()
     }
 
     let cleanupSucceeded = false

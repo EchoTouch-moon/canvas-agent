@@ -1,6 +1,6 @@
 # DS-005B verification packet — Concrete Codex CLI adapter binding
 
-- **Status:** VERIFIED (rev 4, addressing the blocking contract review) — branch `agent/deepseek-ds-005-local-cli-adapter`; pending final architecture merge review (PR #9)
+- **Status:** VERIFIED (rev 5, addressing the blocking contract reviews) — branch `agent/deepseek-ds-005-local-cli-adapter`; pending final architecture merge review (PR #9)
 - **Date:** 2026-08-09
 - **Basis:** PROPOSAL-028/028A/028B/028C, DS-005 ticket (DS-005B items), the approved Codex argv/schema fixture review, and the LEAD conditional-approval revisions (streaming budget, private launch plan, host lifecycle, v2 requirement, prompt order, stable-code separation, frozen order)
 - **Branches:** base `main@7c83999` → `agent/deepseek-ds-005-local-cli-adapter`
@@ -25,6 +25,16 @@ v24.15.0
 | P1 failed staging can become SUCCEEDED | `git add -A` exit is checked; `exportWorktreePatch` no longer re-stages or swallows a diff failure; an unstageable worktree entry that yields an empty staged diff while the agent claimed changes → `PARTIAL` ("agent claimed changes but produced an empty patch") — never an empty success | worker test: a FIFO left by the agent → `PARTIAL`, empty patch, `AGENT_PARTIAL` evidence |
 | P1 failure transport evidence dropped | the bounded transport is carried on every typed `LocalCliError` (auth / process / output-invalid / timeout / truncation / cancel) and the Worker persists it into `AGENT_PARTIAL/partial-evidence.json` (no raw stdout/stderr/prompt) | worker test: auth failure → partial-evidence contains `transport['transport.json']` with `stderrClass: 'auth'` and no `stderr` key |
 | P1 READY gate collapses the taxonomy | the Main gate maps NOT_FOUND / UNSUPPORTED_VERSION / AUTH_REQUIRED / INTERPRETER_MISSING / ERROR to their approved `AGENT_*` codes | command-core test: AUTH_REQUIRED agent → `HostUnavailableError` message contains `AGENT_AUTH_REQUIRED` |
+
+## Blocking review (rev 5) — fixes
+
+| Review item | Fix | Evidence |
+|---|---|---|
+| P1 pre-aborted signal still starts Codex | the adapter checks `context.signal.aborted` before spawning anything (no probe on an already-aborted run) and returns `CancelledError` immediately | adapter test: pre-aborted signal → `CancelledError` in <500ms (no 1.5s probe / no `AGENT_TIMED_OUT`) |
+| P1 early cancellation has no stable reason | a single `markCancelled()` centralizes cancellation in the Worker: every `CANCELLED` DispatchResult carries `rejectionReason: AGENT_CANCELLED`, including the pre-claim revision/worktree returns and all later `signal.aborted` overrides (which now overwrite any prior reason) | worker test: pre-aborted dispatch → `CANCELLED` + `AGENT_CANCELLED`, no worktree created |
+| P1 `pnpm check` timing flake | the timeout test no longer assumes two Node processes start and write a PID file before a fixed timeout; it verifies only timeout classification + bounded return; descendant cleanup is covered by the deterministic "wait for PID then cancel" test | `local-cli-runner.test.ts` (timeout test de-flaked); full `pnpm check` green repeatedly |
+| P2 transport claim exceeds implementation | every typed `LocalCliError` now carries a bounded transport, including a probe-phase transport for version/interpreter/spawn failures | worker test: `AGENT_VERSION_UNSUPPORTED` → `partial-evidence.json` contains `transport['transport.json']` |
+| P2 READY-gate documentation stale | the Main Agent READY gate section now documents the concrete per-state mapping instead of a blanket `AGENT_NOT_READY` | verification §Main Agent READY gate |
 
 ## DS-005B item → evidence
 
@@ -57,10 +67,13 @@ v24.15.0
 ## Main Agent READY gate
 
 `execution.dispatch` runs inside `manager.withActiveRun` (mutually exclusive with
-`withConfigurationChange`) and checks the locator's status; non-READY → `AGENT_NOT_READY`
-(HostUnavailableError) before `createDispatchedRun` (no Run, no worker dispatch). If READY but
-the launcher is deleted / version drifts / auth expires later, the adapter re-probes and returns
-a real failure result. (command-core route + a Main gate guard in the flow.)
+`withConfigurationChange`) and checks the locator's status before `createDispatchedRun` (no Run,
+no worker dispatch). Non-READY maps to the approved stable taxonomy (HostUnavailableError with
+the `AGENT_*` code in the message): `NOT_FOUND → AGENT_EXECUTABLE_NOT_FOUND`,
+`UNSUPPORTED_VERSION → AGENT_VERSION_UNSUPPORTED`, `AUTH_REQUIRED → AGENT_AUTH_REQUIRED`,
+`INTERPRETER_MISSING → AGENT_INTERPRETER_MISSING`, `ERROR → AGENT_NOT_READY`. If READY but the
+launcher is deleted / version drifts / auth expires later, the adapter re-probes and returns a
+real failure result.
 
 ## E2E
 
@@ -80,19 +93,19 @@ a real failure result. (command-core route + a Main gate guard in the flow.)
 packages/domain          5   (unchanged)
 packages/contracts      56   (unchanged)
 packages/persistence    68   (unchanged)
-packages/worker-runtime 89   (+37 schema/adapter/provider/guard/runner/probe/interpreter/transport)
+packages/worker-runtime 90   (+38 schema/adapter/provider/guard/runner/probe/interpreter/transport/cancel)
 apps/desktop           190   (+11 fake-codex/coordinator/worker-service/host/protocol/gate)
 -----------------------
-total                  408   (baseline 367)
+total                  409   (baseline 367)
 ```
 
 ## Commands run (all under Node 24)
 
 ```text
 pnpm --filter @canvas-agent/worker-runtime typecheck   PASS
-pnpm --filter @canvas-agent/worker-runtime test       89 passed
+pnpm --filter @canvas-agent/worker-runtime test       90 passed
 pnpm --filter @canvas-agent/desktop test             190 passed
-pnpm check                                            all green (408)
+pnpm check                                            all green (409)
 pnpm --filter @canvas-agent/desktop e2e:live          ALL PASSED (real adapter, fake codex)
 pnpm --filter @canvas-agent/desktop e2e:workspace     ALL PASSED
 pnpm --filter @canvas-agent/desktop build:unpack:unsigned  PASS

@@ -557,7 +557,7 @@ process.exit(1)`
     expect(result.rejectionReason).toBe('AGENT_PROCESS_FAILED')
   })
 
-  it('persists AGENT_VERSION_UNSUPPORTED from the dispatch-time version probe', async () => {
+  it('persists AGENT_VERSION_UNSUPPORTED from the dispatch-time version probe with probe transport', async () => {
     const repo = await createTempGitRepo()
     const runtime = await runtimeDir()
     const script = await makeCodexScript(
@@ -581,6 +581,35 @@ process.exit(1)`
     })
     expect(result.outcome).toBe('PARTIAL')
     expect(result.rejectionReason).toBe('AGENT_VERSION_UNSUPPORTED')
+    const artifactDir = join(runtime, 'artifacts', (await readdir(join(runtime, 'artifacts')))[0] as string)
+    const evidence = JSON.parse(
+      await readFile(join(artifactDir, 'partial-evidence.json'), 'utf8')
+    ) as { transport?: Record<string, { version?: string | null; exitCode?: number | null }> }
+    expect(evidence.transport?.['transport.json']).toBeDefined()
+  })
+
+  it('a pre-aborted signal yields CANCELLED with AGENT_CANCELLED before any side effect', async () => {
+    const repo = await createTempGitRepo()
+    const runtime = await runtimeDir()
+    const worker = createWorker({
+      runtimeDirectory: runtime,
+      sourceRepositoryPath: repo.dir,
+      capabilities: ['git', 'node'],
+      commandAllowlist: TEST_ALLOWLIST,
+      verificationCommands: [],
+      agent: new FixtureAgentAdapter({ steps: [], summary: 'no-op' })
+    })
+    const controller = new AbortController()
+    controller.abort()
+
+    const result = await worker.dispatch({
+      request: requestForRepo(repo),
+      signal: controller.signal
+    })
+    expect(result.outcome).toBe('CANCELLED')
+    expect(result.claimGranted).toBe(true)
+    expect(result.rejectionReason).toBe('AGENT_CANCELLED')
+    expect(await pathExists(join(runtime, 'worktrees'))).toBe(false)
   })
 
   it('records AGENT_CANCELLED and timedOut correctly for timeout / cancellation', async () => {

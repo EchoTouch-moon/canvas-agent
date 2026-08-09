@@ -70,14 +70,18 @@ async function describeSpawnError(executable: string, error: LocalCliSpawnError)
       const info = await stat(executable)
       await access(executable, constants.X_OK)
       if (info.isFile()) {
-        return new LocalCliError(AGENT_INTERPRETER_MISSING, 'launcher interpreter missing')
+        return new LocalCliError(
+          AGENT_INTERPRETER_MISSING,
+          'launcher interpreter missing',
+          probeTransport(null)
+        )
       }
     } catch {
       // launcher absent or not executable
     }
-    return new LocalCliError(AGENT_EXECUTABLE_NOT_FOUND, 'executable not found')
+    return new LocalCliError(AGENT_EXECUTABLE_NOT_FOUND, 'executable not found', probeTransport(null))
   }
-  return new LocalCliError(AGENT_INTERPRETER_MISSING, 'launcher interpreter missing')
+  return new LocalCliError(AGENT_INTERPRETER_MISSING, 'launcher interpreter missing', probeTransport(null))
 }
 
 export function createCodexAgentAdapter(options: CodexAgentAdapterOptions): AgentAdapter {
@@ -85,7 +89,15 @@ export function createCodexAgentAdapter(options: CodexAgentAdapterOptions): Agen
     async run(context: AgentContext): Promise<AgentSummary> {
       const bundle = context.contextBundle
       if (bundle === undefined) {
-        throw new LocalCliError(AGENT_OUTPUT_INVALID, 'codex adapter requires a v2 context bundle')
+        throw new LocalCliError(
+          AGENT_OUTPUT_INVALID,
+          'codex adapter requires a v2 context bundle',
+          probeTransport(null)
+        )
+      }
+      // Pre-aborted signal: do not spawn anything, do not run the probe.
+      if (context.signal?.aborted) {
+        throw new CancelledError()
       }
 
       // One monotonic deadline spans the version probe, schema preparation and
@@ -277,31 +289,66 @@ async function probeVersion(
     if (error instanceof LocalCliSpawnError) {
       throw await describeSpawnError(options.executable, error)
     }
-    throw new LocalCliError(AGENT_EXECUTABLE_NOT_FOUND, 'codex version probe failed')
+    throw new LocalCliError(AGENT_EXECUTABLE_NOT_FOUND, 'codex version probe failed', probeTransport(null))
   }
   if (result.cancelled) {
     if (signal.aborted) {
       throw new CancelledError()
     }
-    throw new LocalCliError(AGENT_CANCELLED, 'codex version probe was cancelled')
+    throw new LocalCliError(AGENT_CANCELLED, 'codex version probe was cancelled', probeTransport(null, result))
   }
   if (result.timedOut) {
-    throw new LocalCliError(AGENT_TIMED_OUT, 'codex version probe timed out')
+    throw new LocalCliError(AGENT_TIMED_OUT, 'codex version probe timed out', probeTransport(null, result))
   }
   if (result.stdoutTruncated || result.stderrTruncated) {
-    throw new LocalCliError(AGENT_OUTPUT_LIMIT_EXCEEDED, 'codex version probe output exceeded its limit')
+    throw new LocalCliError(
+      AGENT_OUTPUT_LIMIT_EXCEEDED,
+      'codex version probe output exceeded its limit',
+      probeTransport(null, result)
+    )
   }
   if (result.exitCode === 127) {
-    throw new LocalCliError(AGENT_INTERPRETER_MISSING, 'codex launcher interpreter missing')
+    throw new LocalCliError(
+      AGENT_INTERPRETER_MISSING,
+      'codex launcher interpreter missing',
+      probeTransport(null, result)
+    )
   }
   if (result.exitCode !== 0) {
-    throw new LocalCliError(AGENT_VERSION_UNSUPPORTED, `codex version probe exited with ${result.exitCode}`)
+    throw new LocalCliError(
+      AGENT_VERSION_UNSUPPORTED,
+      `codex version probe exited with ${result.exitCode}`,
+      probeTransport(null, result)
+    )
   }
   const version = result.stdout.trim()
   if (!isSupportedCodexVersion(version)) {
-    throw new LocalCliError(AGENT_VERSION_UNSUPPORTED, `unsupported codex version: ${version}`)
+    throw new LocalCliError(
+      AGENT_VERSION_UNSUPPORTED,
+      `unsupported codex version: ${version}`,
+      probeTransport(version, result)
+    )
   }
   return version
+}
+
+function probeTransport(
+  version: string | null,
+  result?: LocalCliResult
+): CodexTransportDiagnostics {
+  return {
+    version,
+    exitCode: result?.exitCode ?? null,
+    signal: result?.signal ?? null,
+    timedOut: result?.timedOut ?? false,
+    cancelled: result?.cancelled ?? false,
+    stdoutTruncated: result?.stdoutTruncated ?? false,
+    stderrTruncated: result?.stderrTruncated ?? false,
+    eventCounts: { turnStarted: 0, turnCompleted: 0, turnFailed: 0, topLevelError: 0, agentMessage: 0 },
+    toolCallCount: 0,
+    usage: null,
+    stderrClass: result === undefined ? 'empty' : toStderrClass(result.stderr)
+  }
 }
 
 async function writeSchemaFile(options: CodexAgentAdapterOptions, executionRequestId: string): Promise<string> {

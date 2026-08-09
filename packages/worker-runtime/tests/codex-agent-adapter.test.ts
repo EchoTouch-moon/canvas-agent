@@ -425,6 +425,27 @@ out({type:'turn.completed',usage:{input_tokens:1,cached_input_tokens:0,cache_wri
     })
   })
 
+  it('a pre-aborted signal returns CancelledError without spawning the probe', async () => {
+    const script = await makeScript(
+      `if (process.argv[2] === '--version') { setTimeout(()=>{}, 60000) }`
+    )
+    clean.push(dirname(script))
+    const runtime = await mkdtemp(join(tmpdir(), 'ca-ca-runtime-'))
+    clean.push(runtime)
+    const cwd = await mkdtemp(join(tmpdir(), 'ca-ca-worktree-'))
+    clean.push(cwd)
+    const controller = new AbortController()
+    controller.abort()
+    const started = Date.now()
+
+    await expect(
+      adapter(script, runtime).run(
+        makeContext(cwd, runtime, { signal: controller.signal, maxDurationMs: 60_000 })
+      )
+    ).rejects.toThrow(CancelledError)
+    expect(Date.now() - started).toBeLessThan(500)
+  })
+
   it('an existing executable with a missing shebang interpreter maps to AGENT_INTERPRETER_MISSING', async () => {
     const bin = await mkdtemp(join(tmpdir(), 'ca-ca-interp-'))
     clean.push(bin)
