@@ -36,15 +36,15 @@
 
 ### Wave 1 — DeepSeek：P0 发布可靠性
 
-- [ ] DS-003：修复跨进程时钟不一致导致的 2 个单测失败。
-- [ ] DS-003：将 Drizzle migrations 纳入打包资源并使用 production-safe 路径解析。
-- [ ] DS-003：增加 packaged-app 冷启动 smoke 与 CI 质量门。
+- [x] DS-003：修复跨进程时钟不一致导致的 2 个单测失败。
+- [x] DS-003：将 Drizzle migrations 纳入打包资源并使用 production-safe 路径解析。
+- [x] DS-003：增加 packaged-app 冷启动 smoke 与 CI 质量门。
 
 退出条件：`pnpm check` 全绿；unpacked 应用在隔离 userData 下启动无 migration ENOENT。
 
 ### Wave 2 — DeepSeek：真实工作区与真实 Agent
 
-- [ ] DS-004：实现 Main-owned 仓库选择、校验、最近工作区与 Workspace Runtime Manager。
+- [x] DS-004：实现 Main-owned 仓库选择、校验、最近工作区与 Workspace Runtime Manager。
 - [ ] DS-005A：实现 Provider-agnostic Local CLI Runner，不绑定具体品牌。
 - [ ] DS-005A：实现 ExecutionRequest v2 Context Bundle 的 Main 物化与 Worker 双重验证。
 - [ ] DS-005B：在 Codex argv/schema fixture 评审后实现真实 Provider 绑定和端到端用例。
@@ -76,19 +76,18 @@
 
 ## Current verified baseline — 2026-08-09
 
-- Git：`main` 与 `origin/main` 同步，HEAD `26ef285`，工作树干净。
+- Git：`main` 与 `origin/main` 同步，HEAD `7cbaf18`（PR #8），工作树干净。
 - 工程闭环：Task → Run → Acceptance → Apply → Revision → Candidate Baseline → Activate 已实现。
-- 检查：format、lint、typecheck、build、production audit 通过。
-- 单测：244/246，通过率不足；失败根因是 Main 固定时钟与 Worker 真实时钟不一致。
-- Electron live E2E：通过，包括重启恢复和采纳闭环。
-- 打包：unpacked app 可生成，但 migration 路径错误导致冷启动失败。
-- 产品缺口：默认 Fixture、仓库依赖环境变量、Worker 固定 FixtureAgentAdapter。
+- DS-003：确定性时钟、packaged migrations、unsigned/package smoke 与 macOS CI gate 已合并。
+- DS-004：原生仓库选择、单活动 Workspace Runtime、仓库隔离存储与 reopen/switch 已合并。
+- 检查：Node 24 下 format、lint、typecheck、304 tests、build 与 workspace/live/packaged E2E 通过。
+- 当前产品缺口：Worker 仍使用 Fixture Adapter；ExecutionRequest v2 Context Bundle、真实 Codex CLI、无 seed onboarding、Live-first UI 与 RC gates 尚未完成。
 
 ## Blockers
 
 | Blocker | Owner | Resolution |
 |---|---|---|
-| 首个真实 Agent CLI 尚未指定 | 首席架构师 + 用户环境事实 | 只做通用 Runner；通过本机只读探测或用户明确选择冻结首个绑定 |
+| Codex argv/schema fixture 尚未评审 | 首席架构师 + DeepSeek | DS-005A 先做通用 Runner；DS-005B 只在 exact argv/schema fixture 通过架构评审后开工 |
 | macOS 签名行为会等待本机钥匙串 | 首席架构师 | 本地 smoke 使用禁用签名的隔离构建；分发签名另立发布决策 |
 
 ## Completion rule

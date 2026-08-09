@@ -16,21 +16,20 @@ DeepSeek is the primary implementer. Luna receives one consolidated visual task 
 | 0 | Lead architect | PROPOSAL-028C Agent Readiness Command Contract | — | ✅ approved | — |
 | 0 | Lead architect | PROPOSAL-029 First Workspace Bootstrap Flow | — | ✅ approved | — |
 | 1 | DeepSeek V4 Flash | [DS-003 release reliability](deepseek/DS-003-release-reliability.md) | `agent/deepseek-ds-003-release-reliability` | ✅ MERGED — PR #7 | `main@7adc20a` |
-| 2 | DeepSeek V4 Flash | [DS-004 workspace runtime](deepseek/DS-004-workspace-runtime.md) | `agent/deepseek-ds-004-workspace-runtime` | READY | DS-003 merged; PROPOSAL-027/027A approved |
-| 3 | DeepSeek V4 Flash | [DS-005 local CLI adapter](deepseek/DS-005-local-cli-adapter.md) | `agent/deepseek-ds-005-local-cli-adapter` | DS-005A READY; DS-005B BLOCKED | DS-005B awaits exact argv/schema fixture review + DS-004 integration |
+| 2 | DeepSeek V4 Flash | [DS-004 workspace runtime](deepseek/DS-004-workspace-runtime.md) | `agent/deepseek-ds-004-workspace-runtime` | ✅ MERGED — PR #8 | `main@7cbaf18` |
+| 3 | DeepSeek V4 Flash | [DS-005 local CLI adapter](deepseek/DS-005-local-cli-adapter.md) | `agent/deepseek-ds-005-local-cli-adapter` | DS-005A READY @ `main@7cbaf18`; DS-005B BLOCKED | DS-005B awaits exact argv/schema fixture review |
 | 4 | DeepSeek V4 Flash | [DS-006 Live client state/onboarding](deepseek/DS-006-live-client-state.md) | `agent/deepseek-ds-006-live-client-state` | BLOCKED | DS-004 + DS-005 merged |
 | 5 | GPT-5.6 Luna | [UI-003 Live-first product shell](luna/UI-003-live-first-product-shell.md) | `agent/luna-ui-003-live-first-shell` | BLOCKED | DS-006 merged |
 | 6 | DeepSeek V4 Flash | [DS-007 RC gates](deepseek/DS-007-release-candidate-gates.md) | `agent/deepseek-ds-007-product-mvp-rc` | BLOCKED | all implementation packets merged |
 
-DS-004 and DS-005A Worker work may now begin from reviewed `main@7adc20a`. DS-005B concrete Codex binding still waits for exact argv/schema fixture review; DS-005's Main/command integration and final merge wait for DS-004. DS-006 begins only after DS-004 and DS-005 are merged. DS-006 and UI-003 remain strictly sequential because they divide functional state/forms from final visual ownership.
+DS-004 is merged through PR #8 at reviewed `main@7cbaf18`. DeepSeek may now begin DS-005A from that exact base. DS-005B concrete Codex binding still waits for exact argv/schema fixture review. DS-006 begins only after DS-005 is fully merged. DS-006 and UI-003 remain strictly sequential because they divide functional state/forms from final visual ownership.
 
 ## Current release gates
 
 ```text
-DS-003 → DS-004
-DS-003 → DS-005A
-DS-004 + DS-005A → DS-005 final
-DS-004 + DS-005 final → DS-006 → UI-003 → DS-007 → architect RC decision
+DS-003 ✅ + DS-004 ✅ → DS-005A (READY)
+DS-005A + exact argv/schema fixture review → DS-005B / DS-005 final
+DS-005 final → DS-006 → UI-003 → DS-007 → architect RC decision
 ```
 
 No Checkpoint/Resume, Canvas or second Agent adapter packet may start during this milestone without a new scope decision.

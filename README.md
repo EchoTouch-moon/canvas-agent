@@ -15,9 +15,9 @@ The design source of truth is [`canvas_agent_design_baseline_v1.1/00_README.md`]
 
 The engineering core loop is implemented end to end: SQLite project state, immutable execution contracts, an isolated Utility Process Worker, durable Run/Artifact evidence, explicit acceptance and Task completion, recoverable Git adoption, candidate Baseline creation and explicit activation.
 
-The current milestone is **Product MVP v0.2 closeout**. Remaining blockers are packaged migration resources, product-level repository selection, first-workspace Project/Baseline/Task onboarding, an immutable ExecutionRequest v2 Context Bundle, a real local Agent CLI adapter, Live-first UI and release-candidate automation. See [`docs/PRODUCT_MVP_V0.2_PLAN.md`](docs/PRODUCT_MVP_V0.2_PLAN.md) and [`docs/tasks/README.md`](docs/tasks/README.md).
+The current milestone is **Product MVP v0.2 closeout**. Packaged migration reliability and product-level repository selection are merged. Remaining blockers are first-workspace Project/Baseline/Task onboarding, an immutable ExecutionRequest v2 Context Bundle, a real local Agent CLI adapter, Live-first UI and release-candidate automation. See [`docs/PRODUCT_MVP_V0.2_PLAN.md`](docs/PRODUCT_MVP_V0.2_PLAN.md) and [`docs/tasks/README.md`](docs/tasks/README.md).
 
-Until DS-004 lands, the existing Live development workspace still uses `CANVAS_AGENT_REPO`. Until DS-005 lands, execution still uses the deterministic Fixture adapter. These are known product gaps, not completed capabilities.
+Normal startup can now select and reopen a repository without `CANVAS_AGENT_REPO`; that variable remains only as an explicit developer/test bootstrap. Until DS-005 lands, execution still uses the deterministic Fixture adapter.
 
 ## Prerequisites
 

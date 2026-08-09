@@ -1,6 +1,6 @@
 # DS-004 verification packet — Workspace runtime & native repository selection
 
-- **Status:** VERIFIED (rev 3, addressing PR #8 blocking review rounds 1+2) — branch `agent/deepseek-ds-004-workspace-runtime`; pending architecture merge review
+- **Status:** MERGED — LEAD APPROVED `c6d8f19`; PR #8; `main@7cbaf18`
 - **Date:** 2026-08-09
 - **Basis:** PROPOSAL-027 (workspace runtime), PROPOSAL-027A (workspace command contract), `docs/tasks/deepseek/DS-004-workspace-runtime.md` incl. the LEAD mandatory addendum
 - **Branches:** base `main@8276e48` → `agent/deepseek-ds-004-workspace-runtime`
