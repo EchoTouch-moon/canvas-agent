@@ -272,6 +272,84 @@ describe('ExecutionCoordinator', () => {
     closeDatabase(p)
   })
 
+  it('rejects a snapshot with more than 256 context items before any Run side effect', async () => {
+    const p = openDatabase({ path: ':memory:', services: services() })
+    applyMigrations(p)
+    createProject(p, { id: 'proj_many', name: 'P' })
+    createNode(p, { id: 'node_many', projectId: 'proj_many', type: 'GOAL' })
+    const version = publishNodeVersion(p, {
+      id: 'nv_many',
+      nodeId: 'node_many',
+      title: 'T',
+      body: 'body'
+    })
+    createTask(p, {
+      id: 'task_many',
+      projectId: 'proj_many',
+      type: 'IMPLEMENT_CHANGE',
+      title: 'T'
+    })
+    publishTaskSpecVersion(p, {
+      id: 'spec_many',
+      taskId: 'task_many',
+      description: 'd',
+      scope: 's',
+      criteria: [{ description: 'c', position: 0 }]
+    })
+    const baseline = createBaselineDraft(p, {
+      id: 'baseline_many',
+      projectId: 'proj_many',
+      name: '0.1',
+      nodeVersionIds: [version.id]
+    })
+    activateBaseline(p, { baselineId: baseline.id })
+    const revision = upsertRepositoryRevision(p, {
+      id: 'rev_many',
+      baseCommit: 'a'.repeat(40),
+      treeHash: 'b'.repeat(40),
+      workingTreePatchHash: null
+    })
+    const items = Array.from({ length: 257 }, (_, i) =>
+      i === 0
+        ? {
+            itemType: 'USER_INPUT' as const,
+            sourceRef: 'task://spec_many',
+            resolvedContent: 'Implement X',
+            authority: 'TASK_INSTRUCTION' as const,
+            priority: 'P0' as const,
+            tokenEstimate: 5,
+            position: 0
+          }
+        : {
+            itemType: 'NODE_VERSION' as const,
+            sourceRef: `repo://docs/f${i}.md`,
+            resolvedContent: `content-${i}`,
+            authority: 'PROJECT_FACT' as const,
+            priority: 'P1' as const,
+            tokenEstimate: 1,
+            position: i
+          }
+    )
+    freezeContextSnapshot(p, {
+      id: 'snap_many',
+      projectId: 'proj_many',
+      taskId: 'task_many',
+      taskSpecVersionId: 'spec_many',
+      baseBaselineId: baseline.id,
+      expectedRepositoryRevisionId: revision.id,
+      items
+    })
+
+    const worker = new FakeWorkerHost()
+    const coordinator = new ExecutionCoordinator(p, worker, UNUSED_RUNTIME, services())
+    await expect(
+      coordinator.dispatch({ executionRequestId: 'exec-1', contextSnapshotId: 'snap_many' })
+    ).rejects.toThrow(/item count out of range/)
+    expect(worker.captured).toHaveLength(0)
+    expect(() => getRunAggregate(p, 'run_1')).toThrow()
+    closeDatabase(p)
+  })
+
   it('does not chase the current revision: repo changed after freeze -> REVISION_MISMATCH', async () => {
     const repoDir = await createTempGitRepo()
     const runtimeDir = trackTempDir(await mkdtemp(join(tmpdir(), 'ca-coord-runtime-')))

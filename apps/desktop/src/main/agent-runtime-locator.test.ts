@@ -3,7 +3,11 @@ import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs
 import { dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AgentRuntimeLocator, type ExecutablePicker } from './agent-runtime-locator'
+import {
+  AgentRuntimeLocator,
+  type ConfigurationChangeGate,
+  type ExecutablePicker
+} from './agent-runtime-locator'
 
 const NODE_DIR = dirname(process.execPath)
 
@@ -35,6 +39,7 @@ interface Fixture {
   paths: string[]
   picker: ExecutablePicker
   blocked: () => boolean
+  gate?: ConfigurationChangeGate
 }
 
 interface LocatorFixture {
@@ -63,7 +68,13 @@ async function makeLocator(overrides: Partial<Fixture> = {}): Promise<LocatorFix
     environment,
     picker,
     knownLocations: [],
-    isChangeBlocked: overrides.blocked ?? ((): boolean => false)
+    isChangeBlocked: overrides.blocked ?? ((): boolean => false),
+    configurationGate:
+      overrides.gate ??
+      (async <T>(fn: () => Promise<T>): Promise<{ ok: true; value: T }> => ({
+        ok: true,
+        value: await fn()
+      }))
   })
   return { locator, userData, home, paths }
 }
@@ -239,5 +250,177 @@ describe('AgentRuntimeLocator', () => {
     expect(settings.codexCliLauncherPath).toBeNull()
     const status = await locator.status()
     expect(status.state).toBe('NOT_FOUND')
+  })
+
+  it('classifies a user-picked non-executable file as EXECUTABLE_NOT_READABLE', async () => {
+    const bin = await makeDir()
+    created.push(bin)
+    const file = join(bin, 'codex')
+    await writeFile(
+      file,
+      '#!/usr/bin/env node\nprocess.stdout.write("codex-cli 0.146.0\\n")\n',
+      'utf8'
+    )
+    await chmod(file, 0o644)
+    const { locator } = await makeLocator({
+      picker: { pick: async () => ({ cancelled: false, path: file }) }
+    })
+    const chosen = await locator.chooseExecutable(undefined)
+    expect(chosen.status.state).toBe('ERROR')
+    expect(chosen.status.lastError?.reasonCode).toBe('EXECUTABLE_NOT_READABLE')
+  })
+
+  it('rejects an unsupported Codex version range (0.145 / 0.147 / prerelease)', async () => {
+    for (const version of ['codex-cli 0.145.0', 'codex-cli 0.147.0', 'codex-cli 0.146.0-rc.1']) {
+      const bin = await makeDir()
+      created.push(bin)
+      const script = `if (process.argv[2] === '--version') { process.stdout.write('${version}\\n') }\nelse { process.exit(0) }`
+      await writeScript(bin, 'codex', script)
+      const { locator } = await makeLocator({ paths: [NODE_DIR, bin] })
+      const status = await locator.status()
+      expect(status.state).toBe('UNSUPPORTED_VERSION')
+      expect(status.lastError?.reasonCode).toBe('EXECUTABLE_NOT_SUPPORTED')
+    }
+  })
+
+  it('accepts a stable 0.146.x patch release', async () => {
+    const bin = await makeDir()
+    created.push(bin)
+    await writeScript(
+      bin,
+      'codex',
+      `if (process.argv[2] === '--version') { process.stdout.write('codex-cli 0.146.9\\n') }\nelse if (process.argv[2] === 'login') { process.exit(0) }\nelse { process.exit(0) }`
+    )
+    const { locator } = await makeLocator({ paths: [NODE_DIR, bin] })
+    const status = await locator.status()
+    expect(status.state).toBe('READY')
+    expect(status.version).toBe('codex-cli 0.146.9')
+  })
+
+  it('a failed new candidate never overwrites the prior READY launcher', async () => {
+    const bin = await makeDir()
+    created.push(bin)
+    const good = await writeScript(bin, 'codex', REAL_CODEX)
+    const bad = await writeScript(bin, 'bad-codex', '#!/usr/bin/env node\nprocess.exit(2)\n')
+    let mode: 'good' | 'bad' = 'good'
+    const { locator, userData } = await makeLocator({
+      paths: [NODE_DIR, bin],
+      picker: {
+        pick: async () => ({ cancelled: false, path: mode === 'good' ? good : bad })
+      }
+    })
+    await locator.chooseExecutable(undefined)
+    const prior = await locator.status()
+    expect(prior.state).toBe('READY')
+
+    mode = 'bad'
+    const switched = await locator.chooseExecutable(undefined)
+    expect(switched.status.state).toBe('READY')
+    expect(switched.status.displayPath).toBe(prior.displayPath)
+    expect(switched.status.lastError?.reasonCode).toBe('EXECUTABLE_NOT_SUPPORTED')
+    const settings = JSON.parse(
+      await (
+        await import('node:fs/promises')
+      ).readFile(join(userData, 'agent-settings-v1.json'), 'utf8')
+    ) as { codexCliLauncherPath: string }
+    expect(settings.codexCliLauncherPath).toBe(good)
+  })
+
+  it('a settings write failure preserves the prior READY state with SETTINGS_INVALID', async () => {
+    const bin = await makeDir()
+    created.push(bin)
+    const good = await writeScript(bin, 'codex', REAL_CODEX)
+    const { locator, userData } = await makeLocator({
+      paths: [NODE_DIR, bin],
+      picker: { pick: async () => ({ cancelled: false, path: good }) }
+    })
+    await locator.chooseExecutable(undefined)
+    expect((await locator.status()).state).toBe('READY')
+
+    // Make the settings path a directory so the atomic rename fails.
+    const settingsPath = join(userData, 'agent-settings-v1.json')
+    await rm(settingsPath, { force: true })
+    await mkdir(settingsPath)
+
+    const switched = await locator.chooseExecutable(undefined)
+    expect(switched.status.state).toBe('READY')
+    expect(switched.status.lastError?.reasonCode).toBe('SETTINGS_INVALID')
+    await rm(settingsPath, { recursive: true, force: true })
+  })
+
+  it('an AUTH_REQUIRED candidate is preserved only when no READY launcher exists', async () => {
+    const bin = await makeDir()
+    created.push(bin)
+    const good = await writeScript(bin, 'codex', REAL_CODEX)
+    const auth = await writeScript(bin, 'auth-codex', AUTH_FAIL)
+    let mode: 'good' | 'auth' = 'good'
+    const { locator } = await makeLocator({
+      paths: [NODE_DIR, bin],
+      picker: {
+        pick: async () => ({
+          cancelled: false,
+          path: mode === 'good' ? good : auth
+        })
+      }
+    })
+    await locator.chooseExecutable(undefined)
+    expect((await locator.status()).state).toBe('READY')
+
+    mode = 'auth'
+    const switched = await locator.chooseExecutable(undefined)
+    expect(switched.status.state).toBe('READY')
+    expect(switched.status.displayPath).toBe(good)
+    expect(switched.status.lastError?.reasonCode).toBe('AUTH_REQUIRED')
+  })
+
+  it('an AUTH_REQUIRED candidate is saved when there is no READY launcher', async () => {
+    const bin = await makeDir()
+    created.push(bin)
+    const auth = await writeScript(bin, 'auth-codex', AUTH_FAIL)
+    const { locator } = await makeLocator({
+      paths: [NODE_DIR, bin],
+      picker: { pick: async () => ({ cancelled: false, path: auth }) }
+    })
+    const chosen = await locator.chooseExecutable(undefined)
+    expect(chosen.status.state).toBe('AUTH_REQUIRED')
+    expect(chosen.status.source).toBe('USER_SELECTED')
+  })
+
+  it('a run starting while the picker is open is caught by the atomic gate', async () => {
+    const bin = await makeDir()
+    created.push(bin)
+    const good = await writeScript(bin, 'codex', REAL_CODEX)
+    let releasePicker!: () => void
+    const pickerGate = new Promise<void>((resolve) => {
+      releasePicker = resolve
+    })
+    let activeRuns = 0
+    let gateHeld = false
+    const gate: ConfigurationChangeGate = async (fn) => {
+      if (activeRuns > 0) return { ok: false, reason: 'ACTIVE_RUN_BLOCKS_CHANGE' }
+      gateHeld = true
+      try {
+        return { ok: true, value: await fn() }
+      } finally {
+        gateHeld = false
+      }
+    }
+    const { locator } = await makeLocator({
+      paths: [NODE_DIR, bin],
+      picker: {
+        pick: async () => {
+          await pickerGate
+          return { cancelled: false, path: good }
+        }
+      },
+      gate
+    })
+    const choosing = locator.chooseExecutable(undefined)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    activeRuns = 1
+    releasePicker()
+    const chosen = await choosing
+    expect(chosen.status.lastError?.reasonCode).toBe('ACTIVE_RUN_BLOCKS_CHANGE')
+    expect(gateHeld).toBe(false)
   })
 })

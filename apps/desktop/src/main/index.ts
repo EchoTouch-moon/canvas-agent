@@ -131,7 +131,8 @@ app.whenReady().then(async () => {
       HOME: app.getPath('home')
     },
     picker: executablePickerFromEnvironment() ?? new NativeExecutablePicker(),
-    isChangeBlocked: () => manager.hasActiveRuns()
+    isChangeBlocked: () => manager.hasActiveRuns(),
+    configurationGate: (fn) => manager.withConfigurationChange(fn)
   })
 
   const startupStatus = await manager.startup()

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   MAX_EXECUTION_CONTEXT_BYTES,
+  MAX_EXECUTION_CONTEXT_ITEMS,
   type ExecutionContextItemV2,
   type ExecutionRequestContractV2
 } from '@canvas-agent/contracts'
@@ -134,6 +135,25 @@ describe('ExecutionContextBundle validation (Worker + Main shared)', () => {
     ])
     expect(() => assertValidExecutionContextBundle(b as never)).toThrow(
       /exceeds byte limit/
+    )
+  })
+
+  it('rejects more than MAX_EXECUTION_CONTEXT_ITEMS items', () => {
+    const items = Array.from({ length: MAX_EXECUTION_CONTEXT_ITEMS + 1 }, (_, i) => {
+      const content = `c${i}`
+      return i === 0
+        ? taskInstruction()
+        : item({ position: i, resolvedContent: content, contentHash: sha256(content) })
+    })
+    const b = bundle(items)
+    expect(() => assertValidExecutionContextBundle(b as never)).toThrow(
+      /item count out of range/
+    )
+  })
+
+  it('rejects an empty item list', () => {
+    expect(() => assertValidExecutionContextBundle({ items: [], totalBytes: 0, contentHash: '' } as never)).toThrow(
+      /item count out of range/
     )
   })
 

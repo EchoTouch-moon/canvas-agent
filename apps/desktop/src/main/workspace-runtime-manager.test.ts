@@ -444,4 +444,66 @@ describe('WorkspaceRuntimeManager', () => {
     const closed = await manager.close()
     expect(closed.state).toBe('CLOSED')
   })
+
+  it('withConfigurationChange refuses to start while a Run is active', async () => {
+    const repo = await createTempGitRepo()
+    const { manager } = await makeManager({ repo })
+    await manager.openPath(repo)
+
+    const result = await manager.withActiveRun(async () =>
+      manager.withConfigurationChange(async () => 'changed')
+    )
+    expect(result).toEqual({ ok: false, reason: 'ACTIVE_RUN_BLOCKS_CHANGE' })
+    await manager.close()
+  })
+
+  it('config-changing blocks new runs but not ordinary project commands', async () => {
+    const repo = await createTempGitRepo()
+    const { manager } = await makeManager({ repo })
+    await manager.openPath(repo)
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const change = manager.withConfigurationChange(async () => {
+      await gate
+      return 'committed'
+    })
+    await waitUntil(() => manager.hasActiveRuns() === false)
+
+    await expect(
+      manager.withActiveRun(async () => {
+        throw new Error('should not run')
+      })
+    ).rejects.toThrow(WorkspaceUnavailableError)
+
+    const command = await manager.withReadyRuntime(async (runtime) => runtime.repositoryPath)
+    expect(command).toBe(await realpath(repo))
+
+    release()
+    expect(await change).toEqual({ ok: true, value: 'committed' })
+    await manager.close()
+  })
+
+  it('serializes concurrent configuration changes', async () => {
+    const repo = await createTempGitRepo()
+    const { manager } = await makeManager({ repo })
+    await manager.openPath(repo)
+    const order: string[] = []
+    const first = manager.withConfigurationChange(async () => {
+      order.push('first-start')
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      order.push('first-end')
+      return 1
+    })
+    const second = manager.withConfigurationChange(async () => {
+      order.push('second')
+      return 2
+    })
+    const [a, b] = await Promise.all([first, second])
+    expect(a).toEqual({ ok: true, value: 1 })
+    expect(b).toEqual({ ok: true, value: 2 })
+    expect(order).toEqual(['first-start', 'first-end', 'second'])
+    await manager.close()
+  })
 })

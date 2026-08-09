@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import {
   executionRequestSchema,
   MAX_EXECUTION_CONTEXT_BYTES,
+  MAX_EXECUTION_CONTEXT_ITEMS,
   type ExecutionContextItemV2,
   type ExecutionContextBundleV2,
   type ExecutionRequestContract
@@ -104,6 +105,12 @@ export function computeExecutionContextBundle(
  */
 export function assertValidExecutionContextBundle(bundle: ExecutionContextBundleV2): void {
   const { items } = bundle
+  if (items.length < 1 || items.length > MAX_EXECUTION_CONTEXT_ITEMS) {
+    throw new RequestValidationError(
+      'context bundle item count out of range',
+      `expected 1..${MAX_EXECUTION_CONTEXT_ITEMS} items, got ${items.length}`
+    )
+  }
   if (!items.every((item, index) => item.position === index)) {
     throw new RequestValidationError(
       'context bundle positions must be contiguous',

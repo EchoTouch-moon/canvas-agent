@@ -1,5 +1,6 @@
 export * from './agent-adapter'
 export * from './claim'
+export * from './codex-version'
 export * from './errors'
 export * from './local-cli-runner'
 export * from './process-runner'

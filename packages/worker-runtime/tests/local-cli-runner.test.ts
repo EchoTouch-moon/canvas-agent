@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -136,4 +136,86 @@ describe('runLocalCli (provider-neutral boundary)', () => {
     expect(result.timedOut).toBe(false)
     expect(result.exitCode).toBeNull()
   })
+
+  it('returns cancelled immediately for a pre-aborted signal (first reason wins)', async () => {
+    const script = await makeScript(`setTimeout(()=>{},60000)`)
+    const controller = new AbortController()
+    controller.abort()
+    const started = Date.now()
+    const result = await runLocalCli(
+      invoke(script, { signal: controller.signal, timeoutMs: 50 })
+    )
+    expect(result.cancelled).toBe(true)
+    expect(result.timedOut).toBe(false)
+    expect(Date.now() - started).toBeLessThan(500)
+  })
+
+  it('kills the whole process group on timeout and the descendant is not alive after resolve', async () => {
+    const script = await makeScript(
+      `const{spawn}=require('node:child_process');const{writeFileSync}=require('node:fs');` +
+        `const pidFile=process.env.GRANDCHILD_PID_FILE;` +
+        `const c=spawn(process.execPath,['-e','setTimeout(()=>{},60000)']);` +
+        `c.on('spawn',()=>writeFileSync(pidFile,String(c.pid)));c.on('exit',()=>process.exit(0));`
+    )
+    const pidFile = join(tmpdir(), `ca-gc-${process.pid}-${Date.now()}.pid`)
+    const result = await runLocalCli(
+      invoke(script, {
+        timeoutMs: 2000,
+        environment: {
+          GRANDCHILD_PID_FILE: pidFile,
+          PATH: process.env['PATH'] ?? '/usr/bin:/bin',
+          HOME: tmpdir()
+        }
+      })
+    )
+    expect(result.timedOut).toBe(true)
+    expect(result.cancelled).toBe(false)
+    const grandchildPid = Number((await readFile(pidFile, 'utf8')).trim())
+    await waitForProcessGone(grandchildPid)
+    await rm(pidFile, { force: true })
+  })
+
+  it('preserves multi-byte UTF-8 across small pipe chunks (no replacement characters)', async () => {
+    const payload = '中文 测试 émoji 🚀 ✓ こんにちは'
+    const script = await makeScript(
+      `const chars=[...JSON.parse(process.env.PAYLOAD)];let i=0;` +
+        `const t=setInterval(()=>{if(i>=chars.length){clearInterval(t);process.exit(0)}process.stdout.write(chars[i]);i+=1},1);`
+    )
+    const result = await runLocalCli(
+      invoke(script, {
+        environment: { PAYLOAD: JSON.stringify(payload), PATH: process.env['PATH'] ?? '/usr/bin:/bin', HOME: tmpdir() }
+      })
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdoutTruncated).toBe(false)
+    expect(result.stdout).toBe(payload)
+    expect(result.stdout.includes('\uFFFD')).toBe(false)
+  })
+
+  it('decodes exactly up to the byte cap and marks truncation for multi-byte output', async () => {
+    const script = await makeScript(`process.stdout.write('中文中文中文中文中文中文中文')`)
+    const result = await runLocalCli(invoke(script, { maxStdoutBytes: 6 }))
+    expect(result.stdoutTruncated).toBe(true)
+    expect(Buffer.byteLength(result.stdout, 'utf8')).toBeLessThanOrEqual(6)
+  })
 })
+
+function pidAlive(pid: number): boolean {
+  if (Number.isNaN(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function waitForProcessGone(pid: number, timeoutMs = 3000): Promise<void> {
+  const started = Date.now()
+  while (pidAlive(pid)) {
+    if (Date.now() - started > timeoutMs) {
+      throw new Error(`process ${pid} is still alive after ${timeoutMs}ms`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}

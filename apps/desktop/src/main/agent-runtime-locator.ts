@@ -6,10 +6,13 @@ import type {
   AgentRuntimeSource,
   AgentRuntimeStatus
 } from '@canvas-agent/contracts'
-import { LocalCliSpawnError, runLocalCli } from '@canvas-agent/worker-runtime'
+import {
+  isSupportedCodexVersion,
+  LocalCliSpawnError,
+  runLocalCli
+} from '@canvas-agent/worker-runtime'
 import { AgentSettingsStore } from './agent-settings'
 
-const CODEX_VERSION_PREFIX = 'codex-cli '
 const PROBE_TIMEOUT_MS = 5_000
 const PROBE_OUTPUT_BYTES = 16 * 1024
 
@@ -56,12 +59,20 @@ export function executablePickerFromEnvironment(): ExecutablePicker | null {
   return new EnvExecutablePicker()
 }
 
+export type ConfigurationChangeResult<T> =
+  { ok: true; value: T } | { ok: false; reason: 'ACTIVE_RUN_BLOCKS_CHANGE' }
+
+export type ConfigurationChangeGate = <T>(
+  fn: () => Promise<T>
+) => Promise<ConfigurationChangeResult<T>>
+
 export interface AgentRuntimeLocatorOptions {
   userData: string
   homePath: string
   environment: Readonly<Record<string, string>>
   picker: ExecutablePicker
   isChangeBlocked: () => boolean
+  configurationGate: ConfigurationChangeGate
   knownLocations?: readonly string[]
 }
 
@@ -139,21 +150,49 @@ export class AgentRuntimeLocator {
     if (picked.cancelled || picked.path === null) {
       return { cancelled: true, status: await this.status() }
     }
-    const status = await this.probeCandidate(picked.path, 'USER_SELECTED')
-    if (status.state === 'READY' || status.state === 'AUTH_REQUIRED') {
-      await this.settings.writeLauncher(picked.path).catch(() => undefined)
+    const path = picked.path
+    const gated = await this.options.configurationGate(async () => {
+      const candidate = await this.probeCandidate(path, 'USER_SELECTED')
+      // Commit only when the candidate is READY, or AUTH_REQUIRED with no
+      // existing READY launcher (so the user can log in externally). A failed
+      // candidate never overwrites a working launcher.
+      const commit =
+        candidate.state === 'READY' ||
+        (candidate.state === 'AUTH_REQUIRED' && this.statusCache?.state !== 'READY')
+      if (!commit) {
+        return this.preservePriorOrCandidate(candidate)
+      }
+      try {
+        await this.settings.writeLauncher(path)
+      } catch {
+        return this.preservePriorWithError('SETTINGS_INVALID')
+      }
+      this.statusCache = candidate
+      return candidate
+    })
+    if (!gated.ok) {
+      return { cancelled: false, status: await this.blockedStatus() }
     }
-    this.statusCache = status
-    return { cancelled: false, status }
+    return { cancelled: false, status: gated.value }
   }
 
   async clearExecutable(): Promise<AgentRuntimeStatus> {
     if (this.options.isChangeBlocked()) {
       return this.blockedStatus()
     }
-    await this.settings.writeLauncher(null)
-    this.statusCache = null
-    return this.discover()
+    const gated = await this.options.configurationGate(async () => {
+      try {
+        await this.settings.writeLauncher(null)
+      } catch {
+        return this.preservePriorWithError('SETTINGS_INVALID')
+      }
+      this.statusCache = null
+      return this.discover()
+    })
+    if (!gated.ok) {
+      return this.blockedStatus()
+    }
+    return gated.value
   }
 
   private async blockedStatus(): Promise<AgentRuntimeStatus> {
@@ -161,6 +200,32 @@ export class AgentRuntimeLocator {
     return {
       ...current,
       lastError: { reasonCode: 'ACTIVE_RUN_BLOCKS_CHANGE', recoverable: true }
+    }
+  }
+
+  private preservePriorOrCandidate(candidate: AgentRuntimeStatus): AgentRuntimeStatus {
+    const prior = this.statusCache
+    if (prior !== null && (prior.state === 'READY' || prior.state === 'AUTH_REQUIRED')) {
+      return {
+        ...prior,
+        lastError: candidate.lastError ?? { reasonCode: 'UNKNOWN', recoverable: true }
+      }
+    }
+    return candidate
+  }
+
+  private preservePriorWithError(reasonCode: 'SETTINGS_INVALID'): AgentRuntimeStatus {
+    const prior = this.statusCache
+    if (prior !== null && (prior.state === 'READY' || prior.state === 'AUTH_REQUIRED')) {
+      return { ...prior, lastError: { reasonCode, recoverable: true } }
+    }
+    return {
+      provider: 'codex-cli',
+      state: 'ERROR',
+      version: null,
+      source: null,
+      displayPath: null,
+      lastError: { reasonCode, recoverable: true }
     }
   }
 
@@ -202,14 +267,17 @@ export class AgentRuntimeLocator {
     let canonical: string
     try {
       canonical = await realpath(launcherPath)
+    } catch {
+      return errorStatus('EXECUTABLE_NOT_FOUND', null, null, null)
+    }
+    try {
       const info = await stat(canonical)
       if (!info.isFile()) {
         return errorStatus('EXECUTABLE_NOT_READABLE', source, null, launcherPath)
       }
       await access(canonical, constants.X_OK)
     } catch {
-      // the launcher path itself does not resolve to an executable regular file
-      return errorStatus('EXECUTABLE_NOT_FOUND', null, null, null)
+      return errorStatus('EXECUTABLE_NOT_READABLE', source, null, launcherPath)
     }
 
     const version = await this.probe(['--version'], launcherPath)
@@ -231,7 +299,7 @@ export class AgentRuntimeLocator {
       return errorStatus('EXECUTABLE_NOT_SUPPORTED', source, null, launcherPath)
     }
     const versionText = version.stdout.trim()
-    if (!versionText.startsWith(CODEX_VERSION_PREFIX)) {
+    if (!isSupportedCodexVersion(versionText)) {
       return errorStatus('EXECUTABLE_NOT_SUPPORTED', source, versionText, launcherPath)
     }
 

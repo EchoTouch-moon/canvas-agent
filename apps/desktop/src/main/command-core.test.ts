@@ -39,7 +39,8 @@ function makeAgent(): AgentRuntimeLocator {
     homePath: '/tmp',
     environment: { PATH: '/usr/bin:/bin', HOME: '/tmp' },
     picker: { pick: async () => ({ cancelled: true, path: null }) },
-    isChangeBlocked: () => false
+    isChangeBlocked: () => false,
+    configurationGate: async (fn) => ({ ok: true, value: await fn() })
   })
 }
 
