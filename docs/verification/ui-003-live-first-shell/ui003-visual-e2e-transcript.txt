@@ -1,0 +1,25 @@
+# UI-003 visual harness transcript
+# Invocation: PATH=/opt/homebrew/opt/node@24/bin:$PATH node apps/desktop/e2e/ui003-visual.e2e.cjs
+# Runtime: Node v24.15.0
+
+[visual] PASS no-workspace-light-1080x720
+[visual] PASS no-workspace-dark-1080x720
+[visual] PASS opening-light-1080x720
+[visual] PASS opening-dark-1080x720
+[visual] PASS error-light-1080x720
+[visual] PASS error-dark-1080x720
+[visual] PASS ready-light-1440x960
+[visual] PASS ready-dark-1440x960
+[visual] PASS switch-blocked-light-1440x960
+[visual] PASS switch-blocked-dark-1440x960
+[visual] PASS booting-light-1080x720
+[visual] PASS closing-dark-1440x960
+[visual] PASS agent-auth-light-1440x960
+[visual] PASS first-task-light-1440x960
+[visual] PASS first-project-light-1440x960
+[visual] PASS baseline-draft-light-1440x960
+[visual] PASS task-spec-light-1440x960
+[visual] PASS dirty-dark-1440x960
+[visual] PASS keyboard path Choose repository -> READY -> Task title -> Create task
+
+Harness assertions per capture: document.scrollWidth <= viewport.innerWidth; every visible button/input/select/textarea remains inside the viewport; at least one aria-live or role=status region; expected state text visible; PNG dimensions equal the named viewport.

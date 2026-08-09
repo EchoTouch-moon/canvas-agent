@@ -135,8 +135,8 @@ function HydrationSection({
   const view = workspace.workspace
   return (
     <Section
-      eyebrow="real IPC · project.list + project.state"
-      title="Project hydration"
+      eyebrow="Saved project state"
+      title="Workspace overview"
       action={
         <>
           <Badge tone={workspace.error ? 'danger' : workspace.loading ? 'info' : 'success'}>
@@ -156,32 +156,49 @@ function HydrationSection({
       {workspace.loading ? (
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
           <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-          Hydrating from the real backend…
+          Loading the saved workspace…
         </div>
       ) : workspace.error ? (
         <div className="rounded-[var(--radius-control)] border border-status-danger/30 bg-status-danger/8 p-3 text-[11px] text-status-danger">
           {workspace.error.message}
         </div>
       ) : view ? (
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
-          <dt className="text-muted-foreground">Project</dt>
-          <dd className="truncate text-right font-medium">{view.project.name}</dd>
-          <dt className="text-muted-foreground">Project id</dt>
-          <dd className="truncate text-right font-mono">{view.project.id}</dd>
-          <dt className="text-muted-foreground">Active baseline</dt>
-          <dd className="truncate text-right">{view.activeBaseline?.name ?? 'none'}</dd>
-          <dt className="text-muted-foreground">Nodes</dt>
-          <dd className="text-right tabular-nums">{view.nodes.length}</dd>
-          <dt className="text-muted-foreground">Node versions</dt>
-          <dd className="text-right tabular-nums">{view.nodeVersions.length}</dd>
-          <dt className="text-muted-foreground">Tasks</dt>
-          <dd className="text-right tabular-nums">{view.tasks.length}</dd>
-          <dt className="text-muted-foreground">Task specs</dt>
-          <dd className="text-right tabular-nums">{view.taskSpecs.length}</dd>
-        </dl>
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-[13px] font-semibold">{view.project.name}</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                Active Baseline: {view.activeBaseline?.name ?? 'Not activated'}
+              </p>
+            </div>
+            <Badge tone={view.activeBaseline ? 'success' : 'warning'}>
+              {view.activeBaseline ? 'Baseline active' : 'Baseline needed'}
+            </Badge>
+          </div>
+          <dl className="mt-3 grid grid-cols-4 gap-2">
+            {[
+              ['Decisions', view.nodes.length],
+              ['Versions', view.nodeVersions.length],
+              ['Tasks', view.tasks.length],
+              ['Task specs', view.taskSpecs.length]
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="rounded-[var(--radius-control)] border border-border bg-muted/40 px-2.5 py-2"
+              >
+                <dt className="text-[9px] text-muted-foreground">{label}</dt>
+                <dd className="mt-1 text-sm font-semibold tabular-nums">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          <details className="mt-2 text-[9px] text-muted-foreground">
+            <summary className="cursor-pointer select-none">Technical details</summary>
+            <p className="mt-1 break-all font-mono">Project ID: {view.project.id}</p>
+          </details>
+        </div>
       ) : (
         <div className="text-[11px] text-muted-foreground">
-          No project hydrated. Check the bridge and the seeded repository.
+          No Project has been prepared in this repository yet.
         </div>
       )}
     </Section>
@@ -202,8 +219,8 @@ function ComposerSection({
     .reduce((sum, candidate) => sum + candidate.tokenEstimate, 0)
   return (
     <Section
-      eyebrow="real candidates · taskSpecs + nodeVersions only"
-      title="Context composer"
+      eyebrow="Task facts and project decisions"
+      title="Context selection"
       action={
         <Badge tone="accent">
           {selectedIds.length} / {totalTokens} t
@@ -253,8 +270,8 @@ function RepositorySection({
 }): React.JSX.Element {
   return (
     <Section
-      eyebrow="context.resolve · pinned baseCommit only"
-      title="Repository content"
+      eyebrow="Pinned to the current repository revision"
+      title="Repository files"
       action={<Badge tone="accent">{selectedPaths.length} selected</Badge>}
     >
       <div className="flex items-center gap-2">
@@ -381,8 +398,8 @@ function RunsHistorySection({
 
   return (
     <Section
-      eyebrow="run.list · run.get · persisted history"
-      title="Runs"
+      eyebrow="Saved execution history"
+      title="Previous runs"
       action={
         <Button
           variant="ghost"
@@ -397,10 +414,10 @@ function RunsHistorySection({
       {runs === null ? (
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
           <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-          Loading persisted runs…
+          Loading saved runs…
         </div>
       ) : runs.length === 0 ? (
-        <div className="text-[11px] text-muted-foreground">No persisted runs yet.</div>
+        <div className="text-[11px] text-muted-foreground">No saved runs yet.</div>
       ) : (
         <div className="space-y-2">
           {runs.map((run) => (
@@ -638,8 +655,8 @@ function AcceptanceSection({
 
   return (
     <Section
-      eyebrow="acceptance.evaluate · task.complete"
-      title="Acceptance"
+      eyebrow="Evaluate evidence before completion"
+      title="Review gate"
       action={
         latest ? (
           <Badge tone={latestPassed ? 'success' : 'danger'}>
@@ -915,8 +932,8 @@ function AdoptionSection({
 
   return (
     <Section
-      eyebrow="artifact.apply · baseline.createCandidateFromTask · baseline.activate"
-      title="Result adoption"
+      eyebrow="Apply only reviewed work"
+      title="Adopt results"
       action={
         application ? (
           <Badge
@@ -1065,8 +1082,8 @@ function FreezeSection({
     frozen === null
   return (
     <Section
-      eyebrow="snapshot.freeze · real freeze"
-      title="Freeze context snapshot"
+      eyebrow="Immutable input for the Agent"
+      title="Lock context snapshot"
       action={frozen ? <Badge tone="success">FROZEN</Badge> : <Badge tone="warning">DRAFT</Badge>}
     >
       {frozen ? (
@@ -1099,7 +1116,7 @@ function EvidenceSection({ run }: { readonly run: RunState }): React.JSX.Element
   const result = run.result
   return (
     <Section
-      eyebrow="execution.dispatch · DispatchResult"
+      eyebrow="Evidence from isolated execution"
       title="Run evidence"
       action={
         run.status === 'PENDING' ? (
@@ -1173,7 +1190,7 @@ function EvidenceSection({ run }: { readonly run: RunState }): React.JSX.Element
         </div>
       ) : (
         <div className="text-[11px] text-muted-foreground">
-          Dispatch after freezing a snapshot to see real execution evidence.
+          Start a Run after locking context to collect reviewable evidence.
         </div>
       )}
     </Section>
@@ -1340,9 +1357,9 @@ export function LiveWorkspaceContent({
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Badge tone="accent">LIVE</Badge>
+          <Badge tone="accent">WORKBENCH</Badge>
           <p className="text-[11px] text-muted-foreground">
-            Real workspace loop: SQLite → Git → Utility Process → evidence
+            Select context, run in isolation, review evidence and adopt deliberately.
           </p>
         </div>
         {actionError ? (
@@ -1384,7 +1401,7 @@ export function LiveWorkspaceContent({
             onFreeze={() => void handleFreeze()}
           />
           <Section
-            eyebrow="execution.dispatch"
+            eyebrow="Isolated Agent execution"
             title="Run"
             action={
               frozen ? (
@@ -1398,7 +1415,7 @@ export function LiveWorkspaceContent({
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-[11px] leading-5 text-muted-foreground">
-                Dispatch the frozen snapshot through the isolated worktree worker.
+                Start the Agent with the locked snapshot in an isolated worktree.
               </p>
               <div className="flex gap-2">
                 {run?.status === 'PENDING' ? (

@@ -1,0 +1,7 @@
+# UI-003 renderer component test transcript
+# Invocation: PATH=/opt/homebrew/opt/node@24/bin:$PATH pnpm --filter @canvas-agent/desktop exec vitest run src/renderer/src/components/app/project-setup-flow.test.tsx src/renderer/src/components/app/task-setup-flow.test.tsx src/renderer/src/components/app/product-onboarding.test.tsx src/renderer/src/App.test.tsx
+# Runtime: Node v24.15.0
+
+Test Files  4 passed (4)
+Tests  12 passed (12)
+Exit status 0
