@@ -1,7 +1,6 @@
 import { access, constants, mkdir } from 'node:fs/promises'
 import type { BrowserWindow } from 'electron'
 import type {
-  WorkspaceChooseResult,
   WorkspaceErrorReason,
   WorkspaceOperationError,
   WorkspaceRuntimeStatus,
@@ -65,6 +64,8 @@ export class WorkspaceRuntimeManager {
   private lastError: WorkspaceOperationError | null = null
   private transitioning = false
   private activeRuns = 0
+  private leaseCount = 0
+  private idleWaiter: (() => void) | null = null
   private readonly settings: WorkspaceSettingsStore
 
   constructor(private readonly options: WorkspaceRuntimeManagerOptions) {
@@ -84,16 +85,50 @@ export class WorkspaceRuntimeManager {
   }
 
   async withActiveRun<T>(run: (runtime: ActiveWorkspaceRuntime) => Promise<T>): Promise<T> {
-    const runtime = this.getReadyRuntime()
-    if (!runtime) {
-      throw new WorkspaceUnavailableError('Workspace is not READY')
-    }
+    const runtime = this.acquireLease()
     this.activeRuns += 1
     try {
       return await run(runtime)
     } finally {
       this.activeRuns -= 1
+      this.releaseLease()
     }
+  }
+
+  async withReadyRuntime<T>(run: (runtime: ActiveWorkspaceRuntime) => Promise<T>): Promise<T> {
+    const runtime = this.acquireLease()
+    try {
+      return await run(runtime)
+    } finally {
+      this.releaseLease()
+    }
+  }
+
+  private acquireLease(): ActiveWorkspaceRuntime {
+    const runtime = this.getReadyRuntime()
+    if (!runtime) {
+      throw new WorkspaceUnavailableError('Workspace is not READY')
+    }
+    this.leaseCount += 1
+    return runtime
+  }
+
+  private releaseLease(): void {
+    this.leaseCount -= 1
+    if (this.leaseCount === 0 && this.idleWaiter !== null) {
+      const waiter = this.idleWaiter
+      this.idleWaiter = null
+      waiter()
+    }
+  }
+
+  private async waitForIdle(): Promise<void> {
+    if (this.leaseCount === 0) {
+      return
+    }
+    await new Promise<void>((resolve) => {
+      this.idleWaiter = resolve
+    })
   }
 
   async startup(): Promise<WorkspaceRuntimeStatus> {
@@ -103,7 +138,9 @@ export class WorkspaceRuntimeManager {
     return this.reopenLast()
   }
 
-  async chooseRepository(window: BrowserWindow | undefined): Promise<WorkspaceChooseResult> {
+  async chooseRepository(
+    window: BrowserWindow | undefined
+  ): Promise<{ cancelled: boolean; status: WorkspaceRuntimeStatus }> {
     if (this.transitioning) {
       return { cancelled: false, status: this.operationInProgress() }
     }
@@ -185,6 +222,7 @@ export class WorkspaceRuntimeManager {
         return this.status()
       }
       this.setState({ kind: 'CLOSING', runtime })
+      await this.waitForIdle()
       const disposeError = await this.disposeRuntime(runtime)
       this.setState({ kind: 'CLOSED' })
       this.lastError = disposeError
@@ -203,6 +241,11 @@ export class WorkspaceRuntimeManager {
         'an execution is active; switching is blocked until it finishes'
       )
     }
+    // Enter OPENING before the first await so no new command can acquire the
+    // held runtime while we validate and assemble the candidate.
+    this.setState({ kind: 'OPENING', held })
+    await this.waitForIdle()
+
     const validation = await validateRepository(rawPath)
     if (!validation.ok) {
       return this.failOpen(held, validation.reasonCode, validation.message)
@@ -220,8 +263,6 @@ export class WorkspaceRuntimeManager {
         `runtime directory is not writable: ${roots.runtimeDirectory}`
       )
     }
-
-    this.setState({ kind: 'OPENING', held })
 
     let persistence: Persistence | null = null
     try {
@@ -257,6 +298,10 @@ export class WorkspaceRuntimeManager {
         coordinator,
         appConfig
       }
+      // Settings persistence is part of the candidate commit: a write failure
+      // must roll the open back (cleanup the candidate) and keep the prior
+      // last-workspace preference authoritative across restart.
+      await this.settings.writeLast(canonical)
       if (held !== null) {
         const disposeError = await this.disposeRuntime(held)
         if (disposeError !== null) {
@@ -266,11 +311,6 @@ export class WorkspaceRuntimeManager {
       this.setState({ kind: 'READY', runtime: candidate })
       this.lastError = reportedDisposeError
       console.error(`[workspace] ready at ${canonical}`)
-      try {
-        await this.settings.writeLast(canonical)
-      } catch (error) {
-        console.error('[workspace] failed to persist last-workspace preference', error)
-      }
       return this.status()
     } catch (error) {
       if (workerHost !== null) {

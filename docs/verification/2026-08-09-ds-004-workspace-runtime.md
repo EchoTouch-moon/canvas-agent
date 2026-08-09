@@ -1,6 +1,6 @@
 # DS-004 verification packet — Workspace runtime & native repository selection
 
-- **Status:** VERIFIED — evidence recorded on branch `agent/deepseek-ds-004-workspace-runtime`; pending architecture merge review
+- **Status:** VERIFIED (rev 2, addressing PR #8 blocking review) — branch `agent/deepseek-ds-004-workspace-runtime`; pending architecture merge review
 - **Date:** 2026-08-09
 - **Basis:** PROPOSAL-027 (workspace runtime), PROPOSAL-027A (workspace command contract), `docs/tasks/deepseek/DS-004-workspace-runtime.md` incl. the LEAD mandatory addendum
 - **Branches:** base `main@8276e48` → `agent/deepseek-ds-004-workspace-runtime`
@@ -59,9 +59,11 @@ adds a `lastError`. A successful status-changing operation clears the prior `las
 ## Public schemas (PROPOSAL-027A, verbatim)
 
 `workspace.status/chooseRepository/reopenLast/close` — all strict empty-object payloads.
-`WorkspaceRuntimeStatus { state, activeWorkspace, lastError }`, `WorkspaceSummary`,
-`WorkspaceOperationError`, `WorkspaceChooseResult { cancelled, status }`. No `superRefine`,
-no extra public field, no preload method added (`CanvasAgentDesktopApi` unchanged).
+Inferred exports are exactly the five PROPOSAL-027A types (`WorkspaceLifecycle`,
+`WorkspaceErrorReason`, `WorkspaceSummary`, `WorkspaceOperationError`, `WorkspaceRuntimeStatus`);
+`workspaceChooseResultSchema` remains for the command envelope and its shape is inferred by
+Main via `CommandOutput<'workspace.chooseRepository'>`. No `superRefine`, no extra public field,
+no preload method added (`CanvasAgentDesktopApi` unchanged).
 
 ## Resource dispose order & transactional candidate assembly
 
@@ -138,16 +140,16 @@ packages/domain          5   (unchanged)
 packages/contracts      48   (+7 workspace command tests)
 packages/persistence    68   (unchanged)
 packages/worker-runtime 22   (unchanged)
-apps/desktop           149   (+31: manager 16, settings 5, picker 4, security 4, command-core +2)
+apps/desktop           156   (+38: manager 19, settings 5, picker 4, security 4, config 4, command-core +2)
 -----------------------
-total                  292   (baseline 254)
+total                  299   (baseline 254)
 ```
 
-## Commands run (all under Node 24)
+## Commands run (all under Node 24, rev 2)
 
 ```text
 pnpm --filter @canvas-agent/contracts test    48 passed
-pnpm --filter @canvas-agent/desktop test     149 passed
+pnpm --filter @canvas-agent/desktop test     156 passed
 pnpm check                                   format/lint/typecheck/test/build all green
 pnpm --filter @canvas-agent/desktop e2e:workspace    ALL PASSED
 pnpm --filter @canvas-agent/desktop e2e:live         ALL PASSED
@@ -155,15 +157,49 @@ pnpm --filter @canvas-agent/desktop build:unpack:unsigned  PASS
 pnpm --filter @canvas-agent/desktop e2e:packaged-smoke     ALL PASSED
 ```
 
+Full workspace/packaged E2E was re-run on the revised SHA after the PR #8 fixes.
+
+## Scope disclosure (narrow add-on authorization, accepted by lead)
+
+The DS-004 packet whitelist did not originally list `apps/desktop/package.json` or
+`.github/workflows/ci.yml`. Both were modified as narrow, necessary add-ons and the lead
+accepted them during PR #8 review:
+- `apps/desktop/package.json` — adds the required `e2e:workspace` script.
+- `.github/workflows/ci.yml` — adds the `e2e:workspace` step to the macOS job (after the
+  unsigned unpack build). No signing or personal-secret requirement.
+
+All other modified/new files are within the DS-004 whitelist. `packages/contracts/src/ipc.ts`
+(Preload API) was **not** modified; the `CanvasAgentDesktopApi` surface remains exactly
+`{ getRuntimeInfo, command }` (a source-level fact, verified by inspection, not claimed as a
+contract test). The former contract test named "keeps the Preload desktop API surface unchanged"
+was removed and replaced with a truthful schema round-trip test.
+
+## PR #8 blocking review — fixes (rev 2)
+
+| Review item | Fix | Evidence |
+|---|---|---|
+| P1-1 `OPENING` set too late; switch could race a newly started run | `doOpen` enters `OPENING` synchronously before the first `await` (after the `activeRuns` guard), so no new run/command can acquire the held runtime during validation/assembly | manager test "blocks new run/command leases while a switch is OPENING (opposite-order race)" — `withActiveRun`/`withReadyRuntime` reject during `OPENING`, switch completes to repo B |
+| P1-2 async workspace commands need leases | `workspaceRoute` executes under `manager.withReadyRuntime(...)` (general READY-runtime lease); `close()`/`doOpen()` enter `CLOSING`/`OPENING` then `await waitForIdle()` before disposing. `execution.cancel` remains exempt (direct `getReadyRuntime`) | manager test "close waits for in-flight workspace commands to release their runtime lease" — close stays `CLOSING` until the leased command finishes, then `CLOSED` |
+| P1-3 settings write failure reported as success | `settings.writeLast` moved into the candidate commit: a write failure rolls the open back (candidate worker/DB cleaned in reverse order), keeps the held runtime, sets a typed `lastError`, and does not overwrite the prior last-workspace preference | manager test "a settings write failure rolls the open back and preserves the held runtime" — READY with repo A + `UNKNOWN` lastError after a forced settings rename failure |
+| P1-4 bare repositories pass the worktree check | `validateRepository` now requires `git rev-parse --is-inside-work-tree` stdout to equal exactly `true` (bare repos exit 0 printing `false`), checks the path is a directory, and keeps the HEAD check | `config.test.ts` — bare repo → `NOT_GIT_WORKTREE`; plain file/missing path → `PATH_UNREADABLE`; valid worktree accepted |
+| P1-5 packaged mode trusts any `file:` frame | `command-router` rejects IPC when `event.senderFrame !== event.sender.mainFrame` before associating the sender with a `BrowserWindow`/picker | `command-router.ts` guard; `security.test.ts` continues to gate trusted origins |
+| P2-6 extra frozen-contract export | removed `export type WorkspaceChooseResult` (PROPOSAL-027A authorizes only the five inferred types); `workspaceChooseResultSchema` remains for the command envelope; Main types the result inline | `packages/contracts/src/command.ts`; no `WorkspaceChooseResult` references remain |
+
+Also strengthened the test-picker strict parsing tests (exact `__CANCEL__` sentinel, no
+trimming; whitespace value is treated as a path, never cancel).
+
 ## Main-internal route dependency addendum (PR description)
 
 1. `handleCommand(routes, payload, context?)` — carries the requesting `BrowserWindow` for
    picker binding (replaces sender-inference).
 2. `buildRoutes({ manager })` — project/execution commands resolve the current `READY` runtime
-   via `manager.getReadyRuntime()` at invocation time (replaces fixed nullable `workspace`/`coordinator`).
-3. **Atomic run lease** — `manager.withActiveRun(run)` increments the run counter synchronously
-   before the first `await` and releases in `try/finally`; `execution.dispatch` goes through it,
-   `execution.cancel` does not (callable during an active run).
+   through manager leases at invocation time (replaces fixed nullable `workspace`/`coordinator`).
+3. **Atomic run lease + general READY-runtime lease** — `manager.withActiveRun(run)` increments
+   the run counter synchronously before the first `await` and releases in `try/finally`;
+   `execution.dispatch` goes through it, `execution.cancel` does not (callable during an active
+   run). Every `workspaceRoute` command runs under `manager.withReadyRuntime(...)`; `close`/switch
+   wait for in-flight leases before disposing. `acquireLease` checks `getReadyRuntime()` and
+   increments in one synchronous step, so there is no check-then-acquire race.
 4. Test-picker seam — `CANVAS_AGENT_TEST_PICKER` (path or `__CANCEL__`, strictly parsed) is
    honored only when `CANVAS_AGENT_E2E=1` **and** an isolated `CANVAS_AGENT_USER_DATA` is set;
    the value never reaches IPC payload, Preload API or Renderer. Also `workerHostFactory` option

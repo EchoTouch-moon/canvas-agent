@@ -34,13 +34,10 @@ export function buildRoutes(deps: CommandDeps): Record<string, CommandRoute> {
     run: (workspace: WorkspaceService, payload: CommandInput<K>) => unknown
   ): void => {
     routes[name] = {
-      execute: async (payload: unknown) => {
-        const runtime = deps.manager.getReadyRuntime()
-        if (!runtime) {
-          throw new WorkspaceUnavailableError('Workspace is not READY')
-        }
-        return run(runtime.workspace, payload as CommandInput<K>)
-      }
+      execute: async (payload: unknown) =>
+        deps.manager.withReadyRuntime(async (runtime) =>
+          run(runtime.workspace, payload as CommandInput<K>)
+        )
     }
   }
 

@@ -17,10 +17,16 @@ describe('EnvRepositoryPicker (E2E seam)', () => {
     })
   })
 
-  it('treats the exact cancel sentinel as cancellation', async () => {
+  it('treats the exact cancel sentinel as cancellation (strict, no trimming)', async () => {
     process.env['CANVAS_AGENT_TEST_PICKER'] = PICKER_CANCEL
     const picker = new EnvRepositoryPicker()
     await expect(picker.pick(undefined)).resolves.toEqual({ cancelled: true, path: null })
+
+    process.env['CANVAS_AGENT_TEST_PICKER'] = ` ${PICKER_CANCEL} `
+    await expect(picker.pick(undefined)).resolves.toEqual({
+      cancelled: false,
+      path: ` ${PICKER_CANCEL} `
+    })
   })
 
   it('treats an unset or empty value as cancellation', async () => {
@@ -28,6 +34,8 @@ describe('EnvRepositoryPicker (E2E seam)', () => {
     await expect(picker.pick(undefined)).resolves.toEqual({ cancelled: true, path: null })
     process.env['CANVAS_AGENT_TEST_PICKER'] = ''
     await expect(picker.pick(undefined)).resolves.toEqual({ cancelled: true, path: null })
+    process.env['CANVAS_AGENT_TEST_PICKER'] = '   '
+    await expect(picker.pick(undefined)).resolves.toEqual({ cancelled: false, path: '   ' })
   })
 
   it('is only enabled when both E2E mode and an isolated userData are present', () => {

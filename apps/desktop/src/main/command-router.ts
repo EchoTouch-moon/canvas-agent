@@ -10,6 +10,9 @@ export function registerCommandRouter(deps: CommandDeps): void {
     if (!isTrustedSender(event.senderFrame)) {
       throw new Error('Rejected IPC request from an untrusted renderer')
     }
+    if (event.senderFrame !== event.sender.mainFrame) {
+      throw new Error('Rejected IPC request from a non-main renderer frame')
+    }
     const window = BrowserWindow.fromWebContents(event.sender)
     return handleCommand(routes, payload, { window: window ?? undefined })
   })

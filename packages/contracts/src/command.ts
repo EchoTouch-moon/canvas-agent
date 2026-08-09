@@ -794,7 +794,6 @@ export const workspaceChooseResultSchema = z
     status: workspaceRuntimeStatusSchema
   })
   .strict()
-export type WorkspaceChooseResult = z.infer<typeof workspaceChooseResultSchema>
 
 // --- Command map ------------------------------------------------------------
 

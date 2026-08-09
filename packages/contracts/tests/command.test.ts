@@ -556,7 +556,6 @@ describe('result adoption commands', () => {
   })
 
   describe('workspace commands (PROPOSAL-027A)', () => {
-    const COMMAND = 'b'.repeat(40)
     const STATUS = {
       state: 'READY',
       activeWorkspace: {
@@ -689,8 +688,7 @@ describe('result adoption commands', () => {
       ).toThrow()
     })
 
-    it('keeps the Preload desktop API surface unchanged (no new method)', () => {
-      void COMMAND
+    it('round-trips the workspace summary and operation error inferred types', () => {
       expect(workspaceSummarySchema.parse(STATUS.activeWorkspace)).toEqual(STATUS.activeWorkspace)
       expect(workspaceOperationErrorSchema.parse(ERRORED.lastError)).toEqual(ERRORED.lastError)
     })

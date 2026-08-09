@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, realpath, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,9 +8,20 @@ import type { WorkspaceRuntimeStatus } from '@canvas-agent/contracts'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager'
 import { workspaceIdentity, workspaceStorageRoots } from './workspace-storage'
 import { InProcessWorkerHost } from './testing/in-process-worker-host'
+import { WorkspaceUnavailableError } from './command-errors'
 import type { WorkerHost } from './worker-host'
 import { cleanupTempDirs, createTempGitRepo, git, trackTempDir } from './testing/git-fixture'
 import type { RepositoryPicker } from './repository-picker'
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
+  const started = Date.now()
+  while (!predicate()) {
+    if (Date.now() - started > timeoutMs) {
+      throw new Error('waitUntil timed out')
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+}
 
 class RecordingWorkerHost implements WorkerHost {
   disposed = 0
@@ -346,5 +357,90 @@ describe('WorkspaceRuntimeManager', () => {
     const status = await again.manager.openPath(repo)
     expect(status.state).toBe('READY')
     await again.manager.close()
+  })
+
+  it('blocks new run/command leases while a switch is OPENING (opposite-order race)', async () => {
+    const repoA = await createTempGitRepo()
+    const repoB = await createTempGitRepo()
+    const canonicalB = await realpath(repoB)
+    let releaseDispose!: () => void
+    const disposeGate = new Promise<void>((resolve) => {
+      releaseDispose = resolve
+    })
+    const { manager } = await makeManager({
+      repo: repoA,
+      workerHost: () => ({
+        dispatch: async () => {
+          throw new Error('unused')
+        },
+        cancel: async () => false,
+        dispose: () => disposeGate
+      })
+    })
+    await manager.openPath(repoA)
+
+    const switching = manager.openPath(repoB)
+    await waitUntil(() => manager.status().state === 'OPENING')
+    await expect(
+      manager.withActiveRun(async () => {
+        throw new Error('should not run')
+      })
+    ).rejects.toThrow(WorkspaceUnavailableError)
+    await expect(
+      manager.withReadyRuntime(async () => {
+        throw new Error('should not run')
+      })
+    ).rejects.toThrow(WorkspaceUnavailableError)
+
+    releaseDispose()
+    const status = await switching
+    expect(status.state).toBe('READY')
+    expect(status.activeWorkspace?.displayPath).toBe(canonicalB)
+    await manager.close()
+  })
+
+  it('close waits for in-flight workspace commands to release their runtime lease', async () => {
+    const repo = await createTempGitRepo()
+    let releaseCmd!: () => void
+    const cmdGate = new Promise<void>((resolve) => {
+      releaseCmd = resolve
+    })
+    const { manager } = await makeManager({ repo })
+    await manager.openPath(repo)
+
+    const command = manager.withReadyRuntime(async () => {
+      await cmdGate
+      return 'done'
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    const closing = manager.close()
+    await waitUntil(() => manager.status().state === 'CLOSING')
+
+    releaseCmd()
+    expect(await command).toBe('done')
+    const closed = await closing
+    expect(closed.state).toBe('CLOSED')
+  })
+
+  it('a settings write failure rolls the open back and preserves the held runtime', async () => {
+    const repoA = await createTempGitRepo()
+    const repoB = await createTempGitRepo()
+    const canonicalA = await realpath(repoA)
+    const { manager, userData } = await makeManager({ repo: repoA })
+    await manager.openPath(repoA)
+
+    const settingsPath = join(userData, 'settings-v1.json')
+    await rm(settingsPath, { force: true })
+    await mkdir(settingsPath)
+
+    const status = await manager.openPath(repoB)
+    expect(status.state).toBe('READY')
+    expect(status.activeWorkspace?.displayPath).toBe(canonicalA)
+    expect(status.lastError?.reasonCode).toBe('UNKNOWN')
+    expect(manager.getReadyRuntime()?.repositoryPath).toBe(canonicalA)
+
+    await rm(settingsPath, { recursive: true, force: true })
+    const closed = await manager.close()
+    expect(closed.state).toBe('CLOSED')
   })
 })
