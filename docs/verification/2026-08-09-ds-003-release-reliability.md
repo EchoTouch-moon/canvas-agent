@@ -20,7 +20,7 @@ v24.15.0
 
 | # | Requirement | Evidence | Status |
 |---|---|---|---|
-| 1 | Worker uses the injected logical wall clock for expiry; budgets/timeouts retain an independent monotonic source | `packages/worker-runtime/src/worker.ts`: `validateExecutionRequest(..., { now: Date.parse(now()) })`; budget `startedAt`/`remaining` remain `Date.now()`-based (unchanged). Frozen-clock budget test proves budgets still advance | **PASS** |
+| 1 | Worker uses the injected logical wall clock for expiry; budgets/timeouts retain an independent monotonic source | `packages/worker-runtime/src/worker.ts`: `validateExecutionRequest(..., { now: Date.parse(now()) })`; budget `startedAt`/`remaining` use `performance.now()` (monotonic, immune to wall-clock rollback). Frozen-clock budget test proves budgets still advance | **PASS** |
 | 2 | Boundary tests: valid-before-expiry, equal-to-expiry, deterministic integration | `validation.test.ts` (logical clock 1ms before `expiresAt` → SUCCEEDED; clock == `expiresAt` → VALIDATION_REJECTED); `execution-coordinator.test.ts` passes frozen Main clock into the in-process Worker | **PASS** |
 | 3 | A request at or past `expiresAt` is still rejected | equal-to-expiry + pre-existing past-expiry (2020) tests reject with no worktree | **PASS** |
 | 4 | Freezing the logical wall clock cannot freeze elapsed budget/timeout | `worker.test.ts` "a frozen logical wall clock cannot freeze the elapsed budget" (frozen ISO clock + 100ms agent step + 1ms budget → `PARTIAL` "budget exceeded"); existing 600ms timeout test still passes | **PASS** |
@@ -36,7 +36,7 @@ v24.15.0
 - **Request creation:** `apps/desktop/src/main/execution-coordinator.ts` `expiresAt = Date.parse(services.now()) + 24h`. Production `defaultServices` uses the real wall clock.
 - **Request validation:** `packages/worker-runtime/src/worker.ts` injects the Worker's own `config.now` (default real clock, ISO) into `validateExecutionRequest`.
 - **Business timestamps:** Worker recovery metadata (`startedAt`, `interruptedAt`) continue to use `config.now`.
-- **Elapsed budgets/timeouts:** independent `Date.now()`/monotonic source — unchanged and covered by a frozen-clock regression test.
+- **Elapsed budgets/timeouts:** independent monotonic `performance.now()` source, immune to wall-clock rollback; covered by a frozen-clock regression test.
 
 ## Builder mapping
 
