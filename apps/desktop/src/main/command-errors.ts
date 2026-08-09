@@ -21,6 +21,10 @@ export class WorkspaceUnavailableError extends Error {
   override readonly name = 'WorkspaceUnavailableError'
 }
 
+export class AgentNotReadyError extends Error {
+  override readonly name = 'AgentNotReadyError'
+}
+
 export function mapCommandError(error: unknown): CommandError {
   if (error instanceof ConcurrencyError) {
     return { name: 'ConcurrencyError', message: error.message }
@@ -63,6 +67,9 @@ export function mapCommandError(error: unknown): CommandError {
     }
   }
   if (error instanceof WorkspaceUnavailableError) {
+    return { name: 'HostUnavailableError', message: error.message }
+  }
+  if (error instanceof AgentNotReadyError) {
     return { name: 'HostUnavailableError', message: error.message }
   }
   if (error instanceof Error) {

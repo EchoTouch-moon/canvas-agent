@@ -43,7 +43,8 @@ describe('worker host protocol', () => {
         protocolVersion: 1,
         type: 'init',
         sourceRepositoryPath: '/repo',
-        runtimeDirectory: '/runtime'
+        runtimeDirectory: '/runtime',
+        agentLaunchPlan: null
       })
     ).not.toThrow()
     expect(() =>

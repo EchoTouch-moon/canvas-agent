@@ -8,7 +8,7 @@ import {
   type CommandResponse,
   type WorkspaceCommand
 } from '@canvas-agent/contracts'
-import { mapCommandError, WorkspaceUnavailableError } from './command-errors'
+import { AgentNotReadyError, mapCommandError, WorkspaceUnavailableError } from './command-errors'
 import type { WorkspaceService } from './workspace-service'
 import type { WorkspaceRuntimeManager } from './workspace-runtime-manager'
 import type { AgentRuntimeLocator } from './agent-runtime-locator'
@@ -70,9 +70,16 @@ export function buildRoutes(deps: CommandDeps): Record<string, CommandRoute> {
 
   routes['execution.dispatch'] = {
     execute: (payload: unknown) =>
-      deps.manager.withActiveRun((runtime) =>
-        runtime.coordinator.dispatch(payload as CommandInput<'execution.dispatch'>)
-      )
+      deps.manager.withActiveRun(async (runtime) => {
+        // Main Agent READY gate inside the atomic run lease: mutually exclusive
+        // with executable changes (withConfigurationChange) and checked before
+        // createDispatchedRun, so a non-READY Agent never starts a Run.
+        const agentStatus = await deps.agent.status()
+        if (agentStatus.state !== 'READY') {
+          throw new AgentNotReadyError(`AGENT_NOT_READY: codex runtime is ${agentStatus.state}`)
+        }
+        return runtime.coordinator.dispatch(payload as CommandInput<'execution.dispatch'>)
+      })
   }
 
   // cancel is callable during an active run and must not acquire a new run lease.

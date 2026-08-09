@@ -76,6 +76,18 @@ export interface AgentRuntimeLocatorOptions {
   knownLocations?: readonly string[]
 }
 
+/**
+ * Main-internal trusted launch plan (never derived from the renderer-facing
+ * displayPath): the absolute validated launcher path plus the bounded
+ * PATH/HOME allowlist used by the Worker to spawn the Codex adapter.
+ */
+export interface AgentLaunchPlan {
+  schemaVersion: 1
+  provider: 'codex-cli'
+  executable: string
+  environment: { PATH: string; HOME: string }
+}
+
 type ProbeOutcome =
   | { kind: 'ok'; exitCode: number | null; stdout: string; stderr: string }
   | { kind: 'timeout' }
@@ -127,10 +139,15 @@ function informativeScore(status: AgentRuntimeStatus): number {
 
 export class AgentRuntimeLocator {
   private statusCache: AgentRuntimeStatus | null = null
+  private launchPlan: AgentLaunchPlan | null = null
   private readonly settings: AgentSettingsStore
 
   constructor(private readonly options: AgentRuntimeLocatorOptions) {
     this.settings = new AgentSettingsStore(options.userData)
+  }
+
+  getLaunchPlan(): AgentLaunchPlan | null {
+    return this.launchPlan
   }
 
   async status(): Promise<AgentRuntimeStatus> {
@@ -188,6 +205,7 @@ export class AgentRuntimeLocator {
         }
       }
       this.statusCache = candidate
+      this.syncLaunchPlan(candidate)
       return candidate
     })
     if (!gated.ok) {
@@ -263,6 +281,7 @@ export class AgentRuntimeLocator {
     for (const candidate of candidates) {
       const status = await candidate()
       if (status.state === 'READY' || status.state === 'AUTH_REQUIRED') {
+        this.syncLaunchPlan(status)
         return status
       }
       if (
@@ -272,7 +291,25 @@ export class AgentRuntimeLocator {
         best = status
       }
     }
+    this.launchPlan = null
     return best ?? errorStatus('EXECUTABLE_NOT_FOUND', null, null, null)
+  }
+
+  private syncLaunchPlan(status: AgentRuntimeStatus): void {
+    if (status.state === 'READY' && status.displayPath !== null) {
+      this.launchPlan = {
+        schemaVersion: 1,
+        provider: 'codex-cli',
+        executable: status.displayPath,
+        environment: {
+          PATH: this.options.environment['PATH'] ?? '',
+          HOME: this.options.environment['HOME'] ?? ''
+        }
+      }
+    } else {
+      // AUTH_REQUIRED / NOT_FOUND / errors never produce a dispatchable plan.
+      this.launchPlan = null
+    }
   }
 
   private async probeCandidate(

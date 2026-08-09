@@ -18,6 +18,7 @@ import { WorkspaceUnavailableError } from './command-errors'
 import { SettingsWriteError, WorkspaceSettingsStore } from './workspace-settings'
 import { repositoryName, workspaceIdentity, workspaceStorageRoots } from './workspace-storage'
 import type { RepositoryPicker } from './repository-picker'
+import type { AgentLaunchPlan } from './agent-runtime-locator'
 
 export interface ActiveWorkspaceRuntime {
   readonly identity: string
@@ -35,6 +36,7 @@ export interface WorkspaceRuntimeManagerOptions {
   migrationsFolder?: string
   bootstrapPath: string | null
   workerHostFactory?: (appConfig: AppConfig) => WorkerHost
+  agentLaunchPlanProvider?: () => AgentLaunchPlan | null
 }
 
 type RuntimeState =
@@ -328,7 +330,9 @@ export class WorkspaceRuntimeManager {
       workerHost =
         this.options.workerHostFactory !== undefined
           ? this.options.workerHostFactory(appConfig)
-          : new UtilityProcessWorkerHost(appConfig)
+          : new UtilityProcessWorkerHost(appConfig, undefined, {
+              agentLaunchPlanProvider: this.options.agentLaunchPlanProvider ?? (() => null)
+            })
       const coordinator = new ExecutionCoordinator(persistence, workerHost, roots.runtimeDirectory)
       const candidate: ActiveWorkspaceRuntime = {
         identity,

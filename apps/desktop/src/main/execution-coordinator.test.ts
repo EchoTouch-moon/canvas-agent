@@ -25,6 +25,7 @@ import type { DispatchResult, ExecutionRequestContract } from '@canvas-agent/con
 import { computeRequestHash } from '@canvas-agent/worker-runtime'
 import { ExecutionCoordinator } from './execution-coordinator'
 import { InProcessWorkerHost } from './testing/in-process-worker-host'
+import { FAKE_CODEX_SUCCESS_EXEC, writeFakeCodex } from './testing/fake-codex'
 import type { WorkerHost } from './worker-host'
 import {
   cleanupTempDirs,
@@ -150,7 +151,7 @@ describe('ExecutionCoordinator', () => {
     expect(request.expectedRepositoryRevision.baseCommit).toBe('a'.repeat(40))
     expect(request.requiredCapabilities).toEqual(['git', 'node'])
     expect(request.toolPolicy.allowNetwork).toBe(false)
-    expect(request.resourceBudget.maxDurationMs).toBe(30_000)
+    expect(request.resourceBudget.maxDurationMs).toBe(900_000)
     expect(request.workspaceStrategy).toBe('ISOLATED_WORKTREE')
     const { requestHash: _hash, ...rest } = request
     void _hash
@@ -361,12 +362,14 @@ describe('ExecutionCoordinator', () => {
     await git(repoDir, ['commit', '-am', 'post-freeze change'])
 
     const svc = services()
+    const fakeCodex = await writeFakeCodex({ execBody: FAKE_CODEX_SUCCESS_EXEC })
     const worker = new InProcessWorkerHost(
       {
         sourceRepositoryPath: repoDir,
         runtimeDirectory: runtimeDir
       },
-      svc.now
+      svc.now,
+      fakeCodex
     )
     const coordinator = new ExecutionCoordinator(p, worker, runtimeDir, svc)
 
@@ -387,12 +390,14 @@ describe('ExecutionCoordinator', () => {
     const { snapshotId } = await frozenSetup(p, repoDir)
 
     const svc = services()
+    const fakeCodex = await writeFakeCodex({ execBody: FAKE_CODEX_SUCCESS_EXEC })
     const worker = new InProcessWorkerHost(
       {
         sourceRepositoryPath: repoDir,
         runtimeDirectory: runtimeDir
       },
-      svc.now
+      svc.now,
+      fakeCodex
     )
     const coordinator = new ExecutionCoordinator(p, worker, runtimeDir, svc)
 

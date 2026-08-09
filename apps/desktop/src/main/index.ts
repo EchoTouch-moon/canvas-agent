@@ -97,32 +97,10 @@ app.whenReady().then(async () => {
   })
 
   // Composition root: one Main-owned WorkspaceRuntimeManager.
-  let manager: WorkspaceRuntimeManager
-  try {
-    const migrationFolder = resolveMigrationFolder({
-      mode: app.isPackaged ? 'packaged' : 'source',
-      appPath: app.getAppPath(),
-      resourcesPath: process.resourcesPath
-    })
-    const picker = pickerFromEnvironment() ?? new NativeDirectoryPicker()
-    manager = new WorkspaceRuntimeManager({
-      userData: app.getPath('userData'),
-      picker,
-      migrationsFolder: migrationFolder,
-      bootstrapPath: process.env['CANVAS_AGENT_REPO'] ?? null
-    })
-  } catch (error) {
-    if (error instanceof MigrationFolderNotFoundError && app.isPackaged) {
-      console.error(`[workspace] FATAL: ${error.message}`)
-      app.exit(1)
-      return
-    }
-    throw error
-  }
-
   const probePath = [process.env['PATH'], '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
     .filter((entry): entry is string => entry !== undefined && entry.length > 0)
     .join(':')
+  let manager: WorkspaceRuntimeManager
   const agent = new AgentRuntimeLocator({
     userData: app.getPath('userData'),
     homePath: app.getPath('home'),
@@ -134,6 +112,28 @@ app.whenReady().then(async () => {
     isChangeBlocked: () => manager.hasActiveRuns(),
     configurationGate: (fn) => manager.withConfigurationChange(fn)
   })
+  try {
+    const migrationFolder = resolveMigrationFolder({
+      mode: app.isPackaged ? 'packaged' : 'source',
+      appPath: app.getAppPath(),
+      resourcesPath: process.resourcesPath
+    })
+    const picker = pickerFromEnvironment() ?? new NativeDirectoryPicker()
+    manager = new WorkspaceRuntimeManager({
+      userData: app.getPath('userData'),
+      picker,
+      migrationsFolder: migrationFolder,
+      bootstrapPath: process.env['CANVAS_AGENT_REPO'] ?? null,
+      agentLaunchPlanProvider: () => agent.getLaunchPlan()
+    })
+  } catch (error) {
+    if (error instanceof MigrationFolderNotFoundError && app.isPackaged) {
+      console.error(`[workspace] FATAL: ${error.message}`)
+      app.exit(1)
+      return
+    }
+    throw error
+  }
 
   const startupStatus = await manager.startup()
   if (startupStatus.state !== 'CLOSED' && startupStatus.lastError !== null) {

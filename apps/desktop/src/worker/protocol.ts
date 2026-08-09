@@ -5,13 +5,33 @@ const messageIdSchema = z.string().min(1)
 const executionIdSchema = z.string().min(1)
 const protocolVersionSchema = z.literal(1)
 
+// Main-internal trusted Agent launch plan (PROPOSAL-028B/DS-005B). The
+// environment allowlist accepts only PATH/HOME and rejects any extra key; the
+// executable is the absolute validated launcher path from the locator's private
+// state, never a renderer-supplied value.
+export const agentLaunchPlanSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    provider: z.literal('codex-cli'),
+    executable: z.string().min(1),
+    environment: z
+      .object({
+        PATH: z.string().min(1),
+        HOME: z.string().min(1)
+      })
+      .strict()
+  })
+  .strict()
+export type AgentLaunchPlanContract = z.infer<typeof agentLaunchPlanSchema>
+
 export const workerHostRequestSchema = z.discriminatedUnion('type', [
   z
     .object({
       protocolVersion: protocolVersionSchema,
       type: z.literal('init'),
       sourceRepositoryPath: z.string().min(1),
-      runtimeDirectory: z.string().min(1)
+      runtimeDirectory: z.string().min(1),
+      agentLaunchPlan: agentLaunchPlanSchema.nullable()
     })
     .strict(),
   z

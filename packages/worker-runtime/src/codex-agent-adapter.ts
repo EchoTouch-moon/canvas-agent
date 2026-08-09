@@ -30,13 +30,6 @@ export interface CodexAgentAdapterOptions {
 const VERSION_PROBE_TIMEOUT_MS = 5_000
 const VERSION_PROBE_OUTPUT_BYTES = 16 * 1024
 
-const KNOWN_TOOL_ITEM_TYPES = new Set([
-  'command_execution',
-  'file_change',
-  'mcp_tool_call',
-  'collab_tool_call',
-  'web_search'
-])
 const KNOWN_NON_TOOL_ITEM_TYPES = new Set(['agent_message', 'reasoning', 'todo_list', 'error'])
 
 export interface CodexTransportDiagnostics {

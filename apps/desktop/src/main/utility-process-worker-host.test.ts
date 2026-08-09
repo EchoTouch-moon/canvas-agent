@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ExecutionRequestContract } from '@canvas-agent/contracts'
 import { HostUnavailableError } from './command-errors'
+import type { AgentLaunchPlan } from './agent-runtime-locator'
 import { UtilityProcessWorkerHost, type UtilityProcessLike } from './utility-process-worker-host'
 
 function request(id: string): ExecutionRequestContract {
@@ -349,5 +350,143 @@ describe('UtilityProcessWorkerHost', () => {
     await dispose
     expect(child.killed).toBe(true)
     await expect(host.dispatch(request('exec-3'))).rejects.toThrow(HostUnavailableError)
+  })
+
+  function dispatchFrame(child: FakeChild, executionRequestId: string): { messageId: string } {
+    const frame = (
+      child.posted as Array<{ type: string; messageId: string; executionRequestId: string }>
+    ).find((f) => f.type === 'dispatch' && f.executionRequestId === executionRequestId)
+    if (frame === undefined) throw new Error(`no dispatch frame for ${executionRequestId}`)
+    return frame
+  }
+
+  function complete(child: FakeChild, executionRequestId: string): void {
+    const frame = dispatchFrame(child, executionRequestId)
+    child.emitMessage({
+      protocolVersion: 1,
+      type: 'dispatch:result',
+      messageId: frame.messageId,
+      executionRequestId,
+      result: { outcome: 'SUCCEEDED', claimGranted: true }
+    })
+  }
+
+  it('restarts the Utility Process when the launcher plan changes (A -> B)', async () => {
+    let plan: AgentLaunchPlan | null = {
+      schemaVersion: 1,
+      provider: 'codex-cli',
+      executable: '/bin/codex-a',
+      environment: { PATH: '/a', HOME: '/h' }
+    }
+    const children: FakeChild[] = []
+    const host = new UtilityProcessWorkerHost(
+      CONFIG,
+      () => {
+        const child = new FakeChild()
+        children.push(child)
+        return child
+      },
+      { agentLaunchPlanProvider: () => plan }
+    )
+
+    const first = host.dispatch(request('exec-1'))
+    expect(children).toHaveLength(1)
+    children[0]!.emitMessage({ protocolVersion: 1, type: 'init:ack' })
+    await flush()
+    complete(children[0]!, 'exec-1')
+    await first
+
+    plan = {
+      schemaVersion: 1,
+      provider: 'codex-cli',
+      executable: '/bin/codex-b',
+      environment: { PATH: '/b', HOME: '/h' }
+    }
+    const second = host.dispatch(request('exec-2'))
+    children[0]!.emitMessage({ protocolVersion: 1, type: 'dispose:ack' })
+    await flush()
+    expect(children[0]!.killed).toBe(true)
+    expect(children).toHaveLength(2)
+    const initB = (children[1]!.posted as Array<{ type: string; agentLaunchPlan: unknown }>).find(
+      (f) => f.type === 'init'
+    )
+    expect(initB?.agentLaunchPlan).toMatchObject({ executable: '/bin/codex-b' })
+    children[1]!.emitMessage({ protocolVersion: 1, type: 'init:ack' })
+    await flush()
+    complete(children[1]!, 'exec-2')
+    await second
+    expect(children[1]!.killed).toBe(false)
+  })
+
+  it('re-inits with a null launch plan after clear (never reuses the old launcher)', async () => {
+    let plan: AgentLaunchPlan | null = {
+      schemaVersion: 1,
+      provider: 'codex-cli',
+      executable: '/bin/codex-a',
+      environment: { PATH: '/a', HOME: '/h' }
+    }
+    const children: FakeChild[] = []
+    const host = new UtilityProcessWorkerHost(
+      CONFIG,
+      () => {
+        const child = new FakeChild()
+        children.push(child)
+        return child
+      },
+      { agentLaunchPlanProvider: () => plan }
+    )
+
+    const first = host.dispatch(request('exec-1'))
+    children[0]!.emitMessage({ protocolVersion: 1, type: 'init:ack' })
+    await flush()
+    complete(children[0]!, 'exec-1')
+    await first
+
+    plan = null
+    const second = host.dispatch(request('exec-2'))
+    children[0]!.emitMessage({ protocolVersion: 1, type: 'dispose:ack' })
+    await flush()
+    expect(children[0]!.killed).toBe(true)
+    expect(children).toHaveLength(2)
+    const initB = (children[1]!.posted as Array<{ type: string; agentLaunchPlan: unknown }>).find(
+      (f) => f.type === 'init'
+    )
+    expect(initB?.agentLaunchPlan).toBeNull()
+    children[1]!.emitMessage({ protocolVersion: 1, type: 'init:ack' })
+    await flush()
+    complete(children[1]!, 'exec-2')
+    await second
+  })
+
+  it('does not restart when the launcher plan fingerprint is unchanged', async () => {
+    const plan: AgentLaunchPlan = {
+      schemaVersion: 1,
+      provider: 'codex-cli',
+      executable: '/bin/codex-a',
+      environment: { PATH: '/a', HOME: '/h' }
+    }
+    const children: FakeChild[] = []
+    const host = new UtilityProcessWorkerHost(
+      CONFIG,
+      () => {
+        const child = new FakeChild()
+        children.push(child)
+        return child
+      },
+      { agentLaunchPlanProvider: () => plan }
+    )
+
+    const first = host.dispatch(request('exec-1'))
+    children[0]!.emitMessage({ protocolVersion: 1, type: 'init:ack' })
+    await flush()
+    complete(children[0]!, 'exec-1')
+    await first
+
+    const second = host.dispatch(request('exec-2'))
+    expect(children).toHaveLength(1)
+    expect(children[0]!.killed).toBe(false)
+    await flush()
+    complete(children[0]!, 'exec-2')
+    await second
   })
 })

@@ -260,7 +260,6 @@ export function createWorker(config: WorkerConfig): Worker {
     let repositoryStateViolation = false
     if (outcome !== 'CANCELLED') {
       const violation = await verifyWorktreeRepositoryState(
-        worktreePath,
         request.expectedRepositoryRevision.baseCommit,
         gitOptions(worktreePath, signal)
       )
@@ -523,7 +522,6 @@ function describe(error: unknown): string {
 }
 
 async function verifyWorktreeRepositoryState(
-  worktreePath: string,
   baseCommit: string,
   gitOptions: GitRunOptions
 ): Promise<string | null> {
