@@ -83,9 +83,7 @@ async function firstLaunch(repo, home, fakeCodexDir) {
       await getStarted.first().click()
       await page.waitForTimeout(500)
     }
-    await page.getByRole('button', { name: 'Live workspace' }).waitFor({ timeout: 15000 })
-    await page.getByRole('button', { name: 'Live workspace' }).click()
-    await page.getByText('MUSICDB Demo').waitFor({ timeout: 15000 })
+    await page.getByText('MUSICDB Demo', { exact: true }).last().waitFor({ timeout: 15000 })
     step('A project hydration', true)
 
     await page.getByText('Task instruction · spec_demo_1').waitFor({ timeout: 5000 })
@@ -148,9 +146,7 @@ async function secondLaunch(repo, home, fakeCodexDir) {
       await getStarted.first().click()
       await page.waitForTimeout(500)
     }
-    await page.getByRole('button', { name: 'Live workspace' }).waitFor({ timeout: 15000 })
-    await page.getByRole('button', { name: 'Live workspace' }).click()
-    await page.getByText('MUSICDB Demo').waitFor({ timeout: 15000 })
+    await page.getByText('MUSICDB Demo', { exact: true }).last().waitFor({ timeout: 15000 })
 
     // Persisted run history must survive the restart: run.list shows the run
     // created by launch A, and run.get returns its events + patch artifact.

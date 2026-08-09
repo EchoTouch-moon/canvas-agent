@@ -341,6 +341,39 @@ describe('PROPOSAL-029 pure onboarding orchestration', () => {
     }
   )
 
+  it('does not mistake a post-task candidate Baseline for the initial onboarding draft', async () => {
+    const current = await advanceToTaskReady(new OnboardingTransport().client())
+    const workspace = current.workspace
+    const activeAggregate = workspace?.baselines.find(
+      (aggregate) => aggregate.baseline.status === 'ACTIVE'
+    )
+    if (workspace === null || activeAggregate === undefined) {
+      throw new Error('Expected a task-ready workspace with an ACTIVE Baseline')
+    }
+    const candidate: ProjectStateView['baselines'][number] = {
+      baseline: {
+        ...activeAggregate.baseline,
+        id: 'baseline-candidate',
+        status: 'DRAFT',
+        activatedAt: null,
+        createdAt: '2026-08-10T01:00:00.000Z',
+        updatedAt: '2026-08-10T01:00:00.000Z'
+      },
+      items: activeAggregate.items.map((item) => ({
+        ...item,
+        id: `candidate-${item.id}`,
+        baselineId: 'baseline-candidate'
+      }))
+    }
+
+    expect(
+      deriveProductSetupState(
+        { ...workspace, baselines: [...workspace.baselines, candidate] },
+        cleanRevision
+      )
+    ).toMatchObject({ kind: 'TASK_READY', taskId: 'task-1' })
+  })
+
   it('surfaces the dirty overlay, blocks initial Baseline creation, and requires all dispatch facts', async () => {
     const dirtyRevision = { ...cleanRevision, workingTreePatchHash: 'e'.repeat(64) }
     const transport = new OnboardingTransport(new Set(), dirtyRevision)

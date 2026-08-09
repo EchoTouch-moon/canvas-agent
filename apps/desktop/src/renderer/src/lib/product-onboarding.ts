@@ -217,32 +217,31 @@ function stateWithoutDirtyOverlay(
   }
 
   const charterVersion = completedGoals[0]!.version
-  const drafts = workspace.baselines.filter((aggregate) => aggregate.baseline.status === 'DRAFT')
-  if (drafts.length > 1) {
-    return {
-      kind: 'BASELINE_DRAFT_REVIEW',
-      projectId: workspace.project.id,
-      baselineId: drafts[0]!.baseline.id,
-      ambiguity: {
-        kind: 'BASELINE',
-        ids: drafts.map((aggregate) => aggregate.baseline.id),
-        message: 'More than one DRAFT Baseline requires an explicit user choice.'
-      }
-    }
-  }
-  const draft = firstBaselineByStatus(workspace, 'DRAFT')
-  if (draft !== null) {
-    return {
-      kind: 'BASELINE_DRAFT_REVIEW',
-      projectId: workspace.project.id,
-      baselineId: draft.baseline.id,
-      ambiguity: null
-    }
-  }
-
   const activeBaseline =
     workspace.activeBaseline ?? firstBaselineByStatus(workspace, 'ACTIVE')?.baseline ?? null
   if (activeBaseline === null) {
+    const drafts = workspace.baselines.filter((aggregate) => aggregate.baseline.status === 'DRAFT')
+    if (drafts.length > 1) {
+      return {
+        kind: 'BASELINE_DRAFT_REVIEW',
+        projectId: workspace.project.id,
+        baselineId: drafts[0]!.baseline.id,
+        ambiguity: {
+          kind: 'BASELINE',
+          ids: drafts.map((aggregate) => aggregate.baseline.id),
+          message: 'More than one initial DRAFT Baseline requires an explicit user choice.'
+        }
+      }
+    }
+    const draft = firstBaselineByStatus(workspace, 'DRAFT')
+    if (draft !== null) {
+      return {
+        kind: 'BASELINE_DRAFT_REVIEW',
+        projectId: workspace.project.id,
+        baselineId: draft.baseline.id,
+        ambiguity: null
+      }
+    }
     return {
       kind: 'PROJECT_NEEDS_BASELINE_DRAFT',
       projectId: workspace.project.id,
