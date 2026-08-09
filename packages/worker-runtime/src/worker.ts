@@ -1,12 +1,20 @@
 import { performance } from 'node:perf_hooks'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { ExecutionRequestContract } from '@canvas-agent/contracts'
 import type { ClaimStore } from './claim'
 import { createInMemoryClaimStore } from './claim'
-import type { AgentAdapter } from './agent-adapter'
-import { BudgetExceededError, CancelledError, RevisionMismatchError } from './errors'
+import type { AgentAdapter, AgentArtifact } from './agent-adapter'
+import {
+  AGENT_EXECUTABLE_NOT_FOUND,
+  AGENT_POLICY_REJECTED,
+  BudgetExceededError,
+  CancelledError,
+  EXECUTION_CONTEXT_REQUIRED,
+  RevisionMismatchError
+} from './errors'
 import { runCommand } from './process-runner'
-import { ISOLATED_GIT_ENV, verifyRepositoryRevision, type GitRunOptions } from './revision'
+import { ISOLATED_GIT_ENV, runGitCommand, verifyRepositoryRevision, type GitRunOptions } from './revision'
 import { sha256Hex, validateExecutionRequest, DIRTY_REPOSITORY_EXECUTION_UNSUPPORTED } from './validation'
 import { createIsolatedWorktree, exportWorktreePatch, removeWorktree } from './worktree'
 import type {
@@ -25,7 +33,8 @@ export interface WorkerConfig {
   claimStore?: ClaimStore
   commandAllowlist: readonly string[]
   verificationCommands: readonly (readonly string[])[]
-  agent: AgentAdapter
+  agent?: AgentAdapter
+  codexAdapter?: AgentAdapter
   now?: () => string
   maxOutputBytes?: number
   gitTimeoutMs?: number
@@ -57,6 +66,25 @@ export function createWorker(config: WorkerConfig): Worker {
     signal
   })
 
+  function selectAdapter(request: ExecutionRequestContract): AgentAdapter | null {
+    const provider = request.agentConfiguration.provider
+    if (provider === 'codex-cli') {
+      return config.codexAdapter ?? null
+    }
+    if (provider === 'fixture') {
+      return config.agent ?? null
+    }
+    return null
+  }
+
+  function adapterRejectionReason(request: ExecutionRequestContract): string {
+    const provider = request.agentConfiguration.provider
+    if (provider === 'codex-cli') {
+      return AGENT_EXECUTABLE_NOT_FOUND
+    }
+    return AGENT_POLICY_REJECTED
+  }
+
   async function dispatch(options: DispatchOptions): Promise<DispatchResult> {
     const signal = options.signal ?? controller.signal
 
@@ -79,6 +107,23 @@ export function createWorker(config: WorkerConfig): Worker {
         outcome: 'VALIDATION_REJECTED',
         claimGranted: false,
         rejectionReason: DIRTY_REPOSITORY_EXECUTION_UNSUPPORTED
+      }
+    }
+
+    if (request.agentConfiguration.provider === 'codex-cli' && request.schemaVersion !== 2) {
+      return {
+        outcome: 'VALIDATION_REJECTED',
+        claimGranted: false,
+        rejectionReason: EXECUTION_CONTEXT_REQUIRED
+      }
+    }
+
+    const adapter = selectAdapter(request)
+    if (adapter === null) {
+      return {
+        outcome: 'VALIDATION_REJECTED',
+        claimGranted: false,
+        rejectionReason: adapterRejectionReason(request)
       }
     }
 
@@ -166,6 +211,7 @@ export function createWorker(config: WorkerConfig): Worker {
     const partial: {
       agentSummary?: string
       agentEvidence?: string
+      agentArtifacts?: readonly AgentArtifact[]
       verificationResults: VerificationCommandResult[]
       patch?: string
     } = { verificationResults: [] }
@@ -175,17 +221,21 @@ export function createWorker(config: WorkerConfig): Worker {
     let reason: string | undefined
 
     try {
-      const agentResult = await config.agent.run({
+      const agentResult = await adapter.run({
         cwd: worktreePath,
         toolPolicy: request.toolPolicy,
         maxToolCalls: budget.maxToolCalls,
         maxDurationMs: budget.maxDurationMs,
         commandAllowlist: config.commandAllowlist,
         signal,
-        env: ISOLATED_GIT_ENV
+        env: ISOLATED_GIT_ENV,
+        executionRequestId: request.executionRequestId,
+        agentConfiguration: request.agentConfiguration,
+        ...(request.schemaVersion === 2 ? { contextBundle: request.contextBundle } : {})
       })
       agentSummary = agentResult.text
       partial.agentSummary = agentResult.text
+      partial.agentArtifacts = agentResult.artifacts
     } catch (error) {
       if (error instanceof CancelledError || signal.aborted) {
         outcome = 'CANCELLED'
@@ -203,7 +253,45 @@ export function createWorker(config: WorkerConfig): Worker {
       outcome = 'CANCELLED'
     }
 
+    // Repository-state guard: the detached worktree must still point at the
+    // requested base with no branch acquired. Runs after the agent succeeds OR
+    // fails; on violation skip the trusted verification and patch export and
+    // keep only bounded partial evidence.
+    let repositoryStateViolation = false
     if (outcome !== 'CANCELLED') {
+      const violation = await verifyWorktreeRepositoryState(
+        worktreePath,
+        request.expectedRepositoryRevision.baseCommit,
+        gitOptions(worktreePath, signal)
+      )
+      if (violation !== null) {
+        repositoryStateViolation = true
+        outcome = 'PARTIAL'
+        reason = violation
+      }
+    }
+
+    if (outcome !== 'CANCELLED' && !repositoryStateViolation) {
+      // Worker-owned universal integrity check after staging the isolated patch
+      // (non-closeable; injected verificationCommands only append below).
+      await runGitCommand(['add', '-A'], gitOptions(worktreePath, signal))
+      const check = await runGitCommand(['diff', '--cached', '--check'], gitOptions(worktreePath, signal))
+      partial.verificationResults.push({
+        argv: ['git', 'diff', '--cached', '--check'],
+        exitCode: check.exitCode,
+        signal: check.signal,
+        stdout: check.stdout,
+        stderr: check.stderr,
+        timedOut: check.timedOut,
+        cancelled: check.cancelled,
+        outputTruncated: check.outputTruncated,
+        durationMs: check.durationMs
+      })
+      if (check.exitCode !== 0) {
+        outcome = 'PARTIAL'
+        reason = 'git diff --cached --check failed'
+      }
+
       for (const argv of config.verificationCommands) {
         if (signal.aborted) {
           outcome = 'CANCELLED'
@@ -248,7 +336,7 @@ export function createWorker(config: WorkerConfig): Worker {
 
     let patch: string | undefined
     let patchHash: string | undefined
-    if (outcome !== 'CANCELLED') {
+    if (outcome !== 'CANCELLED' && !repositoryStateViolation) {
       try {
         patch = await exportWorktreePatch({ ...gitOptions(worktreePath, signal), worktreePath })
         patchHash = patch.length > 0 ? sha256Hex(patch) : undefined
@@ -340,7 +428,10 @@ export function createWorker(config: WorkerConfig): Worker {
   async function writeSuccessArtifacts(
     executionRequestId: string,
     patch: string | undefined,
-    partial: { verificationResults: VerificationCommandResult[] },
+    partial: {
+      verificationResults: VerificationCommandResult[]
+      agentArtifacts?: readonly AgentArtifact[]
+    },
     agentSummary: string | undefined
   ): Promise<ArtifactDescriptor[]> {
     const dir = join(config.runtimeDirectory, 'artifacts', executionRequestId)
@@ -355,13 +446,20 @@ export function createWorker(config: WorkerConfig): Worker {
     if (agentSummary !== undefined) {
       descriptors.push(await persistArtifact(dir, 'AGENT_SUMMARY', 'agent-summary.txt', agentSummary))
     }
+    for (const artifact of partial.agentArtifacts ?? []) {
+      descriptors.push(await persistArtifact(dir, 'AGENT_SUMMARY', artifact.fileName, artifact.content))
+    }
     return descriptors
   }
 
   async function writePartialArtifacts(
     executionRequestId: string,
     patch: string | undefined,
-    partial: { verificationResults: VerificationCommandResult[]; agentEvidence?: string },
+    partial: {
+      verificationResults: VerificationCommandResult[]
+      agentEvidence?: string
+      agentArtifacts?: readonly AgentArtifact[]
+    },
     agentSummary: string | undefined,
     reason: string | undefined
   ): Promise<ArtifactDescriptor[]> {
@@ -372,10 +470,19 @@ export function createWorker(config: WorkerConfig): Worker {
     if (patch !== undefined) {
       descriptors.push(await persistArtifact(dir, 'PATCH', 'patch.partial.diff', patch))
     }
+    const transport: Record<string, unknown> = {}
+    for (const artifact of partial.agentArtifacts ?? []) {
+      try {
+        transport[artifact.fileName] = JSON.parse(artifact.content)
+      } catch {
+        transport[artifact.fileName] = artifact.content
+      }
+    }
     const partialEvidence = {
       reason,
       agentEvidence: partial.agentEvidence,
-      verificationResults: partial.verificationResults
+      verificationResults: partial.verificationResults,
+      transport: Object.keys(transport).length > 0 ? transport : undefined
     }
     descriptors.push(
       await persistArtifact(dir, 'AGENT_PARTIAL', 'partial-evidence.json', JSON.stringify(partialEvidence, null, 2))
@@ -413,6 +520,22 @@ function describe(error: unknown): string {
     return error.message
   }
   return String(error)
+}
+
+async function verifyWorktreeRepositoryState(
+  worktreePath: string,
+  baseCommit: string,
+  gitOptions: GitRunOptions
+): Promise<string | null> {
+  const head = await runGitCommand(['rev-parse', 'HEAD'], gitOptions)
+  if (head.exitCode !== 0 || head.stdout.trim() !== baseCommit) {
+    return 'AGENT_REPOSITORY_STATE_VIOLATION'
+  }
+  const branch = await runGitCommand(['symbolic-ref', '--quiet', 'HEAD'], gitOptions)
+  if (branch.exitCode === 0 && branch.stdout.trim().length > 0) {
+    return 'AGENT_REPOSITORY_STATE_VIOLATION'
+  }
+  return null
 }
 
 function toMismatchDetail(error: RevisionMismatchError): RevisionMismatchDetail {

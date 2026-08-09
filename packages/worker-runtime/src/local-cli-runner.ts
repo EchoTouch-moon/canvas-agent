@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { StringDecoder } from 'node:string_decoder'
 import { LocalCliSpawnError } from './errors'
 
 export interface LocalCliInvocation {
@@ -11,6 +12,10 @@ export interface LocalCliInvocation {
   maxStderrBytes: number
   environment: Readonly<Record<string, string>>
   signal?: AbortSignal
+  /** Streaming observer called with each complete `\n`-terminated stdout line
+   * as it arrives (UTF-8 safe across pipe chunks). Used for real-time budget
+   * termination; it does not replace the final full-output parse. */
+  onLine?: (line: string) => void
 }
 
 export interface LocalCliResult {
@@ -167,8 +172,33 @@ export async function runLocalCli(invocation: LocalCliInvocation): Promise<Local
       terminate({ cancelled: false, timedOut: true })
     }, invocation.timeoutMs)
 
+    // Incremental UTF-8-safe line observer for the stdout stream. Complete
+    // `\n`-terminated lines are forwarded to `onLine` in real time; the line
+    // accumulator is bounded so a single huge line cannot grow memory.
+    const stdoutDecoder = new StringDecoder('utf8')
+    let lineBuffer = ''
+    let lineObservedTruncated = false
+    const emitLines = (text: string): void => {
+      if (invocation.onLine === undefined || lineObservedTruncated) {
+        return
+      }
+      lineBuffer += text
+      if (lineBuffer.length > invocation.maxStdoutBytes) {
+        lineBuffer = ''
+        lineObservedTruncated = true
+        return
+      }
+      let index: number
+      while ((index = lineBuffer.indexOf('\n')) !== -1) {
+        const line = lineBuffer.slice(0, index)
+        lineBuffer = lineBuffer.slice(index + 1)
+        invocation.onLine(line)
+      }
+    }
+
     child.stdout.on('data', (chunk: Buffer) => {
       appendChunk(chunk, invocation.maxStdoutBytes, stdoutAcc)
+      emitLines(stdoutDecoder.write(chunk))
     })
     child.stderr.on('data', (chunk: Buffer) => {
       appendChunk(chunk, invocation.maxStderrBytes, stderrAcc)

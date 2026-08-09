@@ -1,5 +1,6 @@
 import { mkdir, appendFile, readFile } from 'node:fs/promises'
 import { dirname, isAbsolute, resolve, sep } from 'node:path'
+import type { ExecutionContextBundleV2 } from '@canvas-agent/contracts'
 import { BudgetExceededError, CancelledError, PathDeniedError, WorkerError } from './errors'
 import { runCommand, type RunCommandResult } from './process-runner'
 
@@ -18,6 +19,9 @@ export interface AgentContext {
   commandAllowlist: readonly string[]
   signal?: AbortSignal
   env?: Record<string, string>
+  executionRequestId: string
+  agentConfiguration: { provider: string; model: string; temperature?: number | undefined }
+  contextBundle?: ExecutionContextBundleV2 | undefined
 }
 
 export interface AgentArtifact {

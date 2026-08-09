@@ -1,5 +1,7 @@
 export * from './agent-adapter'
 export * from './claim'
+export * from './codex-agent-adapter'
+export * from './codex-output-schema'
 export * from './codex-version'
 export * from './errors'
 export * from './local-cli-runner'

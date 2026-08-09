@@ -228,6 +228,49 @@ describe('runLocalCli (provider-neutral boundary)', () => {
     expect(result.stdoutTruncated).toBe(true)
     expect(Buffer.byteLength(result.stdout, 'utf8')).toBeLessThanOrEqual(6)
   })
+
+  it('streams complete lines to onLine in real time, UTF-8 safe across chunks', async () => {
+    const lines = [
+      '{"type":"thread.started","thread_id":"thr_x"}',
+      '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"中文🚀"}}',
+      '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0}}'
+    ]
+    const script = await makeScript(
+      `const l=JSON.parse(process.env.LINES);let i=0;` +
+        `const t=setInterval(()=>{if(i>=l.length){clearInterval(t);process.exit(0)}process.stdout.write(l[i]+'\\n');i+=1},1);`
+    )
+    const received: string[] = []
+    const result = await runLocalCli(
+      invoke(script, {
+        onLine: (line) => received.push(line),
+        environment: {
+          LINES: JSON.stringify(lines),
+          PATH: process.env['PATH'] ?? '/usr/bin:/bin',
+          HOME: tmpdir()
+        }
+      })
+    )
+    expect(result.exitCode).toBe(0)
+    expect(received).toEqual(lines)
+    expect(received.some((line) => line.includes('\uFFFD'))).toBe(false)
+  })
+
+  it('bounds the streaming line accumulator on a huge single line', async () => {
+    const script = await makeScript(
+      `process.stdout.write('x'.repeat(400000));setTimeout(()=>process.exit(0),50)`
+    )
+    let calls = 0
+    const result = await runLocalCli(
+      invoke(script, {
+        maxStdoutBytes: 1024,
+        onLine: () => {
+          calls += 1
+        }
+      })
+    )
+    expect(result.stdoutTruncated).toBe(true)
+    expect(calls).toBe(0)
+  })
 })
 
 function pidAlive(pid: number): boolean {
