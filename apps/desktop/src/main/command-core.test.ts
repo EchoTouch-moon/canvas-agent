@@ -2,14 +2,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openWorkspaceDatabase, closeWorkspaceDatabase } from './database'
-import { GitRevisionReader } from './git-revision-reader'
-import { WorkspaceService } from './workspace-service'
-import { ExecutionCoordinator } from './execution-coordinator'
+import { WorkspaceRuntimeManager } from './workspace-runtime-manager'
 import { InProcessWorkerHost } from './testing/in-process-worker-host'
 import { buildRoutes, handleCommand } from './command-core'
 import { cleanupTempDirs, createTempGitRepo, trackTempDir } from './testing/git-fixture'
 import type { CommandRequest } from '@canvas-agent/contracts'
+import type { RepositoryPicker } from './repository-picker'
 
 function request(command: string, payload: unknown): CommandRequest {
   return {
@@ -20,13 +18,28 @@ function request(command: string, payload: unknown): CommandRequest {
   }
 }
 
+async function makeManager(repoDir: string | null): Promise<WorkspaceRuntimeManager> {
+  const userData = trackTempDir(await mkdtemp(join(tmpdir(), 'ca-mgr-')))
+  const picker: RepositoryPicker = {
+    pick: async () =>
+      repoDir === null ? { cancelled: true, path: null } : { cancelled: false, path: repoDir }
+  }
+  return new WorkspaceRuntimeManager({
+    userData,
+    picker,
+    bootstrapPath: null,
+    workerHostFactory: (appConfig) => new InProcessWorkerHost(appConfig)
+  })
+}
+
 describe('CommandRouter (command-core)', () => {
   afterEach(async () => {
     await cleanupTempDirs()
   })
 
   it('rejects malformed and unknown commands at the transport boundary', async () => {
-    const routes = buildRoutes({ workspace: null, coordinator: null })
+    const manager = await makeManager(null)
+    const routes = buildRoutes({ manager })
 
     await expect(
       handleCommand(routes, { requestId: 'r', command: 'project.create' })
@@ -44,8 +57,9 @@ describe('CommandRouter (command-core)', () => {
     if (!result.ok) expect(result.error.name).toBe('InternalError')
   })
 
-  it('reports workspace commands as HostUnavailableError when unconfigured', async () => {
-    const routes = buildRoutes({ workspace: null, coordinator: null })
+  it('reports workspace commands as HostUnavailableError before a workspace is READY', async () => {
+    const manager = await makeManager(null)
+    const routes = buildRoutes({ manager })
     const result = await handleCommand(routes, request('project.create', { name: 'X' }))
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.name).toBe('HostUnavailableError')
@@ -56,22 +70,73 @@ describe('CommandRouter (command-core)', () => {
     )
     expect(dispatch.ok).toBe(false)
     if (!dispatch.ok) expect(dispatch.error.name).toBe('HostUnavailableError')
+
+    const cancel = await handleCommand(
+      routes,
+      request('execution.cancel', { executionRequestId: 'e' })
+    )
+    expect(cancel.ok).toBe(false)
+    if (!cancel.ok) expect(cancel.error.name).toBe('HostUnavailableError')
+  })
+
+  it('workspace.status reports CLOSED before any repository is opened', async () => {
+    const manager = await makeManager(null)
+    const routes = buildRoutes({ manager })
+    const result = await handleCommand(routes, request('workspace.status', {}))
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('expected ok')
+    expect(result.data).toEqual({
+      state: 'CLOSED',
+      activeWorkspace: null,
+      lastError: null
+    })
+  })
+
+  it('workspace.chooseRepository cancel leaves the prior status unchanged with no lastError', async () => {
+    const repoDir = await createTempGitRepo()
+    const userData = trackTempDir(await mkdtemp(join(tmpdir(), 'ca-mgr-')))
+    let nextPick: 'repo' | 'cancel' = 'repo'
+    const picker: RepositoryPicker = {
+      pick: async () =>
+        nextPick === 'repo' ? { cancelled: false, path: repoDir } : { cancelled: true, path: null }
+    }
+    const manager = new WorkspaceRuntimeManager({
+      userData,
+      picker,
+      bootstrapPath: null,
+      workerHostFactory: (appConfig) => new InProcessWorkerHost(appConfig)
+    })
+    const routes = buildRoutes({ manager })
+
+    const opened = await handleCommand(routes, request('workspace.chooseRepository', {}))
+    expect(opened.ok).toBe(true)
+    if (!opened.ok) throw new Error('expected ok')
+    const openedData = opened.data as { cancelled: boolean; status: { state: string } }
+    expect(openedData.cancelled).toBe(false)
+    expect(openedData.status.state).toBe('READY')
+
+    const before = await handleCommand(routes, request('workspace.status', {}))
+    expect(before.ok).toBe(true)
+    if (!before.ok) throw new Error('expected ok')
+    nextPick = 'cancel'
+    const cancelled = await handleCommand(routes, request('workspace.chooseRepository', {}))
+    expect(cancelled.ok).toBe(true)
+    if (!cancelled.ok) throw new Error('expected ok')
+    const cancelledData = cancelled.data as {
+      cancelled: boolean
+      status: { state: string; activeWorkspace: unknown; lastError: unknown }
+    }
+    expect(cancelledData.cancelled).toBe(true)
+    expect(cancelledData.status).toEqual(before.data)
+
+    await manager.close()
   })
 
   it('runs a full workspace flow including project.state and execution.dispatch', async () => {
     const repoDir = await createTempGitRepo()
-    const runtimeDir = trackTempDir(await mkdtemp(join(tmpdir(), 'ca-main-runtime-')))
-    const p = openWorkspaceDatabase(':memory:')
-    const service = new WorkspaceService(
-      p,
-      new GitRevisionReader({ sourceRepositoryPath: repoDir, runtimeDirectory: runtimeDir })
-    )
-    const worker = new InProcessWorkerHost({
-      sourceRepositoryPath: repoDir,
-      runtimeDirectory: runtimeDir
-    })
-    const coordinator = new ExecutionCoordinator(p, worker, runtimeDir)
-    const routes = buildRoutes({ workspace: service, coordinator })
+    const manager = await makeManager(repoDir)
+    await manager.openPath(repoDir)
+    const routes = buildRoutes({ manager })
 
     const created = await handleCommand(routes, request('project.create', { name: 'MUSICDB' }))
     expect(created.ok).toBe(true)
@@ -165,8 +230,6 @@ describe('CommandRouter (command-core)', () => {
     if (!dispatch.ok) {
       throw new Error(`dispatch failed: ${dispatch.error.name}: ${dispatch.error.message}`)
     }
-    expect(dispatch.ok).toBe(true)
-    if (!dispatch.ok) throw new Error('expected ok')
     const dispatchData = dispatch.data as unknown as {
       runId: string
       result: { outcome: string }
@@ -182,7 +245,7 @@ describe('CommandRouter (command-core)', () => {
     if (!cancel.ok) throw new Error('expected ok')
     expect((cancel.data as { cancelled: boolean }).cancelled).toBe(false)
 
-    await worker.dispose()
-    closeWorkspaceDatabase(p)
+    const closed = await manager.close()
+    expect(closed.state).toBe('CLOSED')
   })
 })

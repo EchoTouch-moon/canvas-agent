@@ -1,6 +1,7 @@
 const path = require('node:path')
 const os = require('node:os')
 const fs = require('node:fs')
+const { createHash } = require('node:crypto')
 const { spawn, execFileSync } = require('node:child_process')
 const { DatabaseSync } = require('node:sqlite')
 
@@ -131,7 +132,9 @@ async function waitForReady(binary, env, readyMarker, timeoutMs) {
 async function positiveCase(binary) {
   const repo = tempRepo()
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ca-pkg-home-'))
-  const dbPath = path.join(home, 'canvas-agent.db')
+  const canonicalRepo = fs.realpathSync(repo)
+  const identity = createHash('sha256').update(canonicalRepo, 'utf8').digest('hex')
+  const dbPath = path.join(home, 'workspaces', identity, 'canvas-agent.db')
   const env = {
     CANVAS_AGENT_REPO: repo,
     CANVAS_AGENT_USER_DATA: home,
@@ -177,7 +180,9 @@ async function negativeCase(binary, appPath) {
 
   const repo = tempRepo()
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ca-pkg-neg-'))
-  const dbPath = path.join(home, 'canvas-agent.db')
+  const canonicalRepo = fs.realpathSync(repo)
+  const identity = createHash('sha256').update(canonicalRepo, 'utf8').digest('hex')
+  const dbPath = path.join(home, 'workspaces', identity, 'canvas-agent.db')
   const result = await launchAndCapture(
     stagedBinary,
     {
@@ -198,6 +203,7 @@ async function negativeCase(binary, appPath) {
   )
   const tables = appTables(dbPath)
   step('no application tables created on fatal exit', !tables.includes('project'))
+  step('no workspace storage created on fatal exit', !fs.existsSync(path.join(home, 'workspaces')))
   if (result.kind !== 'exit' || result.code !== 1) {
     console.log('[packaged-smoke] negative app did not exit 1 cleanly.')
     console.log('[packaged-smoke] === STDOUT ===\n' + result.stdout.slice(0, 4000))

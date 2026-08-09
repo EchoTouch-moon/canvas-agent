@@ -1,3 +1,4 @@
+import type { BrowserWindow } from 'electron'
 import {
   commandRequestSchema,
   commandResponseSchemas,
@@ -9,15 +10,18 @@ import {
 } from '@canvas-agent/contracts'
 import { mapCommandError, WorkspaceUnavailableError } from './command-errors'
 import type { WorkspaceService } from './workspace-service'
-import type { ExecutionCoordinator } from './execution-coordinator'
+import type { WorkspaceRuntimeManager } from './workspace-runtime-manager'
 
 export interface CommandRoute {
-  execute: (payload: unknown) => Promise<unknown>
+  execute: (payload: unknown, context?: CommandRouteContext) => Promise<unknown>
+}
+
+export interface CommandRouteContext {
+  window?: BrowserWindow
 }
 
 export interface CommandDeps {
-  workspace: WorkspaceService | null
-  coordinator: ExecutionCoordinator | null
+  manager: WorkspaceRuntimeManager
 }
 
 const INTERNAL_FAILURE = 'Internal command failure'
@@ -31,24 +35,11 @@ export function buildRoutes(deps: CommandDeps): Record<string, CommandRoute> {
   ): void => {
     routes[name] = {
       execute: async (payload: unknown) => {
-        if (!deps.workspace) {
-          throw new WorkspaceUnavailableError('Workspace is not configured (set CANVAS_AGENT_REPO)')
+        const runtime = deps.manager.getReadyRuntime()
+        if (!runtime) {
+          throw new WorkspaceUnavailableError('Workspace is not READY')
         }
-        return run(deps.workspace, payload as CommandInput<K>)
-      }
-    }
-  }
-
-  const coordinatorRoute = <K extends WorkspaceCommand>(
-    name: K,
-    run: (coordinator: ExecutionCoordinator, payload: CommandInput<K>) => unknown
-  ): void => {
-    routes[name] = {
-      execute: async (payload: unknown) => {
-        if (!deps.coordinator) {
-          throw new WorkspaceUnavailableError('Workspace is not configured (set CANVAS_AGENT_REPO)')
-        }
-        return run(deps.coordinator, payload as CommandInput<K>)
+        return run(runtime.workspace, payload as CommandInput<K>)
       }
     }
   }
@@ -77,15 +68,46 @@ export function buildRoutes(deps: CommandDeps): Record<string, CommandRoute> {
   workspaceRoute('baseline.createCandidateFromTask', (ws, payload) =>
     ws.createBaselineCandidate(payload)
   )
-  coordinatorRoute('execution.dispatch', (coordinator, payload) => coordinator.dispatch(payload))
-  coordinatorRoute('execution.cancel', (coordinator, payload) => coordinator.cancel(payload))
+
+  routes['execution.dispatch'] = {
+    execute: (payload: unknown) =>
+      deps.manager.withActiveRun((runtime) =>
+        runtime.coordinator.dispatch(payload as CommandInput<'execution.dispatch'>)
+      )
+  }
+
+  // cancel is callable during an active run and must not acquire a new run lease.
+  routes['execution.cancel'] = {
+    execute: async (payload: unknown) => {
+      const runtime = deps.manager.getReadyRuntime()
+      if (!runtime) {
+        throw new WorkspaceUnavailableError('Workspace is not READY')
+      }
+      return runtime.coordinator.cancel(payload as CommandInput<'execution.cancel'>)
+    }
+  }
+
+  routes['workspace.status'] = {
+    execute: async () => deps.manager.status()
+  }
+  routes['workspace.chooseRepository'] = {
+    execute: async (_payload: unknown, context?: CommandRouteContext) =>
+      deps.manager.chooseRepository(context?.window)
+  }
+  routes['workspace.reopenLast'] = {
+    execute: async () => deps.manager.reopenLast()
+  }
+  routes['workspace.close'] = {
+    execute: async () => deps.manager.close()
+  }
 
   return routes
 }
 
 export async function handleCommand(
   routes: Record<string, CommandRoute>,
-  payload: unknown
+  payload: unknown,
+  context: CommandRouteContext = {}
 ): Promise<CommandResponse> {
   const parsed = commandRequestSchema.safeParse(payload)
   if (!parsed.success) {
@@ -99,7 +121,7 @@ export async function handleCommand(
 
   let data: unknown
   try {
-    data = await route.execute(parsed.data.payload)
+    data = await route.execute(parsed.data.payload, context)
   } catch (error) {
     return finalize(parsed.data.requestId, parsed.data.command, {
       ok: false,

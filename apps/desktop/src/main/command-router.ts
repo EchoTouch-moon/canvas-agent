@@ -1,4 +1,4 @@
-import { ipcMain, type IpcMainInvokeEvent } from 'electron'
+import { ipcMain, BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { DESKTOP_CHANNELS } from '@canvas-agent/contracts'
 import { buildRoutes, handleCommand, type CommandDeps } from './command-core'
 import { isTrustedSender } from './security'
@@ -10,6 +10,7 @@ export function registerCommandRouter(deps: CommandDeps): void {
     if (!isTrustedSender(event.senderFrame)) {
       throw new Error('Rejected IPC request from an untrusted renderer')
     }
-    return handleCommand(routes, payload)
+    const window = BrowserWindow.fromWebContents(event.sender)
+    return handleCommand(routes, payload, { window: window ?? undefined })
   })
 }
