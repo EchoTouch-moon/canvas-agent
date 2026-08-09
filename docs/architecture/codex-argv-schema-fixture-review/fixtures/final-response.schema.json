@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://canvas-agent.local/schemas/codex-final-response-v1.json",
+  "title": "Codex final response (Canvas Agent v1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "changes", "tool_calls_observed", "tests_run", "success"],
+  "properties": {
+    "summary": { "type": "string", "minLength": 1 },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "change_type", "description"],
+        "properties": {
+          "file": { "type": "string", "minLength": 1 },
+          "change_type": { "enum": ["created", "modified", "deleted"] },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "tool_calls_observed": { "type": "integer", "minimum": 0 },
+    "tests_run": { "type": "array", "items": { "type": "string" } },
+    "success": { "type": "boolean" }
+  }
+}

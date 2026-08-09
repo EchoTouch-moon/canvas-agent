@@ -1,0 +1,15 @@
+[
+  "codex",
+  "exec",
+  "--json",
+  "--cd",
+  "<isolated-worktree-path>",
+  "--sandbox",
+  "workspace-write",
+  "--color",
+  "never",
+  "--ephemeral",
+  "--output-schema",
+  "<schema-file-path>",
+  "-"
+]

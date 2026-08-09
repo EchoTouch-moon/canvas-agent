@@ -1,0 +1,3 @@
+{"type":"data","data":{"type":"agent_message","payload":{"message":{"role":"assistant","content":"starting"}}}}
+this is not json at all
+{"type":"data","data":{"type":"result","payload":{"item":{"type":"agent_message","message":{"role":"assistant","content":"{\"summary\":\"should never be trusted\"}"}},"model_id":"gpt-5.2-codex"}}}

@@ -1,0 +1,6 @@
+{"type":"data","data":{"type":"agent_message","payload":{"message":{"role":"assistant","content":"Let me inspect the repo."}}}}
+{"type":"data","data":{"type":"agent_reasoning","payload":{"reasoning":"planning an edit"}}}
+{"type":"data","data":{"type":"tool_call","payload":{"call_id":"call_9","input":{"command":"git status"},"tool_name":"shell"}}}
+{"type":"data","data":{"type":"tool_call_output","payload":{"call_id":"call_9","output":""}}}
+{"type":"data","data":{"type":"future_event_v2","payload":{"something":"unknown shape that the parser must not choke on"}}}
+{"type":"data","data":{"type":"result","payload":{"item":{"type":"agent_message","message":{"role":"assistant","content":"{\"summary\":\"No change\",\"changes\":[],\"tool_calls_observed\":1,\"tests_run\":[],\"success\":true}"}},"input_tokens":900,"output_tokens":120,"reasoning_tokens":0,"model_id":"gpt-5.2-codex"}}}
