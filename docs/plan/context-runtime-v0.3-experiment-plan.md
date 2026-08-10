@@ -7,6 +7,7 @@
 - **Primary bulk experiment model:** DeepSeek or another replaceable low-cost provider
 - **Second harness:** OpenCode
 - **Later compatibility target:** Codex
+- **CR-001 assigned packet:** `docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md`
 
 ## 1. Purpose
 
@@ -125,6 +126,12 @@ This is the first portability gate.
 ## 4. Work packages
 
 ## CR-001 — Pi Research Integration Spike
+
+**Assigned implementation packet:** `docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md`
+
+**Owner:** DeepSeek V4 Flash
+
+**Start gate:** PR #12 architecture merged + lead architect authorizes Context Runtime v0.3 research after the Product MVP v0.2 RC decision.
 
 ### Objective
 
