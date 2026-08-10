@@ -2,43 +2,93 @@
 
 - **Status:** PROPOSED
 - **Target:** v0.3 after Product MVP v0.2 closeout
-- **Scope:** Context Runtime validation, Context Boundary observability and controlled recomposition
+- **Scope:** Context Runtime validation, model-call observability and dynamic Context Working Set experiments
 - **Non-impact:** Product MVP v0.2 scope and frozen execution contracts remain unchanged
 
 ## 0. Decision summary
 
-Canvas Agent should evolve from managing only the immutable initial execution context into managing an observable runtime **Context Working Set**.
+Canvas Agent should evolve from managing only an immutable initial execution context into validating a reusable, Agent-neutral **Context Runtime**.
 
-The long-term architectural goal is:
+The core hypothesis is:
 
-> Canvas Agent should own or govern the Agent -> Model context boundary when the selected Agent integration exposes that boundary.
+> Active context should not be assumed to grow monotonically. For each model call, the system should be able to derive the smallest sufficiently useful Context Working Set from a larger Context Universe, while preserving provenance, recoverability and explainability.
 
-This does **not** require Canvas Agent to replace Codex, Claude Code or another Agent runtime.
+The Runtime must not be designed around Codex, Pi, OpenCode, DeepSeek or any other single Agent or model.
 
-The first v0.3 research path is to place a local protocol-aware **Context Gateway** on the model request path for a compatible Agent, starting with the Codex Responses API provider path.
+The preferred v0.3 research strategy is now:
 
 ```text
-Agent Runtime
-    |
-    | model request
-    v
-Context Gateway
-    |
-    v
-Context Runtime
-    |
-    | rendered / governed context
-    v
-Model Provider
+Pi
+    primary Context Runtime research harness
+    model-call-level observation and rewrite
+
+OpenCode
+    second implementation and strong native-context baseline
+
+Codex
+    later compatibility target for a less cooperative / externally controlled Agent boundary
 ```
 
-v0.3 must begin in **Shadow Mode**, where requests are observed and analyzed but forwarded without semantic rewriting. Context rewriting is allowed only after protocol invariants, observability and benchmark evidence are established.
+For bulk experiments, a lower-cost replaceable model backend such as DeepSeek is preferred. Stronger or different model families should be used periodically to test whether results generalize.
+
+The resulting architecture should look like:
+
+```text
+                  Canvas Context Runtime
+                           |
+          +----------------+----------------+
+          |                |                |
+          v                v                v
+     Pi Integration   OpenCode Integration  Codex Integration
+          |                |                |
+          +----------------+----------------+
+                           |
+                  replaceable model backend
+                 DeepSeek / OpenAI / Claude /
+                    local compatible model
+```
+
+The dependency direction is one-way:
+
+> integrations depend on Context Runtime; Context Runtime must never depend on a specific Agent or model provider.
 
 ---
 
-## 1. Motivation
+## 1. Why the research harness strategy changed
 
-Canvas Agent currently provides a strong execution boundary:
+The previous direction treated a Codex Responses Gateway as the first model-boundary experiment because Codex already exists in the Product MVP execution path.
+
+That remains a useful compatibility technique, but it is no longer the preferred first research environment.
+
+For Context Runtime research, the ideal harness has different properties:
+
+- Agent loop is open and inspectable;
+- the model-call boundary is explicitly exposed;
+- context can be observed immediately before a model call;
+- context can be replaced without reconstructing an opaque provider protocol;
+- tool events are observable;
+- provider / model selection is replaceable;
+- experiments can be repeated cheaply.
+
+A small open Agent harness that exposes a pre-model context hook gives cleaner experimental control than starting with a proxy around a more opaque runtime.
+
+Therefore the project should separate two goals:
+
+```text
+Research goal
+    prove whether dynamic Context Working Set management works
+
+Compatibility goal
+    later prove that the same Runtime can govern less cooperative Agents
+```
+
+Pi is currently the preferred research harness for the first goal. Codex remains valuable for the second.
+
+---
+
+## 2. Product and research boundary
+
+Canvas Agent already has a useful execution-control foundation:
 
 ```text
 Task
@@ -49,175 +99,207 @@ Task
   -> Artifact
 ```
 
-This answers an important question:
+This answers:
 
-> What immutable context was intentionally supplied when execution began?
+> What immutable context, repository revision and execution contract were intentionally provided when a Run began?
 
-It does not yet answer the runtime question:
+The new research question is different:
 
-> At each later model invocation, after files were read, tools were called, tests failed and decisions were made, what information should still remain active?
+> After tools, file reads, tests, edits and decisions change the execution state, what information should remain active for the next model invocation?
 
-A long-running coding Agent naturally discovers a growing amount of information. Native Agent implementations commonly accumulate tool results, file content and conversation state until some form of compaction or reconstruction is required.
+These concepts must coexist.
 
-The Context Runtime hypothesis is different:
+```text
+ContextSnapshot
+    immutable initial anchor
 
-> Active context should not be assumed to grow monotonically. It should be a derived working set that can grow, shrink, replace representations and rehydrate older evidence as task state changes.
+Context Universe
+    all durable context candidates available to the Runtime
 
-Example:
+Context Working Set
+    active semantic context selected for a particular model call or execution state
+
+Context Transition
+    explainable change between two Working Sets
+```
+
+Snapshot must not be mutated to represent runtime context growth.
+
+---
+
+## 3. Context Runtime architecture
+
+### 3.1 Logical flow
+
+```text
+Project Facts / Repository / Snapshot / Run Evidence
+                         |
+                         v
+                  Context Universe
+                         |
+                         | policy + task state + budget
+                         v
+                  Context Working Set(t)
+                         |
+                         v
+                     Agent Harness
+                         |
+                         | model request
+                         v
+                       Model
+                         |
+                         v
+                 Tool / Agent Result
+                         |
+                         +----------------------+
+                                                |
+                                                v
+                                         Context Universe
+```
+
+The Context Runtime is responsible for:
+
+- candidate normalization;
+- provenance;
+- authority and priority;
+- relevance / phase policy;
+- Working Set composition;
+- ADD / REMOVE / REPLACE / COMPRESS / REHYDRATE decisions;
+- token / size budgeting;
+- ContextTransition evidence;
+- explainability;
+- replayable research observations.
+
+The Agent harness remains responsible for:
+
+- planning and control flow;
+- tool calls;
+- shell and filesystem operations;
+- model invocation timing;
+- parsing model tool calls;
+- sandbox / approval behavior;
+- execution lifecycle.
+
+The model provider remains responsible for inference.
+
+### 3.2 Physical integration is capability-dependent
+
+"Context Runtime between Agent and Model" is a logical responsibility. Physical integration depends on what the Agent exposes.
+
+Direction-level capability classes:
+
+```text
+INITIAL_ONLY
+    only initial context can be controlled
+
+MODEL_REQUEST_OBSERVE
+    every model-call context can be observed
+
+MODEL_REQUEST_REWRITE
+    every model-call semantic context can be changed
+
+MANAGED_LOOP
+    Canvas owns the Agent loop and natively controls every model request
+```
+
+Pi is attractive because the research integration can target MODEL_REQUEST_REWRITE without first owning the entire Agent loop.
+
+OpenCode is useful because its own context lifecycle and compaction behavior provide a stronger comparison target.
+
+Codex is useful because a gateway / protocol adapter can test whether Context Runtime survives a less direct integration boundary.
+
+---
+
+## 4. Core runtime concepts
+
+### 4.1 ContextSnapshot
+
+ContextSnapshot remains the immutable initial context anchor for a Run.
+
+It answers:
+
+> What project facts, constraints and repository state were frozen before execution?
+
+It does not represent all later runtime observations.
+
+### 4.2 Context Universe
+
+Context Universe is the durable candidate space from which Working Sets are composed.
+
+Candidate sources may include:
+
+- ContextSnapshot items;
+- project rules and facts;
+- Task instruction and acceptance criteria;
+- repository files, symbols and ranges;
+- current Git diff;
+- tool results;
+- test results;
+- errors and logs;
+- Agent-produced decisions;
+- accepted artifacts;
+- phase summaries;
+- previously removed context that can later be rehydrated.
+
+Context Universe is not a prompt and is not required to fit a model context window.
+
+### 4.3 Context Working Set
+
+Context Working Set is the active semantic context selected for a model call or controlled execution phase.
+
+```text
+Context Universe
+        |
+        | compose(task state, policy, budget)
+        v
+Context Working Set(t)
+        |
+        v
+Rendered Model Context(t)
+```
+
+Working Set is derived and may be non-monotonic:
 
 ```text
 12K -> 27K -> 16K -> 22K -> 11K -> 18K
 ```
 
-This is a stronger target than prompt compression. The goal is not merely to reduce token count after context becomes too large; the goal is to continuously compose the smallest sufficiently useful context for the current execution state.
+A smaller Working Set is not automatically better. Success requires preserving task reliability and recoverability.
 
----
+### 4.4 Context Transition
 
-## 2. Context Boundary Architecture
-
-### 2.1 Logical boundary
-
-The logical architecture is:
-
-```text
-Project / Repository / Run Evidence
-              |
-              v
-       Context Universe
-              |
-              v
-       Context Runtime
-              |
-              v
-   Context Working Set(t)
-              |
-              v
-         Agent / Model
-              |
-              v
-       New Observations
-              |
-              +--------------------> Context Universe
-```
-
-The Context Runtime is responsible for context composition policy.
-
-The Agent runtime remains responsible for execution behavior such as:
-
-- planning;
-- tool invocation;
-- shell and file operations;
-- sandbox and approval behavior;
-- parsing model tool calls;
-- deciding when another model invocation is required.
-
-### 2.2 Physical integration is adapter-dependent
-
-"Between Agent and Model" is a logical ownership statement, not a guarantee that every third-party Agent exposes a physical interception point.
-
-Different integrations may support different control levels:
-
-```text
-INITIAL_ONLY
-    Canvas controls only the initial injected context.
-
-MODEL_REQUEST_OBSERVE
-    Canvas can observe each Agent -> Model request but does not rewrite it.
-
-MODEL_REQUEST_REWRITE
-    Canvas can safely govern context before each model request.
-
-MANAGED_LOOP
-    Canvas owns the Agent loop and can compose context natively before every model call.
-```
-
-The adapter capability model must make this difference explicit rather than pretending every Agent can be controlled at the same level.
-
----
-
-## 3. Core terminology
-
-### 3.1 ContextSnapshot
-
-ContextSnapshot remains the immutable starting anchor of a Run.
-
-It answers:
-
-> What project facts, constraints and repository state were intentionally frozen when execution started?
-
-It is not the complete runtime context and must not be mutated when the Agent discovers new information.
-
-### 3.2 Context Universe
-
-Context Universe is the durable candidate space from which active context may be composed.
-
-Possible sources include:
-
-- frozen ContextSnapshot items;
-- project facts and rules;
-- repository observations;
-- files and code symbols;
-- tool results;
-- test results;
-- current Git diff;
-- generated artifacts;
-- decisions produced during execution;
-- summaries of previous execution phases;
-- prior inactive context that may later be rehydrated.
-
-Context Universe is not a prompt.
-
-### 3.3 Context Working Set
-
-Context Working Set is the active semantic context chosen for a particular execution state or model request.
-
-```text
-Context Universe
-        |
-        | compose(policy, task state, budget)
-        v
-Context Working Set(t)
-        |
-        | protocol render
-        v
-Rendered Model Context(t)
-```
-
-Unlike Snapshot, Working Set is derived and may evolve.
-
-### 3.4 Context Transition
-
-Every material Working Set change should be explainable.
+Every meaningful Working Set change should be explainable.
 
 Example:
 
 ```text
-ContextTransition #12
+ContextTransition #18
 
 FROM
-WorkingSet #11
-32K tokens
+WorkingSet #17
+31.2K tokens
 
 TO
-WorkingSet #12
-15K tokens
+WorkingSet #18
+16.4K tokens
 
-ADD
-+ failing test evidence
-  reason: latest verification failure
+KEEP
+= Task instruction
+= project rule
+= current diff
 
 REMOVE
-- old grep output
-  reason: superseded by resolved diagnosis
+- grep output #14
+  reason: superseded by Decision #23
 
 REPLACE
 - auth.ts FULL_FILE
 + auth.ts SYMBOL refreshSession
-  reason: implementation target resolved
+  reason: current implementation target resolved
 
-ADD
-+ current diff
-  reason: current workspace state
+REHYDRATE
++ old test evidence #8
+  reason: current failure matches previous signature
 ```
 
 Initial transition vocabulary:
@@ -229,11 +311,11 @@ Initial transition vocabulary:
 - REHYDRATE
 - PRIORITY_CHANGE
 
-A transition changes active context membership or representation. It does not delete durable evidence from Context Universe.
+Removing an item from a Working Set does not delete it from Context Universe.
 
-### 3.5 Context Runtime Session
+### 4.5 Context Runtime Session
 
-A Run may own a Context Runtime Session that correlates:
+A Run may own a ContextRuntimeSession:
 
 ```text
 Run
@@ -245,168 +327,199 @@ Run
       -> ...
 ```
 
-The exact persistent schema is deliberately deferred until Shadow Mode produces real request data.
-
-### 3.6 Protocol Spine
-
-A model request contains more than replaceable semantic documents.
-
-Some request items may be required to preserve protocol continuity, tool-call relationships or provider-managed conversation state.
-
-The Context Runtime therefore distinguishes:
-
-```text
-Protocol Spine
-    provider / protocol state that must preserve valid request semantics
-
-Semantic Context
-    project facts, files, evidence, summaries and other context that may be governed
-```
-
-The Runtime must not treat a provider request as an arbitrary list of strings.
-
-Rewrite Mode requires protocol-specific validation before any item removal or replacement.
+The persistent schema is intentionally not frozen before real experimental data exists.
 
 ---
 
-## 4. Codex Responses Context Gateway
+## 5. Research harness strategy
 
-### 4.1 Why Codex is a useful first experiment
+### 5.1 Pi — P0 primary harness
 
-The current Codex integration already gives Canvas Agent control over the initial ExecutionRequest v2 Context Bundle, while Codex owns the internal Agent loop after process start.
+Pi should be treated as the first Context Runtime research harness, not as a permanent product dependency.
 
-A compatible Codex model provider can use a configurable API base URL with the Responses protocol. The upstream Codex repository also contains a strict Responses API proxy example that forwards `POST /v1/responses` requests through a local endpoint.
+Why it is useful:
 
-This creates a practical experimental seam:
+- open Agent implementation;
+- direct pre-model context interception is available through its extension boundary;
+- model-call-level context can be observed;
+- the experiment can return unchanged context in Shadow Mode;
+- later experiments can return a rewritten message set;
+- provider selection is replaceable;
+- the harness is small enough to inspect when results are surprising.
+
+Conceptual integration:
 
 ```text
-Canvas Worker
-    |
-    | launches Codex with a Canvas-owned provider profile
-    v
-Codex Agent Loop
-    |
-    | POST /v1/responses
-    v
-Canvas Responses Context Gateway
-    |
-    | observe / later govern
-    v
-Upstream Responses API
-    |
-    v
-Model
+Pi Agent Loop
+      |
+      | before model call
+      v
+Pi Context Integration
+      |
+      v
+Canvas Context Runtime
+      |
+      | Working Set / unchanged native set
+      v
+Pi Provider Layer
+      |
+      v
+DeepSeek / other model
 ```
 
-This is an experimental integration seam, not a requirement that the final Context Runtime be OpenAI-specific.
+The preferred first implementation shape is an integration / extension package rather than a deep fork.
 
-### 4.2 Proposed package boundary
-
-Future packages may be separated as:
+Possible repository boundary:
 
 ```text
 packages/context-runtime
-    provider-neutral Context Universe / Working Set / Policy / Transition logic
+    provider-neutral runtime logic
 
-packages/responses-gateway
-    Responses protocol interception, validation, streaming pass-through and correlation
-
-packages/worker-runtime
-    Agent lifecycle, gateway lifecycle and Agent adapter integration
+packages/integrations/pi-context
+    Pi event conversion and hook lifecycle
 ```
 
-The exact package names are not frozen by this direction document.
+The integration owns translation between Pi messages/events and provider-neutral Context Runtime structures.
 
-### 4.3 Gateway responsibilities
+`packages/context-runtime` must not import Pi packages.
 
-The Gateway may eventually:
+### 5.2 OpenCode — P1 second implementation and baseline
 
-- accept local Responses API requests from the Agent;
-- correlate each request with Run and Context Runtime Session;
-- record bounded request metadata and token estimates;
-- classify protocol-spine versus semantic context items;
-- ask Context Runtime for a proposed Working Set;
-- validate any proposed rewrite against protocol invariants;
-- forward the request upstream;
-- stream the upstream response back without changing Agent-visible transport semantics;
-- observe response metadata needed for later context analysis;
-- record ContextTransition evidence.
+OpenCode should be the second major validation target.
 
-### 4.4 Gateway must not become a generic transparent MITM
+Its value is different from Pi:
 
-The first Gateway is intentionally narrow:
+- it has its own mature context / compaction behavior;
+- it provides a stronger native-context-management baseline;
+- comparing Native OpenCode with OpenCode + Canvas Runtime can test whether the Runtime still adds value when the host already manages context actively;
+- it is open enough to inspect implementation differences rather than treating them as a black box.
 
-- loopback listener only;
-- explicit supported route set;
-- explicit supported protocol version / request shape;
-- no arbitrary outbound host forwarding;
-- bounded logs and payload retention;
-- secrets excluded from persisted observations;
-- no Renderer access to API credentials;
-- no silent downgrade to an unsupported protocol;
-- fail closed when a rewrite would violate a known protocol invariant.
+The OpenCode integration should not be started until the Pi experiment has frozen a small provider-neutral Runtime interface.
 
-Authentication and upstream credential ownership require a dedicated security proposal before implementation.
+Possible boundary:
+
+```text
+packages/integrations/opencode-context
+```
+
+Again, Runtime must remain independent of OpenCode-specific message shapes.
+
+### 5.3 Codex — P2 compatibility target
+
+Codex remains valuable, but its role changes.
+
+It should test:
+
+> Can the same Context Runtime integrate with an Agent where Canvas does not directly own or naturally hook every model-call context?
+
+A Responses-compatible Context Gateway remains a possible integration mechanism:
+
+```text
+Codex Agent
+    |
+    v
+Context Gateway
+    |
+    v
+Canvas Context Runtime
+    |
+    v
+Model Provider
+```
+
+This gateway work should follow, not lead, the Context Runtime research.
+
+The Codex path validates portability of the Runtime rather than defining the Runtime itself.
 
 ---
 
-## 5. Three experimental modes
+## 6. Model strategy
 
-### 5.1 Shadow Mode — v0.3 first target
+The Context Runtime must also be model-neutral.
 
-Shadow Mode does not semantically modify Agent requests.
+### 6.1 DeepSeek as default bulk experiment backend
+
+A lower-cost provider such as DeepSeek is preferred for repeated early experiments because Context research requires many runs across the same task matrix.
+
+The purpose is experimental economics, not a permanent model preference.
+
+Default v0.3 research topology:
 
 ```text
-Codex request
-      |
-      v
-Context Gateway
-      |
-      +--> observe native request
-      |
-      +--> Context Runtime computes hypothetical Working Set
-      |
-      +--> record native vs proposed context
-      |
-      v
-forward original request unchanged
+Pi
+  -> Canvas Context Runtime
+  -> DeepSeek
 ```
 
-Shadow Mode should answer:
+The same benchmark should periodically be repeated with one or more stronger / different model families.
 
-- how quickly native context grows;
+### 6.2 Controlled model matrix
+
+Longer-term evaluation should use a matrix such as:
+
+```text
+                         Context Strategy
+                 Native     Static     Dynamic
+              +----------+----------+----------+
+DeepSeek      |    A     |    B     |    C     |
+              +----------+----------+----------+
+Model B       |    D     |    E     |    F     |
+              +----------+----------+----------+
+Model C       |    G     |    H     |    I     |
+              +----------+----------+----------+
+```
+
+This helps answer whether gains come from the Context Runtime or from an accidental fit to one model.
+
+### 6.3 Local model experiments
+
+Local OpenAI-compatible backends may be useful later for:
+
+- zero-marginal-cost stress tests;
+- deterministic infrastructure testing where model quality is not the variable;
+- large-volume policy debugging.
+
+Local models are not required for v0.3.
+
+---
+
+## 7. Experimental modes
+
+The experimental modes are provider-neutral. They describe Context Runtime behavior, not a Codex-specific gateway.
+
+### 7.1 Shadow Mode — first target
+
+Shadow Mode never changes the actual context sent to the model.
+
+```text
+Native model-call context
+        |
+        +--> record bounded observation
+        |
+        +--> Context Runtime computes hypothetical Working Set
+        |
+        +--> record proposed transition
+        |
+        v
+send original context unchanged
+```
+
+Shadow Mode must answer:
+
+- how fast active context grows;
 - which categories dominate token usage;
 - which information becomes stale;
-- which content the proposed policy would remove or replace;
-- whether the proposed policy repeatedly removes information that later becomes necessary;
-- how often rehydration would have been required;
-- where provider protocol items constrain safe context rewriting.
+- which items a deterministic policy would remove / replace;
+- whether removed items later become necessary;
+- how often rehydration would have been needed;
+- whether Working Set size can shrink naturally between model calls;
+- how much behavior varies across task phases.
 
-Shadow Mode is successful when Canvas can explain a model-call-level context timeline without affecting Agent behavior.
+### 7.2 Active Rewrite Mode — Pi-gated experiment
 
-### 5.2 Augment Mode — second target
+After Shadow Mode establishes reliable observations, Pi can be used to test real model-call-level rewrite.
 
-Augment Mode may add clearly namespaced Canvas context while preserving native context.
-
-Example conceptual behavior:
-
-```text
-Native Agent Context
-        +
-Canvas Runtime Context
-    - current task state
-    - current decisions
-    - selected project facts
-    - current diff summary
-```
-
-The purpose is to measure whether Runtime-selected context improves execution before relying on destructive removal.
-
-Augment Mode must remain budgeted; it is not permission to duplicate all existing context.
-
-### 5.3 Rewrite Mode — gated experiment
-
-Rewrite Mode is the first mode that may perform:
+The Runtime may perform:
 
 ```text
 ADD
@@ -416,183 +529,36 @@ COMPRESS
 REHYDRATE
 ```
 
-on the actual semantic context sent upstream.
+on semantic context before the model call.
 
-Rewrite Mode must not begin until all of the following are true:
+Active Rewrite must be switchable per Run and must preserve a native-control baseline.
 
-1. Shadow Mode has captured a representative corpus of real model-call requests;
-2. protocol-spine invariants have automated tests;
-3. request replay tests prove rewritten requests remain protocol-valid;
-4. the Working Set policy has measurable false-removal and rehydration metrics;
-5. a baseline benchmark exists for native execution;
-6. rewrite can be disabled per Run and fails back to pass-through safely.
+It should not begin until:
+
+1. a representative Shadow corpus exists;
+2. ContextTransition reasons are inspectable;
+3. removed-item / later-needed metrics exist;
+4. native benchmark tasks are repeatable;
+5. rewritten message ordering and tool continuity are validated for the selected harness;
+6. the experiment can fall back to unchanged native context.
+
+### 7.3 Augment experiments
+
+A non-destructive Augment variant may also be useful:
+
+```text
+Native context
+    +
+bounded Canvas-selected context
+```
+
+This can test retrieval / selection quality before removal is enabled, but it is not the main differentiation target because it still allows monotonic growth.
 
 ---
 
-## 6. Phase-level recomposition remains useful
+## 8. Context Policy direction
 
-The Gateway path does not invalidate the previously proposed phase-level experiment.
-
-Phase-level recomposition remains the safer semantic unit for the first active policy:
-
-```text
-Investigation
-      |
-      v
-Working Set A
-      |
-      v
-Diagnosis
-      |
-      v
-Working Set B
-      |
-      v
-Implementation
-      |
-      v
-Working Set C
-      |
-      v
-Verification
-```
-
-The difference is that the Context Gateway can now observe every underlying model request and measure whether the phase-level Working Set matches actual runtime needs.
-
-Therefore:
-
-- **observation granularity:** model-call level;
-- **first active recomposition granularity:** phase level;
-- **future active recomposition granularity:** model-call level if evidence supports it.
-
----
-
-## 7. Adapter capability model
-
-Future Agent adapters should expose context-boundary capabilities explicitly.
-
-Conceptual contract:
-
-```ts
-interface AgentContextCapabilities {
-  contextControl:
-    | 'INITIAL_ONLY'
-    | 'MODEL_REQUEST_OBSERVE'
-    | 'MODEL_REQUEST_REWRITE'
-    | 'MANAGED_LOOP'
-
-  toolObservability:
-    | 'NONE'
-    | 'EVENTS'
-    | 'FULL'
-
-  contextObservability:
-    | 'NONE'
-    | 'USAGE_ONLY'
-    | 'REQUEST_LEVEL'
-    | 'ITEM_LEVEL'
-
-  resume:
-    | 'NONE'
-    | 'SESSION'
-    | 'EXTERNAL_STATE'
-}
-```
-
-This is a direction-level capability model, not a frozen public contract.
-
-It prevents Canvas Agent from assuming that Codex, Claude Code, OpenCode and a future Canvas-owned Agent loop expose identical context control.
-
----
-
-## 8. v0.3 implementation priorities
-
-### P0-A — Responses Gateway Shadow Mode
-
-Build the smallest protocol-aware experiment capable of:
-
-```text
-Agent request
-    -> local gateway
-    -> bounded observation
-    -> unchanged upstream forwarding
-    -> unchanged response streaming
-```
-
-Required evidence:
-
-- model-call sequence correlation;
-- request size / token estimate timeline;
-- request category breakdown where safely classifiable;
-- no semantic request rewriting;
-- no credential persistence;
-- deterministic replay fixtures with secrets removed.
-
-### P0-B — RunEvent / ModelCall Observability
-
-Promote runtime observation from deferred research to v0.3 core work.
-
-Observe at least:
-
-- Agent process lifecycle;
-- model-call boundaries;
-- tool-call events when exposed;
-- file access/change evidence when exposed;
-- test execution evidence;
-- token / usage information when exposed;
-- phase boundaries;
-- ContextTransition proposals.
-
-Do not require full raw payload persistence. Prefer structured metadata plus content-addressed bounded evidence where justified.
-
-### P0-C — Context Universe and Working Set evaluator
-
-Introduce provider-neutral research models for:
-
-```text
-ContextUniverse
-ContextWorkingSet
-ContextTransition
-ContextPolicy
-```
-
-In Shadow Mode the Working Set is initially hypothetical. The system should be able to answer:
-
-> If Canvas had controlled this request, what would it have kept, removed, replaced or rehydrated, and why?
-
-### P0-D — Phase-level dynamic recomposition experiment
-
-Use the existing Run / ExecutionRequest boundaries or controlled Agent episodes to validate active recomposition without immediately depending on per-model-call rewrite.
-
-Compare:
-
-```text
-Native Agent execution
-vs
-Static Canvas Frozen Context
-vs
-Canvas phase-level dynamic context
-```
-
-### P1 — Augment Mode
-
-Inject a bounded namespaced Canvas-selected context block and measure effect on task performance.
-
-### P1 — Rewrite Mode research gate
-
-Only after Shadow and Augment evidence is reviewed, design the protocol-safe rewrite contract.
-
-### P2 — Managed Agent Loop prototype
-
-A Canvas-owned Agent loop may eventually provide native model-call-level context control without protocol interception.
-
-It is not required to validate v0.3.
-
----
-
-## 9. Context Policy direction
-
-The first Context Policy must be deterministic enough to inspect and test.
+The first policy must be deterministic enough to inspect and benchmark.
 
 Useful inputs include:
 
@@ -600,59 +566,265 @@ Useful inputs include:
 - Context authority;
 - P0-P3 priority;
 - source freshness;
-- dependency / derivation relationships;
+- dependency and derivation relationships;
 - superseded state;
-- current repository diff;
+- current diff;
 - current target symbols;
 - latest verification evidence;
 - token budget;
-- previous removal / rehydration history.
+- previous removal / rehydration history;
+- recent model-call usage.
 
-Example policy direction:
+Initial policy direction:
 
 ```text
 P0
     normally KEEP
 
 P1
-    KEEP while task-relevant
+    KEEP while directly task-relevant
 
 P2
-    phase-dependent active / cold
+    active or cold depending on current task state
 
 P3
     cold by default; REHYDRATE when justified
 ```
 
-Authority remains separate from relevance. A low-relevance Project Rule may still outrank highly relevant untrusted content when instructions conflict.
+Authority and relevance are separate dimensions.
 
-The first implementation should not delegate the entire selection decision to another opaque LLM. LLM-assisted selection can be evaluated later as an explainable policy component.
+The first implementation should not hand the entire selection problem to another opaque LLM. Agentic / LLM-assisted selection may be tested later as a bounded policy component with observable inputs and outputs.
 
 ---
 
-## 10. Context Transition and observability
+## 9. Proposed package direction
 
-The user-facing value is not only a smaller prompt.
+Direction only; exact public packages are not frozen.
 
-Canvas should eventually explain:
+```text
+packages/
+  context-runtime/
+    universe/
+    working-set/
+    policy/
+    transition/
+    rendering/
+    metrics/
+
+  integrations/
+    pi-context/
+    opencode-context/
+    codex-context/
+```
+
+Important rule:
+
+```text
+context-runtime
+    MUST NOT import Pi / OpenCode / Codex provider-specific code
+
+integration package
+    MAY depend on context-runtime
+```
+
+Provider/model adapters should also remain outside the provider-neutral Runtime core.
+
+This separation is required if Context Runtime may eventually become reusable infrastructure outside the Canvas Agent desktop application.
+
+---
+
+## 10. v0.3 implementation priorities
+
+### P0-A — Pi + replaceable model research integration
+
+Build the smallest integration capable of:
+
+```text
+Pi model call
+  -> capture native context
+  -> Context Runtime hook
+  -> return unchanged context
+  -> model provider
+```
+
+Use DeepSeek as the default bulk experiment backend where practical.
+
+Required evidence:
+
+- one real coding task executes end to end;
+- every model call has a stable sequence / correlation identifier;
+- native context size can be measured or estimated;
+- no semantic rewrite occurs in Shadow Mode;
+- provider choice is not embedded in Context Runtime core.
+
+### P0-B — Model-call Context Observability
+
+Observe at least:
+
+- model-call boundaries;
+- message / context category counts;
+- token / size estimates;
+- tool-call boundaries when exposed;
+- file read / change evidence when exposed;
+- test execution evidence;
+- current task phase if known;
+- native compaction events when observable;
+- ContextTransition proposals.
+
+Do not require unlimited raw payload persistence. Prefer structured metadata and bounded content-addressed evidence.
+
+### P0-C — Shadow Working Set evaluator
+
+Introduce provider-neutral research models:
+
+```text
+ContextUniverse
+ContextWorkingSet
+ContextTransition
+ContextPolicy
+ModelCallObservation
+```
+
+For every model call, answer:
+
+> If Canvas controlled this call, what would it keep, remove, replace, compress or rehydrate, and why?
+
+### P0-D — Pi active dynamic rewrite
+
+Enable real Working Set rewriting for controlled benchmark runs.
+
+The primary experiment is:
+
+```text
+Native Pi context management
+vs
+Pi + Canvas Dynamic Working Set
+```
+
+A static Canvas initial-context variant may remain as an additional baseline.
+
+### P0-E — Benchmark and failure analysis
+
+Do not optimize only for smaller prompts.
+
+Primary success criterion:
+
+> Dynamic context management maintains or improves task success while reducing irrelevant active context and preserving recoverability.
+
+### P1 — OpenCode integration
+
+Port the already-tested Runtime interface to OpenCode and compare:
+
+```text
+OpenCode native context management
+vs
+OpenCode + Canvas Runtime
+```
+
+The purpose is to validate Agent portability and compare against a stronger native context baseline.
+
+### P2 — Codex Context Gateway
+
+Only after the Runtime interface is supported by evidence should Codex gateway / provider-boundary work resume.
+
+Its purpose is compatibility validation, not primary algorithm development.
+
+### P2+ — Managed Agent Loop
+
+A Canvas-owned Agent loop may eventually provide the cleanest native integration, but it is not required to validate the Context Runtime hypothesis.
+
+---
+
+## 11. Benchmark design
+
+### 11.1 Controlled variables
+
+For the first Pi benchmark, keep fixed where possible:
+
+```text
+same Agent harness
+same model
+same task
+same repository revision
+same tool policy
+same resource budget
+```
+
+Change primarily:
+
+```text
+Context Management Strategy
+```
+
+### 11.2 Minimum variants
+
+```text
+A. Pi Native Context
+
+B. Pi + Canvas Shadow
+   actual behavior unchanged; hypothetical Working Set recorded
+
+C. Pi + Canvas Dynamic Working Set
+
+D. Optional: Pi + Canvas Static Initial Context
+```
+
+### 11.3 Metrics
+
+Track at minimum:
+
+- task success rate;
+- acceptance criteria pass rate;
+- total input tokens;
+- peak active context size;
+- average active context size;
+- context growth / shrink transitions;
+- tool calls;
+- repeated file reads;
+- repeated search operations;
+- execution time;
+- compaction events when observable;
+- stale context retained;
+- items removed;
+- items later rehydrated;
+- false-removal cases;
+- recovery quality;
+- transition explainability;
+- model/provider cost where available.
+
+A smaller Working Set with lower task success is a failure.
+
+### 11.4 Cross-model validation
+
+After a policy performs well on the default low-cost backend, rerun a subset with another model family.
+
+A policy should not be promoted to a general Runtime default solely because it works with one model.
+
+---
+
+## 12. Observability and product direction
+
+The eventual user-facing value is not only token savings.
+
+Canvas should be able to explain:
 
 ```text
 Model Call #18
 
-Native request estimate
+Native Context
 31.2K tokens
 
-Proposed Working Set
+Canvas Working Set
 16.4K tokens
 
 KEEP
 = Task instruction
-= project rule
+= current project rule
 = current diff
 
 REMOVE
-- grep output #14
-  superseded by Decision #23
+- old grep output
+  superseded by resolved diagnosis
 
 REPLACE
 - full login.ts
@@ -660,11 +832,11 @@ REPLACE
   unrelated regions inactive
 
 REHYDRATE
-+ old test evidence #8
-  current failure matches previous signature
++ previous test failure
+  current failure signature matches
 ```
 
-This enables four product actions:
+This supports:
 
 ```text
 Observe
@@ -673,140 +845,85 @@ Control
 Replay
 ```
 
-Context Graph / Canvas can later visualize these relationships, but the graph is not the runtime itself.
+Context Graph / Canvas can later visualize provenance and transitions. It is not the first Runtime implementation requirement.
 
 ---
 
-## 11. Benchmark and evaluation plan
+## 13. Security and trust boundaries
 
-The project must prove more than token reduction.
-
-### 11.1 Execution variants
-
-At minimum compare:
-
-```text
-A. Native Agent
-
-B. Canvas initial Frozen Context + native Agent context management
-
-C. Canvas Shadow Mode
-   native behavior unchanged; hypothetical Working Set evaluated
-
-D. Canvas phase-level Dynamic Working Set
-
-E. Canvas Rewrite Mode
-   only after safety gate
-```
-
-### 11.2 Metrics
-
-Track:
-
-- task success rate;
-- acceptance criteria pass rate;
-- total input tokens;
-- peak native context size;
-- peak governed Working Set size;
-- average working set size;
-- context growth rate;
-- tool calls;
-- repeated file reads;
-- repeated search operations;
-- execution time;
-- native compaction events when observable;
-- stale context retained;
-- context items removed;
-- rehydration count;
-- false-removal cases;
-- recovery quality;
-- context transition explainability.
-
-Success means:
-
-> Dynamic context management maintains or improves task reliability while reducing irrelevant active context and preserving recoverability.
-
-A smaller Working Set that lowers success rate is a failure.
-
----
-
-## 12. Security and trust boundaries
-
-The Context Gateway introduces a new privileged boundary and must be treated accordingly.
+Even in open research harnesses, Context Runtime is a privileged component because it may see model prompts, tool evidence and project code.
 
 Minimum principles:
 
-- listen on loopback only for local MVP experiments;
-- bind a Gateway session to one Run / Worker lifetime;
-- do not expose upstream credentials to Renderer;
-- do not persist Authorization headers or credential-bearing environment values;
-- redact known secret-bearing request fields before diagnostic persistence;
-- bound retained request and response evidence;
-- validate upstream host configuration;
-- reject unsupported routes and methods;
-- preserve sandbox and Agent execution policies;
-- never weaken approval or filesystem isolation as a side effect of context control;
-- use explicit fail-open/pass-through versus fail-closed policy per experiment mode; Rewrite Mode should fail back to a safe known behavior, never silently corrupt a request.
+- credentials remain outside persisted Context Universe;
+- known secret-bearing fields are redacted before diagnostic storage;
+- request / message evidence is bounded;
+- raw provider headers are not persisted;
+- Agent sandbox and filesystem policies are not weakened by context control;
+- Context rewrite is explicit per experiment run;
+- Shadow Mode is the default until rewrite gates pass;
+- integration-specific provider state is validated before rewriting;
+- Runtime core does not own provider authentication.
 
-A dedicated implementation proposal must freeze credential flow and Gateway threat model before code lands.
+DeepSeek or any other provider credential must remain an integration / runtime configuration concern, not part of project facts or ContextSnapshot content.
 
 ---
 
-## 13. Non-goals
+## 14. Non-goals
 
 v0.3 does not attempt to:
 
-- replace Codex or another Agent runtime;
-- immediately own every Agent loop;
-- proxy arbitrary Internet traffic;
-- support every model protocol at once;
-- rewrite unknown provider state blindly;
-- build a general workflow engine;
-- create a complete knowledge graph system;
-- ship a full global Canvas;
-- optimize context only by minimizing tokens;
-- add multi-Agent orchestration before the Context Runtime hypothesis is validated.
+- make Pi a permanent product dependency;
+- make DeepSeek the permanent default model;
+- replace OpenCode, Codex or Claude Code;
+- support every Agent simultaneously;
+- build a complete knowledge graph system;
+- ship a full Canvas workflow editor;
+- introduce multi-Agent orchestration before Context Runtime is validated;
+- maximize context-window usage;
+- optimize context only by token reduction;
+- let another opaque LLM make all context-selection decisions.
 
 ---
 
-## 14. Relationship with existing architecture
+## 15. Relationship with existing Canvas Agent architecture
 
-The new direction extends rather than replaces the current model.
+The new direction extends the existing architecture rather than discarding it.
 
 ```text
 ContextSnapshot
-    = immutable initial anchor
+    immutable initial anchor
 
 ExecutionRequest
-    = immutable execution contract
+    immutable execution contract
+
+Worker
+    isolated execution boundary
 
 ContextRuntimeSession
-    = runtime context observation / control scope
+    runtime context observation / control scope
 
 Context Universe
-    = durable candidate information space
+    durable candidate information space
 
 Context Working Set
-    = active derived semantic context
+    active derived semantic context
 
 ModelCallObservation
-    = model-boundary observation
+    per-model-call observation
 
 ContextTransition
-    = explainable Working Set evolution
+    explainable Working Set evolution
 
-Agent Adapter
-    = execution integration and capability declaration
-
-Protocol Adapter / Gateway
-    = model-boundary integration where supported
+Agent Integration
+    Pi / OpenCode / Codex translation boundary
 ```
 
-The existing Snapshot, ExecutionRequest, Worker, RepositoryRevision and Artifact boundaries remain valuable and should not be removed to pursue Context Runtime research.
+RepositoryRevision, TaskSpecVersion, Artifact and Baseline remain useful project / execution facts.
 
 ---
 
-## 15. Recommended development order after v0.2
+## 16. Recommended development order after v0.2
 
 ```text
 v0.2
@@ -814,48 +931,51 @@ v0.2
         |
         v
 v0.3-A
-    Context Gateway Shadow Mode
+    Pi research integration + DeepSeek default experiment backend
         |
         v
 v0.3-B
-    Model-call observability + Context Universe
+    model-call observability + Context Universe
         |
         v
 v0.3-C
-    hypothetical Working Set + Context Transition
+    Shadow Working Set + Context Transition
         |
         v
 v0.3-D
-    phase-level active recomposition
+    Pi active Dynamic Working Set rewrite
         |
         v
 v0.3-E
-    Augment Mode
+    Native vs Dynamic benchmark
         |
         v
-Research gate
-    evaluate Rewrite Mode
+v0.3-F
+    OpenCode second implementation / stronger baseline
         |
         v
 v0.4+
-    multi-provider protocol adapters / managed loop experiments
+    Codex Context Gateway / other compatibility adapters /
+    managed-loop experiments
 ```
 
-Canvas / Context Graph visualization should follow observed recurring debugging questions rather than lead the runtime architecture.
+Canvas / Context Graph visualization should follow observed debugging needs rather than lead the Runtime architecture.
 
 ---
 
-## 16. Questions that must be answered by v0.3 evidence
+## 17. Questions that v0.3 evidence must answer
 
-1. What percentage of a real coding Agent request is semantic context that can be independently managed versus protocol/runtime state that must remain intact?
-2. How quickly does native active context grow across realistic long tasks?
-3. Which categories of context become stale most often?
-4. Can a deterministic Working Set policy predict useful removals without harming success rate?
-5. How frequently must removed context be rehydrated?
-6. Is phase-level recomposition sufficient, or is model-call-level recomposition materially better?
-7. Which context changes are understandable to users and which create excessive control-plane noise?
-8. What adapter capabilities are actually available across Codex, Claude Code, OpenCode and a future Canvas-managed loop?
-9. Can Canvas reduce total and peak active context while maintaining or improving acceptance outcomes?
-10. Does owning the Context Boundary provide enough independent value for Context Runtime to become a reusable infrastructure layer outside the Canvas Agent application?
+1. Does non-monotonic Working Set management improve or preserve coding-task success compared with native context growth / compaction?
+2. How much active context can be removed without increasing failure or repeated retrieval?
+3. Which context categories become stale most often?
+4. Which items are frequently removed and later rehydrated?
+5. Can a deterministic policy make useful decisions at model-call granularity?
+6. Does dynamic context reduce repeated file reads or tool calls?
+7. Does the result generalize from DeepSeek to at least one other model family?
+8. Does the provider-neutral Runtime interface survive a second Agent integration such as OpenCode?
+9. Does a mature native context manager reduce or eliminate Canvas Runtime gains?
+10. Can the same Runtime later integrate with Codex through a less direct Context Boundary?
+11. Which ContextTransition explanations are useful to a developer rather than noise?
+12. Does Context Runtime have enough independent value to become reusable infrastructure outside the Canvas Agent application?
 
-The answer to these questions should determine v0.4 scope. They should not be assumed in advance.
+The answers to these questions should determine v0.4 scope. They should not be assumed in advance.
