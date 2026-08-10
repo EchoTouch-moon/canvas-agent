@@ -19,20 +19,54 @@ DeepSeek is the primary implementer. Luna receives one consolidated visual task 
 |     2 | DeepSeek V4 Flash | [DS-004 workspace runtime](deepseek/DS-004-workspace-runtime.md)            | `agent/deepseek-ds-004-workspace-runtime`   | ✅ MERGED — PR #8  | `main@7cbaf18`                    |
 |     3 | DeepSeek V4 Flash | [DS-005 local CLI adapter](deepseek/DS-005-local-cli-adapter.md)            | `agent/deepseek-ds-005-local-cli-adapter`   | ✅ MERGED — PR #9  | `main@3459d6d`                    |
 |     4 | DeepSeek V4 Flash | [DS-006 Live client state/onboarding](deepseek/DS-006-live-client-state.md) | `agent/deepseek-ds-006-live-client-state`   | ✅ MERGED — PR #10 | `main@19c0690`                    |
-|     5 | GPT-5.6 Luna      | [UI-003 Live-first product shell](luna/UI-003-live-first-product-shell.md)  | `agent/luna-ui-003-live-first-shell`        | READY              | DS-006 ✅ merged                  |
-|     6 | DeepSeek V4 Flash | [DS-007 RC gates](deepseek/DS-007-release-candidate-gates.md)               | `agent/deepseek-ds-007-product-mvp-rc`      | BLOCKED            | all implementation packets merged |
+|     5 | GPT-5.6 Luna      | [UI-003 Live-first product shell](luna/UI-003-live-first-product-shell.md)  | `agent/luna-ui-003-live-first-shell`        | ✅ MERGED — PR #11 | `main@97b9c78`                    |
+|     6 | DeepSeek V4 Flash | [DS-007 RC gates](deepseek/DS-007-release-candidate-gates.md)               | `agent/deepseek-ds-007-product-mvp-rc`      | READY              | UI-003 ✅ merged                  |
 
-DS-006 is LEAD APPROVED and merged through PR #10 at `main@19c0690`: both CI jobs passed, including Live, workspace and packaged Electron gates. UI-003 is the only newly unlocked implementation packet. DS-007 remains blocked until UI-003 is merged.
+UI-003 is merged through PR #11 at `main@97b9c787`. DS-007 is now the only Product MVP v0.2 implementation packet remaining before the lead architect's RC decision.
 
 ## Current release gates
 
 ```text
-DS-003 ✅ + DS-004 ✅ + DS-005 ✅ + DS-006 ✅
-DS-006 merged → UI-003 (READY)
-UI-003 merged → DS-007 → architect RC decision
+DS-003 ✅ + DS-004 ✅ + DS-005 ✅ + DS-006 ✅ + UI-003 ✅
+        |
+        v
+DS-007 (READY)
+        |
+        v
+lead architect Product MVP v0.2 RC decision
 ```
 
-No Checkpoint/Resume, Canvas or second Agent adapter packet may start during this milestone without a new scope decision.
+No Checkpoint/Resume, Canvas or second Agent adapter implementation packet may start during this milestone without a new scope decision.
+
+## Next milestone — Context Runtime v0.3 research
+
+The next milestone is architecture/research driven. Its purpose is to validate Context Runtime with real model-call data before freezing new persistence or public contracts.
+
+| Order | Owner             | Packet                                                                                   | Branch                                        | Status                    | Start gate                                      |
+| ----: | ----------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------- | ----------------------------------------------- |
+|     0 | Lead architect    | PROPOSAL-030 Context Source / Source State / Context Universe                             | —                                             | PROPOSED in PR #12        | architecture review                             |
+|     0 | Lead architect    | PROPOSAL-031 Context Working Set / Planner / Decision                                     | —                                             | PROPOSED in PR #12        | architecture review                             |
+|     1 | DeepSeek V4 Flash | [DS-008 Pi Context Shadow Observation](deepseek/DS-008-pi-context-shadow-observation.md)   | `agent/deepseek-ds-008-pi-context-shadow`     | ASSIGNED / BLOCKED BY GATE | PR #12 merged + lead v0.2 RC research go-ahead |
+
+Research gate:
+
+```text
+PR #12 Context Runtime architecture reviewed/merged
+                 +
+lead architect closes v0.2 RC gate and authorizes v0.3 research
+                 |
+                 v
+DS-008 — CR-001 Pi model-call Shadow Observation
+                 |
+                 v
+architect reviews real Pi evidence
+                 |
+                 +--> refine CR-002 observation / Universe model
+                 |
+                 +--> only then authorize CR-003 Shadow Planner
+```
+
+DS-008 is deliberately observation-only. It may scaffold a provider-neutral experimental `context-runtime` package and a Pi-specific integration package, but it may not rewrite active model context, change production persistence, modify v0.2 Snapshot/ExecutionRequest contracts, or start OpenCode/Codex integration.
 
 ## Completed foundation
 
