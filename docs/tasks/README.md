@@ -42,11 +42,11 @@ No Checkpoint/Resume, Canvas or second Agent adapter implementation packet may s
 
 The next milestone is architecture/research driven. Its purpose is to validate Context Runtime with real model-call data before freezing new persistence or public contracts.
 
-| Order | Owner             | Packet                                                                                   | Branch                                        | Status                    | Start gate                                      |
-| ----: | ----------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------- | ----------------------------------------------- |
-|     0 | Lead architect    | PROPOSAL-030 Context Source / Source State / Context Universe                             | —                                             | PROPOSED in PR #12        | architecture review                             |
-|     0 | Lead architect    | PROPOSAL-031 Context Working Set / Planner / Decision                                     | —                                             | PROPOSED in PR #12        | architecture review                             |
-|     1 | DeepSeek V4 Flash | [DS-008 Pi Context Shadow Observation](deepseek/DS-008-pi-context-shadow-observation.md)   | `agent/deepseek-ds-008-pi-context-shadow`     | ASSIGNED / BLOCKED BY GATE | PR #12 merged + lead v0.2 RC research go-ahead |
+| Order | Owner             | Packet                                                                                 | Branch                                    | Status                     | Start gate                                      |
+| ----: | ----------------- | -------------------------------------------------------------------------------------- | ----------------------------------------- | -------------------------- | ----------------------------------------------- |
+|     0 | Lead architect    | PROPOSAL-030 Context Source / Source State / Context Universe                           | —                                         | PROPOSED in PR #12         | architecture review                             |
+|     0 | Lead architect    | PROPOSAL-031 Context Working Set / Planner / Decision                                   | —                                         | PROPOSED in PR #12         | architecture review                             |
+|     1 | DeepSeek V4 Flash | [DS-008 Pi Context Shadow Observation](deepseek/DS-008-pi-context-shadow-observation.md) | `agent/deepseek-ds-008-pi-context-shadow` | ASSIGNED / BLOCKED BY GATE | PR #12 merged + lead v0.2 RC research go-ahead |
 
 Research gate:
 
@@ -67,6 +67,8 @@ architect reviews real Pi evidence
 ```
 
 DS-008 is deliberately observation-only. It may scaffold a provider-neutral experimental `context-runtime` package and a Pi-specific integration package, but it may not rewrite active model context, change production persistence, modify v0.2 Snapshot/ExecutionRequest contracts, or start OpenCode/Codex integration.
+
+The implementation branch for DS-008 should be created from the reviewed `main` only after both start-gate conditions are satisfied. Do not branch implementation work from PR #12 itself.
 
 ## Completed foundation
 
