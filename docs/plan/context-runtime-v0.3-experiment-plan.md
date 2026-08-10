@@ -133,6 +133,8 @@ This is the first portability gate.
 
 **Start gate:** PR #12 architecture merged + lead architect authorizes Context Runtime v0.3 research after the Product MVP v0.2 RC decision.
 
+DeepSeek must create the DS-008 implementation branch from reviewed `main` after both gates are satisfied; the architecture PR branch is not an implementation base.
+
 ### Objective
 
 Prove that Canvas can observe every Pi model-call context without changing Agent behavior.
