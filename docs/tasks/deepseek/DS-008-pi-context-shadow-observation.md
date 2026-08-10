@@ -11,6 +11,8 @@ DeepSeek V4 Flash — Context Runtime research integration implementer. The lead
 - **Implements:** CR-001 from `docs/plan/context-runtime-v0.3-experiment-plan.md`
 - **Blocks:** CR-002 runtime observation model refinement and CR-003 Shadow Working Set Planner
 
+> Create the implementation branch from reviewed `main` only after both start gates are satisfied. Do not branch DS-008 implementation from PR #12.
+
 ## Goal
 
 Prove that Canvas Agent can observe Pi's model-call context at every pre-LLM boundary without changing Pi Agent behavior, without freezing a premature Runtime persistence schema, and without coupling `packages/context-runtime` to Pi or DeepSeek.
