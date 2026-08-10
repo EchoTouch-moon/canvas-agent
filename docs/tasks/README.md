@@ -68,7 +68,7 @@ architect reviews real Pi evidence
 
 DS-008 is deliberately observation-only. It may scaffold a provider-neutral experimental `context-runtime` package and a Pi-specific integration package, but it may not rewrite active model context, change production persistence, modify v0.2 Snapshot/ExecutionRequest contracts, or start OpenCode/Codex integration.
 
-The implementation branch for DS-008 should be created from the reviewed `main` only after both start-gate conditions are satisfied. Do not branch implementation work from PR #12 itself.
+The implementation branch for DS-008 must be created from reviewed `main` only after both start-gate conditions are satisfied. Do not branch implementation work from PR #12 itself.
 
 ## Completed foundation
 
