@@ -10,7 +10,7 @@
 
 - **Core**：确定性时钟、打包迁移资源、真实仓库选择与运行时切换、真实 Agent CLI、Live-first UI、发布候选质量门。
 - **Enhancement**：大文件拆分、前端包体优化、开发者诊断面板、第二个 Agent Provider。
-- **Future direction**：Checkpoint/Resume、Canvas/Graph、多 Provider 编排、远程协作。
+- **Future direction**：Context Runtime v0.3 Shadow 研究、Checkpoint/Resume、Canvas/Graph、多 Provider 编排、远程协作。
 - **Idea repository**：自治多 Agent 团队、云端执行、插件市场。
 
 ## Architecture decisions required before implementation
@@ -97,7 +97,7 @@
 
 - **当前阶段：Product MVP v0.2 COMPLETE。**
 - DS-007 已在 PR #13 合并，独立代码审查与最终 gate review 均完成。
-- 后续方向尚未进入实现；等待用户提供调整内容后按 Core / Enhancement / Future / Idea 重新分类。
+- 用户调整后的 Context Runtime v0.3 方向已归类为 **Future direction**；PR #12 负责研究基线，DS-008 在用户明确选择该里程碑前不进入实现。
 
 ## Errors encountered
 

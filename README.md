@@ -17,6 +17,8 @@ The engineering core loop is implemented end to end: SQLite project state, immut
 
 **Product MVP v0.2 is complete for local/internal unsigned use.** Packaged migration reliability, native repository and Agent selection, immutable ExecutionRequest v2 context, the production Codex CLI adapter, resumable first-workspace onboarding, the Live-first shell and repeatable RC gates are merged. External signed/notarized distribution remains a separate release decision. See [`docs/PRODUCT_MVP_V0.2_PLAN.md`](docs/PRODUCT_MVP_V0.2_PLAN.md), the [operator guide](docs/operator/product-mvp-v0.2.md) and the [release checklist](docs/operator/product-mvp-v0.2-release-checklist.md).
 
+The proposed post-v0.2 direction is [Context Runtime v0.3 research](docs/architecture/context-runtime-v0.3-direction.md): first observe model-call context through Pi, then decide from evidence whether a provider-neutral Working Set Runtime is worth advancing. It is classified as a Future direction; the observation-only [DS-008 packet](docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md) remains blocked until the user explicitly selects v0.3 as the next milestone.
+
 Normal startup selects or reopens a repository through the Main-owned native picker; it does not require `CANVAS_AGENT_REPO`. Production execution uses the configured Codex CLI and never falls back to Fixture. `CANVAS_AGENT_REPO`, the deterministic fake Codex and picker seams are test/developer boundaries only.
 
 ## Prerequisites

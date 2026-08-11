@@ -43,6 +43,7 @@ These items are required because the existing engineering loop cannot be used as
 
 | Direction | Trigger |
 |---|---|
+| Context Runtime v0.3 Shadow research | PR #12 research baseline merged and the user explicitly selects v0.3 as the next milestone; begin with observation-only DS-008 and require evidence review before any active rewrite or contract freeze |
 | Checkpoint/Resume | at least three real, classified recoverable interruption cases plus an approved continuation contract |
 | Canvas/SavedView expansion | core flow stable and hierarchy/status views fail a repeated coordination question |
 | multi-provider routing/fallback | two stable adapters with measured, documented differences |
@@ -56,7 +57,7 @@ These items are required because the existing engineering loop cannot be used as
 - distributed Worker fleet;
 - autonomous multi-Agent negotiation/organization;
 - cloud-shared project state;
-- full-repository vectorization and automatic context optimization;
+- full-repository vectorization or embedding-first/opaque automatic context optimization;
 - plugin/extension marketplace;
 - enterprise billing and audit administration.
 

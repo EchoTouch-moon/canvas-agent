@@ -110,4 +110,11 @@
 - 真实 Codex smoke 报告为 `executed=1`，六项非敏感 checks 全为 true；production dependency audit 无已知 high/critical 漏洞。
 - 代码审查 CLEAN；最终 gate review 的 AC-9 已关闭，AC-2 由远端 macOS CI 关闭。所有 Product MVP v0.2 P0/P1 release gates 已关闭。
 - 首席架构师决定：Product MVP v0.2 对 local/internal unsigned use 正式完成。外部签名/公证归为后续分发项，不阻断本次里程碑。
-- 用户已说明后续方向有所调整，但尚未提供具体内容；不得从旧计划自动启动 Checkpoint/Resume、Canvas、第二 Adapter 或多 Agent 编排，先按范围门重新分类。
+- 用户调整后的后续方向已在 PR #12 明确为 Context Runtime v0.3 研究。首席架构师将其归类为 Future direction：可以合并方向/实验/工单文档，但不得因文档合并自动启动实现。
+
+## 2026-08-11 PR #12 Context Runtime direction review
+
+- 方向基线：Pi 作为首个开放研究 harness，OpenCode 作为第二实现/原生上下文基线，Codex 作为较晚的兼容性目标；Context Runtime 核心保持 Agent/provider 中立。
+- 首个候选工单 DS-008 仅做 model-call Shadow observation，不改写上下文、不改生产 SQLite/Desktop/Worker/冻结 v0.2 契约。
+- 外部事实已按上游固定提交复核：Pi `cd6852a123f2c0cc646a41a2a52f3711a603b822`（`@earendil-works/pi-coding-agent` `0.84.1`），OpenCode `d041eee55c4b669f583fcbe0eb73e78d53393ae8`。
+- 研究实现仍受用户范围门约束；PR #12 合并本身不等于授权 DS-008 开工。

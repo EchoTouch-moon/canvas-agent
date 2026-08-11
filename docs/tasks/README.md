@@ -34,6 +34,40 @@ Product MVP v0.2 → COMPLETE (local/internal unsigned distribution)
 
 No Checkpoint/Resume, Canvas, second Agent adapter or external signed-distribution packet starts automatically. The user's revised post-v0.2 direction must pass a new scope decision first.
 
+## Proposed next milestone — Context Runtime v0.3 research
+
+Context Runtime v0.3 is classified as a **Future direction**, not as unfinished Product MVP work. PR #12 may establish a bounded research baseline, but merging it does not authorize implementation. DS-008 remains blocked until the user explicitly chooses this as the next milestone.
+
+| Order | Owner             | Packet                                                                                 | Branch                                    | Status                                  | Start gate                                      |
+| ----: | ----------------- | -------------------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------- | ----------------------------------------------- |
+|     0 | Lead architect    | PROPOSAL-030 Context Source / Source State / Context Universe                           | —                                         | PROPOSED — evidence pending             | CR-001/CR-003 evidence before contract freeze   |
+|     0 | Lead architect    | PROPOSAL-031 Context Working Set / Planner / Decision                                   | —                                         | PROPOSED — evidence pending             | CR-001/CR-003 evidence before contract freeze   |
+|     1 | DeepSeek V4 Flash | [DS-008 Pi Context Shadow Observation](deepseek/DS-008-pi-context-shadow-observation.md) | `agent/deepseek-ds-008-pi-context-shadow` | ASSIGNED / BLOCKED BY USER SCOPE GATE   | PR #12 merged + explicit user authorization     |
+
+Research gate:
+
+```text
+Product MVP v0.2 closeout ✅
+                 +
+PR #12 Context Runtime research baseline reviewed/merged
+                 +
+user explicitly selects v0.3 research as the next milestone
+                 |
+                 v
+DS-008 — CR-001 Pi model-call Shadow Observation
+                 |
+                 v
+architect reviews real Pi evidence
+                 |
+                 +--> refine CR-002 observation / Universe model
+                 |
+                 +--> only then authorize CR-003 Shadow Planner
+```
+
+DS-008 is deliberately observation-only. It may scaffold a provider-neutral experimental `context-runtime` package and a Pi-specific integration package, but it may not rewrite active model context, change production persistence, modify v0.2 Snapshot/ExecutionRequest contracts, or start OpenCode/Codex integration.
+
+The implementation branch for DS-008 must be created from reviewed `main` only after every start gate is satisfied. Do not branch implementation work from PR #12 itself.
+
 ## Completed foundation
 
 | Owner             | Task                           | Branch                                 | Integrated   |

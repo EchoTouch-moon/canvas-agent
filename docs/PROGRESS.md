@@ -87,6 +87,8 @@ Result adoption ≠ Baseline activation
 | PROPOSAL-028B | packaged-safe local Agent executable discovery/readiness |
 | PROPOSAL-028C | path-free Agent readiness command/Zod contract |
 | PROPOSAL-029 | fresh workspace Project/Baseline/Task bootstrap without demo seed |
+| PROPOSAL-030 | proposed Context Source / Source State / Context Universe research model; not a frozen contract |
+| PROPOSAL-031 | proposed Context Working Set / Planner / Decision research model; not a frozen contract |
 
 ### 3.2 信任边界（逐步建立）
 
@@ -113,6 +115,7 @@ Result adoption ≠ Baseline activation
 ### 当前状态与后续方向
 
 - Product MVP v0.2：已由 lead architect 对照逐门证据批准完成；当前无未关闭 P0/P1 release blocker。
+- Proposed Future direction：Context Runtime v0.3，先用 Pi 做 observation-only Shadow 研究；PR #12 只建立研究基线，DS-008 在用户明确选择该里程碑前保持阻塞。
 - Future：Checkpoint / Resume、ToolInvocation、Approval、多 ExecutionRequest continuation；触发条件见 scope register。
 - Future：Canvas / Graph Intelligence。
 - BaselineEdgeItem（关系快照）——MVP 明确冻结为 NodeVersions + RepositoryRevision。
