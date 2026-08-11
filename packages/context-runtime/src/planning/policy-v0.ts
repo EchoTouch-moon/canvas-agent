@@ -189,8 +189,28 @@ export function planWorkingSet(input: {
       active = true
       reasonCodes.push('USER_PINNED')
     } else if (isExcluded(request, sourceKey)) {
+      // Explicit exclude: the source leaves the Working Set. When it was
+      // previously active, emit a real REMOVE(EXPLICIT_EXCLUDE) so the
+      // observer can record removal history (enabling later REHYDRATE).
       active = false
-      reasonCodes.push('EXPLICIT_EXCLUDE')
+      const previousItem = previousByKey.get(sourceKey)
+      if (previousItem !== undefined) {
+        decisions.push(
+          makeDecision({
+            sequence,
+            kind: 'REMOVE',
+            sourceKey,
+            sourceVersionId: previousItem.sourceVersionIds[0]!,
+            representationId: previousItem.representationId,
+            fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
+            toWorkingSetId: workingSetId,
+            reasonCodes: ['EXPLICIT_EXCLUDE'],
+            policyVersion,
+            tokenDelta: -previousItem.tokenEstimate,
+            previousToken: previousItem.tokenEstimate
+          })
+        )
+      }
     } else if (isCurrentTarget(request, sourceKey)) {
       active = true
       reasonCodes.push('CURRENT_TARGET')

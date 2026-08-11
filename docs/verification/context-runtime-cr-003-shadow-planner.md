@@ -1,10 +1,10 @@
 # CR-003A Verification — Shadow Working Set Planner Kernel
 
-- **Status:** EVIDENCE READY (rev.2 — PR #18 corrections applied); not self-accepted; awaits lead re-review
+- **Status:** EVIDENCE READY (rev.3 — PR #18 continuity corrections applied); not self-accepted; awaits lead re-review
 - **Packet:** `docs/tasks/deepseek/DS-010-shadow-working-set-planner.md`
 - **Owner:** DeepSeek V4 Flash — Context Runtime research implementer
 - **Branch:** `agent/deepseek-ds-010-shadow-working-set-planner`
-- **Date:** 2026-08-11 (rev.2 after PR #18 architecture review)
+- **Date:** 2026-08-11 (rev.3 after PR #18 continuity review)
 - **Pi exact version:** `@earendil-works/pi-coding-agent@0.84.1` (workspace pin)
 - **DeepSeek provider/model (live smoke):** provider `deepseek`, model `deepseek-v4-flash`, credential from local Pi `auth.json`
 
@@ -101,10 +101,10 @@ Deterministic tie-break order for eviction: token cost desc, then sourceKey asc.
 
 ```bash
 pnpm --filter @canvas-agent/context-runtime test        78 passed
-pnpm --filter @canvas-agent/pi-context-integration test 47 passed
+pnpm --filter @canvas-agent/pi-context-integration test 48 passed
 pnpm --filter @canvas-agent/context-runtime typecheck   PASS
 pnpm --filter @canvas-agent/pi-context-integration typecheck PASS
-pnpm check                                              GREEN (595 tests + build)
+pnpm check                                              GREEN (596 tests + build)
 ```
 
 New CR-003A coverage (rev.2): core planner tests for ABSENT→REMOVE from previous item, removal-history-driven REHYDRATE (incl. negative first-pin ADD), provider-neutral recent-evidence signal, content-addressed Working Set/decision identity collisions; Pi observer tests for previousWorkingSetId consistency, real KEEP continuity, and native estimate == CR-001 observation estimate.
@@ -117,7 +117,7 @@ New CR-003A coverage: core planner tests for deterministic identity/binding, pro
 
 ```text
 Command: CANVAS_CONTEXT_LIVE_SMOKE=1 pnpm --filter @canvas-agent/pi-context-integration smoke:deepseek:cr003
-runtimeSessionId: smoke-cr003-2026-08-11T12-47-16-825Z
+runtimeSessionId: smoke-cr003-2026-08-11T13-07-57-050Z
 provider: deepseek   model: deepseek-v4-flash
 ```
 
@@ -128,10 +128,10 @@ Metadata-only Shadow plan timeline (scope labels):
 ```text
 call  prevWS   native(CR-001)  proposed(WS)  ADD  KEEP  REMOVE  REHYDRATE
  1     null         21             0          0     0     0       0
- 2     ws:...2      82             2          2     0     0       0
- 3     ws:...3     185             4          2     2     0       0
- 4     ws:...4     371             6          2     4     0       0
- 5     ws:...5     410             8          2     6     0       0
+ 2     ws:...2      77             2          2     0     0       0
+ 3     ws:...3     180             4          2     2     0       0
+ 4     ws:...4     361             6          2     4     0       0
+ 5     ws:...5     402             8          2     6     0       0
 ```
 
 Decision examples (call 3): `KEEP run/tool-call://call_...`, `KEEP run/tool-result://call_...` (unchanged history is KEEP, not repeated ADD); call 2 `ADD ... [RECENT_RUN_EVIDENCE]`.
@@ -167,8 +167,10 @@ CR-004 Active Working Set Rewrite is **not** authorized by this evidence. Shadow
 | P1 ABSENT → REMOVE branch unreachable | ✅ ABSENT is handled **before** requiring an admitted version; for a previously active item the REMOVE subject/version/representation is derived from the previous Working Set item. New test 8b proves `AVAILABLE active → Universe ABSENT → plan with previous Working Set → REMOVE(SOURCE_ABSENT)` with the sourceVersionId taken from the previous item. |
 | P1 REHYDRATE is not history-aware | ✅ `ContextPlanningRequest.removalHistory` (`RemovalRecord[]`) records original removal reason + removedAtSequence + removedFromWorkingSetId. REHYDRATE only fires when a prior removal record exists; first-time pin/current-target is `ADD`. Negative test 11b proves first-plan pin → ADD, not REHYDRATE; test 11 preserves `EXPLICIT_EXCLUDE` alongside `REHYDRATION_TRIGGERED`. |
 | P1 Live seam does not run planner with continuity | ✅ `ShadowPlannerObserver` retains the actual previous `ContextWorkingSet` and passes it to Policy V0; `request.previousWorkingSetId` must match (tested). New `createShadowPlannerPiExtension` invokes planning inside the `context` callback. Smoke uses the real extension: continuity produces KEEP 2→4→6. |
-| P1 Native estimate placeholder zero | ✅ `EnrichedShadowResult.nativeContextEstimate` now carries the real CR-001 `observedMessageTokenEstimate`; it flows into `ShadowPlanningMetrics.nativeContextEstimate`. Smoke reports real values (21→82→185→371→410); test asserts metric equals the enriched result value and is > 0. |
+| P1 Native estimate placeholder zero | ✅ `EnrichedShadowResult.nativeContextEstimate` now carries the real CR-001 `observedMessageTokenEstimate`; it flows into `ShadowPlanningMetrics.nativeContextEstimate`. Smoke reports real values (21→77→180→361→402); test asserts metric equals the enriched result value and is > 0. |
 | P2 Working Set / decision identity aliasing | ✅ `createWorkingSetId` is content-addressed (policyVersion + planningRequestHash + universeHash); `createDecisionId` includes version/representation/to-working-set/reasons. Collision tests: different policy versions, different planning requests, different source versions → distinct ids. |
+| P1 explicit exclude does not produce REMOVE (rev.3) | ✅ When an explicitly excluded source was previously active, Policy V0 now emits a real `REMOVE(EXPLICIT_EXCLUDE)` derived from the previous Working Set item (subject/version/representation). The observer auto-records it into `removalHistory`, so exclude → history → REHYDRATE is end-to-end (core test 11 no longer hand-constructs the record; Pi observer test drives exclude then pin → REHYDRATE). |
+| P2 previousWorkingSetId check not bidirectional (rev.3) | ✅ The observer now enforces strict bidirectional equality: `request.previousWorkingSetId` must equal the actual previous Working Set id (or both null). Both directions (request non-null vs actual null, and request null vs actual non-null) throw. New inverse test: first call establishes a previous set, then a null-claiming request is rejected. |
 
 ## 16. Scope confirmation
 

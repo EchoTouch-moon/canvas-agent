@@ -90,7 +90,8 @@ describe('Shadow planner observer (CR-003A)', () => {
     expect(result.messages).toHaveLength(2)
   })
 
-  it('P1: previousWorkingSetId mismatch is rejected (request vs actual)', () => {
+  it('P2: previousWorkingSetId mismatch is rejected both ways (strict bidirectional)', () => {
+    // Direction 1: request claims a previous id but actual previous set is null.
     const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
     const enriched = new EnrichedPiShadowObserver({ base })
     const observer = new ShadowPlannerObserver({
@@ -106,13 +107,92 @@ describe('Shadow planner observer (CR-003A)', () => {
         currentTargetSourceKeys: [],
         latestVerificationSourceKeys: [],
         recentEvidenceSourceKeys: input.recentEvidenceSourceKeys,
-        // Claim a bogus previous id while the actual previous set is null.
         previousWorkingSetId: 'working-set:bogus'
       })
     })
     expect(() =>
       observer.observeModelCall([userMessage('task')])
     ).toThrow(/previousWorkingSetId mismatch/)
+
+    // Direction 2 (inverse): a single observer establishes a previous Working
+    // Set on its first call, then a step-based request drops the id -> throw.
+    const base2 = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
+    const enriched2 = new EnrichedPiShadowObserver({ base: base2 })
+    let inverseStep = 0
+    const observer2 = new ShadowPlannerObserver({
+      enriched: enriched2,
+      policyVersion: 'v0',
+      makePlanningRequest: (input) => {
+        inverseStep += 1
+        return {
+          runtimeSessionId: input.runtimeSessionId,
+          recompositionSequence: input.sequence,
+          taskPhase: 'GENERAL',
+          budget: { maxSemanticTokens: 8000 },
+          pinnedSourceKeys: [],
+          excludedSourceKeys: [],
+          currentTargetSourceKeys: [],
+          latestVerificationSourceKeys: [],
+          recentEvidenceSourceKeys: input.recentEvidenceSourceKeys,
+          previousWorkingSetId: inverseStep === 2 ? null : input.previousWorkingSetId
+        }
+      }
+    })
+    observer2.observeModelCall([userMessage('task')])
+    expect(() =>
+      observer2.observeModelCall([userMessage('task')])
+    ).toThrow(/previousWorkingSetId mismatch/)
+  })
+
+  it('P1: exclude in the live observer records removal history and enables REHYDRATE (end to end)', () => {
+    // Build an observer whose planning request honors explicit excludes on the
+    // second call and pins the source on the third call. The observer must
+    // automatically record removal history from the real REMOVE decision.
+    const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
+    const enriched = new EnrichedPiShadowObserver({ base })
+    let step = 0
+    const observer = new ShadowPlannerObserver({
+      enriched,
+      policyVersion: 'v0',
+      makePlanningRequest: (input) => {
+        step += 1
+        const common = {
+          runtimeSessionId: input.runtimeSessionId,
+          recompositionSequence: input.sequence,
+          taskPhase: 'GENERAL' as const,
+          budget: { maxSemanticTokens: 8000 },
+          currentTargetSourceKeys: [] as string[],
+          latestVerificationSourceKeys: [] as string[],
+          recentEvidenceSourceKeys: input.recentEvidenceSourceKeys,
+          previousWorkingSetId: input.previousWorkingSetId,
+          removalHistory: input.removalHistory
+        }
+        if (step === 2) {
+          return { ...common, pinnedSourceKeys: [], excludedSourceKeys: ['run/tool-call://call-1', 'run/tool-result://call-1'] }
+        }
+        if (step === 3) {
+          return { ...common, pinnedSourceKeys: ['run/tool-call://call-1', 'run/tool-result://call-1'], excludedSourceKeys: [] }
+        }
+        return { ...common, pinnedSourceKeys: [], excludedSourceKeys: [] }
+      }
+    })
+    const msg = [
+      userMessage('task'),
+      toolCallMessage('call-1', 'read', { path: 'a.ts' }),
+      toolResultMessage('call-1', 'content')
+    ]
+    observer.observeModelCall(msg)
+    const call2 = observer.observeModelCall(msg)
+    // Step 2: explicit exclude -> real REMOVE(EXPLICIT_EXCLUDE).
+    const removeDecisions = call2.plannerResult.decisions.filter((d) => d.kind === 'REMOVE')
+    expect(removeDecisions.length).toBeGreaterThan(0)
+    expect(
+      removeDecisions.every((d) => d.reasonCodes.includes('EXPLICIT_EXCLUDE'))
+    ).toBe(true)
+    const call3 = observer.observeModelCall(msg)
+    // Step 3: pinned again -> REHYDRATE (observer auto-recorded the removal).
+    const rehydrateDecisions = call3.plannerResult.decisions.filter((d) => d.kind === 'REHYDRATE')
+    expect(rehydrateDecisions.length).toBeGreaterThan(0)
   })
 
   it('P1: unchanged history across calls yields KEEP (real continuity)', () => {

@@ -291,12 +291,12 @@ describe('continuity, KEEP, REHYDRATE and reason codes', () => {
     expect(second.decisions.map((d) => d.kind)).toContain('KEEP')
   })
 
-  it('11) active -> removed -> relevant again with removal history produces REHYDRATE', () => {
+  it('11) active -> excluded -> pinned again produces REHYDRATE via a real REMOVE(EXPLICIT_EXCLUDE)', () => {
     const universe = makeUniverse()
     const opts = { policyVersion: POLICY, createdAt: T0, represent: representEvery }
     const first = planWorkingSet({ universe, request: evidenceRequest(['run/tool-result://call-1'], { recompositionSequence: 1 }), previousWorkingSet: null, options: opts })
     expect(first.workingSet.items.map((i) => i.sourceKeys[0])).toContain('run/tool-result://call-1')
-    // Remove via explicit exclusion: the source leaves the Working Set.
+    // Explicit exclusion while previously active => real REMOVE(EXPLICIT_EXCLUDE).
     const excluded = planWorkingSet({
       universe,
       request: evidenceRequest(['run/tool-result://call-1'], {
@@ -308,15 +308,22 @@ describe('continuity, KEEP, REHYDRATE and reason codes', () => {
       options: opts
     })
     expect(excluded.workingSet.items).toHaveLength(0)
-    // Removal history recorded (original removal reason preserved).
-    const removalHistory = [
-      {
-        sourceKey: 'run/tool-result://call-1',
-        originalRemovalReasonCodes: ['EXPLICIT_EXCLUDE'] as const,
-        removedAtSequence: 2,
-        removedFromWorkingSetId: first.workingSet.workingSetId
-      }
-    ]
+    const removeDecision = excluded.decisions.find((d) => d.sourceKey === 'run/tool-result://call-1')
+    expect(removeDecision?.kind).toBe('REMOVE')
+    expect(removeDecision?.reasonCodes).toContain('EXPLICIT_EXCLUDE')
+    expect(removeDecision?.sourceVersionId).toBe(first.workingSet.items[0]!.sourceVersionIds[0])
+    // Removal history derived from the real REMOVE decision (end-to-end, not
+    // manually constructed).
+    const removalHistory = removeDecision !== undefined
+      ? [
+          {
+            sourceKey: removeDecision.sourceKey,
+            originalRemovalReasonCodes: removeDecision.reasonCodes,
+            removedAtSequence: 2,
+            removedFromWorkingSetId: removeDecision.fromWorkingSetId
+          }
+        ]
+      : []
     // Now pinned again WITH removal history and the empty excluded set as the
     // previous Working Set => REHYDRATE (not a first ADD, not a KEEP).
     const rehydrated = planWorkingSet({

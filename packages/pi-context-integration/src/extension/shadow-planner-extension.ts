@@ -83,14 +83,15 @@ export class ShadowPlannerObserver {
     })
 
     // Validate consistency: if the request claims a previous set id it must
-    // match the actual previous Working Set supplied to the planner.
-    if (
-      planningRequest.previousWorkingSetId !== null &&
-      (this.previousWorkingSet === null ||
-        planningRequest.previousWorkingSetId !== this.previousWorkingSet.workingSetId)
-    ) {
+    // Validate bidirectional strict consistency: the request's claimed previous
+    // Working Set id must equal the actual previous Working Set supplied to the
+    // planner. Both mismatches (request non-null vs actual null, and request
+    // null vs actual non-null) are rejected so PlanningRequest hashing and the
+    // planner input cannot disagree for replay/audit.
+    const actualPreviousWorkingSetId = this.previousWorkingSet?.workingSetId ?? null
+    if (planningRequest.previousWorkingSetId !== actualPreviousWorkingSetId) {
       throw new Error(
-        `previousWorkingSetId mismatch: request=${planningRequest.previousWorkingSetId} actual=${this.previousWorkingSet?.workingSetId ?? 'null'}`
+        `previousWorkingSetId mismatch: request=${planningRequest.previousWorkingSetId} actual=${actualPreviousWorkingSetId}`
       )
     }
 
