@@ -55,7 +55,7 @@
 
 - [x] DS-006：完成 renderer 非视觉 client/state、loading/empty/error/disabled/read-only 状态与测试。
 - [x] DS-006：用既有命令完成无 seed 的 Project/charter/初始 DRAFT Baseline/显式激活/Task/TaskSpec 功能表单与断点续做。
-- [ ] UI-003：Luna 只负责 Live-first 壳层、工作区入口、文案、主题与视觉验收。
+- [x] UI-003：Luna 只负责 Live-first 壳层、工作区入口、文案、主题与视觉验收。
 
 退出条件：生产构建默认 Live；Fixture 不出现在普通用户主界面；主链路不依赖内部 ID 或 schema 命令名才能操作。
 
@@ -76,14 +76,15 @@
 
 ## Current verified baseline — 2026-08-10
 
-- Git：`main` 与 `origin/main` 同步，HEAD `19c0690`；DS-006 已通过 PR #10 合并。
+- Git：`main` 与 `origin/main` 同步，HEAD `97b9c78`；UI-003 已通过 PR #11 合并。
 - 工程闭环：Task → Run → Acceptance → Apply → Revision → Candidate Baseline → Activate 已实现。
 - DS-003：确定性时钟、packaged migrations、unsigned/package smoke 与 macOS CI gate 已合并。
 - DS-004：原生仓库选择、单活动 Workspace Runtime、仓库隔离存储与 reopen/switch 已合并。
 - DS-005：ExecutionRequest v2、真实 Codex CLI、Agent discovery/readiness 与隔离执行已通过 PR #9 合并。
 - DS-006：生产默认 Live、typed workspace/Agent 生命周期、无 seed onboarding、dirty 门禁和断点续做已合并。
-- 检查：Node 24 下 `pnpm check` 通过（469 tests + build）；PR #10 的 Linux check 与 macOS live/workspace/packaged Electron gates 全绿。
-- 当前产品缺口：UI-003 视觉发布 pass 与 DS-007 RC gates；严格按 UI-003 → DS-007 推进。
+- UI-003：18 个 lifecycle/onboarding/dirty 明暗视觉场景、完整键盘路径与紧凑工作台已合并。
+- 检查：Node 24 下 `pnpm check` 通过（470 tests + build）；PR #11 的 source check 与 macOS live/workspace/packaged Electron gates 全绿。
+- 当前产品缺口：仅剩 DS-007 RC gates 与首席架构师最终 Product MVP 决策。
 
 ## Blockers
 
@@ -93,9 +94,9 @@
 
 ## Active execution status
 
-- **当前阶段：Wave 3 / UI-003 准备开工。**
-- DS-006 的 Renderer 生命周期、onboarding 恢复语义和 UI-003 view-model seam 已冻结并合并。
-- UI-003 已解除 BLOCKED；DS-007 继续等待 UI-003 合并。
+- **当前阶段：Wave 4 / DS-007 RC 收口。**
+- UI-003 已在 PR #11 合并，视觉证据与远端 Electron 门禁全绿。
+- DS-007 已解除 BLOCKED；生产架构保持冻结，只允许 E2E、CI、release/operator 文档收口。
 
 ## Errors encountered
 

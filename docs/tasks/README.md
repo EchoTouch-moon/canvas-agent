@@ -19,17 +19,17 @@ DeepSeek is the primary implementer. Luna receives one consolidated visual task 
 |     2 | DeepSeek V4 Flash | [DS-004 workspace runtime](deepseek/DS-004-workspace-runtime.md)            | `agent/deepseek-ds-004-workspace-runtime`   | ✅ MERGED — PR #8  | `main@7cbaf18`                    |
 |     3 | DeepSeek V4 Flash | [DS-005 local CLI adapter](deepseek/DS-005-local-cli-adapter.md)            | `agent/deepseek-ds-005-local-cli-adapter`   | ✅ MERGED — PR #9  | `main@3459d6d`                    |
 |     4 | DeepSeek V4 Flash | [DS-006 Live client state/onboarding](deepseek/DS-006-live-client-state.md) | `agent/deepseek-ds-006-live-client-state`   | ✅ MERGED — PR #10 | `main@19c0690`                    |
-|     5 | GPT-5.6 Luna      | [UI-003 Live-first product shell](luna/UI-003-live-first-product-shell.md)  | `agent/luna-ui-003-live-first-shell`        | READY              | DS-006 ✅ merged                  |
-|     6 | DeepSeek V4 Flash | [DS-007 RC gates](deepseek/DS-007-release-candidate-gates.md)               | `agent/deepseek-ds-007-product-mvp-rc`      | BLOCKED            | all implementation packets merged |
+|     5 | GPT-5.6 Luna      | [UI-003 Live-first product shell](luna/UI-003-live-first-product-shell.md)  | `agent/luna-ui-003-live-first-shell`        | ✅ MERGED — PR #11 | `main@97b9c78`                    |
+|     6 | DeepSeek V4 Flash | [DS-007 RC gates](deepseek/DS-007-release-candidate-gates.md)               | `agent/deepseek-ds-007-product-mvp-rc`      | READY              | all implementation packets merged |
 
-DS-006 is LEAD APPROVED and merged through PR #10 at `main@19c0690`: both CI jobs passed, including Live, workspace and packaged Electron gates. UI-003 is the only newly unlocked implementation packet. DS-007 remains blocked until UI-003 is merged.
+UI-003 is LEAD APPROVED and merged through PR #11 at `main@97b9c78`: Node 24 source checks, macOS Electron gates, 18-state visual evidence and independent Luna QA all passed. DS-007 is the only remaining implementation packet and is now unblocked.
 
 ## Current release gates
 
 ```text
-DS-003 ✅ + DS-004 ✅ + DS-005 ✅ + DS-006 ✅
-DS-006 merged → UI-003 (READY)
-UI-003 merged → DS-007 → architect RC decision
+DS-003 ✅ + DS-004 ✅ + DS-005 ✅ + DS-006 ✅ + UI-003 ✅
+UI-003 merged → DS-007 (READY)
+DS-007 → architect RC decision
 ```
 
 No Checkpoint/Resume, Canvas or second Agent adapter packet may start during this milestone without a new scope decision.

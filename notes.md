@@ -92,3 +92,11 @@
 - Live E2E 证实首次执行、验收、采纳，以及同 userData 重启后的 Run/证据/应用/候选 Baseline/显式激活全部持久。
 - E2E 发现并修复“已有 ACTIVE Baseline 时把后续候选 DRAFT 当成首次引导 DRAFT”的 P1 selector 顺序问题。
 - UI-003 现已解锁；其边界严格限制为视觉组件、语义文案、主题、无障碍和截图 QA，不得修改 DS-006 hooks/reducer/lib 状态逻辑。
+
+## 2026-08-10 UI-003 merge gate
+
+- PR #11 已在 `main@97b9c78` 合并；功能提交 `b2db993`，GitHub `check` 与 `macos-electron` 均通过。
+- Node 24 `pnpm check`：470 tests + build 全绿；真实 Live E2E 完成 Run → Acceptance → Apply → DRAFT Candidate → 重启 → 显式激活。
+- 视觉验收覆盖 18 个精确尺寸场景，包括 no-workspace/opening/error/ready/switch-blocked、Agent auth、First Project、First Task、TaskSpec、DRAFT Baseline 与 dirty/read-only；Luna QA 和独立代码复审均为 CLEAN。
+- 键盘路径 `Choose repository → READY → Task title → Create task`、横向溢出、控件裁切和状态公告均由 Electron harness 自动断言。
+- DS-007 现已解锁；预检确认剩余缺口只在确定性 RC 编排、采纳幂等证明、Agent smoke 报告、CI artifacts/audit 与发布文档，不需要修改生产架构。
