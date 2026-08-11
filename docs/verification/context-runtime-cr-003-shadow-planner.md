@@ -1,10 +1,10 @@
 # CR-003A Verification — Shadow Working Set Planner Kernel
 
-- **Status:** EVIDENCE READY — not self-accepted; awaits lead architect review
+- **Status:** EVIDENCE READY (rev.2 — PR #18 corrections applied); not self-accepted; awaits lead re-review
 - **Packet:** `docs/tasks/deepseek/DS-010-shadow-working-set-planner.md`
 - **Owner:** DeepSeek V4 Flash — Context Runtime research implementer
 - **Branch:** `agent/deepseek-ds-010-shadow-working-set-planner`
-- **Date:** 2026-08-11
+- **Date:** 2026-08-11 (rev.2 after PR #18 architecture review)
 - **Pi exact version:** `@earendil-works/pi-coding-agent@0.84.1` (workspace pin)
 - **DeepSeek provider/model (live smoke):** provider `deepseek`, model `deepseek-v4-flash`, credential from local Pi `auth.json`
 
@@ -100,41 +100,45 @@ Deterministic tie-break order for eviction: token cost desc, then sourceKey asc.
 ## 10. Deterministic test results (credential-free)
 
 ```bash
-pnpm --filter @canvas-agent/context-runtime test        73 passed
-pnpm --filter @canvas-agent/pi-context-integration test 44 passed
+pnpm --filter @canvas-agent/context-runtime test        78 passed
+pnpm --filter @canvas-agent/pi-context-integration test 47 passed
 pnpm --filter @canvas-agent/context-runtime typecheck   PASS
 pnpm --filter @canvas-agent/pi-context-integration typecheck PASS
-pnpm check                                              GREEN (582 tests + build)
+pnpm check                                              GREEN (595 tests + build)
 ```
 
-New CR-003A coverage: 17 core planner tests + 4 Pi planner-observer tests (deterministic identity, binding, protection/pin/exclude/conflict, ABSENT/UNAVAILABLE, KEEP/REHYDRATE, trust boundary, pass-through).
+New CR-003A coverage (rev.2): core planner tests for ABSENT→REMOVE from previous item, removal-history-driven REHYDRATE (incl. negative first-pin ADD), provider-neutral recent-evidence signal, content-addressed Working Set/decision identity collisions; Pi observer tests for previousWorkingSetId consistency, real KEEP continuity, and native estimate == CR-001 observation estimate.
 
-## 11. Live Pi + DeepSeek CR-003A Shadow smoke
+New CR-003A coverage: core planner tests for deterministic identity/binding, protection/pin/exclude/conflict, ABSENT/UNAVAILABLE, KEEP/REHYDRATE (incl. first-pin negative test), trust boundary, content-addressed identity collisions; Pi planner-observer tests for previousWorkingSetId consistency, real KEEP continuity, and native-estimate propagation.
+
+## 11. Live Pi + DeepSeek CR-003A Shadow smoke (rev.2 — real seam)
 
 **Status: EXECUTED**
 
 ```text
 Command: CANVAS_CONTEXT_LIVE_SMOKE=1 pnpm --filter @canvas-agent/pi-context-integration smoke:deepseek:cr003
-runtimeSessionId: smoke-cr003-2026-08-11T12-15-08-539Z
+runtimeSessionId: smoke-cr003-2026-08-11T12-47-16-825Z
 provider: deepseek   model: deepseek-v4-flash
 ```
+
+The smoke now exercises the **real planning seam**: the Pi `context` extension factory (`createShadowPlannerPiExtension`) invokes `ShadowPlannerObserver.observeModelCall` inside the callback (observe → advance Universe → plan → record), then returns the original messages unchanged. Continuity is real: the observer passes the actual previous Shadow Working Set to Policy V0.
 
 Metadata-only Shadow plan timeline (scope labels):
 
 ```text
-call  universe  workingSetId (short)  policy   proposed(WS)  ADD  KEEP  REMOVE  REHYDRATE
- 1      1           ws:...:1           v0          0           0    0     0       0
- 2      2           ws:...:2           v0          2           2    0     0       0
- 3      3           ws:...:3           v0          4           4    0     0       0
- 4      4           ws:...:4           v0          6           6    0     0       0
- 5      5           ws:...:5           v0          8           8    0     0       0
+call  prevWS   native(CR-001)  proposed(WS)  ADD  KEEP  REMOVE  REHYDRATE
+ 1     null         21             0          0     0     0       0
+ 2     ws:...2      82             2          2     0     0       0
+ 3     ws:...3     185             4          2     2     0       0
+ 4     ws:...4     371             6          2     4     0       0
+ 5     ws:...5     410             8          2     6     0       0
 ```
 
-Decision example (call 5): `ADD run/tool-call://call_... [RECENT_RUN_EVIDENCE]`, `ADD run/tool-result://call_... [RECENT_RUN_EVIDENCE]`.
+Decision examples (call 3): `KEEP run/tool-call://call_...`, `KEEP run/tool-result://call_...` (unchanged history is KEEP, not repeated ADD); call 2 `ADD ... [RECENT_RUN_EVIDENCE]`.
 
-Native vs proposed estimate: the smoke plans are stateless per call (no previous Working Set supplied), so decisions are all `ADD` and `KEEP/REHYDRATE` are exercised in the deterministic tests instead. `nativeContextEstimate` is scoped to `agent-messages-pre-provider` (CR-001); `proposedSemanticTokenEstimate` is a separate semantic planning metric. **No provider-billed token savings are claimed.**
+Native vs proposed estimate: `nativeContextEstimate` is the **real CR-001 `ModelCallObservation.observedMessageTokenEstimate`**, scoped to `agent-messages-pre-provider` (not a placeholder); `proposedSemanticTokenEstimate` is the separate semantic planning metric. **No provider-billed token savings are claimed.**
 
-The smoke proves: real Pi context passed through semantically unchanged; Universe continued advancing (revision 5 / source sets per call); one Shadow Working Set per model call; decisions/reasons metadata-only; no raw prompt/tool-result content or credentials persisted (verified); `repository/file` DERIVED_HINT entries were not silently treated as canonical planner sources.
+The smoke proves: real Pi context passed through semantically unchanged; Universe continued advancing; one Shadow Working Set per model call with real continuity (KEEP grows 2→4→6); decisions/reasons metadata-only; no raw prompt/tool-result content or credentials persisted (verified); `repository/file` DERIVED_HINT entries were not silently treated as canonical planner sources.
 
 Trace is under `.canvas-agent/research/**` (gitignored), not committed.
 
@@ -154,6 +158,17 @@ Repository/file canonical current state is **not** implemented. `repository/file
 ## 15. CR-004 statement
 
 CR-004 Active Working Set Rewrite is **not** authorized by this evidence. Shadow planning only; no model request is modified.
+
+## 15a. PR #18 review items — resolution
+
+| Review item | Resolution |
+|---|---|
+| P1 Planner core re-hard-codes Pi vocabulary | ✅ Policy V0 no longer compares `PI_CONTEXT_EVENT`/provenance. Recent trustworthy evidence arrives as the provider-neutral `recentEvidenceSourceKeys` signal in `ContextPlanningRequest`, supplied by the Pi adapter (`EnrichedPiShadowObserver.recentEvidenceSourceKeys`). Core tests use neutral `TEST_ADAPTER_EVENT` / `TEST_RUN_RESULT` descriptors; no Pi literal remains in `packages/context-runtime/**`. |
+| P1 ABSENT → REMOVE branch unreachable | ✅ ABSENT is handled **before** requiring an admitted version; for a previously active item the REMOVE subject/version/representation is derived from the previous Working Set item. New test 8b proves `AVAILABLE active → Universe ABSENT → plan with previous Working Set → REMOVE(SOURCE_ABSENT)` with the sourceVersionId taken from the previous item. |
+| P1 REHYDRATE is not history-aware | ✅ `ContextPlanningRequest.removalHistory` (`RemovalRecord[]`) records original removal reason + removedAtSequence + removedFromWorkingSetId. REHYDRATE only fires when a prior removal record exists; first-time pin/current-target is `ADD`. Negative test 11b proves first-plan pin → ADD, not REHYDRATE; test 11 preserves `EXPLICIT_EXCLUDE` alongside `REHYDRATION_TRIGGERED`. |
+| P1 Live seam does not run planner with continuity | ✅ `ShadowPlannerObserver` retains the actual previous `ContextWorkingSet` and passes it to Policy V0; `request.previousWorkingSetId` must match (tested). New `createShadowPlannerPiExtension` invokes planning inside the `context` callback. Smoke uses the real extension: continuity produces KEEP 2→4→6. |
+| P1 Native estimate placeholder zero | ✅ `EnrichedShadowResult.nativeContextEstimate` now carries the real CR-001 `observedMessageTokenEstimate`; it flows into `ShadowPlanningMetrics.nativeContextEstimate`. Smoke reports real values (21→82→185→371→410); test asserts metric equals the enriched result value and is > 0. |
+| P2 Working Set / decision identity aliasing | ✅ `createWorkingSetId` is content-addressed (policyVersion + planningRequestHash + universeHash); `createDecisionId` includes version/representation/to-working-set/reasons. Collision tests: different policy versions, different planning requests, different source versions → distinct ids. |
 
 ## 16. Scope confirmation
 

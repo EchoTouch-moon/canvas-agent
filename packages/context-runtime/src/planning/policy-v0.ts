@@ -20,6 +20,12 @@ import {
 // EXPERIMENTAL deterministic Policy V0 planner. No LLM / embeddings / graph
 // ranking. For identical (Universe revision, planning request, previous Working
 // Set, policyVersion) the output is identical, including ordering and hash.
+//
+// Provider neutrality: the core never compares Pi/OpenCode/Codex literals.
+// "Recent trustworthy evidence" arrives as a normalized
+// `recentEvidenceSourceKeys` signal in the planning request; rehydration
+// eligibility comes from an explicit `removalHistory` (previous removal/cold
+// records), never from provenance guessing.
 
 export interface PolicyV0Options {
   readonly policyVersion: string
@@ -65,6 +71,17 @@ function isLatestVerification(request: ContextPlanningRequest, sourceKey: string
   return request.latestVerificationSourceKeys.includes(sourceKey)
 }
 
+function isRecentEvidence(request: ContextPlanningRequest, sourceKey: string): boolean {
+  return request.recentEvidenceSourceKeys.includes(sourceKey)
+}
+
+function removalRecordFor(
+  request: ContextPlanningRequest,
+  sourceKey: string
+): { originalRemovalReasonCodes: readonly ReasonCode[]; removedAtSequence: number; removedFromWorkingSetId: string | null } | undefined {
+  return (request.removalHistory ?? []).find((record) => record.sourceKey === sourceKey)
+}
+
 function defaultProtectionOf(
   entry: ContextUniverseEntry,
   request: ContextPlanningRequest
@@ -83,7 +100,11 @@ export function planWorkingSet(input: {
   const { universe, request, previousWorkingSet, options } = input
   const policyVersion = options.policyVersion
   const sequence = request.recompositionSequence
-  const workingSetId = createWorkingSetId(universe.runtimeSessionId, sequence)
+  const workingSetId = createWorkingSetId(universe.runtimeSessionId, sequence, {
+    policyVersion,
+    planningRequestHash: planningRequestHash(request),
+    universeHash: universe.logicalHash
+  })
   const requestHash = planningRequestHash(request)
 
   // Resolve protection for every Universe entry up front.
@@ -123,34 +144,39 @@ export function planWorkingSet(input: {
     const sourceKey = entry.source.sourceKey
     const state = entry.state
     const admittedVersion = entry.admittedVersion
+
+    // --- ABSENT handling (before requiring an admitted version) ---
+    // Accepted CR-002 invariant: ABSENT => admittedVersion is null. For a
+    // previously active item we derive the REMOVE subject from the previous
+    // Working Set item, not from the now-null admitted version.
+    if (state.observationStatus === 'ABSENT') {
+      const previousItem = previousByKey.get(sourceKey)
+      if (previousItem !== undefined) {
+        decisions.push(
+          makeDecision({
+            sequence,
+            kind: 'REMOVE',
+            sourceKey,
+            sourceVersionId: previousItem.sourceVersionIds[0]!,
+            representationId: previousItem.representationId,
+            fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
+            toWorkingSetId: workingSetId,
+            reasonCodes: ['SOURCE_ABSENT'],
+            policyVersion,
+            tokenDelta: -previousItem.tokenEstimate,
+            previousToken: previousItem.tokenEstimate
+          })
+        )
+      }
+      continue
+    }
+
     if (admittedVersion === null) continue
 
     const representation = options.represent(entry)
     if (representation === null) continue
 
     const protection = protectionByKey.get(sourceKey) ?? 'NORMAL'
-
-    // ABSENT is not active ordinary evidence: emit REMOVE when previously active.
-    if (state.observationStatus === 'ABSENT') {
-      if (previousByKey.has(sourceKey)) {
-        decisions.push(
-          makeDecision({
-            sequence,
-            kind: 'REMOVE',
-            sourceKey,
-            sourceVersionId: admittedVersion.versionId,
-            representationId: representation.id,
-            fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
-            toWorkingSetId: workingSetId,
-            reasonCodes: ['SOURCE_ABSENT'],
-            policyVersion,
-            tokenDelta: -(previousByKey.get(sourceKey)?.tokenEstimate ?? 0),
-            previousToken: previousByKey.get(sourceKey)?.tokenEstimate ?? 0
-          })
-        )
-      }
-      continue
-    }
 
     // Membership determination (deterministic, structured evidence only).
     let active = false
@@ -177,7 +203,7 @@ export function planWorkingSet(input: {
     } else if (previousByKey.has(sourceKey)) {
       active = true
       reasonCodes.push('PREVIOUSLY_ACTIVE')
-    } else if (entry.source.provenance === 'PI_CONTEXT_EVENT') {
+    } else if (isRecentEvidence(request, sourceKey)) {
       active = true
       reasonCodes.push('RECENT_RUN_EVIDENCE')
     }
@@ -200,7 +226,7 @@ export function planWorkingSet(input: {
     items.push(item)
     totalTokens += representation.tokenEstimate
 
-    // Decision classification: KEEP vs REHYDRATE vs ADD.
+    // Decision classification: KEEP / REHYDRATE / ADD.
     const previous = previousByKey.get(sourceKey)
     if (previous !== undefined) {
       decisions.push(
@@ -218,9 +244,11 @@ export function planWorkingSet(input: {
           previousToken: previous.tokenEstimate
         })
       )
-    } else if (isCurrentTarget(request, sourceKey) || isLatestVerification(request, sourceKey) || isPinned(request, sourceKey)) {
-      // Admitted again after prior absence/cold => REHYDRATE, distinguishable
-      // from a first ADD.
+    } else if (removalRecordFor(request, sourceKey) !== undefined) {
+      // The source was previously active and removed/cold (evidence in
+      // removalHistory). Re-admission is REHYDRATE, with the original removal
+      // reason preserved alongside the rehydration reason.
+      const record = removalRecordFor(request, sourceKey)!
       decisions.push(
         makeDecision({
           sequence,
@@ -228,15 +256,16 @@ export function planWorkingSet(input: {
           sourceKey,
           sourceVersionId: admittedVersion.versionId,
           representationId: representation.id,
-          fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
+          fromWorkingSetId: record.removedFromWorkingSetId,
           toWorkingSetId: workingSetId,
-          reasonCodes: ['REHYDRATION_TRIGGERED'],
+          reasonCodes: ['REHYDRATION_TRIGGERED', ...record.originalRemovalReasonCodes],
           policyVersion,
           tokenDelta: representation.tokenEstimate,
           previousToken: 0
         })
       )
     } else {
+      // First admission (even if pinned/current-target): plain ADD.
       decisions.push(
         makeDecision({
           sequence,
@@ -367,10 +396,11 @@ function makeDecision(input: {
 }): ContextDecision {
   void input.previousToken
   return {
-    decisionId: createDecisionId({
-      sequence: input.sequence,
-      kind: input.kind,
-      sourceKey: input.sourceKey
+    decisionId: createDecisionId(input.sequence, input.kind, input.sourceKey, {
+      sourceVersionId: input.sourceVersionId,
+      representationId: input.representationId,
+      toWorkingSetId: input.toWorkingSetId,
+      reasonCodes: input.reasonCodes
     }),
     kind: input.kind,
     sourceKey: input.sourceKey,
@@ -382,4 +412,22 @@ function makeDecision(input: {
     policyVersion: input.policyVersion,
     tokenDelta: input.tokenDelta
   }
+}
+
+export function planningRequestHashForPlanner(request: ContextPlanningRequest): string {
+  return sha256Hex(
+    [
+      'planning-request-v1',
+      request.runtimeSessionId,
+      String(request.recompositionSequence),
+      request.taskPhase ?? 'GENERAL',
+      String(request.budget.maxSemanticTokens),
+      request.pinnedSourceKeys.join('|'),
+      request.excludedSourceKeys.join('|'),
+      request.currentTargetSourceKeys.join('|'),
+      request.latestVerificationSourceKeys.join('|'),
+      request.recentEvidenceSourceKeys.join('|'),
+      request.previousWorkingSetId ?? '-'
+    ].join('\u241F')
+  )
 }

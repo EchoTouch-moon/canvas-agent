@@ -9,25 +9,24 @@ import {
   SettingsManager
 } from '@earendil-works/pi-coding-agent'
 import {
-  computeShadowMetrics,
-  createRepresentation,
-  planWorkingSet,
-  type ContextPlanningRequest,
-  type ContextUniverseEntry,
-  type ContextUniverseRevision,
-  type ShadowPlanningMetrics
-} from '@canvas-agent/context-runtime'
-import {
   EnrichedPiShadowObserver,
   PiContextShadowObserver,
-  createEnrichedPiContextShadowExtension
+  ShadowPlannerObserver,
+  createShadowPlannerPiExtension
 } from '../index'
 
 // Opt-in CR-003A Shadow Planner smoke. Requires DEEPSEEK_API_KEY (or Pi
-// auth.json) + CANVAS_CONTEXT_LIVE_SMOKE=1. Runs a tiny coding task, observes
-// each Pi `context` event, advances the Shadow Universe, and produces one
-// deterministic Shadow Working Set + Transition + metrics per model call.
-// Pi messages are returned unchanged. Output is metadata-only.
+// auth.json) + CANVAS_CONTEXT_LIVE_SMOKE=1.
+//
+// This smoke exercises the REAL planning seam: the Pi `context` extension
+// factory invokes ShadowPlannerObserver.observeModelCall inside the callback
+// (observe -> advance Universe -> plan -> record Shadow plan), then returns the
+// ORIGINAL messages unchanged. Continuity is real: the observer passes the
+// actual previous Shadow Working Set to Policy V0, so unchanged history yields
+// KEEP instead of repeated ADD. The native estimate is the real CR-001
+// ModelCallObservation.observedMessageTokenEstimate, not a placeholder.
+//
+// Output is metadata-only.
 
 const DEEPSEEK_PROVIDER = 'deepseek'
 const DEEPSEEK_MODEL = process.env['CANVAS_CONTEXT_SMOKE_MODEL'] ?? 'deepseek-v4-flash'
@@ -69,6 +68,7 @@ async function run(): Promise<void> {
     const sessionId = `smoke-cr003-${new Date().toISOString().replace(/[:.]/g, '-')}`
     const base = new PiContextShadowObserver({ runtimeSessionId: sessionId })
     const enriched = new EnrichedPiShadowObserver({ base })
+    const planner = new ShadowPlannerObserver({ enriched, policyVersion: 'policy-v0' })
 
     const settingsManager = SettingsManager.inMemory({
       compaction: { enabled: false },
@@ -81,7 +81,7 @@ async function run(): Promise<void> {
       extensionFactories: [
         {
           name: 'canvas-context-shadow-planner',
-          factory: createEnrichedPiContextShadowExtension({ observer: enriched })
+          factory: createShadowPlannerPiExtension({ observer: planner })
         }
       ]
     })
@@ -101,24 +101,20 @@ async function run(): Promise<void> {
       'Complete the small smoke task in this fixture. Use the available tools. Be concise.'
     await session.prompt(prompt)
 
-    // Produce one deterministic Shadow plan per observed model call over the
-    // Universe revision as it stood at that call. Conservative planning
-    // request: GENERAL phase, empty targets, no prose parsing.
-    const plannedResults = enriched.callResults.map((call, index) =>
-      planOverUniverse(sessionId, call.universeRevision, index + 1)
-    )
-
-    const lines = plannedResults.map((call, index) =>
+    const lines = planner.callResults.map((call, index) =>
       JSON.stringify({
         kind: 'shadow-plan',
         runtimeSessionId: sessionId,
         modelCallSequence: index + 1,
-        universeSequence: call.workingSet.plannedFromUniverseSequence,
-        universeHash: call.workingSet.plannedFromUniverseHash.slice(0, 16),
-        workingSetId: call.workingSet.workingSetId,
-        policyVersion: call.workingSet.policyVersion,
-        proposedTokenEstimate: call.workingSet.totalTokenEstimate,
-        decisions: call.decisions.map((d) => ({
+        universeSequence: call.plannerResult.workingSet.plannedFromUniverseSequence,
+        universeHash: call.plannerResult.workingSet.plannedFromUniverseHash.slice(0, 16),
+        workingSetId: call.plannerResult.workingSet.workingSetId,
+        previousWorkingSetId: call.plannerResult.workingSet.previousWorkingSetId,
+        policyVersion: call.plannerResult.workingSet.policyVersion,
+        proposedTokenEstimate: call.plannerResult.workingSet.totalTokenEstimate,
+        nativeContextEstimate: call.metrics.nativeContextEstimate,
+        nativeEstimateScope: call.metrics.nativeEstimateScope,
+        decisions: call.plannerResult.decisions.map((d) => ({
           kind: d.kind,
           sourceKey: d.sourceKey,
           reasonCodes: d.reasonCodes
@@ -133,13 +129,13 @@ async function run(): Promise<void> {
 
     console.log(`[smoke:cr003] runtimeSessionId=${sessionId}`)
     console.log(`[smoke:cr003] provider=${DEEPSEEK_PROVIDER} model=${DEEPSEEK_MODEL}`)
-    console.log(`[smoke:cr003] observed model-call count=${enriched.callResults.length}`)
-    console.log(`[smoke:cr003] shadow plans produced=${plannedResults.length}`)
-    const last = plannedResults[plannedResults.length - 1]
-    if (last !== undefined) {
-      const m = last.metrics
+    console.log(`[smoke:cr003] observed model-call count=${planner.callResults.length}`)
+    console.log(`[smoke:cr003] shadow plans produced (real seam) =${planner.callResults.length}`)
+    for (let index = 0; index < planner.callResults.length; index += 1) {
+      const call = planner.callResults[index]!
+      const m = call.metrics
       console.log(
-        `[smoke:cr003] last plan ADD=${m.add} KEEP=${m.keep} REMOVE=${m.remove} REHYDRATE=${m.rehydrate} churn=${m.churn} proposed=${m.proposedSemanticTokenEstimate}`
+        `[smoke:cr003]   call=${index + 1} native=${m.nativeContextEstimate} proposed=${m.proposedSemanticTokenEstimate} ADD=${m.add} KEEP=${m.keep} REMOVE=${m.remove} REHYDRATE=${m.rehydrate}`
       )
     }
     console.log(`[smoke:cr003] jsonl=${path}`)
@@ -147,60 +143,6 @@ async function run(): Promise<void> {
   } finally {
     await rm(fixtureDir, { recursive: true, force: true })
   }
-}
-
-// One deterministic Shadow plan over a given Universe revision + planning
-// request. Stateless per call for the smoke; uses the same Policy V0 core.
-function planOverUniverse(
-  runtimeSessionId: string,
-  universe: ContextUniverseRevision,
-  sequence: number
-): {
-  readonly workingSet: ReturnType<typeof planWorkingSet>['workingSet']
-  readonly decisions: ReturnType<typeof planWorkingSet>['decisions']
-  readonly metrics: ShadowPlanningMetrics
-} {
-  const request: ContextPlanningRequest = {
-    runtimeSessionId,
-    recompositionSequence: sequence,
-    taskPhase: 'GENERAL',
-    budget: { maxSemanticTokens: 8000 },
-    pinnedSourceKeys: [],
-    excludedSourceKeys: [],
-    currentTargetSourceKeys: [],
-    latestVerificationSourceKeys: [],
-    previousWorkingSetId: null
-  }
-  const result = planWorkingSet({
-    universe,
-    request,
-    previousWorkingSet: null,
-    options: {
-      policyVersion: 'policy-v0',
-      createdAt: new Date().toISOString(),
-      represent: (entry: ContextUniverseEntry) => {
-        const version = entry.admittedVersion
-        if (version === null) return null
-        return createRepresentation({
-          kind: 'REFERENCE',
-          sourceVersionIds: [version.versionId],
-          contentHash: version.contentHash,
-          tokenEstimate: 1,
-          lossiness: 'NONE',
-          derivation: { sourceKey: entry.source.sourceKey }
-        })
-      }
-    }
-  })
-  const metrics = computeShadowMetrics({
-    modelCallSequence: sequence,
-    universeSequence: universe.sequence,
-    universeHash: universe.logicalHash,
-    nativeContextEstimate: 0,
-    workingSet: result.workingSet,
-    decisions: result.decisions
-  })
-  return { workingSet: result.workingSet, decisions: result.decisions, metrics }
 }
 
 async function writeFileIfFresh(directory: string, name: string, content: string): Promise<void> {

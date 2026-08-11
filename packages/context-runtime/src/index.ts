@@ -100,6 +100,7 @@ export {
   type ContextBudget,
   type ContextPlanningRequest,
   type ReasonCode,
+  type RemovalRecord,
   type TaskPhase
 } from './planning/planning-request'
 export {

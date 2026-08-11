@@ -86,11 +86,22 @@ export function computeWorkingSetLogicalHash(input: {
   )
 }
 
+// Content-addressed Working Set identity. Distinct plans at the same boundary
+// (different policy version / planning request / Universe revision) must NOT
+// alias under one id, because the id is used as previous/from/to references.
 export function createWorkingSetId(
   runtimeSessionId: string,
-  sequence: number
+  sequence: number,
+  input: {
+    readonly policyVersion: string
+    readonly planningRequestHash: string
+    readonly universeHash: string
+  }
 ): string {
-  return `working-set:${runtimeSessionId}:${sequence}`
+  const digest = sha256Hex(
+    `working-set-id-v2|${runtimeSessionId}|${sequence}|${input.policyVersion}|${input.planningRequestHash}|${input.universeHash}`
+  )
+  return `working-set:${runtimeSessionId}:${sequence}:${digest.slice(0, 16)}`
 }
 
 export interface ContextDecision {
@@ -106,12 +117,32 @@ export interface ContextDecision {
   readonly tokenDelta: number
 }
 
-export function createDecisionId(input: {
-  readonly sequence: number
-  readonly kind: DecisionKind
-  readonly sourceKey: string
-}): string {
-  return sha256Hex(`decision-v1|${input.sequence}|${input.kind}|${input.sourceKey}`)
+// Content-addressed decision identity: distinguishes version/representation/
+// reasons, so two decisions of the same kind+sourceKey for different semantic
+// subjects do not collide.
+export function createDecisionId(
+  sequence: number,
+  kind: DecisionKind,
+  sourceKey: string,
+  input: {
+    readonly sourceVersionId: string
+    readonly representationId: string
+    readonly toWorkingSetId: string
+    readonly reasonCodes: readonly ReasonCode[]
+  }
+): string {
+  return sha256Hex(
+    [
+      'decision-v2',
+      String(sequence),
+      kind,
+      sourceKey,
+      input.sourceVersionId,
+      input.representationId,
+      input.toWorkingSetId,
+      input.reasonCodes.join(',')
+    ].join('|')
+  )
 }
 
 export interface ContextTransition {
