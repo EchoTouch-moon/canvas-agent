@@ -59,7 +59,11 @@ export function buildObservation(
     let rawPreview: string | undefined
     if (budget.remainingBytes > 0) {
       const redacted = redactSensitive(message.fingerprintText)
-      const bounded = truncateToUtf8Bytes(redacted, budget.perMessageSizeLimit)
+      // Per-message cap is bounded by both the configured per-message limit AND
+      // the remaining per-run budget, so a single message can never overshoot
+      // the run total.
+      const byteLimit = Math.min(budget.perMessageSizeLimit, budget.remainingBytes)
+      const bounded = truncateToUtf8Bytes(redacted, byteLimit)
       budget.consume(Buffer.byteLength(bounded, 'utf8'))
       if (bounded.length > 0) {
         rawPreview = bounded

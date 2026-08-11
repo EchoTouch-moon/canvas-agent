@@ -126,8 +126,11 @@ describe('buildObservation determinism and growth', () => {
     const budget = new RawCaptureBudget(50, 30)
     const first = buildObservation({ runtimeSessionId: 's', sequence: 1, observedAt: 't', harness: 'PI', messages: [userMessage('a'.repeat(50))] }, budget)
     const second = buildObservation({ runtimeSessionId: 's', sequence: 2, observedAt: 't', harness: 'PI', messages: [userMessage('b'.repeat(50))] }, budget)
+    // The first message is bounded by the per-run total (30 bytes), not only by
+    // the per-message limit (50 bytes), so it cannot overshoot the run budget.
+    expect(utf8ByteLength(first.messageDescriptors[0]!.rawPreview!)).toBe(30)
+    expect(first.messageDescriptors[0]!.rawPreview).toBe('a'.repeat(30))
     // First consumes 30 of 30; second has zero budget left.
-    expect(first.messageDescriptors[0]?.rawPreview).toBeDefined()
     expect(second.messageDescriptors[0]?.rawPreview).toBeUndefined()
   })
 })

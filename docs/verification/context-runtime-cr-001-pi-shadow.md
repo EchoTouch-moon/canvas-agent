@@ -75,7 +75,7 @@ Raw content is never persisted by default: the JSONL sink stores only hash, leng
 
 ## 4. RawCaptureBudget is UTF-8 byte-accurate (rev.2)
 
-`RawCaptureBudget` now measures and truncates by real UTF-8 bytes (`Buffer.byteLength` + whole-code-point truncation), not JS string length. Multibyte tests cover CJK (3 bytes/char) and emoji (4 bytes/code point), and prove a multi-byte code point is never split at the byte boundary.
+`RawCaptureBudget` now measures and truncates by real UTF-8 bytes (`Buffer.byteLength` + whole-code-point truncation), not JS string length. Multibyte tests cover CJK (3 bytes/char) and emoji (4 bytes/code point), and prove a multi-byte code point is never split at the byte boundary. The per-message truncation is also bounded by the remaining per-run budget (`min(perMessageSizeLimit, remainingBytes)`), so a single message cannot overshoot the run total (rev.3 fix).
 
 ## 5. DeepSeek provider / model (live smoke, rev.2)
 
@@ -200,3 +200,5 @@ The suites prove the required invariants:
 | P1 rename/scope `nativeContextEstimate` | ✅ renamed `observedMessageTokenEstimate` / `observedMessageCharEstimate` + explicit `estimateScope: 'agent-messages-pre-provider'`; doc states what is excluded (system prompt / tools / convertToLlm / provider payload) |
 | P1 core harness Pi-specific | ✅ core uses neutral `string` harness id; `'PI'` supplied by pi-context-integration |
 | P2 RawCaptureBudget counts chars not bytes | ✅ UTF-8 byte-accurate budget + CJK/emoji multibyte tests |
+| P2 per-run total not enforced per message | ✅ truncation capped by `min(perMessageSizeLimit, remainingBytes)`; strengthened test asserts first message ≤ run total |
+| CI ERR_PNPM_IGNORED_BUILDS (`@google/genai@1.52.0`, `protobufjs@7.6.5`) | ✅ exact-version deny decisions in `pnpm-workspace.yaml` (`false` = reviewed, do not run); future upgrades re-gated |
