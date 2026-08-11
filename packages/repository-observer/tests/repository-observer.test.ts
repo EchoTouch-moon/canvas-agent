@@ -226,17 +226,23 @@ describe('AVAILABLE / ABSENT / UNAVAILABLE producer semantics', () => {
     expect(results[0]?.observation.status).toBe('ABSENT')
   })
 
-  it('10) read failure is UNAVAILABLE, never ABSENT', async () => {
-    // A path that is non-canonical fails closed before any read; a repo-level
-    // unavailability also surfaces as UNAVAILABLE. Use a non-existent repo dir.
+  it('10) unreadable repository is UNAVAILABLE(REPOSITORY_UNAVAILABLE), never ABSENT and not REVISION_MISMATCH', async () => {
+    // A genuinely nonexistent repository directory: the real adapter's git/spawn
+    // fails, which must route to REPOSITORY_UNAVAILABLE (not REVISION_MISMATCH,
+    // which would falsely imply the revision was successfully read).
     const observer = new RepositoryObserver()
     const results = await observer.observe({
-      repositoryPath: '/nonexistent/canvas-observer-repo',
+      repositoryPath: '/definitely/nonexistent/canvas-observer-repo',
       expectedRevision: { baseCommit: 'a'.repeat(40), treeHash: 'b'.repeat(40), workingTreePatchHash: null },
       paths: ['a.ts'],
       observedAt: T0
     })
     expect(results[0]?.observation.status).toBe('UNAVAILABLE')
+    if (results[0]?.observation.status === 'UNAVAILABLE') {
+      expect(results[0].observation.reasonCode).toBe('REPOSITORY_UNAVAILABLE')
+    }
+    // No revision was verified.
+    expect(results[0]?.verifiedRevision).toBeNull()
   })
 
   it('10b) oversized file is UNAVAILABLE(FILE_TOO_LARGE), never READ_FAILED', async () => {

@@ -52,7 +52,20 @@ export interface RevisionReader {
 
 const realRevisionReader: RevisionReader = {
   async read(repositoryPath, options): Promise<RepositoryRevisionContract> {
-    const actual = await readRepositoryRevision(repositoryPath, options)
+    let actual: {
+      baseCommit: string | null
+      treeHash: string | null
+      workingTreePatchHash: string | null
+    }
+    try {
+      actual = await readRepositoryRevision(repositoryPath, options)
+    } catch (error) {
+      // The underlying git/spawn/ENOENT failure means the repository state
+      // could not be read AT ALL — this is REPOSITORY_UNAVAILABLE, not a
+      // revision mismatch against a successfully read revision.
+      const detail = error instanceof Error ? error.message : String(error)
+      throw new Error(`repository_revision_unavailable:${detail}`)
+    }
     if (actual.baseCommit === null || actual.treeHash === null) {
       throw new Error('repository_revision_unavailable:no_head')
     }

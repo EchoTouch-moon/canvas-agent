@@ -92,6 +92,15 @@ at a verified revision. `verifiedRevision` is `null` for every failed/non-verifi
 outcome (mismatch, unavailable repository, dirty unsupported, non-canonical
 path, race) — it is only populated on a genuinely verified successful read.
 
+The **real adapter** routes genuine repository unavailability correctly: the
+default revision reader wraps any underlying git/spawn/ENOENT failure as
+`repository_revision_unavailable:*`, and the observer maps that to
+`REPOSITORY_UNAVAILABLE` (never `REVISION_MISMATCH`, which would falsely imply
+the revision was read successfully). Test 10 exercises this against a genuinely
+nonexistent repository path and asserts `REPOSITORY_UNAVAILABLE` +
+`verifiedRevision === null`; test 5c additionally proves the injected-seam
+classification path.
+
 ## 8. Universe reconciliation evidence
 
 Through existing `applySourceObservations` + `sourceDescriptors` (no second
