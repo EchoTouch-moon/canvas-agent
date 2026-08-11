@@ -82,3 +82,47 @@ export {
   type SnapshotLikeSeed,
   type UniverseAttributionSummary
 } from './universe/context-universe'
+export {
+  REPRESENTATION_KINDS,
+  REPRESENTATION_LOSSINESS,
+  createRepresentation,
+  createRepresentationId,
+  isRepresentationFresh,
+  type ContextRepresentation,
+  type RepresentationKind,
+  type RepresentationLossiness
+} from './representation/context-representation'
+export {
+  REASON_CODES,
+  TASK_PHASES,
+  normalizePlanningRequest,
+  planningRequestHash,
+  type ContextBudget,
+  type ContextPlanningRequest,
+  type ReasonCode,
+  type TaskPhase
+} from './planning/planning-request'
+export {
+  PlanningConflictError,
+  planWorkingSet,
+  type PlannerResult,
+  type PolicyV0Options
+} from './planning/policy-v0'
+export {
+  DECISION_KINDS,
+  PROTECTION,
+  computeTransitionLogicalHash,
+  computeWorkingSetLogicalHash,
+  createDecisionId,
+  createWorkingSetId,
+  type ContextDecision,
+  type ContextProtection,
+  type ContextTransition,
+  type ContextWorkingSet,
+  type ContextWorkingSetItem,
+  type DecisionKind
+} from './working-set/working-set-types'
+export {
+  computeShadowMetrics,
+  type ShadowPlanningMetrics
+} from './metrics/shadow-metrics'

@@ -1,0 +1,385 @@
+import { sha256Hex } from '../util/hash'
+import type { ContextUniverseEntry, ContextUniverseRevision } from '../universe/context-universe'
+import type { ContextRepresentation } from '../representation/context-representation'
+import type { ContextPlanningRequest, ReasonCode } from './planning-request'
+import { planningRequestHash } from './planning-request'
+import type {
+  ContextDecision,
+  ContextProtection,
+  ContextTransition,
+  ContextWorkingSet,
+  ContextWorkingSetItem
+} from '../working-set/working-set-types'
+import {
+  computeTransitionLogicalHash,
+  computeWorkingSetLogicalHash,
+  createDecisionId,
+  createWorkingSetId
+} from '../working-set/working-set-types'
+
+// EXPERIMENTAL deterministic Policy V0 planner. No LLM / embeddings / graph
+// ranking. For identical (Universe revision, planning request, previous Working
+// Set, policyVersion) the output is identical, including ordering and hash.
+
+export interface PolicyV0Options {
+  readonly policyVersion: string
+  readonly createdAt: string
+  // Map an admitted Universe entry to an experimental representation, or null
+  // when the entry is not representable.
+  readonly represent: (entry: ContextUniverseEntry) => ContextRepresentation | null
+  // Resolve explicit protection from semantic metadata only. Never inferred
+  // from source-key text patterns. Default: P0 priority => MANDATORY, pinned
+  // source keys => PINNED, otherwise NORMAL.
+  readonly protectionOf?: (entry: ContextUniverseEntry) => ContextProtection
+}
+
+export interface PlannerResult {
+  readonly workingSet: ContextWorkingSet
+  readonly decisions: readonly ContextDecision[]
+  readonly transition: ContextTransition
+}
+
+export class PlanningConflictError extends Error {
+  readonly conflictingSourceKeys: readonly string[]
+
+  constructor(message: string, conflictingSourceKeys: readonly string[]) {
+    super(message)
+    this.name = 'PlanningConflictError'
+    this.conflictingSourceKeys = conflictingSourceKeys
+  }
+}
+
+function isPinned(request: ContextPlanningRequest, sourceKey: string): boolean {
+  return request.pinnedSourceKeys.includes(sourceKey)
+}
+
+function isExcluded(request: ContextPlanningRequest, sourceKey: string): boolean {
+  return request.excludedSourceKeys.includes(sourceKey)
+}
+
+function isCurrentTarget(request: ContextPlanningRequest, sourceKey: string): boolean {
+  return request.currentTargetSourceKeys.includes(sourceKey)
+}
+
+function isLatestVerification(request: ContextPlanningRequest, sourceKey: string): boolean {
+  return request.latestVerificationSourceKeys.includes(sourceKey)
+}
+
+function defaultProtectionOf(
+  entry: ContextUniverseEntry,
+  request: ContextPlanningRequest
+): ContextProtection {
+  if (entry.source.priority === 'P0') return 'MANDATORY'
+  if (isPinned(request, entry.source.sourceKey)) return 'PINNED'
+  return 'NORMAL'
+}
+
+export function planWorkingSet(input: {
+  readonly universe: ContextUniverseRevision
+  readonly request: ContextPlanningRequest
+  readonly previousWorkingSet: ContextWorkingSet | null
+  readonly options: PolicyV0Options
+}): PlannerResult {
+  const { universe, request, previousWorkingSet, options } = input
+  const policyVersion = options.policyVersion
+  const sequence = request.recompositionSequence
+  const workingSetId = createWorkingSetId(universe.runtimeSessionId, sequence)
+  const requestHash = planningRequestHash(request)
+
+  // Resolve protection for every Universe entry up front.
+  const protectionOf = options.protectionOf ?? ((entry: ContextUniverseEntry) => defaultProtectionOf(entry, request))
+  const protectionByKey = new Map<string, ContextProtection>()
+  for (const entry of universe.entries) {
+    protectionByKey.set(entry.source.sourceKey, protectionOf(entry))
+  }
+
+  // Mandatory/pin vs exclude conflict must be explicit, never silent.
+  const conflicts: string[] = []
+  for (const entry of universe.entries) {
+    const protection = protectionByKey.get(entry.source.sourceKey)
+    if (protection === 'MANDATORY' && isExcluded(request, entry.source.sourceKey)) {
+      conflicts.push(entry.source.sourceKey)
+    }
+  }
+  if (conflicts.length > 0) {
+    throw new PlanningConflictError(
+      `mandatory context cannot be silently excluded: ${conflicts.join(', ')}`,
+      conflicts
+    )
+  }
+
+  const previousByKey = new Map<string, ContextWorkingSetItem>()
+  for (const item of previousWorkingSet?.items ?? []) {
+    for (const key of item.sourceKeys) {
+      previousByKey.set(key, item)
+    }
+  }
+
+  const items: ContextWorkingSetItem[] = []
+  const decisions: ContextDecision[] = []
+  let totalTokens = 0
+
+  for (const entry of universe.entries) {
+    const sourceKey = entry.source.sourceKey
+    const state = entry.state
+    const admittedVersion = entry.admittedVersion
+    if (admittedVersion === null) continue
+
+    const representation = options.represent(entry)
+    if (representation === null) continue
+
+    const protection = protectionByKey.get(sourceKey) ?? 'NORMAL'
+
+    // ABSENT is not active ordinary evidence: emit REMOVE when previously active.
+    if (state.observationStatus === 'ABSENT') {
+      if (previousByKey.has(sourceKey)) {
+        decisions.push(
+          makeDecision({
+            sequence,
+            kind: 'REMOVE',
+            sourceKey,
+            sourceVersionId: admittedVersion.versionId,
+            representationId: representation.id,
+            fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
+            toWorkingSetId: workingSetId,
+            reasonCodes: ['SOURCE_ABSENT'],
+            policyVersion,
+            tokenDelta: -(previousByKey.get(sourceKey)?.tokenEstimate ?? 0),
+            previousToken: previousByKey.get(sourceKey)?.tokenEstimate ?? 0
+          })
+        )
+      }
+      continue
+    }
+
+    // Membership determination (deterministic, structured evidence only).
+    let active = false
+    const reasonCodes: ReasonCode[] = []
+
+    if (protection === 'MANDATORY') {
+      active = true
+      reasonCodes.push('MANDATORY_INSTRUCTION')
+    } else if (protection === 'PINNED') {
+      active = true
+      reasonCodes.push('USER_PINNED')
+    } else if (isExcluded(request, sourceKey)) {
+      active = false
+      reasonCodes.push('EXPLICIT_EXCLUDE')
+    } else if (isCurrentTarget(request, sourceKey)) {
+      active = true
+      reasonCodes.push('CURRENT_TARGET')
+    } else if (isLatestVerification(request, sourceKey)) {
+      active = true
+      reasonCodes.push('LATEST_FAILURE')
+    } else if (state.observationStatus === 'UNAVAILABLE') {
+      active = true
+      reasonCodes.push('SOURCE_UNAVAILABLE_CONSERVATIVE_KEEP')
+    } else if (previousByKey.has(sourceKey)) {
+      active = true
+      reasonCodes.push('PREVIOUSLY_ACTIVE')
+    } else if (entry.source.provenance === 'PI_CONTEXT_EVENT') {
+      active = true
+      reasonCodes.push('RECENT_RUN_EVIDENCE')
+    }
+
+    if (!active) continue
+
+    const item: ContextWorkingSetItem = {
+      position: items.length,
+      representationId: representation.id,
+      sourceKeys: [sourceKey],
+      sourceVersionIds: representation.sourceVersionIds,
+      authority: entry.source.authority ?? 'REFERENCE',
+      ...(entry.source.priority !== undefined
+        ? { baselinePriority: entry.source.priority }
+        : {}),
+      protection,
+      tokenEstimate: representation.tokenEstimate,
+      inclusionReasonCodes: reasonCodes
+    }
+    items.push(item)
+    totalTokens += representation.tokenEstimate
+
+    // Decision classification: KEEP vs REHYDRATE vs ADD.
+    const previous = previousByKey.get(sourceKey)
+    if (previous !== undefined) {
+      decisions.push(
+        makeDecision({
+          sequence,
+          kind: 'KEEP',
+          sourceKey,
+          sourceVersionId: admittedVersion.versionId,
+          representationId: representation.id,
+          fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
+          toWorkingSetId: workingSetId,
+          reasonCodes,
+          policyVersion,
+          tokenDelta: representation.tokenEstimate - previous.tokenEstimate,
+          previousToken: previous.tokenEstimate
+        })
+      )
+    } else if (isCurrentTarget(request, sourceKey) || isLatestVerification(request, sourceKey) || isPinned(request, sourceKey)) {
+      // Admitted again after prior absence/cold => REHYDRATE, distinguishable
+      // from a first ADD.
+      decisions.push(
+        makeDecision({
+          sequence,
+          kind: 'REHYDRATE',
+          sourceKey,
+          sourceVersionId: admittedVersion.versionId,
+          representationId: representation.id,
+          fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
+          toWorkingSetId: workingSetId,
+          reasonCodes: ['REHYDRATION_TRIGGERED'],
+          policyVersion,
+          tokenDelta: representation.tokenEstimate,
+          previousToken: 0
+        })
+      )
+    } else {
+      decisions.push(
+        makeDecision({
+          sequence,
+          kind: 'ADD',
+          sourceKey,
+          sourceVersionId: admittedVersion.versionId,
+          representationId: representation.id,
+          fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
+          toWorkingSetId: workingSetId,
+          reasonCodes,
+          policyVersion,
+          tokenDelta: representation.tokenEstimate,
+          previousToken: 0
+        })
+      )
+    }
+  }
+
+  // Budget eviction: evict lowest-value NORMAL candidates deterministically;
+  // never MANDATORY / PINNED. Highest token cost first, sourceKey tie-break.
+  if (totalTokens > request.budget.maxSemanticTokens) {
+    const evictable = items
+      .filter((item) => item.protection === 'NORMAL')
+      .sort((a, b) => {
+        const costDelta = b.tokenEstimate - a.tokenEstimate
+        if (costDelta !== 0) return costDelta
+        return a.sourceKeys[0]!.localeCompare(b.sourceKeys[0]!)
+      })
+    let excess = totalTokens - request.budget.maxSemanticTokens
+    const removed = new Set<string>()
+    for (const candidate of evictable) {
+      if (excess <= 0) break
+      const key = candidate.sourceKeys[0]!
+      if (removed.has(key)) continue
+      removed.add(key)
+      excess -= candidate.tokenEstimate
+      decisions.push(
+        makeDecision({
+          sequence,
+          kind: 'REMOVE',
+          sourceKey: key,
+          sourceVersionId: candidate.sourceVersionIds[0]!,
+          representationId: candidate.representationId,
+          fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
+          toWorkingSetId: workingSetId,
+          reasonCodes: ['BUDGET_PRESSURE'],
+          policyVersion,
+          tokenDelta: -candidate.tokenEstimate,
+          previousToken: candidate.tokenEstimate
+        })
+      )
+    }
+    const remaining = items
+      .filter((item) => !removed.has(item.sourceKeys[0]!))
+      .map((item, index) => ({ ...item, position: index }))
+    items.length = 0
+    items.push(...remaining)
+    totalTokens = items.reduce((sum, item) => sum + item.tokenEstimate, 0)
+  }
+
+  // Deterministic final order by position.
+  const orderedItems = [...items].sort((a, b) => a.position - b.position)
+
+  const fromTokenEstimate = previousWorkingSet?.totalTokenEstimate ?? 0
+  const workingSet: ContextWorkingSet = {
+    workingSetId,
+    runtimeSessionId: universe.runtimeSessionId,
+    sequence,
+    plannedFromUniverseSequence: universe.sequence,
+    plannedFromUniverseHash: universe.logicalHash,
+    previousWorkingSetId: previousWorkingSet?.workingSetId ?? null,
+    policyVersion,
+    planningRequestHash: requestHash,
+    items: orderedItems,
+    totalTokenEstimate: totalTokens,
+    budget: request.budget,
+    mode: 'SHADOW',
+    logicalHash: computeWorkingSetLogicalHash({
+      runtimeSessionId: universe.runtimeSessionId,
+      sequence,
+      plannedFromUniverseSequence: universe.sequence,
+      plannedFromUniverseHash: universe.logicalHash,
+      previousWorkingSetId: previousWorkingSet?.workingSetId ?? null,
+      policyVersion,
+      planningRequestHash: requestHash,
+      items: orderedItems
+    }),
+    createdAt: options.createdAt
+  }
+
+  const transition: ContextTransition = {
+    transitionId: `transition:${workingSetId}`,
+    runtimeSessionId: universe.runtimeSessionId,
+    sequence,
+    fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
+    toWorkingSetId: workingSetId,
+    orderedDecisions: decisions,
+    fromTokenEstimate,
+    toTokenEstimate: totalTokens,
+    policyVersion,
+    logicalHash: computeTransitionLogicalHash({
+      runtimeSessionId: universe.runtimeSessionId,
+      sequence,
+      fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
+      toWorkingSetId: workingSetId,
+      orderedDecisions: decisions,
+      fromTokenEstimate,
+      toTokenEstimate: totalTokens,
+      policyVersion
+    })
+  }
+
+  return { workingSet, decisions, transition }
+}
+
+function makeDecision(input: {
+  readonly sequence: number
+  readonly kind: ContextDecision['kind']
+  readonly sourceKey: string
+  readonly sourceVersionId: string
+  readonly representationId: string
+  readonly fromWorkingSetId: string | null
+  readonly toWorkingSetId: string
+  readonly reasonCodes: readonly ReasonCode[]
+  readonly policyVersion: string
+  readonly tokenDelta: number
+  readonly previousToken: number
+}): ContextDecision {
+  void input.previousToken
+  return {
+    decisionId: createDecisionId({
+      sequence: input.sequence,
+      kind: input.kind,
+      sourceKey: input.sourceKey
+    }),
+    kind: input.kind,
+    sourceKey: input.sourceKey,
+    sourceVersionId: input.sourceVersionId,
+    representationId: input.representationId,
+    fromWorkingSetId: input.fromWorkingSetId,
+    toWorkingSetId: input.toWorkingSetId,
+    reasonCodes: input.reasonCodes,
+    policyVersion: input.policyVersion,
+    tokenDelta: input.tokenDelta
+  }
+}
