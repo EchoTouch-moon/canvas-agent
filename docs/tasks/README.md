@@ -34,17 +34,18 @@ Product MVP v0.2 → COMPLETE (local/internal unsigned distribution)
 
 No Checkpoint/Resume, Canvas, second Agent adapter or external signed-distribution packet starts automatically. The user's revised post-v0.2 direction must pass a new scope decision first.
 
-## Proposed next milestone — Context Runtime v0.3 research
+## Current milestone — Context Runtime v0.3 research
 
-Context Runtime v0.3 is classified as a **Future direction**, not as unfinished Product MVP work. PR #12 establishes the bounded research baseline; the user explicitly selected v0.3 Context Runtime research as the next milestone and authorized DS-008. CR-001 shadow evidence is ready for architecture review; CR-002/CR-003 remain blocked until that review.
+Context Runtime v0.3 is now the active research milestone. PR #12 established the bounded research architecture. CR-001 / DS-008 has passed lead architecture review and merged through PR #14 at `main@34488ba`. CR-002 is the next authorized research step; CR-003 remains blocked until CR-002 evidence and schema review are accepted.
 
-| Order | Owner             | Packet                                                                                 | Branch                                    | Status                                  | Start gate                                      |
-| ----: | ----------------- | -------------------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------- | ----------------------------------------------- |
-|     0 | Lead architect    | PROPOSAL-030 Context Source / Source State / Context Universe                           | —                                         | PROPOSED — evidence pending             | CR-001/CR-003 evidence before contract freeze   |
-|     0 | Lead architect    | PROPOSAL-031 Context Working Set / Planner / Decision                                   | —                                         | PROPOSED — evidence pending             | CR-001/CR-003 evidence before contract freeze   |
-|     1 | DeepSeek V4 Flash | [DS-008 Pi Context Shadow Observation](deepseek/DS-008-pi-context-shadow-observation.md) | `agent/deepseek-ds-008-pi-context-shadow` | EVIDENCE READY — awaiting architecture review | v0.2 closeout + PR #12 merged + user authorized |
+| Order | Owner             | Packet                                                                                         | Branch                                               | Status                         | Start gate                                  |
+| ----: | ----------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------ | ------------------------------------------- |
+|     0 | Lead architect    | PROPOSAL-030 Context Source / Source State / Context Universe                                   | —                                                    | PROPOSED — CR-002 evidence pending | CR-002/CR-003 evidence before contract freeze |
+|     0 | Lead architect    | PROPOSAL-031 Context Working Set / Planner / Decision                                           | —                                                    | PROPOSED — CR-003 evidence pending | CR-002 acceptance before CR-003            |
+|     1 | DeepSeek V4 Flash | [DS-008 Pi Context Shadow Observation](deepseek/DS-008-pi-context-shadow-observation.md)         | `agent/deepseek-ds-008-pi-context-shadow`            | ✅ ACCEPTED / MERGED — PR #14 | —                                           |
+|     2 | DeepSeek V4 Flash | [DS-009 Context Source Attribution + Shadow Universe](deepseek/DS-009-context-source-universe-shadow.md) | `agent/deepseek-ds-009-context-source-universe-shadow` | ASSIGNED / READY AFTER PACKET MERGE | this task packet merged to updated `main`   |
 
-DS-008 executed on `agent/deepseek-ds-008-pi-context-shadow`: both new packages (`@canvas-agent/context-runtime`, `@canvas-agent/pi-context-integration`) are credential-free tested (32 tests), `pnpm check` is green (502 tests), and the opt-in Pi + DeepSeek live smoke was EXECUTED with 4 real semantic model-call observations. Evidence: `docs/verification/context-runtime-cr-001-pi-shadow.md`. DS-008 does not self-accept; the lead architect reviews the Pi evidence before CR-002/CR-003.
+CR-001 accepted evidence: `docs/verification/context-runtime-cr-001-pi-shadow.md`. The final accepted implementation observes Pi at the semantic pre-LLM `context` boundary, returns messages unchanged, keeps `context-runtime` Agent/model neutral, records metadata-only semantic fingerprints, scopes estimates to `agent-messages-pre-provider`, and passed the full GitHub CI suite before PR #14 merged.
 
 Research gate:
 
@@ -53,23 +54,23 @@ Product MVP v0.2 closeout ✅
                  +
 PR #12 Context Runtime research baseline merged ✅
                  +
-user explicitly selects v0.3 research as the next milestone ✅
+DS-008 / CR-001 Pi model-call Shadow Observation ✅ ACCEPTED / MERGED
                  |
                  v
-DS-008 — CR-001 Pi model-call Shadow Observation
-   EVIDENCE READY (awaiting architecture review)
+DS-009 / CR-002 Source Attribution + Shadow Universe
+   observation + modeling only
                  |
                  v
-architect reviews real Pi evidence
+architect reviews attribution / reconciliation / replay evidence
                  |
-                 +--> refine CR-002 observation / Universe model
+                 +--> revise/freeze PROPOSAL-030 only if evidence supports it
                  |
-                 +--> only then authorize CR-003 Shadow Planner
+                 +--> only then authorize CR-003 Shadow Working Set Planner
 ```
 
-DS-008 is deliberately observation-only. It may scaffold a provider-neutral experimental `context-runtime` package and a Pi-specific integration package, but it may not rewrite active model context, change production persistence, modify v0.2 Snapshot/ExecutionRequest contracts, or start OpenCode/Codex integration.
+DS-009 must preserve the distinction `AgentMessage[] observation != ContextSource[]`. It may introduce experimental observed-element, attribution, source-reconciliation and Shadow Universe structures, but it may not rewrite Pi context, implement Working Set decisions, change production persistence, modify v0.2 Snapshot/ExecutionRequest contracts, or start OpenCode/Codex integration.
 
-The implementation branch for DS-008 must be created from reviewed `main` only after every start gate is satisfied. Do not branch implementation work from PR #12 itself.
+The DS-009 implementation branch must be created from reviewed `main` after this task packet lands. Do not branch implementation work from this task-packet branch or the old DS-008 branch.
 
 ## Completed foundation
 
