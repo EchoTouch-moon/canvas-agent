@@ -15,6 +15,8 @@ import {
   EXACT_ATTRIBUTION,
   DERIVED_HINT_ATTRIBUTION,
   OPAQUE_ATTRIBUTION,
+  type ContextUniverseEntry,
+  type ContextUniverseRevision,
   type SourceObservation
 } from '../src'
 
@@ -30,6 +32,28 @@ function absent(sourceKey: string): SourceObservation {
 
 function unavailable(sourceKey: string, reason = 'read-failed'): SourceObservation {
   return { sourceKey, status: 'UNAVAILABLE', observedAt: T0, reasonCode: reason }
+}
+
+// State-transition invariant guard for one Universe entry. Enforced as a
+// bidirectional null-equivalence so neither dangling identity is representable:
+//   admittedVersionId === null  iff  admittedVersion === null
+//   admittedVersionId !== null  =>  admittedVersion.versionId === admittedVersionId
+//   observationStatus === ABSENT => both are null
+function expectUniverseEntryInvariant(entry: ContextUniverseEntry): void {
+  expect(entry.state.admittedVersionId === null).toBe(entry.admittedVersion === null)
+  if (entry.state.admittedVersionId !== null) {
+    expect(entry.admittedVersion?.versionId).toBe(entry.state.admittedVersionId)
+  }
+  if (entry.state.observationStatus === 'ABSENT') {
+    expect(entry.state.admittedVersionId).toBeNull()
+    expect(entry.admittedVersion).toBeNull()
+  }
+}
+
+function expectUniverseInvariant(universe: ContextUniverseRevision): void {
+  for (const entry of universe.entries) {
+    expectUniverseEntryInvariant(entry)
+  }
 }
 
 describe('observed context elements', () => {
@@ -360,6 +384,49 @@ describe('shadow context universe', () => {
     expect(entry1!.state.admittedVersionId).not.toBe(entry2!.state.admittedVersionId)
     expect(entry1!.admittedVersion!.contentHash).toBe('content-A')
     expect(entry2!.admittedVersion!.contentHash).toBe('content-B')
+  })
+
+  it('invariant sweep: admittedVersionId <-> admittedVersion stay consistent across the full transition chain', () => {
+    const seed = seedUniverse({ runtimeSessionId: 's', seeds })
+    expectUniverseInvariant(seed)
+
+    // AVAILABLE unchanged (NO_CHANGE): version retained.
+    const noChange = applySourceObservations({
+      previous: seed,
+      observations: [available('repository/file://src/auth.ts', 'hash-A')],
+      modelCallSequence: 1
+    })
+    expectUniverseInvariant(noChange)
+
+    // AVAILABLE changed (UPDATE): version advances.
+    const updated = applySourceObservations({
+      previous: noChange,
+      observations: [available('repository/file://src/auth.ts', 'hash-C')],
+      modelCallSequence: 2
+    })
+    expectUniverseInvariant(updated)
+
+    // UNAVAILABLE (RETAIN_LAST_KNOWN): version retained.
+    const unavailableRev = applySourceObservations({
+      previous: updated,
+      observations: [unavailable('repository/file://src/auth.ts')],
+      modelCallSequence: 3
+    })
+    expectUniverseInvariant(unavailableRev)
+
+    // ABSENT (REMOVE): version cleared.
+    const removed = applySourceObservations({
+      previous: unavailableRev,
+      observations: [absent('repository/file://src/auth.ts')],
+      modelCallSequence: 4
+    })
+    expectUniverseInvariant(removed)
+
+    // The final ABSENT entry is fully cleared (no dangling identity).
+    const auth = removed.entries.find((e) => e.source.sourceKey === 'repository/file://src/auth.ts')
+    expect(auth?.state.observationStatus).toBe('ABSENT')
+    expect(auth?.state.admittedVersionId).toBeNull()
+    expect(auth?.admittedVersion).toBeNull()
   })
 })
 

@@ -1,6 +1,6 @@
 # CR-002 Verification — Context Source Attribution and Shadow Universe Model
 
-- **Status:** EVIDENCE READY (rev.2) — not self-accepted; awaits lead architect re-review of PR #16
+- **Status:** IMPLEMENTATION COMPLETE — awaiting architect acceptance (rev.3, acceptance gates confirmed)
 - **Packet:** `docs/tasks/deepseek/DS-009-context-source-universe-shadow.md`
 - **Owner:** DeepSeek V4 Flash — Context Runtime research implementer
 - **Branch:** `agent/deepseek-ds-009-context-source-universe-shadow`
@@ -76,11 +76,11 @@ UNAVAILABLE            -> RETAIN_LAST_KNOWN
 ## 6. Deterministic test results (credential-free, no network)
 
 ```bash
-pnpm --filter @canvas-agent/context-runtime test        54 passed
+pnpm --filter @canvas-agent/context-runtime test        55 passed
 pnpm --filter @canvas-agent/pi-context-integration test 40 passed
 pnpm --filter @canvas-agent/context-runtime typecheck   PASS
 pnpm --filter @canvas-agent/pi-context-integration typecheck PASS
-pnpm check                                              GREEN (564 tests + build)
+pnpm check                                              GREEN (565 tests + build)
 ```
 
 Coverage of the DS-009 required deterministic tests (26 items): all present —
@@ -183,6 +183,42 @@ Only run-event identities (tool-call / tool-result by toolCallId) are stable/EXA
 
 Recommendation (not authorization): allow CR-003 Shadow Planner work to begin **on the run-event universe** (tool-call/tool-result sources are trustworthy), while explicitly marking repository/file hints as non-canonical until a real repository observer is added. If the Planner requires canonical file sources, add a repository observer experiment first.
 
+## 15a. Acceptance-gate confirmation (rev.3 — architect review items)
+
+**Gate 1 — Universe invariant.** An **invariant sweep / state-transition invariant test** now enforces, over every entry of every revision across the full seed → NO_CHANGE → UPDATE → UNAVAILABLE → ABSENT chain:
+
+```text
+admittedVersionId === null   iff   admittedVersion === null
+admittedVersionId !== null   =>     admittedVersion.versionId === admittedVersionId
+observationStatus === ABSENT =>     admittedVersionId === null && admittedVersion === null
+```
+
+This is a bidirectional null-equivalence guard (it also catches the reverse dangling state `admittedVersionId = null` with a non-null `admittedVersion`). It is an invariant sweep, not property-based testing (no fast-check).
+
+**Gate 2 — SourceVersion identity purity (known redundancy, accepted).** Version identity is `H(sourceKey, contentHash)` and is correctly scoped by canonical `sourceKey`. For `run/tool-*` sources, `contentHash` is a **source-local semantic digest**, not a globally content-pure digest: `toolCallId` participates redundantly in the digest (it also appears in `sourceKey`), so two different `run/tool-result://call-1` vs `run/tool-result://call-2` with identical result content yield different `contentHash`. This does not violate CR-002 version-identity semantics (version identity is source-scoped), and was deliberately retained (lead-approved) to avoid invalidating version ids and smoke evidence. It **must not** be relied upon for cross-source semantic equality, global content deduplication, blob addressing, or repository-observer reuse until explicitly reworked.
+
+**Gate 3 — core / Pi boundary.** `packages/context-runtime` contains no Pi constants, no provider imports, and no key-prefix inference of `sourceKind`. `run/tool-*` source-kind assignment happens only in the Pi integration (`collectSourceObservations`), which also supplies the `ContextSourceDescriptor` (sourceKind/provenance). When a descriptor is missing the core uses a neutral `UNKNOWN` fallback and never parses the key. No bypass exists.
+
+**Gate 4 — live seam vs fixture semantics.** `reconcileSource` fully implements `UNAVAILABLE → RETAIN_LAST_KNOWN`; a future live Pi seam emitting `UNAVAILABLE` requires no Universe/reconciliation contract change (the Pi integration merely constructs `createUnavailableObservation`). **Producer semantics to preserve on live-observer adoption:**
+
+```text
+UNAVAILABLE = source theoretically exists / previously existed but this round
+              cannot observe it reliably  => never delete canonical knowledge
+ABSENT      = observer authoritatively confirmed the source does not exist
+              => revoke admitted version
+```
+
+Reading failure must never be turned into `ABSENT` (which would wrongly clear the admitted canonical version).
+
+**PROPOSAL-030 follow-up gaps (scoped, not rejection):**
+
+```text
+implemented semantics  !=  all possible producers implemented
+```
+
+1. `repository/file` world sources remain `DERIVED_HINT` only — a real Repository Observer is a follow-up capability, not a CR-002 defect.
+2. `UNAVAILABLE` has no live producer yet — the contract exists and is test-locked; a live producer is follow-up.
+
 ## 16. PR #16 review items — resolution
 
 | Review item | Resolution |
@@ -201,7 +237,7 @@ No Context Working Set Planner was implemented.
 No Pi model-call context was rewritten.
 No production persistence schema was added.
 No v0.2 ContextSnapshot or ExecutionRequest contract was changed.
+CR-003 was not started.
 ```
 
-CR-002 evidence ready for lead architecture review (rev.2).
-CR-003 was not started.
+CR-002 evidence ready for lead architecture review (rev.3 — acceptance-gate confirmation complete). Enriched DeepSeek smoke was not rerun for rev.3 because the closing revision modifies only invariant tests and verification documentation; no production hashing, observation, reconciliation, attribution, provenance, or Universe transition path changed. Previous smoke evidence (`smoke-cr002-2026-08-11T08-14-40-983Z`, EXACT=8 / UNATTRIBUTED=4 / resourceHints=4, rev 5 / 9 sources) remains behaviorally applicable.
