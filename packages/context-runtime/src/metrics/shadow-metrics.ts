@@ -21,6 +21,13 @@ export interface ShadowPlanningMetrics {
   readonly compress: number
   readonly churn: number
   readonly reasonCodeCounts: Record<string, number>
+  // File-aware representation accounting (DS-012 / CR-003B).
+  readonly representationCounts: {
+    readonly full: number
+    readonly lineRange: number
+    readonly reference: number
+  }
+  readonly representationTokenDelta: number
 }
 
 export function computeShadowMetrics(input: {
@@ -30,6 +37,8 @@ export function computeShadowMetrics(input: {
   readonly nativeContextEstimate: number
   readonly workingSet: ContextWorkingSet
   readonly decisions: readonly ContextDecision[]
+  // Previous working set token total (for representation token delta).
+  readonly previousTokenEstimate?: number
 }): ShadowPlanningMetrics {
   let add = 0
   let keep = 0
@@ -49,6 +58,17 @@ export function computeShadowMetrics(input: {
       reasonCodeCounts[reason] = (reasonCodeCounts[reason] ?? 0) + 1
     }
   }
+  let full = 0
+  let lineRange = 0
+  let reference = 0
+  for (const item of input.workingSet.items) {
+    const kind = item.representationKind
+    if (kind === 'FULL') full += 1
+    else if (kind === 'LINE_RANGE') lineRange += 1
+    else if (kind === 'REFERENCE') reference += 1
+  }
+  const representationTokenDelta =
+    input.workingSet.totalTokenEstimate - (input.previousTokenEstimate ?? 0)
   return {
     modelCallSequence: input.modelCallSequence,
     universeSequence: input.universeSequence,
@@ -64,6 +84,8 @@ export function computeShadowMetrics(input: {
     replace,
     compress,
     churn: add + remove + rehydrate,
-    reasonCodeCounts
+    reasonCodeCounts,
+    representationCounts: { full, lineRange, reference },
+    representationTokenDelta
   }
 }

@@ -423,3 +423,116 @@ describe('trust boundary and identity collisions', () => {
     expect(addA.decisionId).not.toBe(addB.decisionId)
   })
 })
+
+describe('CR-003B representation decisions (REPLACE / KEEP / stale)', () => {
+  const makeFileUniverse = (contentHash: string) =>
+    universeWithEntries('s', [
+      { sourceKey: 'repository/file://src/auth.ts', sourceKind: 'REPOSITORY_FILE', provenance: 'REPOSITORY_OBSERVER', contentHash }
+    ])
+
+  // A representation resolver that always returns the same FULL representation
+  // for the source.
+  function representFull(entry: ContextUniverseEntry): ContextRepresentation | null {
+    const version = entry.admittedVersion
+    if (version === null) return null
+    return createRepresentation({
+      kind: 'FULL',
+      sourceVersionIds: [version.versionId],
+      contentHash: version.contentHash,
+      tokenEstimate: 100,
+      lossiness: 'NONE',
+      derivation: { sourceKey: entry.source.sourceKey }
+    })
+  }
+
+  // A resolver that returns LINE_RANGE instead of FULL for the source.
+  function representLineRange(entry: ContextUniverseEntry): ContextRepresentation | null {
+    const version = entry.admittedVersion
+    if (version === null) return null
+    return createRepresentation({
+      kind: 'LINE_RANGE',
+      sourceVersionIds: [version.versionId],
+      contentHash: `range:${version.contentHash}`,
+      tokenEstimate: 20,
+      lossiness: 'BOUNDED',
+      derivation: { sourceKey: entry.source.sourceKey, range: '120-180' }
+    })
+  }
+
+  const optsFull = (createdAt: string) => ({ policyVersion: POLICY, createdAt, represent: representFull })
+  const optsLine = (createdAt: string) => ({ policyVersion: POLICY, createdAt, represent: representLineRange })
+
+  it('20) initial active FULL -> ADD', () => {
+    const universe = makeFileUniverse('hash-A')
+    const result = planWorkingSet({ universe, request: evidenceRequest(['repository/file://src/auth.ts'], { recompositionSequence: 1 }), previousWorkingSet: null, options: optsFull(T0) })
+    const decision = result.decisions.find((d) => d.sourceKey === 'repository/file://src/auth.ts')
+    expect(decision?.kind).toBe('ADD')
+  })
+
+  it('21) FULL -> same FULL -> KEEP', () => {
+    const universe = makeFileUniverse('hash-A')
+    const first = planWorkingSet({ universe, request: evidenceRequest(['repository/file://src/auth.ts'], { recompositionSequence: 1 }), previousWorkingSet: null, options: optsFull(T0) })
+    const second = planWorkingSet({ universe, request: evidenceRequest(['repository/file://src/auth.ts'], { recompositionSequence: 2, previousWorkingSetId: first.workingSet.workingSetId }), previousWorkingSet: first.workingSet, options: optsFull(T0) })
+    const decision = second.decisions.find((d) => d.sourceKey === 'repository/file://src/auth.ts')
+    expect(decision?.kind).toBe('KEEP')
+  })
+
+  it('22) FULL -> LINE_RANGE on same SourceVersion -> REPLACE(REPRESENTATION_NARROWED)', () => {
+    const universe = makeFileUniverse('hash-A')
+    const first = planWorkingSet({ universe, request: evidenceRequest(['repository/file://src/auth.ts'], { recompositionSequence: 1 }), previousWorkingSet: null, options: optsFull(T0) })
+    const second = planWorkingSet({ universe, request: evidenceRequest(['repository/file://src/auth.ts'], { recompositionSequence: 2, previousWorkingSetId: first.workingSet.workingSetId, representationNeeds: [{ sourceKey: 'repository/file://src/auth.ts', preferredKind: 'LINE_RANGE', lineRange: { startLine: 120, endLine: 180 }, reasonCode: 'REPRESENTATION_NARROWED' }] }), previousWorkingSet: first.workingSet, options: optsLine(T0) })
+    const decision = second.decisions.find((d) => d.sourceKey === 'repository/file://src/auth.ts')
+    expect(decision?.kind).toBe('REPLACE')
+    expect(decision?.reasonCodes).toContain('REPRESENTATION_NARROWED')
+  })
+
+  it('23) LINE_RANGE -> FULL -> REPLACE(DETAIL_REQUIRED)', () => {
+    const universe = makeFileUniverse('hash-A')
+    const first = planWorkingSet({ universe, request: evidenceRequest(['repository/file://src/auth.ts'], { recompositionSequence: 1 }), previousWorkingSet: null, options: optsLine(T0) })
+    const second = planWorkingSet({ universe, request: evidenceRequest(['repository/file://src/auth.ts'], { recompositionSequence: 2, previousWorkingSetId: first.workingSet.workingSetId, representationNeeds: [{ sourceKey: 'repository/file://src/auth.ts', preferredKind: 'FULL', reasonCode: 'DETAIL_REQUIRED' }] }), previousWorkingSet: first.workingSet, options: optsFull(T0) })
+    const decision = second.decisions.find((d) => d.sourceKey === 'repository/file://src/auth.ts')
+    expect(decision?.kind).toBe('REPLACE')
+    expect(decision?.reasonCodes).toContain('DETAIL_REQUIRED')
+  })
+
+  it('24) source stays active while representation changes - no REMOVE+ADD pair', () => {
+    const universe = makeFileUniverse('hash-A')
+    const first = planWorkingSet({ universe, request: evidenceRequest(['repository/file://src/auth.ts'], { recompositionSequence: 1 }), previousWorkingSet: null, options: optsFull(T0) })
+    const second = planWorkingSet({ universe, request: evidenceRequest(['repository/file://src/auth.ts'], { recompositionSequence: 2, previousWorkingSetId: first.workingSet.workingSetId, representationNeeds: [{ sourceKey: 'repository/file://src/auth.ts', preferredKind: 'LINE_RANGE', lineRange: { startLine: 120, endLine: 180 }, reasonCode: 'REPRESENTATION_NARROWED' }] }), previousWorkingSet: first.workingSet, options: optsLine(T0) })
+    expect(second.workingSet.items.map((i) => i.sourceKeys[0])).toContain('repository/file://src/auth.ts')
+    expect(second.decisions.some((d) => d.kind === 'REMOVE')).toBe(false)
+    expect(second.decisions.some((d) => d.kind === 'REPLACE')).toBe(true)
+  })
+
+  it('25) source becomes inactive -> REMOVE still works', () => {
+    const universe = makeFileUniverse('hash-A')
+    const first = planWorkingSet({ universe, request: evidenceRequest(['repository/file://src/auth.ts'], { recompositionSequence: 1 }), previousWorkingSet: null, options: optsFull(T0) })
+    const second = planWorkingSet({ universe, request: evidenceRequest(['repository/file://src/auth.ts'], { recompositionSequence: 2, previousWorkingSetId: first.workingSet.workingSetId, excludedSourceKeys: ['repository/file://src/auth.ts'] }), previousWorkingSet: first.workingSet, options: optsFull(T0) })
+    expect(second.workingSet.items).toHaveLength(0)
+    expect(second.decisions.some((d) => d.kind === 'REMOVE')).toBe(true)
+  })
+
+  it('27/28) same sourceKey advances SourceVersion -> stale representation replaced', () => {
+    // v1 plan with FULL.
+    const universeV1 = makeFileUniverse('hash-A')
+    const first = planWorkingSet({ universe: universeV1, request: evidenceRequest(['repository/file://src/auth.ts'], { recompositionSequence: 1 }), previousWorkingSet: null, options: optsFull(T0) })
+    // Universe advances to v2 (same sourceKey, new content).
+    const universeV2 = makeFileUniverse('hash-B')
+    const second = planWorkingSet({ universe: universeV2, request: evidenceRequest(['repository/file://src/auth.ts'], { recompositionSequence: 2, previousWorkingSetId: first.workingSet.workingSetId }), previousWorkingSet: first.workingSet, options: optsFull(T0) })
+    const decision = second.decisions.find((d) => d.sourceKey === 'repository/file://src/auth.ts')
+    expect(decision?.kind).toBe('REPLACE')
+    expect(decision?.reasonCodes).toContain('SOURCE_VERSION_ADVANCED')
+    // The fresh representation binds v2, not the stale v1.
+    const item = second.workingSet.items.find((i) => i.sourceKeys.includes('repository/file://src/auth.ts'))
+    const v1Entry = universeV1.entries.find((e) => e.source.sourceKey === 'repository/file://src/auth.ts')!
+    const v2Entry = universeV2.entries.find((e) => e.source.sourceKey === 'repository/file://src/auth.ts')!
+    expect(v1Entry.admittedVersion?.versionId).not.toBe(v2Entry.admittedVersion?.versionId)
+    expect(item?.sourceVersionIds).toContain(v2Entry.admittedVersion!.versionId)
+  })
+
+  it('C-19) missing representation need preserves safe existing behavior', () => {
+    const universe = makeFileUniverse('hash-A')
+    const result = planWorkingSet({ universe, request: evidenceRequest(['repository/file://src/auth.ts'], { recompositionSequence: 1 }), previousWorkingSet: null, options: optsFull(T0) })
+    expect(result.workingSet.items.map((i) => i.sourceKeys[0])).toContain('repository/file://src/auth.ts')
+  })
+})

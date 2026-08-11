@@ -99,6 +99,7 @@ export {
   planningRequestHash,
   type ContextBudget,
   type ContextPlanningRequest,
+  type ContextRepresentationNeed,
   type ReasonCode,
   type RemovalRecord,
   type TaskPhase

@@ -33,9 +33,9 @@ function makeObserver() {
 }
 
 describe('Shadow planner observer (CR-003A)', () => {
-  it('produces a Shadow Working Set + transition + metrics per model call', () => {
+  it('produces a Shadow Working Set + transition + metrics per model call', async () => {
     const observer = makeObserver()
-    const call = observer.observeModelCall([
+    const call = await observer.observeModelCall([
       userMessage('task'),
       toolCallMessage('call-1', 'read', { path: 'a.ts' }),
       toolResultMessage('call-1', 'content')
@@ -51,10 +51,10 @@ describe('Shadow planner observer (CR-003A)', () => {
     expect(call.metrics.nativeEstimateScope).toBe('agent-messages-pre-provider')
   })
 
-  it('produces one plan per model call and records ADD decisions for run-event sources', () => {
+  it('produces one plan per model call and records ADD decisions for run-event sources', async () => {
     const observer = makeObserver()
-    observer.observeModelCall([userMessage('task')])
-    const call2 = observer.observeModelCall([
+    await observer.observeModelCall([userMessage('task')])
+    const call2 = await observer.observeModelCall([
       userMessage('task'),
       toolCallMessage('call-1', 'read', { path: 'a.ts' }),
       toolResultMessage('call-1', 'content')
@@ -64,9 +64,9 @@ describe('Shadow planner observer (CR-003A)', () => {
     expect(addDecisions.length).toBeGreaterThan(0)
   })
 
-  it('records reason-code counts in metrics', () => {
+  it('records reason-code counts in metrics', async () => {
     const observer = makeObserver()
-    const call = observer.observeModelCall([
+    const call = await observer.observeModelCall([
       userMessage('task'),
       toolCallMessage('call-1', 'read', { path: 'a.ts' }),
       toolResultMessage('call-1', 'content')
@@ -78,19 +78,19 @@ describe('Shadow planner observer (CR-003A)', () => {
     )
   })
 
-  it('CR-001 pass-through invariant holds: base observer returns original messages', () => {
+  it('CR-001 pass-through invariant holds: base observer returns original messages', async () => {
     const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
     const enriched = new EnrichedPiShadowObserver({ base })
     const planner = new ShadowPlannerObserver({ enriched, policyVersion: 'v0' })
     const messages = [userMessage('keep me'), toolCallMessage('call-1', 'read', { path: 'a.ts' })]
     const result = base.handleContextEvent(messages)
     expect(result.messages).toBe(messages)
-    void planner.observeModelCall(messages)
+    await planner.observeModelCall(messages)
     expect(result.messages).toBe(messages)
     expect(result.messages).toHaveLength(2)
   })
 
-  it('P2: previousWorkingSetId mismatch is rejected both ways (strict bidirectional)', () => {
+  it('P2: previousWorkingSetId mismatch is rejected both ways (strict bidirectional)', async () => {
     // Direction 1: request claims a previous id but actual previous set is null.
     const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
     const enriched = new EnrichedPiShadowObserver({ base })
@@ -110,9 +110,9 @@ describe('Shadow planner observer (CR-003A)', () => {
         previousWorkingSetId: 'working-set:bogus'
       })
     })
-    expect(() =>
+    await expect(
       observer.observeModelCall([userMessage('task')])
-    ).toThrow(/previousWorkingSetId mismatch/)
+    ).rejects.toThrow(/previousWorkingSetId mismatch/)
 
     // Direction 2 (inverse): a single observer establishes a previous Working
     // Set on its first call, then a step-based request drops the id -> throw.
@@ -138,13 +138,13 @@ describe('Shadow planner observer (CR-003A)', () => {
         }
       }
     })
-    observer2.observeModelCall([userMessage('task')])
-    expect(() =>
+    await observer2.observeModelCall([userMessage('task')])
+    await expect(
       observer2.observeModelCall([userMessage('task')])
-    ).toThrow(/previousWorkingSetId mismatch/)
+    ).rejects.toThrow(/previousWorkingSetId mismatch/)
   })
 
-  it('P1: exclude in the live observer records removal history and enables REHYDRATE (end to end)', () => {
+  it('P1: exclude in the live observer records removal history and enables REHYDRATE (end to end)', async () => {
     // Build an observer whose planning request honors explicit excludes on the
     // second call and pins the source on the third call. The observer must
     // automatically record removal history from the real REMOVE decision.
@@ -181,21 +181,21 @@ describe('Shadow planner observer (CR-003A)', () => {
       toolCallMessage('call-1', 'read', { path: 'a.ts' }),
       toolResultMessage('call-1', 'content')
     ]
-    observer.observeModelCall(msg)
-    const call2 = observer.observeModelCall(msg)
+    await observer.observeModelCall(msg)
+    const call2 = await observer.observeModelCall(msg)
     // Step 2: explicit exclude -> real REMOVE(EXPLICIT_EXCLUDE).
     const removeDecisions = call2.plannerResult.decisions.filter((d) => d.kind === 'REMOVE')
     expect(removeDecisions.length).toBeGreaterThan(0)
     expect(
       removeDecisions.every((d) => d.reasonCodes.includes('EXPLICIT_EXCLUDE'))
     ).toBe(true)
-    const call3 = observer.observeModelCall(msg)
+    const call3 = await observer.observeModelCall(msg)
     // Step 3: pinned again -> REHYDRATE (observer auto-recorded the removal).
     const rehydrateDecisions = call3.plannerResult.decisions.filter((d) => d.kind === 'REHYDRATE')
     expect(rehydrateDecisions.length).toBeGreaterThan(0)
   })
 
-  it('P1: unchanged history across calls yields KEEP (real continuity)', () => {
+  it('P1: unchanged history across calls yields KEEP (real continuity)', async () => {
     const observer = makeObserver()
     const messagesA = [
       userMessage('task'),
@@ -207,8 +207,8 @@ describe('Shadow planner observer (CR-003A)', () => {
       toolCallMessage('call-1', 'read', { path: 'a.ts' }),
       toolResultMessage('call-1', 'content')
     ]
-    observer.observeModelCall(messagesA)
-    const second = observer.observeModelCall(messagesB)
+    await observer.observeModelCall(messagesA)
+    const second = await observer.observeModelCall(messagesB)
     // The second plan should see the previous Working Set and classify the
     // still-active run-event sources as KEEP, not repeated ADD.
     expect(second.plannerResult.workingSet.previousWorkingSetId).toBe(
@@ -220,9 +220,9 @@ describe('Shadow planner observer (CR-003A)', () => {
     expect(addCount).toBe(0)
   })
 
-  it('P1: nativeContextEstimate is the real CR-001 observation estimate, not a placeholder', () => {
+  it('P1: nativeContextEstimate is the real CR-001 observation estimate, not a placeholder', async () => {
     const observer = makeObserver()
-    const call = observer.observeModelCall([
+    const call = await observer.observeModelCall([
       userMessage('task with some text content'),
       toolCallMessage('call-1', 'read', { path: 'a.ts' }),
       toolResultMessage('call-1', 'file contents here')

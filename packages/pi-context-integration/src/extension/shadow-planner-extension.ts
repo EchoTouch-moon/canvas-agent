@@ -3,6 +3,7 @@ import {
   createRepresentation,
   planWorkingSet,
   type ContextPlanningRequest,
+  type ContextRepresentationNeed,
   type ContextUniverseEntry,
   type ContextUniverseRevision,
   type ShadowPlanningMetrics,
@@ -37,6 +38,18 @@ export interface ShadowPlannerObserverOptions {
     readonly recentEvidenceSourceKeys: readonly string[]
     readonly removalHistory: readonly RemovalRecord[]
   }) => ContextPlanningRequest
+  // Optional CR-003B file-aware materialization seam. When provided, repository
+  // /file entries are materialized into FULL / LINE_RANGE / REFERENCE
+  // representations before the synchronous Planner runs. When absent, the
+  // default REFERENCE-only behavior is preserved (prior behavior).
+  readonly representationProvider?: (input: {
+    readonly entry: ContextUniverseEntry
+    readonly need: ContextRepresentationNeed
+  }) => Promise<ContextRepresentation | null>
+  // Repository/file path candidates observed for this boundary (from explicit
+  // harness config or hints). Provider-neutral; used to build representation
+  // needs.
+  readonly filePathCandidates?: readonly string[]
 }
 
 export interface ShadowPlannerCallResult {
@@ -50,6 +63,8 @@ export class ShadowPlannerObserver {
   private readonly enriched: EnrichedPiShadowObserver
   private readonly policyVersion: string
   private readonly makePlanningRequest: NonNullable<ShadowPlannerObserverOptions['makePlanningRequest']>
+  private readonly representationProvider: ShadowPlannerObserverOptions['representationProvider']
+  private readonly filePathCandidates: readonly string[]
   private previousWorkingSet: ContextWorkingSet | null = null
   private readonly removalHistoryBySource = new Map<string, RemovalRecord>()
   readonly callResults: readonly ShadowPlannerCallResult[]
@@ -58,6 +73,8 @@ export class ShadowPlannerObserver {
     this.enriched = options.enriched
     this.policyVersion = options.policyVersion ?? 'policy-v0'
     this.callResults = []
+    this.representationProvider = options.representationProvider
+    this.filePathCandidates = options.filePathCandidates ?? []
     this.makePlanningRequest =
       options.makePlanningRequest ??
       ((input) => defaultPlanningRequest(input.runtimeSessionId, input.sequence, input.nativeContextEstimate, input.recentEvidenceSourceKeys, input.removalHistory, input.previousWorkingSetId))
@@ -67,7 +84,7 @@ export class ShadowPlannerObserver {
     return this.enriched.runtimeSessionId
   }
 
-  observeModelCall(messages: readonly PiMessageView[]): ShadowPlannerCallResult {
+  async observeModelCall(messages: readonly PiMessageView[]): Promise<ShadowPlannerCallResult> {
     const enrichedResult = this.enriched.observeModelCall(messages)
     const universe = enrichedResult.universeRevision
 
@@ -82,7 +99,6 @@ export class ShadowPlannerObserver {
       removalHistory
     })
 
-    // Validate consistency: if the request claims a previous set id it must
     // Validate bidirectional strict consistency: the request's claimed previous
     // Working Set id must equal the actual previous Working Set supplied to the
     // planner. Both mismatches (request non-null vs actual null, and request
@@ -95,6 +111,24 @@ export class ShadowPlannerObserver {
       )
     }
 
+    // CR-003B file-aware materialization phase (async, before the synchronous
+    // Planner). Prepare representations for repository/file entries with a
+    // normalized representation need. Falls back to the default REFERENCE
+    // representation when no provider is configured or materialization fails.
+    const preparedRepresentations = new Map<string, ContextRepresentation>()
+    if (this.representationProvider !== undefined) {
+      const needs = buildRepresentationNeeds(this.filePathCandidates)
+      for (const entry of universe.entries) {
+        if (entry.admittedVersion === null) continue
+        const need = needs.get(entry.source.sourceKey)
+        if (need === undefined) continue
+        const representation = await this.representationProvider({ entry, need })
+        if (representation !== null) {
+          preparedRepresentations.set(entry.source.sourceKey, representation)
+        }
+      }
+    }
+
     const plannerResult = planWorkingSet({
       universe,
       request: planningRequest,
@@ -102,7 +136,11 @@ export class ShadowPlannerObserver {
       options: {
         policyVersion: this.policyVersion,
         createdAt: new Date().toISOString(),
-        represent: (entry) => representUniverseEntry(entry)
+        represent: (entry) => {
+          const prepared = preparedRepresentations.get(entry.source.sourceKey)
+          if (prepared !== undefined) return prepared
+          return representUniverseEntry(entry)
+        }
       }
     })
 
@@ -112,7 +150,8 @@ export class ShadowPlannerObserver {
       universeHash: universe.logicalHash,
       nativeContextEstimate: enrichedResult.nativeContextEstimate,
       workingSet: plannerResult.workingSet,
-      decisions: plannerResult.decisions
+      decisions: plannerResult.decisions,
+      previousTokenEstimate: this.previousWorkingSet?.totalTokenEstimate ?? 0
     })
 
     // Record removal/cold history for future REHYDRATE decisions (bounded,
@@ -141,9 +180,30 @@ export class ShadowPlannerObserver {
   }
 }
 
+// Build normalized representation needs for repository/file candidates. The
+// default is FULL detail (DETAIL_REQUIRED); adapters/harness config may override
+// by supplying a richer need map. Provider-neutral; no path-suffix parsing here.
+export function buildRepresentationNeeds(
+  filePathCandidates: readonly string[],
+  overrides: readonly ContextRepresentationNeed[] = []
+): Map<string, ContextRepresentationNeed> {
+  const needs = new Map<string, ContextRepresentationNeed>()
+  for (const path of filePathCandidates) {
+    const sourceKey = `repository/file://${path}`
+    needs.set(sourceKey, {
+      sourceKey,
+      preferredKind: 'FULL',
+      reasonCode: 'DETAIL_REQUIRED'
+    })
+  }
+  for (const override of overrides) {
+    needs.set(override.sourceKey, override)
+  }
+  return needs
+}
+
 // Conservative live default: GENERAL phase, empty targets, no prose parsing.
-function defaultPlanningRequest(
-  runtimeSessionId: string,
+function defaultPlanningRequest(  runtimeSessionId: string,
   sequence: number,
   nativeContextEstimate: number,
   recentEvidenceSourceKeys: readonly string[],
@@ -190,7 +250,7 @@ export function createShadowPlannerPiExtension(options: {
 }): ExtensionFactory {
   return (pi: ExtensionAPI) => {
     pi.on('context', async (event: ContextEvent) => {
-      options.observer.observeModelCall(event.messages)
+      await options.observer.observeModelCall(event.messages)
       return { messages: event.messages }
     })
   }

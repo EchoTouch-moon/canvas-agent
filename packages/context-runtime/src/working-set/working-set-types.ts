@@ -20,6 +20,9 @@ export type ContextProtection = (typeof PROTECTION)[number]
 export interface ContextWorkingSetItem {
   readonly position: number
   readonly representationId: string
+  // Representation kind for file-aware metrics (FULL / LINE_RANGE / REFERENCE
+  // / ...). Used by ShadowPlanningMetrics; never parsed as a source truth.
+  readonly representationKind?: string
   readonly sourceKeys: readonly string[]
   readonly sourceVersionIds: readonly string[]
   readonly authority: string
