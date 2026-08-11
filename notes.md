@@ -100,3 +100,14 @@
 - 视觉验收覆盖 18 个精确尺寸场景，包括 no-workspace/opening/error/ready/switch-blocked、Agent auth、First Project、First Task、TaskSpec、DRAFT Baseline 与 dirty/read-only；Luna QA 和独立代码复审均为 CLEAN。
 - 键盘路径 `Choose repository → READY → Task title → Create task`、横向溢出、控件裁切和状态公告均由 Electron harness 自动断言。
 - DS-007 现已解锁；预检确认剩余缺口只在确定性 RC 编排、采纳幂等证明、Agent smoke 报告、CI artifacts/audit 与发布文档，不需要修改生产架构。
+
+## 2026-08-11 DS-007 merge and Product MVP decision
+
+- PR #13 已在 `main@38820ec` 合并；功能提交 `28de779`，GitHub Actions run `31450943361` 的 `check` 与 `macos-electron` 均通过。
+- 最终 Node 24 `pnpm check`：470 tests + build 全绿；credential-free `pnpm e2e:rc` 4/4 场景通过。
+- 打包态验证覆盖原生仓库选择、Agent executable picker、`READY / USER_SELECTED / codex-cli 0.146.0`、隔离 userData 与 packaged migrations/cold start。
+- 完整闭环验证覆盖 Run → Acceptance → Completion → Apply → DRAFT Candidate → 显式 Activate；exact-binding apply retry 不新增 Git commit 或 RepositoryRevision，激活后第三次启动仍保留 Run、Application 与 ACTIVE Baseline。
+- 真实 Codex smoke 报告为 `executed=1`，六项非敏感 checks 全为 true；production dependency audit 无已知 high/critical 漏洞。
+- 代码审查 CLEAN；最终 gate review 的 AC-9 已关闭，AC-2 由远端 macOS CI 关闭。所有 Product MVP v0.2 P0/P1 release gates 已关闭。
+- 首席架构师决定：Product MVP v0.2 对 local/internal unsigned use 正式完成。外部签名/公证归为后续分发项，不阻断本次里程碑。
+- 用户已说明后续方向有所调整，但尚未提供具体内容；不得从旧计划自动启动 Checkpoint/Resume、Canvas、第二 Adapter 或多 Agent 编排，先按范围门重新分类。

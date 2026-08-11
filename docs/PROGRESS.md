@@ -1,11 +1,11 @@
 # Canvas Agent — 项目进度文档
 
 - **日期：** 2026-08-11
-- **里程碑：** `PRODUCT MVP v0.2 RELEASE-CANDIDATE EVIDENCE IN REVIEW`
+- **里程碑：** `PRODUCT MVP v0.2 COMPLETE — LOCAL/INTERNAL UNSIGNED`
 - **仓库：** https://github.com/EchoTouch-moon/canvas-agent（私有）
-- **基线：** `main@29b5425`（DS-003…DS-006 与 UI-003 已合并；DS-007 分支正在生成 RC 证据）
+- **基线：** `main@38820ec`（DS-003…DS-007 与 UI-003 全部合并）
 
-> **2026-08-11 status update:** DS-003…DS-006 与 UI-003 已合并，Product MVP 的实现波次已结束。当前只处于 DS-007 RC 证据收口：credential-free 聚合门、真实 Agent 的独立结构化报告、采纳重试幂等、激活后重启、packaged 冷启动与发布文档。此状态不等于 Product MVP 已完成；最终决定仍由 lead architect 对照 `docs/operator/product-mvp-v0.2-release-checklist.md` 作出。`docs/PROJECT_EXECUTION_PLAN.md` 的 next-work ordering 已被 `docs/PRODUCT_MVP_V0.2_PLAN.md` 取代。
+> **2026-08-11 status update:** DS-003…DS-007 与 UI-003 已全部合并。PR #13 的 source、production audit 与 macOS credential-free RC jobs 全绿；真实 Codex smoke 为 `executed=1` 且六项 checks 全 true。Lead architect 已对照发布矩阵批准 Product MVP v0.2 完成。范围为 local/internal unsigned use；外部签名与公证另立发布决策。`docs/PROJECT_EXECUTION_PLAN.md` 的 next-work ordering 已被 `docs/PRODUCT_MVP_V0.2_PLAN.md` 取代。
 
 ---
 
@@ -110,9 +110,9 @@ Result adoption ≠ Baseline activation
 - 产品运行时：原生选择/校验 Git 仓库；单活动 Workspace Runtime；仓库隔离 SQLite/runtime；安全 close/switch/reopen；packaged migration 与冷启动 CI gate。
 - 产品面：Live Workspace 视图（hydration / composer / repository resolve / freeze / run / acceptance / adoption / runs history）+ CoreFlow 流程原型（APPLY/ACTIVATE 已解锁为真实命令，旧 session-only ArtifactReview 退休）。
 
-### 尚未完成（按新的产品优先级）
+### 当前状态与后续方向
 
-- Product MVP v0.2：实现已进入 RC；尚需 lead architect 审核逐门证据与 P0/P1 release record，不能由 DS-007 自行宣告完成。
+- Product MVP v0.2：已由 lead architect 对照逐门证据批准完成；当前无未关闭 P0/P1 release blocker。
 - Future：Checkpoint / Resume、ToolInvocation、Approval、多 ExecutionRequest continuation；触发条件见 scope register。
 - Future：Canvas / Graph Intelligence。
 - BaselineEdgeItem（关系快照）——MVP 明确冻结为 NodeVersions + RepositoryRevision。
@@ -209,6 +209,6 @@ Result adoption ≠ Baseline activation
 2. ✅ **DS-004：Workspace Runtime**——已合并。
 3. ✅ **DS-005：Real Local Agent**——已合并。
 4. ✅ **DS-006 → UI-003：Live-first Product Workbench**——已合并。
-5. **DS-007：RC Gates**——实现中；只收集全链、重启、采纳幂等、package、audit 与文档证据，不自行宣布 Product MVP 完成。
+5. ✅ **DS-007：RC Gates**——已通过 PR #13 合并；全链、重启、采纳幂等、package、audit、真实 Agent 报告与发布文档证据均通过。
 
 Checkpoint/Resume、第二 Adapter 与 Canvas 均被范围门延后。详细依赖、所有权和验收矩阵见 `docs/PRODUCT_MVP_V0.2_PLAN.md` 与 `docs/tasks/README.md`。

@@ -2,9 +2,9 @@
 
 The remote repository is the coordination point. Implementers exchange reviewed commits, never uncommitted folders. The lead architect owns merge ordering and boundary review.
 
-## Active milestone — Product MVP v0.2 closeout
+## Completed milestone — Product MVP v0.2
 
-DeepSeek is the primary implementer. Luna receives one consolidated visual task after backend and state contracts are stable.
+DeepSeek was the primary implementer. Luna completed one consolidated visual task after backend and state contracts were stable.
 
 | Order | Owner             | Packet                                                                      | Branch                                      | Status             | Merge dependency                  |
 | ----: | ----------------- | --------------------------------------------------------------------------- | ------------------------------------------- | ------------------ | --------------------------------- |
@@ -20,19 +20,19 @@ DeepSeek is the primary implementer. Luna receives one consolidated visual task 
 |     3 | DeepSeek V4 Flash | [DS-005 local CLI adapter](deepseek/DS-005-local-cli-adapter.md)            | `agent/deepseek-ds-005-local-cli-adapter`   | ✅ MERGED — PR #9  | `main@3459d6d`                    |
 |     4 | DeepSeek V4 Flash | [DS-006 Live client state/onboarding](deepseek/DS-006-live-client-state.md) | `agent/deepseek-ds-006-live-client-state`   | ✅ MERGED — PR #10 | `main@19c0690`                    |
 |     5 | GPT-5.6 Luna      | [UI-003 Live-first product shell](luna/UI-003-live-first-product-shell.md)  | `agent/luna-ui-003-live-first-shell`        | ✅ MERGED — PR #11 | `main@97b9c78`                    |
-|     6 | DeepSeek V4 Flash | [DS-007 RC gates](deepseek/DS-007-release-candidate-gates.md)               | `agent/deepseek-ds-007-product-mvp-rc`      | READY              | all implementation packets merged |
+|     6 | DeepSeek V4 Flash | [DS-007 RC gates](deepseek/DS-007-release-candidate-gates.md)               | `agent/deepseek-ds-007-product-mvp-rc`      | ✅ MERGED — PR #13 | `main@38820ec`                    |
 
-UI-003 is LEAD APPROVED and merged through PR #11 at `main@97b9c78`: Node 24 source checks, macOS Electron gates, 18-state visual evidence and independent Luna QA all passed. DS-007 is the only remaining implementation packet and is now unblocked.
+DS-007 is LEAD APPROVED and merged through PR #13 at `main@38820ec`. Node 24 source checks, the credential-free macOS RC suite, packaged repository and Agent selection, authenticated Codex proof, restart/adoption evidence and the production dependency audit all passed. Product MVP v0.2 is complete for local/internal unsigned use.
 
 ## Current release gates
 
 ```text
-DS-003 ✅ + DS-004 ✅ + DS-005 ✅ + DS-006 ✅ + UI-003 ✅
-UI-003 merged → DS-007 (READY)
-DS-007 → architect RC decision
+DS-003 ✅ + DS-004 ✅ + DS-005 ✅ + DS-006 ✅ + UI-003 ✅ + DS-007 ✅
+DS-007 merged → architect RC decision ✅
+Product MVP v0.2 → COMPLETE (local/internal unsigned distribution)
 ```
 
-No Checkpoint/Resume, Canvas or second Agent adapter packet may start during this milestone without a new scope decision.
+No Checkpoint/Resume, Canvas, second Agent adapter or external signed-distribution packet starts automatically. The user's revised post-v0.2 direction must pass a new scope decision first.
 
 ## Completed foundation
 

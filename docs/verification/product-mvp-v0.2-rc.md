@@ -1,12 +1,14 @@
 # Product MVP v0.2 RC verification
 
-- **Status:** VERIFIED LOCALLY — architect Product MVP decision pending
-- **Baseline:** `main@29b5425`
+- **Status:** VERIFIED LOCALLY AND IN CI — LEAD APPROVED
+- **RC task baseline:** `main@29b5425`
 - **Branch:** `agent/deepseek-ds-007-product-mvp-rc`
 - **Runtime:** Node `v24.15.0`, pnpm `11.9.0`
 - **Platform:** macOS (Apple Silicon)
+- **Merged baseline:** `main@38820ec` via PR #13
+- **GitHub Actions:** run `31450943361` — `check` PASS, `macos-electron` PASS
 
-This is the evidence index, not a Product MVP completion declaration. Generated CI artifacts are not committed; local default paths are listed below and CI overrides them into the uploaded `ci-artifacts/` tree.
+This evidence index supports the lead architect's Product MVP v0.2 completion decision. Generated CI artifacts are not committed; local default paths are listed below and CI overrides them into the uploaded `ci-artifacts/` tree.
 
 ## Evidence contract
 
@@ -40,3 +42,7 @@ This is the evidence index, not a Product MVP completion declaration. Generated 
 
 The authenticated execution result is a separate opt-in gate and is never inferred from the credential-free deterministic suite or the disabled-smoke result.
 The report never includes the raw prompt, stdout/stderr, repository path or Run identifier. Failed runs preserve observed `true`/`false` values and leave checks that were not reached as `null`.
+
+## Lead decision
+
+All blocking rows in the master acceptance matrix are closed. PR #13 passed both GitHub Actions jobs at the reviewed head `28de779`; the merge commit is `38820ec`. Signing and notarization are deferred only for a future external-distribution release and do not block the local/internal unsigned Product MVP v0.2.
