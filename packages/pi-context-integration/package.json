@@ -1,0 +1,26 @@
+{
+  "name": "@canvas-agent/pi-context-integration",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pi Context Integration: provider-neutral CR-001 shadow observation of Pi model-call context",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --noEmit",
+    "smoke:deepseek": "tsx src/smoke/deepseek-smoke.ts"
+  },
+  "dependencies": {
+    "@canvas-agent/context-runtime": "workspace:*",
+    "@earendil-works/pi-coding-agent": "0.84.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.23.7",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

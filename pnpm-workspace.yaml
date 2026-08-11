@@ -6,6 +6,12 @@ allowBuilds:
   electron: true
   electron-winstaller: false
   esbuild: true
+  # Reviewed for the Pi dependency chain (DS-008): @google/genai 1.52.0 has only
+  # a no-op preinstall; protobufjs 7.6.5 postinstall only checks dependency
+  # versions and prints a warning. Neither generates runtime-required files, so
+  # both are denied. Exact versions keep future upgrades gated for re-review.
+  '@google/genai@1.52.0': false
+  'protobufjs@7.6.5': false
 
 verifyDepsBeforeRun: false
 
