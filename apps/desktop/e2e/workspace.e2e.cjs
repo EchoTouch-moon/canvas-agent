@@ -22,6 +22,33 @@ function tempRepo(label) {
   return dir
 }
 
+function tempNonGitDirectory() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ca-ws-invalid-'))
+  fs.writeFileSync(path.join(dir, 'README.md'), '# not a git repository\n')
+  return dir
+}
+
+function tempFakeCodex() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ca-ws-fake-codex-'))
+  const executable = path.join(dir, 'codex')
+  fs.writeFileSync(
+    executable,
+    `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf 'codex-cli 0.146.0\\n'
+  exit 0
+fi
+if [ "$1" = "login" ] && [ "$2" = "status" ]; then
+  exit 0
+fi
+exit 2
+`,
+    'utf8'
+  )
+  fs.chmodSync(executable, 0o755)
+  return executable
+}
+
 function repoName(repo) {
   return path.basename(repo)
 }
@@ -88,6 +115,33 @@ async function cancelScenario(home) {
   } catch (error) {
     step('C cancel scenario', false)
     console.log('[e2e:workspace] C ERROR:', error && error.message)
+  }
+  await app.close()
+}
+
+async function invalidRepositoryScenario(home, invalidDirectory) {
+  const { app, page } = await launch(home, invalidDirectory, 'I')
+  try {
+    const chosen = await command(page, 'workspace.chooseRepository', {})
+    step(
+      'I non-Git repository is rejected with NOT_GIT_WORKTREE',
+      chosen.ok &&
+        chosen.data.cancelled === false &&
+        chosen.data.status.state === 'ERROR' &&
+        chosen.data.status.activeWorkspace === null &&
+        chosen.data.status.lastError?.reasonCode === 'NOT_GIT_WORKTREE'
+    )
+    const status = await command(page, 'workspace.status', {})
+    step(
+      'I invalid repository remains recoverable and creates no active workspace',
+      status.ok &&
+        status.data.state === 'ERROR' &&
+        status.data.activeWorkspace === null &&
+        status.data.lastError?.recoverable === true
+    )
+  } catch (error) {
+    step('I invalid repository scenario', false)
+    console.log('[e2e:workspace] I ERROR:', error && error.message)
   }
   await app.close()
 }
@@ -188,7 +242,7 @@ function findBuiltApp() {
   return null
 }
 
-async function packagedOpenViaTestPicker(repo) {
+async function packagedOpenViaTestPicker(repo, fakeCodex) {
   const built = findBuiltApp()
   if (!built) {
     step('P packaged .app opens a temp repo via test picker', false)
@@ -204,6 +258,7 @@ async function packagedOpenViaTestPicker(repo) {
       CANVAS_AGENT_E2E: '1',
       CANVAS_AGENT_USER_DATA: home,
       CANVAS_AGENT_TEST_PICKER: repo,
+      CANVAS_AGENT_TEST_EXECUTABLE: fakeCodex,
       HOME: home
     }
   })
@@ -224,6 +279,24 @@ async function packagedOpenViaTestPicker(repo) {
     if (!chosen.ok) {
       console.log('[e2e:workspace] P chooseRepository failed:', JSON.stringify(chosen))
     }
+
+    const selectedAgent = await command(page, 'agent.chooseExecutable', {})
+    step(
+      'P packaged .app natively selects and validates the fake Codex launcher',
+      selectedAgent.ok &&
+        selectedAgent.data.cancelled === false &&
+        selectedAgent.data.status.state === 'READY' &&
+        selectedAgent.data.status.source === 'USER_SELECTED' &&
+        selectedAgent.data.status.version === 'codex-cli 0.146.0'
+    )
+    const committedAgent = await command(page, 'agent.status', {})
+    step(
+      'P packaged agent.status preserves the committed READY launcher',
+      committedAgent.ok &&
+        committedAgent.data.state === 'READY' &&
+        committedAgent.data.source === 'USER_SELECTED' &&
+        committedAgent.data.version === 'codex-cli 0.146.0'
+    )
   } catch (error) {
     step('P packaged .app opens a temp repo via test picker', false)
     console.log('[e2e:workspace] P ERROR:', error && error.message)
@@ -234,16 +307,20 @@ async function packagedOpenViaTestPicker(repo) {
 async function main() {
   const repoA = tempRepo('a')
   const repoB = tempRepo('b')
+  const invalidDirectory = tempNonGitDirectory()
+  const fakeCodex = tempFakeCodex()
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ca-ws-home-'))
+  const invalidHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ca-ws-invalid-home-'))
   console.log('[e2e:workspace] home=', home)
   console.log('[e2e:workspace] repoA=', repoA)
   console.log('[e2e:workspace] repoB=', repoB)
 
   await cancelScenario(home)
+  await invalidRepositoryScenario(invalidHome, invalidDirectory)
   await chooseScenario(home, repoA)
   await reopenScenario(home, repoA)
   await chooseAnotherScenario(home, repoA, repoB)
-  await packagedOpenViaTestPicker(repoA)
+  await packagedOpenViaTestPicker(repoA, fakeCodex)
 
   console.log(
     failures === 0 ? '[e2e:workspace] ALL PASSED' : `[e2e:workspace] FAILED (${failures})`

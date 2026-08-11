@@ -1,10 +1,57 @@
 const path = require('node:path')
 const os = require('node:os')
 const fs = require('node:fs')
-const { execSync } = require('node:child_process')
+const { execFileSync, execSync } = require('node:child_process')
 const { _electron: electron } = require('playwright-core')
 
 const DESKTOP = path.resolve(__dirname, '..')
+const REPORT_PATH = process.env.CANVAS_AGENT_AGENT_REPORT
+  ? path.resolve(process.env.CANVAS_AGENT_AGENT_REPORT)
+  : path.join(DESKTOP, 'dist', 'reports', 'agent-smoke.json')
+
+function probeVersion() {
+  try {
+    return execFileSync('codex', ['--version'], {
+      encoding: 'utf8',
+      timeout: 5_000,
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim()
+  } catch {
+    return null
+  }
+}
+
+function emptyChecks() {
+  return {
+    agentReady: null,
+    dispatchSucceeded: null,
+    patchProduced: null,
+    structuredSummary: null,
+    workerDiffCheckPassed: null,
+    sourceRepositoryUnchanged: null
+  }
+}
+
+function writeReport(outcome, executableVersion, redactedReason, checks) {
+  const counts = {
+    executed: outcome === 'executed' ? 1 : 0,
+    skipped: outcome === 'skipped' ? 1 : 0,
+    failed: outcome === 'failed' ? 1 : 0
+  }
+  const report = {
+    schemaVersion: 1,
+    smoke: 'authenticated-codex',
+    outcome,
+    counts,
+    executableVersion,
+    redactedReason,
+    checks
+  }
+  fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true })
+  fs.writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`, 'utf8')
+  console.log('[e2e:agent] REPORT', JSON.stringify(report))
+  console.log('[e2e:agent] report path=', REPORT_PATH)
+}
 
 let failures = 0
 function step(name, ok) {
@@ -39,6 +86,7 @@ async function command(page, cmd, payload) {
 
 async function main() {
   if (process.env.CANVAS_AGENT_REAL_AGENT_SMOKE !== '1') {
+    writeReport('skipped', probeVersion(), 'OPT_IN_DISABLED', emptyChecks())
     console.log(
       '[e2e:agent] SKIPPED: set CANVAS_AGENT_REAL_AGENT_SMOKE=1 to run the opt-in authenticated Codex smoke'
     )
@@ -64,12 +112,14 @@ async function main() {
   await page.waitForLoadState('domcontentloaded')
   page.on('pageerror', (error) => console.log('[e2e:agent] pageerror:', error && error.message))
 
+  let executableVersion = probeVersion()
+  let redactedReason = null
+  const checks = emptyChecks()
   try {
     const agent = await command(page, 'agent.status', {})
-    step(
-      'agent.status reaches READY with the installed Codex',
-      agent.ok && agent.data.state === 'READY'
-    )
+    executableVersion = agent.ok ? agent.data.version : executableVersion
+    checks.agentReady = agent.ok && agent.data.state === 'READY'
+    step('agent.status reaches READY with the installed Codex', checks.agentReady)
     if (!agent.ok || agent.data.state !== 'READY') {
       console.log('[e2e:agent] agent.status =', JSON.stringify(agent.data))
     }
@@ -150,10 +200,12 @@ async function main() {
       'reason=',
       result.rejectionReason
     )
-    step('real Codex dispatch succeeds', result.outcome === 'SUCCEEDED')
+    checks.dispatchSucceeded = result.outcome === 'SUCCEEDED'
+    step('real Codex dispatch succeeds', checks.dispatchSucceeded)
+    checks.patchProduced = Boolean(result.patch && result.patch.includes('docs/hello.md'))
     step(
       'real Codex produced the requested Git patch in the isolated worktree',
-      Boolean(result.patch && result.patch.includes('docs/hello.md'))
+      checks.patchProduced
     )
     const summaryOk =
       result.agentSummary !== undefined &&
@@ -165,28 +217,38 @@ async function main() {
           return false
         }
       })()
-    step('real Codex returned a structured summary', summaryOk)
+    checks.structuredSummary = summaryOk
+    step('real Codex returned a structured summary', checks.structuredSummary)
     const checkOk = (result.verificationResults || []).some(
       (v) =>
         JSON.stringify(v.argv) === JSON.stringify(['git', 'diff', '--cached', '--check']) &&
         v.exitCode === 0
     )
-    step('Worker-owned git diff --cached --check recorded', checkOk)
+    checks.workerDiffCheckPassed = checkOk
+    step('Worker-owned git diff --cached --check recorded', checks.workerDiffCheckPassed)
     // The original repository must remain untouched until an explicit apply.
-    step(
-      'original repository unchanged after the run',
-      !fs.existsSync(path.join(repo, 'docs', 'hello.md'))
-    )
+    checks.sourceRepositoryUnchanged = !fs.existsSync(path.join(repo, 'docs', 'hello.md'))
+    step('original repository unchanged after the run', checks.sourceRepositoryUnchanged)
   } catch (error) {
     step('authenticated smoke flow', false)
+    redactedReason = 'SMOKE_FLOW_FAILED'
     console.log('[e2e:agent] ERROR:', error && error.message)
   }
   await app.close()
+  const checksPassed = Object.values(checks).every((value) => value === true)
+  const outcome = failures === 0 && checksPassed ? 'executed' : 'failed'
+  writeReport(
+    outcome,
+    executableVersion,
+    outcome === 'executed' ? redactedReason : (redactedReason ?? 'ASSERTION_FAILED'),
+    checks
+  )
   console.log(failures === 0 ? '[e2e:agent] ALL PASSED' : `[e2e:agent] FAILED (${failures})`)
   process.exit(failures === 0 ? 0 : 1)
 }
 
 main().catch((error) => {
+  writeReport('failed', probeVersion(), 'SMOKE_FATAL', emptyChecks())
   console.log('[e2e:agent] FATAL', error && error.stack ? error.stack : error)
   process.exit(1)
 })

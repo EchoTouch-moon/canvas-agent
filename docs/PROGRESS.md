@@ -1,11 +1,11 @@
 # Canvas Agent — 项目进度文档
 
-- **日期：** 2026-08-09
-- **里程碑：** `ENGINEERING CORE LOOP COMPLETE / PRODUCT MVP v0.2 CLOSEOUT IN PROGRESS`
+- **日期：** 2026-08-11
+- **里程碑：** `PRODUCT MVP v0.2 RELEASE-CANDIDATE EVIDENCE IN REVIEW`
 - **仓库：** https://github.com/EchoTouch-moon/canvas-agent（私有）
-- **分支：** `main`（当前 HEAD `7cbaf18`，DS-004 merged through PR #8）
+- **基线：** `main@29b5425`（DS-003…DS-006 与 UI-003 已合并；DS-007 分支正在生成 RC 证据）
 
-> **2026-08-09 status update:** 工程闭环已经完成，但产品 MVP 尚未完成。DS-003 与 DS-004 已合并：确定性时钟、packaged migrations、原生仓库选择、单活动 Workspace Runtime 和对应 Electron/package CI gates 已落地。Node 24 下 `pnpm check` 为 **304/304 tests + build**；workspace/live/packaged E2E 通过。当前权威顺序是 DS-005 → DS-006 → UI-003 → DS-007，详见 `docs/PRODUCT_MVP_V0.2_PLAN.md` 与 `docs/tasks/README.md`。
+> **2026-08-11 status update:** DS-003…DS-006 与 UI-003 已合并，Product MVP 的实现波次已结束。当前只处于 DS-007 RC 证据收口：credential-free 聚合门、真实 Agent 的独立结构化报告、采纳重试幂等、激活后重启、packaged 冷启动与发布文档。此状态不等于 Product MVP 已完成；最终决定仍由 lead architect 对照 `docs/operator/product-mvp-v0.2-release-checklist.md` 作出。`docs/PROJECT_EXECUTION_PLAN.md` 的 next-work ordering 已被 `docs/PRODUCT_MVP_V0.2_PLAN.md` 取代。
 
 ---
 
@@ -58,21 +58,11 @@ Result adoption ≠ Baseline activation
 | `packages/worker-runtime` | 隔离 Worker 执行循环：不可变 ExecutionRequest、worktree、验证、artifact 输出、取消 |
 | `apps/desktop` | Electron 桌面端：Main（路由/协调器/Git 读写/采纳协议）、preload bridge、Renderer（CoreFlow + Live workspace） |
 
-**当前测试审计（304 个，全部通过）：**
+**当前测试审计：** 不再在进度文档复制易过期的测试总数；权威运行结果、Node 版本、命令和 artifact 路径记录在 `docs/verification/product-mvp-v0.2-rc.md`。
 
-```text
-domain            5
-contracts        48
-persistence      68
-worker-runtime   22
-desktop         161
--------------------
-total           304 ✅
-```
+**CI：** `.github/workflows/ci.yml` 的 Node 24 source job 执行 frozen install、production dependency audit 与 `pnpm check`；macOS job执行单一 `pnpm e2e:rc` 聚合门。失败时上传 logs、screenshots 和 JSON reports。
 
-**CI：** `.github/workflows/ci.yml` 包含 Node 24 source `check` 与 macOS Electron job；后者覆盖 unsigned unpack build、workspace/live E2E 与 packaged smoke。
-
-**E2E：** `e2e:workspace`、`e2e:live` 与 `e2e:packaged-smoke` 均使用隔离 userData + 临时真实 Git 仓库，覆盖选择/切换/重开、核心闭环重启持久化与 packaged cold start。
+**E2E：** 聚合门使用隔离 userData + 临时真实 Git 仓库，覆盖取消、非 Git 拒绝、选择/切换/重开、完整 fake-Codex 领域闭环、`artifact.apply` exact-binding retry 单 commit/单 RepositoryRevision、激活后再次重启，以及 packaged migrations/native picker 冷启动。真实 Codex smoke 是明确 opt-in 的独立门，skip 不冒充执行。
 
 ---
 
@@ -120,9 +110,9 @@ total           304 ✅
 - 产品运行时：原生选择/校验 Git 仓库；单活动 Workspace Runtime；仓库隔离 SQLite/runtime；安全 close/switch/reopen；packaged migration 与冷启动 CI gate。
 - 产品面：Live Workspace 视图（hydration / composer / repository resolve / freeze / run / acceptance / adoption / runs history）+ CoreFlow 流程原型（APPLY/ACTIVATE 已解锁为真实命令，旧 session-only ArtifactReview 退休）。
 
-### 尚未实现（按新的产品优先级）
+### 尚未完成（按新的产品优先级）
 
-- Product MVP v0.2 Core：ExecutionRequest v2 Context Bundle、真实 Codex CLI Adapter、无 seed onboarding、Live-first Product Workbench、RC 自动化门。
+- Product MVP v0.2：实现已进入 RC；尚需 lead architect 审核逐门证据与 P0/P1 release record，不能由 DS-007 自行宣告完成。
 - Future：Checkpoint / Resume、ToolInvocation、Approval、多 ExecutionRequest continuation；触发条件见 scope register。
 - Future：Canvas / Graph Intelligence。
 - BaselineEdgeItem（关系快照）——MVP 明确冻结为 NodeVersions + RepositoryRevision。
@@ -215,10 +205,10 @@ total           304 ✅
 
 ## 6. 下一阶段（权威顺序）
 
-1. ✅ **DS-003：Release Reliability**——已合并（PR #7）。
-2. ✅ **DS-004：Workspace Runtime**——已合并（PR #8，`main@7cbaf18`）。
-3. **DS-005：Real Local Agent**——DeepSeek 从 `main@7cbaf18` 开始 DS-005A；DS-005B 等 exact argv/schema fixture 评审。
-4. **DS-006 → UI-003：Live-first Product Workbench**——DeepSeek 完成数据状态，Luna 只做视觉壳与 QA。
-5. **DS-007：RC Gates**——全链、重启、采纳幂等、package、文档收口。
+1. ✅ **DS-003：Release Reliability**——已合并。
+2. ✅ **DS-004：Workspace Runtime**——已合并。
+3. ✅ **DS-005：Real Local Agent**——已合并。
+4. ✅ **DS-006 → UI-003：Live-first Product Workbench**——已合并。
+5. **DS-007：RC Gates**——实现中；只收集全链、重启、采纳幂等、package、audit 与文档证据，不自行宣布 Product MVP 完成。
 
 Checkpoint/Resume、第二 Adapter 与 Canvas 均被范围门延后。详细依赖、所有权和验收矩阵见 `docs/PRODUCT_MVP_V0.2_PLAN.md` 与 `docs/tasks/README.md`。

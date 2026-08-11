@@ -21,10 +21,28 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: |
+          mkdir -p ci-artifacts/logs
+          set -o pipefail
+          pnpm install --frozen-lockfile 2>&1 | tee ci-artifacts/logs/install.log
+
+      - name: Audit production dependencies (high/critical)
+        run: |
+          set -o pipefail
+          pnpm audit --prod --audit-level high 2>&1 | tee ci-artifacts/logs/audit-prod.log
 
       - name: Check (format / lint / typecheck / test / build)
-        run: pnpm check
+        run: |
+          set -o pipefail
+          pnpm check 2>&1 | tee ci-artifacts/logs/check.log
+
+      - name: Upload source logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-check-logs
+          path: ci-artifacts
+          if-no-files-found: error
 
   macos-electron:
     runs-on: macos-latest
@@ -42,36 +60,24 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Electron live E2E
         run: |
-          mkdir -p apps/desktop/dist/logs
+          mkdir -p ci-artifacts/logs
           set -o pipefail
-          pnpm --filter @canvas-agent/desktop e2e:live 2>&1 | tee apps/desktop/dist/logs/live-e2e.log
+          pnpm install --frozen-lockfile 2>&1 | tee ci-artifacts/logs/install.log
 
-      - name: Build unsigned unpacked app
+      - name: Credential-free Product MVP RC suite
         run: |
-          mkdir -p apps/desktop/dist/logs
+          mkdir -p ci-artifacts/logs
           set -o pipefail
-          pnpm --filter @canvas-agent/desktop build:unpack:unsigned 2>&1 | tee apps/desktop/dist/logs/unpack-build.log
+          CANVAS_AGENT_RC_LOG_DIR="$PWD/ci-artifacts/logs" \
+          CANVAS_AGENT_RC_REPORT_DIR="$PWD/ci-artifacts/reports" \
+          CANVAS_AGENT_E2E_SCREENSHOT_DIR="$PWD/ci-artifacts/screenshots" \
+          pnpm e2e:rc 2>&1 | tee ci-artifacts/logs/rc-suite.log
 
-      - name: Workspace lifecycle E2E (cancel/choose/reopen/switch + packaged open)
-        run: |
-          mkdir -p apps/desktop/dist/logs
-          set -o pipefail
-          pnpm --filter @canvas-agent/desktop e2e:workspace 2>&1 | tee apps/desktop/dist/logs/workspace-e2e.log
-
-      - name: Packaged cold-start smoke
-        run: |
-          mkdir -p apps/desktop/dist/logs
-          set -o pipefail
-          pnpm --filter @canvas-agent/desktop e2e:packaged-smoke 2>&1 | tee apps/desktop/dist/logs/packaged-smoke.log
-
-      - name: Upload logs on failure
+      - name: Upload logs, screenshots and reports on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: macos-electron-logs
-          path: apps/desktop/dist/logs
-          if-no-files-found: ignore
+          name: macos-product-mvp-rc-evidence
+          path: ci-artifacts
+          if-no-files-found: error
