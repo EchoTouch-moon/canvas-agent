@@ -243,6 +243,8 @@ The exact shapes must be derived from CR-001 evidence.
 
 ## CR-003 — Shadow Working Set Planner
 
+**Status (2026-08-11):** CR-003A bounded kernel evidence ready — awaiting architecture review. Implemented by DS-010 on `agent/deepseek-ds-010-shadow-working-set-planner`; full evidence in `docs/verification/context-runtime-cr-003-shadow-planner.md`. Policy V0 deterministic (ADD/KEEP/REMOVE/REHYDRATE; REPLACE/COMPRESS contract-only), Universe-bound, credential-free tests green, opt-in Pi + DeepSeek Shadow smoke EXECUTED (5 model calls, 5 Shadow plans). `pnpm check` green (582 tests). DS-010 does not self-accept; CR-004 and file-aware CR-003B remain blocked (Repository Observer dependency recorded).
+
 ### Objective
 
 For every observed model call, compute what Canvas would have used without changing the real request.

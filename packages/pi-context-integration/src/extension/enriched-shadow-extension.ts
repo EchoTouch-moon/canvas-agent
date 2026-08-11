@@ -31,6 +31,12 @@ export interface EnrichedShadowResult {
   readonly sourceObservations: readonly SourceObservation[]
   readonly sourceDescriptors: readonly ContextSourceDescriptor[]
   readonly universeRevision: ContextUniverseRevision
+  // CR-001 native estimate for this model call, scoped to
+  // agent-messages-pre-provider (real value, not a placeholder).
+  readonly nativeContextEstimate: number
+  // Provider-neutral recent trustworthy run-evidence source keys (adapter
+  // supplies this; core never compares Pi literals).
+  readonly recentEvidenceSourceKeys: readonly string[]
 }
 
 export interface EnrichedPiShadowObserverOptions {
@@ -69,8 +75,12 @@ export class EnrichedPiShadowObserver {
     // Capture the model-call observation first so CR-001 and CR-002 share the
     // SAME observedAt timestamp for this semantic model call (no second clock,
     // no drift within the call).
-    const observation = this.base.observe(messages, sequence) as { observedAt: string }
+    const observation = this.base.observe(messages, sequence) as {
+      observedAt: string
+      observedMessageTokenEstimate: number
+    }
     const observedAt = observation.observedAt
+    const nativeContextEstimate = observation.observedMessageTokenEstimate
 
     const elements = decomposePiMessages(messages, {
       runtimeSessionId: this.runtimeSessionId,
@@ -101,12 +111,21 @@ export class EnrichedPiShadowObserver {
       attributionSummary
     })
 
+    // Adapter supplies the provider-neutral recent-evidence signal from the
+    // Pi context seam: every EXACT run-event source just observed is recent
+    // trustworthy evidence.
+    const recentEvidenceSourceKeys = descriptors
+      .filter((d) => d.provenance === PI_SOURCE_PROVENANCE.CONTEXT_EVENT)
+      .map((d) => d.sourceKey)
+
     const result: EnrichedShadowResult = {
       elements,
       attributionSummary,
       sourceObservations: observations,
       sourceDescriptors: descriptors,
-      universeRevision: this.universe
+      universeRevision: this.universe,
+      nativeContextEstimate,
+      recentEvidenceSourceKeys
     }
     ;(this.callResults as EnrichedShadowResult[]).push(result)
     return result

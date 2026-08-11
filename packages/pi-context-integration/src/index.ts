@@ -25,3 +25,10 @@ export {
   decomposePiMessages,
   type ElementWithAttribution
 } from './element-decomposition'
+export {
+  ShadowPlannerObserver,
+  createShadowPlannerPiExtension,
+  representUniverseEntry,
+  type ShadowPlannerCallResult,
+  type ShadowPlannerObserverOptions
+} from './extension/shadow-planner-extension'
