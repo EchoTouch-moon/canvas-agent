@@ -24,8 +24,10 @@ afterEach(async () => {
 })
 
 describe('canonical path and source identity', () => {
-  it('1) canonical repository path -> stable repository/file:// sourceKey', () => {
-    expect(repositorySourceKey('src/auth.ts')).toBe('repo://src/auth.ts')
+  it('1) canonical repository path -> stable repository/file:// sourceKey matching the Pi hint scheme', () => {
+    // CR-002 Pi resource hints use repository/file://<path>; the Observer must
+    // emit the SAME ContextSource identity, not repo://.
+    expect(repositorySourceKey('src/auth.ts')).toBe('repository/file://src/auth.ts')
     expect(repositorySourceKey('src/auth.ts')).toBe(repositorySourceKey('src/auth.ts'))
   })
 
@@ -92,6 +94,73 @@ describe('revision binding and race detection', () => {
       observedAt: T0
     })
     expect(results[0]?.observation.status).toBe('UNAVAILABLE')
+  })
+
+  it('5b) deterministic post-read race via revision-reader seam yields REVISION_CHANGED_DURING_OBSERVATION', async () => {
+    const r = await repo({ 'a.ts': 'v1' })
+    const revision = await r.readRevision()
+    // Seam: pre-read returns expected; post-read returns a different revision.
+    let calls = 0
+    const observer = new RepositoryObserver({
+      revisionReader: {
+        async read(): Promise<RepositoryRevisionContract> {
+          calls += 1
+          if (calls === 1) return revision
+          return { ...revision, baseCommit: 'f'.repeat(40) }
+        }
+      }
+    })
+    const results = await observer.observe({
+      repositoryPath: r.directory,
+      expectedRevision: revision,
+      paths: ['a.ts'],
+      observedAt: T0
+    })
+    expect(calls).toBe(2)
+    expect(results[0]?.observation.status).toBe('UNAVAILABLE')
+    if (results[0]?.observation.status === 'UNAVAILABLE') {
+      expect(results[0].observation.reasonCode).toBe('REVISION_CHANGED_DURING_OBSERVATION')
+    }
+    // The batch is NOT trusted as stable: verifiedRevision is null.
+    expect(results[0]?.verifiedRevision).toBeNull()
+  })
+
+  it('5c) repository state unreadable is REPOSITORY_UNAVAILABLE, not REVISION_MISMATCH', async () => {
+    const r = await repo({ 'a.ts': 'v1' })
+    const revision = await r.readRevision()
+    // Seam that always throws an unavailable (no-head) error BEFORE any field
+    // comparison -> REPOSITORY_UNAVAILABLE.
+    const observer = new RepositoryObserver({
+      revisionReader: {
+        async read(): Promise<RepositoryRevisionContract> {
+          throw new Error('repository_revision_unavailable:no_head')
+        }
+      }
+    })
+    const results = await observer.observe({
+      repositoryPath: r.directory,
+      expectedRevision: revision,
+      paths: ['a.ts'],
+      observedAt: T0
+    })
+    expect(results[0]?.observation.status).toBe('UNAVAILABLE')
+    if (results[0]?.observation.status === 'UNAVAILABLE') {
+      expect(results[0].observation.reasonCode).toBe('REPOSITORY_UNAVAILABLE')
+    }
+  })
+
+  it('5d) non-canonical path observation records verifiedRevision null (never claims a verified revision)', async () => {
+    const r = await repo({ 'a.ts': 'v1' })
+    const revision = await r.readRevision()
+    const observer = new RepositoryObserver()
+    const results = await observer.observe({
+      repositoryPath: r.directory,
+      expectedRevision: revision,
+      paths: ['../escape.ts'],
+      observedAt: T0
+    })
+    expect(results[0]?.observation.status).toBe('UNAVAILABLE')
+    expect(results[0]?.verifiedRevision).toBeNull()
   })
 })
 
@@ -170,6 +239,46 @@ describe('AVAILABLE / ABSENT / UNAVAILABLE producer semantics', () => {
     expect(results[0]?.observation.status).toBe('UNAVAILABLE')
   })
 
+  it('10b) oversized file is UNAVAILABLE(FILE_TOO_LARGE), never READ_FAILED', async () => {
+    // Commit a file larger than the 512 KiB byte-safe bound.
+    const big = 'x'.repeat(600 * 1024)
+    const r = await repo({ 'big.ts': big })
+    const revision = await r.readRevision()
+    const observer = new RepositoryObserver()
+    const results = await observer.observe({
+      repositoryPath: r.directory,
+      expectedRevision: revision,
+      paths: ['big.ts'],
+      observedAt: T0
+    })
+    expect(results[0]?.observation.status).toBe('UNAVAILABLE')
+    if (results[0]?.observation.status === 'UNAVAILABLE') {
+      expect(results[0].observation.reasonCode).toBe('FILE_TOO_LARGE')
+    }
+  })
+
+  it('10c) non-UTF-8 binary file is UNAVAILABLE(UNSUPPORTED_BINARY)', async () => {
+    // Commit raw binary bytes that are not valid UTF-8.
+    const r = await repo({ 'b.ts': 'placeholder' })
+    const { writeFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    await writeFile(join(r.directory, 'b.ts'), Buffer.from([0xff, 0xfe, 0x00, 0x01]), 'binary')
+    await r.git(['add', '-A'])
+    await r.git(['commit', '-q', '-m', 'binary'])
+    const revision = await r.readRevision()
+    const observer = new RepositoryObserver()
+    const results = await observer.observe({
+      repositoryPath: r.directory,
+      expectedRevision: revision,
+      paths: ['b.ts'],
+      observedAt: T0
+    })
+    expect(results[0]?.observation.status).toBe('UNAVAILABLE')
+    if (results[0]?.observation.status === 'UNAVAILABLE') {
+      expect(results[0].observation.reasonCode).toBe('UNSUPPORTED_BINARY')
+    }
+  })
+
   it('13) dirty revision fails closed as UNAVAILABLE(DIRTY_REVISION_UNSUPPORTED)', async () => {
     const r = await repo({ 'a.ts': 'v1' })
     const revision = await r.readRevision()
@@ -240,6 +349,10 @@ describe('core neutrality and authority boundaries', () => {
     const r = await repo({ 'a.ts': 'canonical' })
     const revision = await r.readRevision()
     const observer = new RepositoryObserver()
+
+    // The Observer MUST emit the exact same ContextSource identity as the
+    // CR-002 Pi resource hint scheme (repository/file://<path>).
+    expect(repositorySourceKey('a.ts')).toBe('repository/file://a.ts')
 
     // Pi-derived hint only (simulated): the path is requested as a current
     // target but no observer observation exists -> Universe has no entry.

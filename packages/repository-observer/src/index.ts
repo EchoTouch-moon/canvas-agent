@@ -10,6 +10,7 @@ export {
   RepositoryObserver,
   repositorySourceDescriptor,
   repositorySourceKey,
-  type RepositoryObserverOptions
+  type RepositoryObserverOptions,
+  type RevisionReader
 } from './repository-observer'
 export { MAX_REPOSITORY_CONTENT_BYTES, readGitBlob, type BlobReadOutcome } from './git-blob-reader'

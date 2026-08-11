@@ -32,6 +32,9 @@ export async function readGitBlob(
   if (blob.status === 'absent') {
     return { kind: 'absent' }
   }
+  if (blob.status === 'too-large') {
+    return { kind: 'too-large' }
+  }
   if (!blob.ok) {
     return { kind: 'failed', message: blob.message }
   }
@@ -51,7 +54,7 @@ export async function readGitBlob(
 interface ExecResult {
   readonly ok: boolean
   readonly bytes: Buffer
-  readonly status: 'ok' | 'absent' | 'error'
+  readonly status: 'ok' | 'absent' | 'too-large' | 'error'
   readonly message: string
 }
 
@@ -90,7 +93,7 @@ function execGit(repositoryPath: string, args: readonly string[]): Promise<ExecR
       // never silently truncated into "content".
       if (size > MAX_REPOSITORY_CONTENT_BYTES) {
         child.kill('SIGKILL')
-        finish({ ok: false, bytes: Buffer.alloc(0), status: 'error', message: 'repository_content_too_large' })
+        finish({ ok: false, bytes: Buffer.alloc(0), status: 'too-large', message: 'repository_content_too_large' })
         return
       }
       chunks.push(chunk)

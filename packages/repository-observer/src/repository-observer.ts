@@ -6,12 +6,12 @@ import {
   type ContextSourceDescriptor,
   type SourceObservation
 } from '@canvas-agent/context-runtime'
-import { isCanonicalRepositoryPath, sourceRefToString } from '@canvas-agent/contracts'
+import { isCanonicalRepositoryPath } from '@canvas-agent/contracts'
 import {
   readRepositoryRevision,
   type GitRunOptions
 } from '@canvas-agent/worker-runtime'
-import { readGitBlob } from './git-blob-reader'
+import { readGitBlob, type BlobReadOutcome } from './git-blob-reader'
 import {
   REPOSITORY_SOURCE_KIND,
   REPOSITORY_SOURCE_PROVENANCE,
@@ -27,9 +27,49 @@ import type { RepositoryRevisionContract } from '@canvas-agent/contracts'
 // truth from Pi messages, tool arguments, tool results, assistant claims or
 // planner membership.
 
+// The canonical repository/file ContextSource identity. CR-002 Pi resource
+// hints already use the `repository/file://<path>` scheme, so the Observer MUST
+// use the exact same scheme to produce the SAME ContextSource (not `repo://`).
+export function repositorySourceKey(path: string): string {
+  return `repository/file://${path}`
+}
+
+// Provider-neutral descriptor for a repository/file observation. The Runtime
+// core consumes this without parsing the key.
+export function repositorySourceDescriptor(path: string): ContextSourceDescriptor {
+  return {
+    sourceKey: repositorySourceKey(path),
+    sourceKind: REPOSITORY_SOURCE_KIND,
+    provenance: REPOSITORY_SOURCE_PROVENANCE
+  }
+}
+
+// Injectable revision reader seam so deterministic tests can drive a
+// before/after revision sequence without a real concurrent mutation.
+export interface RevisionReader {
+  read(repositoryPath: string, options: GitRunOptions): Promise<RepositoryRevisionContract>
+}
+
+const realRevisionReader: RevisionReader = {
+  async read(repositoryPath, options): Promise<RepositoryRevisionContract> {
+    const actual = await readRepositoryRevision(repositoryPath, options)
+    if (actual.baseCommit === null || actual.treeHash === null) {
+      throw new Error('repository_revision_unavailable:no_head')
+    }
+    return {
+      baseCommit: actual.baseCommit,
+      treeHash: actual.treeHash,
+      workingTreePatchHash: actual.workingTreePatchHash
+    }
+  }
+}
+
 export interface RepositoryObserverOptions {
   readonly gitRunTimeoutMs?: number
   readonly gitMaxOutputBytes?: number
+  // Test seam: override revision reading. Defaults to the real worker-runtime
+  // readRepositoryRevision adapter.
+  readonly revisionReader?: RevisionReader
 }
 
 export class RepositoryObserver {
@@ -38,7 +78,8 @@ export class RepositoryObserver {
   constructor(options: RepositoryObserverOptions = {}) {
     this.options = {
       gitRunTimeoutMs: options.gitRunTimeoutMs ?? 30_000,
-      gitMaxOutputBytes: options.gitMaxOutputBytes ?? 2 * 1024 * 1024
+      gitMaxOutputBytes: options.gitMaxOutputBytes ?? 2 * 1024 * 1024,
+      revisionReader: options.revisionReader ?? realRevisionReader
     }
   }
 
@@ -62,24 +103,27 @@ export class RepositoryObserver {
     // current file state.
     if (request.expectedRevision.workingTreePatchHash !== null) {
       return request.paths.map((path) =>
-        this.unavailableObservation(request, path, 'DIRTY_REVISION_UNSUPPORTED')
+        this.unavailableObservation(request, path, 'DIRTY_REVISION_UNSUPPORTED', null)
       )
     }
 
-    // Pre-read revision verification.
+    // Pre-read revision verification. Distinguish "could not read repository
+    // state at all" (REPOSITORY_UNAVAILABLE) from "read state differs from
+    // expected" (REVISION_MISMATCH).
     let verifiedBefore: RepositoryRevisionContract
     try {
       verifiedBefore = await this.verifyRevision(request.repositoryPath, request.expectedRevision)
-    } catch {
+    } catch (error) {
+      const reason = isUnavailableError(error) ? 'REPOSITORY_UNAVAILABLE' : 'REVISION_MISMATCH'
       return request.paths.map((path) =>
-        this.unavailableObservation(request, path, 'REVISION_MISMATCH')
+        this.unavailableObservation(request, path, reason, null)
       )
     }
 
     const results: RepositoryFileObservation[] = []
     for (const path of request.paths) {
       if (!isCanonicalRepositoryPath(path)) {
-        results.push(this.unavailableObservation(request, path, 'NON_CANONICAL_PATH'))
+        results.push(this.unavailableObservation(request, path, 'NON_CANONICAL_PATH', null))
         continue
       }
       const sourceKey = repositorySourceKey(path)
@@ -117,7 +161,7 @@ export class RepositoryObserver {
       await this.verifyRevision(request.repositoryPath, request.expectedRevision)
     } catch {
       return request.paths.map((path) =>
-        this.unavailableObservation(request, path, 'REVISION_CHANGED_DURING_OBSERVATION')
+        this.unavailableObservation(request, path, 'REVISION_CHANGED_DURING_OBSERVATION', null)
       )
     }
 
@@ -128,7 +172,7 @@ export class RepositoryObserver {
     repositoryPath: string,
     expected: RepositoryRevisionContract
   ): Promise<RepositoryRevisionContract> {
-    const actual = await readRepositoryRevision(repositoryPath, this.gitOptions(repositoryPath))
+    const actual = await this.options.revisionReader.read(repositoryPath, this.gitOptions(repositoryPath))
     if (actual.baseCommit !== expected.baseCommit) {
       throw new Error('repository_revision_mismatch:baseCommit')
     }
@@ -144,7 +188,8 @@ export class RepositoryObserver {
   private unavailableObservation(
     request: RepositoryObservationRequest,
     path: string,
-    reason: RepositoryUnavailableReason
+    reason: RepositoryUnavailableReason,
+    verifiedRevision: RepositoryRevisionContract | null
   ): RepositoryFileObservation {
     const sourceKey = repositorySourceKey(path)
     return {
@@ -153,23 +198,17 @@ export class RepositoryObserver {
       provenance: REPOSITORY_SOURCE_PROVENANCE,
       observation: createUnavailableObservation(sourceKey, reason, request.observedAt),
       expectedRevision: request.expectedRevision,
-      verifiedRevision: request.expectedRevision
+      verifiedRevision
     }
   }
 }
 
-// Canonical repository source identity, reusing the v0.2 source-ref codec so
-// the observer's identity is consistent with the existing SourceReference model.
-export function repositorySourceKey(path: string): string {
-  return sourceRefToString({ kind: 'REPOSITORY_CONTENT', path })
+// Deterministic unavailable-classification: errors raised by the revision
+// reader BEFORE any field comparison indicate the repository state could not be
+// read at all (REPOSITORY_UNAVAILABLE), as opposed to a genuine field mismatch
+// (REVISION_MISMATCH).
+function isUnavailableError(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith('repository_revision_unavailable')
 }
 
-// Provider-neutral descriptor for a repository/file observation. The Runtime
-// core consumes this without parsing the key.
-export function repositorySourceDescriptor(path: string): ContextSourceDescriptor {
-  return {
-    sourceKey: repositorySourceKey(path),
-    sourceKind: REPOSITORY_SOURCE_KIND,
-    provenance: REPOSITORY_SOURCE_PROVENANCE
-  }
-}
+export type { BlobReadOutcome }

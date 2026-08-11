@@ -45,19 +45,26 @@ verification, filesystem/Git reads and repository-specific reason codes.
 
 ## 4. Race-detection strategy
 
-Pre-read `verifyRepositoryRevision` (reuses worker-runtime `readRepositoryRevision`
-field-by-field) → read all requested blobs → post-read verify. If the repository
-changed during the window, the whole batch is re-emitted as
+Pre-read `verifyRepositoryRevision` (via an injectable `RevisionReader` seam;
+default reuses worker-runtime `readRepositoryRevision` field-by-field) → read
+all requested blobs → post-read verify. If the repository changed during the
+window, the whole batch is re-emitted as
 `UNAVAILABLE(REVISION_CHANGED_DURING_OBSERVATION)` rather than trusting stale
-AVAILABLE/ABSENT. Tested via expected-vs-actual revision mismatch.
+AVAILABLE/ABSENT.
+
+A **deterministic post-read race test** (5b) drives the seam with a fixed
+sequence `before == expected → read → after != expected` and asserts the batch
+fails closed with `REVISION_CHANGED_DURING_OBSERVATION` and `verifiedRevision
+=== null`. A real concurrent mutation is not needed and would be flaky.
 
 ## 5. Path canonicalization / safety behavior
 
 - Uses `isCanonicalRepositoryPath` (contracts) — rejects `..` traversal,
   absolute paths, drive-letter escapes and non-canonical spellings.
-- sourceKey reuses `sourceRefToString({ kind: 'REPOSITORY_CONTENT', path })`
-  (`repository/file://<path>` scheme), consistent with the v0.2 SourceReference
-  codec.
+- sourceKey is `repository/file://<path>` — the SAME scheme used by CR-002 Pi
+  resource hints — so the Observer and the Pi hint identify the same
+  ContextSource. (This deliberately does not reuse the v0.2 `sourceRefToString`
+  `repo://` codec, which would split the identity into two different sources.)
 - Non-canonical paths → `UNAVAILABLE(NON_CANONICAL_PATH)`.
 
 ## 6. contentHash semantics
@@ -78,10 +85,12 @@ AVAILABLE/ABSENT. Tested via expected-vs-actual revision mismatch.
 |---|---|---|
 | AVAILABLE | verified revision + path exists + bounded supported content | test 6/7/8 |
 | ABSENT | verified revision + `git cat-file blob` authoritatively reports missing | test 9 |
-| UNAVAILABLE | revision mismatch / race / non-canonical / read failure / too large / unsupported binary / dirty unsupported | tests 2/4/5/10/13 |
+| UNAVAILABLE | revision mismatch / race / non-canonical / read failure / too large / unsupported binary / dirty unsupported / repository unreadable | tests 2/4/5/5b/5c/10/10b/10c/13 |
 
 A read failure is never ABSENT; ABSENT requires authoritative git confirmation
-at a verified revision.
+at a verified revision. `verifiedRevision` is `null` for every failed/non-verified
+outcome (mismatch, unavailable repository, dirty unsupported, non-canonical
+path, race) — it is only populated on a genuinely verified successful read.
 
 ## 8. Universe reconciliation evidence
 
@@ -123,19 +132,21 @@ REPLACE/COMPRESS behavior.
 ## 11. Package tests / typechecks / pnpm check
 
 ```bash
-pnpm --filter @canvas-agent/repository-observer test        17 passed
+pnpm --filter @canvas-agent/repository-observer test        22 passed
 pnpm --filter @canvas-agent/repository-observer typecheck   PASS
 pnpm --filter @canvas-agent/context-runtime test           78 passed (regression, unchanged)
 pnpm --filter @canvas-agent/context-runtime typecheck       PASS
-pnpm check                                                  GREEN (613 tests + build)
+pnpm check                                                  GREEN (618 tests + build)
 ```
 
 Coverage of the DS-011 required deterministic tests (1-20) is present across
 the repository-observer suite, including canonical path identity, revision
-match/mismatch, race detection, AVAILABLE/ABSENT/UNAVAILABLE semantics,
-Universe transitions, dirty fail-closed, contentHash stability, Pi-hint
-non-promotion, Planner interoperability, and the structural no-contract-change
-assertions.
+match/mismatch, deterministic post-read race (revision-reader seam),
+REPOSITORY_UNAVAILABLE vs REVISION_MISMATCH routing, oversized/binary
+fail-closed, AVAILABLE/ABSENT/UNAVAILABLE semantics, Universe transitions,
+dirty fail-closed, contentHash stability, Pi-hint non-promotion (same
+`repository/file://` identity), Planner interoperability, and the structural
+no-contract-change assertions.
 
 ## 12. Real temporary-Git smoke
 
@@ -160,9 +171,10 @@ file content is committed; only statuses/hashes are printed.
   ranking or background watcher.
 - `UNSUPPORTED_BINARY` / `FILE_TOO_LARGE` treat those files as UNAVAILABLE
   rather than attempting partial content — consistent with fail-closed truth.
-- `REVISION_CHANGED_DURING_OBSERVATION` is exercised through expected-vs-actual
-  mismatch; a true mid-window mutation race is structurally prevented by the
-  same pre/post verification.
+  Both are covered by real oversized/binary fixture tests (10b/10c).
+- `REVISION_CHANGED_DURING_OBSERVATION` is exercised deterministically through
+  the injectable revision-reader seam (test 5b: `before == expected → read →
+  after != expected`), not via a flaky real concurrent mutation.
 
 ## 14. Scope confirmation
 

@@ -34,13 +34,15 @@ export interface RepositoryObservationRequest {
 }
 
 // One observation result for one canonical path. The SourceObservation is the
-// normal CR-002 discriminated union; verifiedRevision records what was actually
-// confirmed during the bounded observation window.
+// normal CR-002 discriminated union. `verifiedRevision` records the revision
+// actually confirmed during a SUCCESSFUL observation; it is null whenever the
+// observation did not reach a verified revision (mismatch, unavailable
+// repository, dirty unsupported, non-canonical path).
 export interface RepositoryFileObservation {
   readonly sourceKey: string
   readonly sourceKind: typeof REPOSITORY_SOURCE_KIND
   readonly provenance: typeof REPOSITORY_SOURCE_PROVENANCE
   readonly observation: SourceObservation
   readonly expectedRevision: RepositoryRevisionContract
-  readonly verifiedRevision: RepositoryRevisionContract
+  readonly verifiedRevision: RepositoryRevisionContract | null
 }
