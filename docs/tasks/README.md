@@ -36,7 +36,7 @@ No Checkpoint/Resume, Canvas, second Agent adapter or external signed-distributi
 
 ## Current milestone — Context Runtime v0.3 research
 
-Context Runtime v0.3 is now the active research milestone. PR #12 established the bounded research architecture. CR-001 / DS-008 has passed lead architecture review and merged through PR #14 at `main@34488ba`. CR-002 / DS-009 evidence is ready for architecture review (branch `agent/deepseek-ds-009-context-source-universe-shadow`, 556 tests green, enriched Pi + DeepSeek smoke EXECUTED); CR-003 remains blocked until CR-002 evidence and schema review are accepted.
+Context Runtime v0.3 is now the active research milestone. PR #12 established the bounded research architecture. CR-001 / DS-008 has passed lead architecture review and merged through PR #14 at `main@34488ba`. CR-002 / DS-009 evidence is ready for architecture review (branch `agent/deepseek-ds-009-context-source-universe-shadow`, 565 tests green, enriched Pi + DeepSeek smoke EXECUTED); CR-003 remains blocked until CR-002 evidence and schema review are accepted.
 
 | Order | Owner             | Packet                                                                                         | Branch                                               | Status                         | Start gate                                  |
 | ----: | ----------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------ | ------------------------------------------- |

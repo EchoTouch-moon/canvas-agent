@@ -346,8 +346,8 @@ describe('shadow context universe', () => {
     const seed = seedUniverse({ runtimeSessionId: 's', seeds })
     const descriptor = {
       sourceKey: 'run/tool-result://call-1',
-      sourceKind: 'RUN_TOOL_RESULT',
-      provenance: 'PI_CONTEXT_EVENT'
+      sourceKind: 'TEST_RUN_RESULT',
+      provenance: 'TEST_ADAPTER_EVENT'
     }
     const next = applySourceObservations({
       previous: seed,
@@ -359,8 +359,8 @@ describe('shadow context universe', () => {
     expect(seeded?.source.provenance).toBe('snapshot-seed')
     expect(seeded?.source.sourceKind).toBe('repository-file')
     const run = next.entries.find((e) => e.source.sourceKey === 'run/tool-result://call-1')
-    expect(run?.source.sourceKind).toBe('RUN_TOOL_RESULT')
-    expect(run?.source.provenance).toBe('PI_CONTEXT_EVENT')
+    expect(run?.source.sourceKind).toBe('TEST_RUN_RESULT')
+    expect(run?.source.provenance).toBe('TEST_ADAPTER_EVENT')
     // Distinguishable by explicit metadata, not by parsing the key.
     expect(run?.source.provenance).not.toBe(seeded?.source.provenance)
   })
@@ -370,13 +370,13 @@ describe('shadow context universe', () => {
     const next = applySourceObservations({
       previous: seed,
       observations: [available('run/tool-result://call-1', 'content-A')],
-      sourceDescriptors: [{ sourceKey: 'run/tool-result://call-1', sourceKind: 'RUN_TOOL_RESULT', provenance: 'PI_CONTEXT_EVENT' }],
+      sourceDescriptors: [{ sourceKey: 'run/tool-result://call-1', sourceKind: 'TEST_RUN_RESULT', provenance: 'TEST_ADAPTER_EVENT' }],
       modelCallSequence: 1
     })
     const next2 = applySourceObservations({
       previous: next,
       observations: [available('run/tool-result://call-1', 'content-B')],
-      sourceDescriptors: [{ sourceKey: 'run/tool-result://call-1', sourceKind: 'RUN_TOOL_RESULT', provenance: 'PI_CONTEXT_EVENT' }],
+      sourceDescriptors: [{ sourceKey: 'run/tool-result://call-1', sourceKind: 'TEST_RUN_RESULT', provenance: 'TEST_ADAPTER_EVENT' }],
       modelCallSequence: 2
     })
     const entry1 = next.entries.find((e) => e.source.sourceKey === 'run/tool-result://call-1')
@@ -435,11 +435,11 @@ describe('attribution', () => {
     const attribution = EXACT_ATTRIBUTION(
       ['modelCall=4', 'messageIndex=3', 'toolCallId=call-7'],
       'run/tool-result://call-7',
-      'PI_TOOL_RESULT_ID_EXACT'
+      'TEST_EXACT_TOOL_RESULT_ID'
     )
     expect(attribution.confidence).toBe('EXACT')
     expect(attribution.sourceKey).toBe('run/tool-result://call-7')
-    expect(attribution.method).toBe('PI_TOOL_RESULT_ID_EXACT')
+    expect(attribution.method).toBe('TEST_EXACT_TOOL_RESULT_ID')
     expect(attribution.evidenceRefs).toContain('toolCallId=call-7')
   })
 
@@ -447,10 +447,10 @@ describe('attribution', () => {
     const attribution = DERIVED_HINT_ATTRIBUTION(
       ['tool=read', 'argumentField=path'],
       'repository/file://src/auth.ts',
-      'PI_TOOL_ARGUMENT_PATH_HINT'
+      'TEST_STRUCTURED_RESOURCE_HINT'
     )
     expect(attribution.confidence).toBe('DERIVED_HINT')
-    expect(attribution.method).toBe('PI_TOOL_ARGUMENT_PATH_HINT')
+    expect(attribution.method).toBe('TEST_STRUCTURED_RESOURCE_HINT')
   })
 
   it('UNATTRIBUTED for assistant prose (no source invented)', () => {

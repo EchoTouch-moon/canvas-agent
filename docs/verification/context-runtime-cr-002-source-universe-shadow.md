@@ -4,7 +4,7 @@
 - **Packet:** `docs/tasks/deepseek/DS-009-context-source-universe-shadow.md`
 - **Owner:** DeepSeek V4 Flash — Context Runtime research implementer
 - **Branch:** `agent/deepseek-ds-009-context-source-universe-shadow`
-- **Date:** 2026-08-11 (rev.2 after PR #16 architecture review)
+- **Date:** 2026-08-11 (rev.3 after PR #16 architecture review)
 - **Pi exact version tested:** `@earendil-works/pi-coding-agent@0.84.1` (workspace pin). Tool-call lifecycle hooks (`tool_execution_start/end`, `tool_call`, `tool_result`) verified present in the installed package; `context` remains the authoritative model-call seam and no lifecycle hook is required for the implemented correlation.
 - **DeepSeek provider/model (live smoke):** provider `deepseek`, model `deepseek-v4-flash`, credential from local Pi `auth.json`.
 
@@ -84,7 +84,7 @@ pnpm check                                              GREEN (565 tests + build
 ```
 
 Coverage of the DS-009 required deterministic tests (26 items): all present —
-decomposition determinism; tool call/result correlation by toolCallId; structured path => DERIVED_HINT; assistant prose produces no repository source; contentHash equality does not create source identity; AVAILABLE first/same/changed; ABSENT=>REMOVE; UNAVAILABLE=>RETAIN_LAST_KNOWN; UNAVAILABLE retains lastAvailable; message disappearance != ABSENT; Universe immutable; logical hash deterministic; seed+events replay; replay hash identical; provider types never enter Runtime core; metadata output has no raw credentials. PR #16 review items added tests for admitted-version retention on NO_CHANGE/UNAVAILABLE, ABSENT version clearing, tool-result content versioning, timestamp correlation, and snapshot-vs-run provenance.
+decomposition determinism; tool call/result correlation by toolCallId; structured path => DERIVED_HINT; assistant prose produces no repository source; contentHash equality does not create source identity; AVAILABLE first/same/changed; ABSENT=>REMOVE; UNAVAILABLE=>RETAIN_LAST_KNOWN; UNAVAILABLE retains lastAvailable; message disappearance != ABSENT; Universe immutable; logical hash deterministic; replay from seed + ordered observation batches; replay hash identical; provider types never enter Runtime core; metadata output has no raw credentials. PR #16 review items added tests for admitted-version retention on NO_CHANGE/UNAVAILABLE, ABSENT version clearing, tool-result content versioning, timestamp correlation, and snapshot-vs-run provenance.
 
 ## 7. Live enriched Pi + DeepSeek smoke (CR-002, rev.2)
 
@@ -119,7 +119,7 @@ Final attribution coverage (last model call): EXACT=8, DERIVED_HINT=0, UNATTRIBU
 
 - Revision 0 (seed) carries `repository/file://notes.md @ seed-notes-hash-placeholder` and is immutable.
 - Applying `AVAILABLE(auth.ts, hash-C)` produces revision 1 with a new admitted head while seed revision still carries hash-A.
-- `replayUniverse` from seed + ordered batches reproduces the same final revision entries and the same `logicalHash` as the incremental path (test-locked, two independent replays identical).
+- `replayUniverse` from seed + ordered observation batches reproduces the same final revision entries and the same `logicalHash` as the incremental path (test-locked, two independent replays identical). This proves seed + ordered observations reconstruct the same Universe head state. **Event-log-only replay (replaying from a persisted ordered reconciliation-event log without the original observation batches) remains future work** and was not claimed.
 
 ## 10. PROPOSAL-030 assumptions: confirmed vs contradicted
 

@@ -177,7 +177,7 @@ If Pi cannot expose a stable enough model-call boundary without a deep fork, sto
 
 ## CR-002 — ModelCallObservation, Source Reconciliation and Context Universe research model
 
-**Status (2026-08-11):** EVIDENCE READY — awaiting architecture review. Implemented by DS-009 on `agent/deepseek-ds-009-context-source-universe-shadow`; full evidence in `docs/verification/context-runtime-cr-002-source-universe-shadow.md`. Enriched Pi + DeepSeek live smoke EXECUTED (5 semantic calls; EXACT=8, UNATTRIBUTED=4, resourceHints=4; Universe revision 5 / 9 sources). 556 tests green. DS-009 does not self-accept; CR-003 remains blocked until lead review.
+**Status (2026-08-11):** EVIDENCE READY — awaiting architecture review. Implemented by DS-009 on `agent/deepseek-ds-009-context-source-universe-shadow`; full evidence in `docs/verification/context-runtime-cr-002-source-universe-shadow.md`. Enriched Pi + DeepSeek live smoke EXECUTED (5 semantic calls; EXACT=8, UNATTRIBUTED=4, resourceHints=4; Universe revision 5 / 9 sources). 565 tests green. DS-009 does not self-accept; CR-003 remains blocked until lead review.
 
 ### Objective
 
