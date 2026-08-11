@@ -1,10 +1,10 @@
 # Scope register
 
-- **Current release:** Product MVP v0.2 closeout
+- **Current release:** Product MVP v0.2 complete — local/internal unsigned use
 - **Authoritative plan:** `docs/PRODUCT_MVP_V0.2_PLAN.md`
-- **Last classified:** 2026-08-09
+- **Last classified:** 2026-08-11
 
-## Core — current Product MVP
+## Core — completed Product MVP v0.2
 
 - deterministic ExecutionRequest time validation across Main and Worker;
 - packaged Drizzle migrations and cold-start smoke;
@@ -37,11 +37,13 @@ These items are required because the existing engineering loop cannot be used as
 | fuller Run event visualization | current evidence is adequate for the loop | real Agent event data exposes recurring diagnosis gaps |
 | local one-hop relationship mini-map | improves orientation but does not unlock execution | impact-analysis need repeatedly observed |
 | stable elapsed-budget test timing (DS-003 budget flake) | one local timing flake in the frozen-clock elapsed-budget test; five consecutive reruns and a full `pnpm check` were green, so it is not a release blocker | the flake recurs or budget/timeout tests get a dedicated deterministic monotonic harness |
+| external macOS signing and notarization | internal/local unsigned verification already proves the MVP loop; public distribution requires credentials and a separate release process | the user explicitly chooses external macOS distribution and provides an approved signing/notarization path |
 
 ## Future directions — require explicit trigger
 
 | Direction | Trigger |
 |---|---|
+| Context Runtime v0.3 Shadow research | PR #12 research baseline merged and the user explicitly selects v0.3 as the next milestone; begin with observation-only DS-008 and require evidence review before any active rewrite or contract freeze |
 | Checkpoint/Resume | at least three real, classified recoverable interruption cases plus an approved continuation contract |
 | Canvas/SavedView expansion | core flow stable and hierarchy/status views fail a repeated coordination question |
 | multi-provider routing/fallback | two stable adapters with measured, documented differences |
@@ -55,7 +57,7 @@ These items are required because the existing engineering loop cannot be used as
 - distributed Worker fleet;
 - autonomous multi-Agent negotiation/organization;
 - cloud-shared project state;
-- full-repository vectorization and automatic context optimization;
+- full-repository vectorization or embedding-first/opaque automatic context optimization;
 - plugin/extension marketplace;
 - enterprise billing and audit administration.
 

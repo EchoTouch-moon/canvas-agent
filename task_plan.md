@@ -10,7 +10,7 @@
 
 - **Core**：确定性时钟、打包迁移资源、真实仓库选择与运行时切换、真实 Agent CLI、Live-first UI、发布候选质量门。
 - **Enhancement**：大文件拆分、前端包体优化、开发者诊断面板、第二个 Agent Provider。
-- **Future direction**：Checkpoint/Resume、Canvas/Graph、多 Provider 编排、远程协作。
+- **Future direction**：Context Runtime v0.3 Shadow 研究、Checkpoint/Resume、Canvas/Graph、多 Provider 编排、远程协作。
 - **Idea repository**：自治多 Agent 团队、云端执行、插件市场。
 
 ## Architecture decisions required before implementation
@@ -55,15 +55,15 @@
 
 - [x] DS-006：完成 renderer 非视觉 client/state、loading/empty/error/disabled/read-only 状态与测试。
 - [x] DS-006：用既有命令完成无 seed 的 Project/charter/初始 DRAFT Baseline/显式激活/Task/TaskSpec 功能表单与断点续做。
-- [ ] UI-003：Luna 只负责 Live-first 壳层、工作区入口、文案、主题与视觉验收。
+- [x] UI-003：Luna 只负责 Live-first 壳层、工作区入口、文案、主题与视觉验收。
 
 退出条件：生产构建默认 Live；Fixture 不出现在普通用户主界面；主链路不依赖内部 ID 或 schema 命令名才能操作。
 
 ### Wave 4 — DeepSeek：RC 收口
 
-- [ ] DS-007：补齐 real CLI、重启恢复、采纳、Baseline 激活、packaged smoke 的自动化门。
-- [ ] 同步 README、PROGRESS、运行手册和发布清单。
-- [ ] 明确签名/公证是 RC 阻断项还是后续分发项。
+- [x] DS-007：补齐 real CLI、重启恢复、采纳、Baseline 激活、packaged smoke 的自动化门。
+- [x] 同步 README、PROGRESS、运行手册和发布清单。
+- [x] 明确签名/公证为外部分发项，不阻断 local/internal unsigned Product MVP。
 
 退出条件：产品 MVP 验收矩阵全绿，且没有 P0/P1 未关闭项。
 
@@ -74,28 +74,30 @@
 - **首席架构师**：实体/状态/公共契约、Main/Preload 安全边界、ADR 与最终门禁；不把未经评审的契约设计下放。
 - DeepSeek 跨越原所有权边界，只能依据本计划列出的具体工单与文件白名单执行。
 
-## Current verified baseline — 2026-08-10
+## Current verified baseline — 2026-08-11
 
-- Git：`main` 与 `origin/main` 同步，HEAD `19c0690`；DS-006 已通过 PR #10 合并。
+- Git：`main` 与 `origin/main` 同步，HEAD `38820ec`；DS-007 已通过 PR #13 合并。
 - 工程闭环：Task → Run → Acceptance → Apply → Revision → Candidate Baseline → Activate 已实现。
 - DS-003：确定性时钟、packaged migrations、unsigned/package smoke 与 macOS CI gate 已合并。
 - DS-004：原生仓库选择、单活动 Workspace Runtime、仓库隔离存储与 reopen/switch 已合并。
 - DS-005：ExecutionRequest v2、真实 Codex CLI、Agent discovery/readiness 与隔离执行已通过 PR #9 合并。
 - DS-006：生产默认 Live、typed workspace/Agent 生命周期、无 seed onboarding、dirty 门禁和断点续做已合并。
-- 检查：Node 24 下 `pnpm check` 通过（469 tests + build）；PR #10 的 Linux check 与 macOS live/workspace/packaged Electron gates 全绿。
-- 当前产品缺口：UI-003 视觉发布 pass 与 DS-007 RC gates；严格按 UI-003 → DS-007 推进。
+- UI-003：18 个 lifecycle/onboarding/dirty 明暗视觉场景、完整键盘路径与紧凑工作台已合并。
+- 检查：Node 24 下 `pnpm check` 通过（470 tests + build）；PR #13 的 source check、production audit 与 macOS credential-free RC suite 全绿。
+- 真实 Agent：`codex-cli 0.146.0` smoke 为 `executed=1`，六项非敏感 checks 全为 `true`。
+- Product MVP v0.2：首席架构师已对照发布矩阵批准完成（local/internal unsigned distribution）。
 
 ## Blockers
 
-| Blocker                        | Owner      | Resolution                                              |
-| ------------------------------ | ---------- | ------------------------------------------------------- |
-| macOS 签名行为会等待本机钥匙串 | 首席架构师 | 本地 smoke 使用禁用签名的隔离构建；分发签名另立发布决策 |
+| Blocker                   | Owner | Resolution                           |
+| ------------------------- | ----- | ------------------------------------ |
+| 无 Product MVP v0.2 阻断项 | —     | 外部签名/公证被明确归为后续分发项 |
 
 ## Active execution status
 
-- **当前阶段：Wave 3 / UI-003 准备开工。**
-- DS-006 的 Renderer 生命周期、onboarding 恢复语义和 UI-003 view-model seam 已冻结并合并。
-- UI-003 已解除 BLOCKED；DS-007 继续等待 UI-003 合并。
+- **当前阶段：Product MVP v0.2 COMPLETE。**
+- DS-007 已在 PR #13 合并，独立代码审查与最终 gate review 均完成。
+- 用户调整后的 Context Runtime v0.3 方向已归类为 **Future direction**；PR #12 负责研究基线，DS-008 在用户明确选择该里程碑前不进入实现。
 
 ## Errors encountered
 
@@ -115,4 +117,4 @@
 
 ## Completion rule
 
-只有用户可从打包应用完成“选择仓库 → 创建任务 → 真实 Agent 执行 → 验收 → 采纳 → 新 Baseline 激活”，并且对应自动化门全部通过，Product MVP v0.2 才算完成。
+正交证据已覆盖打包态仓库/Agent 选择与冷启动、真实 Agent 执行、完整验收/采纳/激活闭环、重启持久化及全部自动化门；Product MVP v0.2 于 `main@38820ec` 完成。外部签名/公证不包含在此次完成范围内。

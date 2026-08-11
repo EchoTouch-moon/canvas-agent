@@ -1,9 +1,10 @@
 # Context Runtime v0.3 Direction
 
-- **Status:** PROPOSED
+- **Status:** ACCEPTED AS A FUTURE-DIRECTION RESEARCH BASELINE — implementation requires a separate scope decision
 - **Target:** v0.3 after Product MVP v0.2 closeout
 - **Scope:** Context Runtime validation, model-call observability and dynamic Context Working Set experiments
 - **Non-impact:** Product MVP v0.2 scope and frozen execution contracts remain unchanged
+- **Reviewed upstream baselines (2026-08-11):** Pi `cd6852a123f2c0cc646a41a2a52f3711a603b822` (`@earendil-works/pi-coding-agent` `0.84.1`); OpenCode `d041eee55c4b669f583fcbe0eb73e78d53393ae8`
 
 ## 0. Decision summary
 

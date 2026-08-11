@@ -3,7 +3,7 @@
 - **Status:** RESEARCH NOTE — architecture input, not a frozen Canvas Agent contract
 - **Date:** 2026-08-10
 - **Depends on:** `docs/architecture/context-runtime-v0.3-direction.md`
-- **Primary external reference:** OpenCode `dev` branch `CONTEXT.md` and `specs/v2/session.md`
+- **Primary external reference:** OpenCode commit `d041eee55c4b669f583fcbe0eb73e78d53393ae8`, especially `CONTEXT.md` and `specs/v2/session.md`
 - **Purpose:** absorb useful OpenCode V2 context-runtime ideas without collapsing Canvas Agent's distinct Context Working Set hypothesis into OpenCode terminology
 
 > Important: OpenCode V2 is still evolving. This document records the current public design as a reference implementation and comparison target, not as a stable external contract.
@@ -1007,10 +1007,12 @@ This statement is deliberately provisional and must be validated against Pi and 
 
 ## 15. Primary references
 
-Current public OpenCode sources reviewed for this note:
+OpenCode sources reviewed for this note:
 
-- `https://github.com/anomalyco/opencode/blob/dev/CONTEXT.md`
-- `https://github.com/anomalyco/opencode/blob/dev/specs/v2/session.md`
+- `https://github.com/anomalyco/opencode/blob/d041eee55c4b669f583fcbe0eb73e78d53393ae8/CONTEXT.md`
+- `https://github.com/anomalyco/opencode/blob/d041eee55c4b669f583fcbe0eb73e78d53393ae8/specs/v2/session.md`
 - `https://opencode.ai/v2/docs/compaction`
+
+The GitHub references are commit-pinned for reproducibility. The documentation site is a moving reference and must be rechecked before an OpenCode implementation packet starts.
 
 Re-review these sources before implementing CR-007 because the V2 runtime is still evolving.

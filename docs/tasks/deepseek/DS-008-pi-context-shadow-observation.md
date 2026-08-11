@@ -6,8 +6,8 @@ DeepSeek V4 Flash — Context Runtime research integration implementer. The lead
 
 - **Branch:** `agent/deepseek-ds-008-pi-context-shadow`
 - **Milestone:** Context Runtime v0.3 research
-- **Status:** ASSIGNED / BLOCKED BY GATE
-- **Depends on:** Product MVP v0.2 RC decision by the lead architect; PR #12 Context Runtime architecture merged to `main`
+- **Status:** ASSIGNED / BLOCKED BY USER SCOPE GATE
+- **Depends on:** PR #12 Context Runtime architecture merged to `main`; explicit user authorization to start the v0.3 research milestone
 - **Implements:** CR-001 from `docs/plan/context-runtime-v0.3-experiment-plan.md`
 - **Blocks:** CR-002 runtime observation model refinement and CR-003 Shadow Working Set Planner
 
@@ -42,7 +42,7 @@ For this packet, Canvas observes. Canvas does **not** govern or rewrite the acti
 
 ## Why Pi
 
-Pi currently exposes an extension `context` event immediately before each LLM call. The handler receives a deep copy of `event.messages` and may return replacement messages. Pi also exposes `before_provider_request` after provider-specific payload construction.
+At the reviewed Pi commit `cd6852a123f2c0cc646a41a2a52f3711a603b822` (`@earendil-works/pi-coding-agent` `0.84.1`), Pi exposes an extension `context` event immediately before each LLM call. The handler receives a deep copy of `event.messages` and may return replacement messages. Pi also exposes `before_provider_request` after provider-specific payload construction.
 
 DS-008 must use the `context` event as the authoritative semantic model-call observation seam. `before_provider_request` may be used only for optional correlation / provider-payload metadata experiments; it must not become the primary Runtime abstraction.
 
@@ -64,10 +64,10 @@ Repository architecture:
 
 Pi primary references:
 
-- `https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/extensions.md`
-- `https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/sdk.md`
-- `https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/providers.md`
-- `https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/core/extensions/types.ts`
+- `https://github.com/badlogic/pi-mono/blob/cd6852a123f2c0cc646a41a2a52f3711a603b822/packages/coding-agent/docs/extensions.md`
+- `https://github.com/badlogic/pi-mono/blob/cd6852a123f2c0cc646a41a2a52f3711a603b822/packages/coding-agent/docs/sdk.md`
+- `https://github.com/badlogic/pi-mono/blob/cd6852a123f2c0cc646a41a2a52f3711a603b822/packages/coding-agent/docs/providers.md`
+- `https://github.com/badlogic/pi-mono/blob/cd6852a123f2c0cc646a41a2a52f3711a603b822/packages/coding-agent/src/core/extensions/types.ts`
 
 Before implementation, verify the installed Pi package/API version still exposes the expected `context` semantics. If the current API materially differs from this packet, stop and return an architecture note rather than silently adapting the Runtime model around a changed Pi API.
 
@@ -126,7 +126,7 @@ context-runtime -X-> OpenCode
 context-runtime -X-> Codex
 ```
 
-`packages/context-runtime` must not import `@mariozechner/pi-coding-agent` or any provider-specific SDK.
+`packages/context-runtime` must not import the Pi SDK (`@earendil-works/pi-coding-agent` at the reviewed baseline, or any earlier/later package identity) or any provider-specific SDK.
 
 ## Required implementation
 
@@ -370,7 +370,7 @@ Do not work around a stop condition by broadening scope silently.
 
 ```text
 0. Gate check
-   PR #12 merged + lead v0.2 RC go-ahead
+   PR #12 merged + explicit user authorization for v0.3 research
         |
         v
 1. Verify current Pi hook/API version

@@ -1,6 +1,6 @@
 # Context Runtime v0.3 Experiment Plan
 
-- **Status:** PROPOSED FOR TASKING AFTER v0.2 RC
+- **Status:** PROPOSED / BLOCKED BY USER SCOPE GATE
 - **Depends on:** `docs/architecture/context-runtime-v0.3-direction.md`
 - **Domain proposals:** `PROPOSAL-030-context-source-universe-model.md`, `PROPOSAL-031-context-working-set-planner.md`
 - **Primary harness:** Pi
@@ -131,7 +131,7 @@ This is the first portability gate.
 
 **Owner:** DeepSeek V4 Flash
 
-**Start gate:** PR #12 architecture merged + lead architect authorizes Context Runtime v0.3 research after the Product MVP v0.2 RC decision.
+**Start gate:** PR #12 architecture merged + the user explicitly selects Context Runtime v0.3 research as the next milestone. Product MVP v0.2 closeout is already complete.
 
 DeepSeek must create the DS-008 implementation branch from reviewed `main` after both gates are satisfied; the architecture PR branch is not an implementation base.
 

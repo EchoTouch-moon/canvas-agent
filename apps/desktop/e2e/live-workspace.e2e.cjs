@@ -3,10 +3,27 @@ const os = require('node:os')
 const fs = require('node:fs')
 const { createHash } = require('node:crypto')
 const { execSync } = require('node:child_process')
+const { DatabaseSync } = require('node:sqlite')
 const { _electron: electron } = require('playwright-core')
 
 const DESKTOP = path.resolve(__dirname, '..')
-const SHOT_DIR = path.join(os.tmpdir(), 'canvas-agent-e2e')
+const SHOT_DIR = process.env.CANVAS_AGENT_E2E_SCREENSHOT_DIR
+  ? path.resolve(process.env.CANVAS_AGENT_E2E_SCREENSHOT_DIR)
+  : path.join(DESKTOP, 'dist', 'screenshots', 'live')
+
+function workspaceDatabase(home, repo) {
+  const identity = createHash('sha256').update(fs.realpathSync(repo), 'utf8').digest('hex')
+  return path.join(home, 'workspaces', identity, 'canvas-agent.db')
+}
+
+function repositoryRevisionCount(home, repo) {
+  const db = new DatabaseSync(workspaceDatabase(home, repo), { readOnly: true })
+  try {
+    return Number(db.prepare('SELECT COUNT(*) AS count FROM repository_revision').get().count)
+  } finally {
+    db.close()
+  }
+}
 
 function tempRepo() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ca-e2e-repo-'))
@@ -126,6 +143,51 @@ async function firstLaunch(repo, home, fakeCodexDir) {
     await page.getByRole('button', { name: 'Authorize apply' }).click()
     await page.getByText('APPLIED', { exact: true }).first().waitFor({ timeout: 15000 })
     step('A artifact.apply -> APPLIED', true)
+
+    const beforeRetryHead = execSync('git rev-parse HEAD', { cwd: repo }).toString().trim()
+    const beforeRetryCommitCount = Number(
+      execSync('git rev-list --count HEAD', { cwd: repo }).toString().trim()
+    )
+    const beforeRetryRevisionCount = repositoryRevisionCount(home, repo)
+    const retry = await page.evaluate(async () => {
+      const call = async (command, payload) =>
+        window.canvasAgent.command({
+          requestId: `e2e-adoption-retry-${command}`,
+          schemaVersion: 1,
+          command,
+          payload
+        })
+      const listed = await call('artifactApplication.list', { taskId: 'task_demo_1' })
+      if (!listed.ok || listed.data.length !== 1) return { listed, applied: null }
+      const binding = listed.data[0].application
+      const applied = await call('artifact.apply', {
+        taskId: binding.taskId,
+        evaluationId: binding.evaluationId,
+        artifactId: binding.artifactId
+      })
+      return { listed, applied }
+    })
+    const afterRetryHead = execSync('git rev-parse HEAD', { cwd: repo }).toString().trim()
+    const afterRetryCommitCount = Number(
+      execSync('git rev-list --count HEAD', { cwd: repo }).toString().trim()
+    )
+    const afterRetryRevisionCount = repositoryRevisionCount(home, repo)
+    step(
+      'A artifact.apply exact-binding retry returns the same APPLIED application',
+      retry.listed.ok &&
+        retry.listed.data.length === 1 &&
+        retry.applied?.ok &&
+        retry.applied.data.effectiveStatus === 'APPLIED' &&
+        retry.applied.data.application.id === retry.listed.data[0].application.id
+    )
+    step(
+      'A adoption retry creates no second Git commit',
+      beforeRetryHead === afterRetryHead && beforeRetryCommitCount === afterRetryCommitCount
+    )
+    step(
+      'A adoption retry creates no second RepositoryRevision',
+      beforeRetryRevisionCount === afterRetryRevisionCount
+    )
     await page.getByRole('button', { name: 'Create baseline candidate' }).click()
     await page.getByText('DRAFT', { exact: true }).first().waitFor({ timeout: 15000 })
     step('A baseline candidate created (DRAFT)', true)
@@ -337,6 +399,54 @@ async function secondLaunch(repo, home, fakeCodexDir) {
   await app.close()
 }
 
+async function thirdLaunch(repo, home, fakeCodexDir) {
+  const { app, page } = await launch(repo, home, 'C', fakeCodexDir)
+  try {
+    await page.getByText('MUSICDB Demo', { exact: true }).last().waitFor({ timeout: 15000 })
+    const durable = await page.evaluate(async () => {
+      const call = async (command, payload) => {
+        const response = await window.canvasAgent.command({
+          requestId: `e2e-final-restart-${command}`,
+          schemaVersion: 1,
+          command,
+          payload
+        })
+        return response.ok ? response.data : null
+      }
+      const state = await call('project.state', { projectId: 'proj_demo' })
+      const applications = await call('artifactApplication.list', { taskId: 'task_demo_1' })
+      const runs = await call('run.list', { projectId: 'proj_demo' })
+      return { state, applications, runs }
+    })
+    const application = durable.applications?.[0]
+    const gitHead = execSync('git rev-parse HEAD', { cwd: repo }).toString().trim()
+    step(
+      'C final restart preserves the activated Baseline',
+      durable.state?.activeBaseline?.status === 'ACTIVE' &&
+        durable.state.activeBaseline.name === 'Baseline 1.1'
+    )
+    step(
+      'C final restart preserves acceptance/adoption and applied revision',
+      application?.effectiveStatus === 'APPLIED' &&
+        application.repositoryRevision?.baseCommit === gitHead
+    )
+    step(
+      'C final restart preserves the finished Run evidence',
+      durable.runs?.some((run) => run.status === 'FINISHED' && run.outcome === 'SUCCEEDED') === true
+    )
+    fs.mkdirSync(SHOT_DIR, { recursive: true })
+    await page.screenshot({ path: path.join(SHOT_DIR, 'final-restart-active.png'), fullPage: true })
+  } catch (error) {
+    step('C final restart flow', false)
+    console.log('[e2e] C FLOW ERROR:', error && error.message)
+    fs.mkdirSync(SHOT_DIR, { recursive: true })
+    await page
+      .screenshot({ path: path.join(SHOT_DIR, 'final-restart-failure.png'), fullPage: true })
+      .catch(() => {})
+  }
+  await app.close()
+}
+
 async function main() {
   const repo = tempRepo()
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ca-e2e-home-'))
@@ -347,6 +457,8 @@ async function main() {
   await firstLaunch(repo, home, fakeCodex.dir)
   console.log('[e2e] first launch closed; relaunching with the SAME HOME/DB')
   await secondLaunch(repo, home, fakeCodex.dir)
+  console.log('[e2e] second launch closed after activation; verifying one more restart')
+  await thirdLaunch(repo, home, fakeCodex.dir)
 
   console.log(failures === 0 ? '[e2e] ALL PASSED' : `[e2e] FAILED (${failures})`)
   process.exit(failures === 0 ? 0 : 1)

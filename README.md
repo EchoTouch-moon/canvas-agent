@@ -15,15 +15,19 @@ The design source of truth is [`canvas_agent_design_baseline_v1.1/00_README.md`]
 
 The engineering core loop is implemented end to end: SQLite project state, immutable execution contracts, an isolated Utility Process Worker, durable Run/Artifact evidence, explicit acceptance and Task completion, recoverable Git adoption, candidate Baseline creation and explicit activation.
 
-The current milestone is **Product MVP v0.2 closeout**. Packaged migration reliability and product-level repository selection are merged. Remaining blockers are first-workspace Project/Baseline/Task onboarding, an immutable ExecutionRequest v2 Context Bundle, a real local Agent CLI adapter, Live-first UI and release-candidate automation. See [`docs/PRODUCT_MVP_V0.2_PLAN.md`](docs/PRODUCT_MVP_V0.2_PLAN.md) and [`docs/tasks/README.md`](docs/tasks/README.md).
+**Product MVP v0.2 is complete for local/internal unsigned use.** Packaged migration reliability, native repository and Agent selection, immutable ExecutionRequest v2 context, the production Codex CLI adapter, resumable first-workspace onboarding, the Live-first shell and repeatable RC gates are merged. External signed/notarized distribution remains a separate release decision. See [`docs/PRODUCT_MVP_V0.2_PLAN.md`](docs/PRODUCT_MVP_V0.2_PLAN.md), the [operator guide](docs/operator/product-mvp-v0.2.md) and the [release checklist](docs/operator/product-mvp-v0.2-release-checklist.md).
 
-Normal startup can now select and reopen a repository without `CANVAS_AGENT_REPO`; that variable remains only as an explicit developer/test bootstrap. Until DS-005 lands, execution still uses the deterministic Fixture adapter.
+The proposed post-v0.2 direction is [Context Runtime v0.3 research](docs/architecture/context-runtime-v0.3-direction.md): first observe model-call context through Pi, then decide from evidence whether a provider-neutral Working Set Runtime is worth advancing. It is classified as a Future direction; the observation-only [DS-008 packet](docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md) remains blocked until the user explicitly selects v0.3 as the next milestone.
+
+Normal startup selects or reopens a repository through the Main-owned native picker; it does not require `CANVAS_AGENT_REPO`. Production execution uses the configured Codex CLI and never falls back to Fixture. `CANVAS_AGENT_REPO`, the deterministic fake Codex and picker seams are test/developer boundaries only.
 
 ## Prerequisites
 
 - Node.js `24.14.0` (see `.node-version` / `.nvmrc`)
 - pnpm `11.9.0` or compatible pnpm 11 release
 - Git 2.40+
+- macOS for Electron/package RC gates (the source gate remains cross-platform)
+- Codex CLI `0.146.x` plus an authenticated local session for the optional real-Agent smoke
 
 ## Start
 
@@ -37,6 +41,20 @@ Run the complete local gate before pushing:
 ```bash
 pnpm check
 ```
+
+Run the credential-free macOS RC suite (unsigned internal package, workspace lifecycle, complete fake-Codex loop with restart/adoption retry, and packaged cold start):
+
+```bash
+pnpm e2e:rc
+```
+
+Run the separately reported authenticated smoke only when local account/network/cost assumptions are intentional:
+
+```bash
+CANVAS_AGENT_REAL_AGENT_SMOKE=1 pnpm --filter @canvas-agent/desktop e2e:agent
+```
+
+The command always writes `apps/desktop/dist/reports/agent-smoke.json`; a disabled smoke is recorded as `skipped`, never as executed. For repository selection, Agent readiness/auth recovery, isolated user data and internal-versus-external distribution details, use the [operator guide](docs/operator/product-mvp-v0.2.md).
 
 ## Workspace map
 
