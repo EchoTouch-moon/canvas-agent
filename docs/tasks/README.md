@@ -36,14 +36,14 @@ No Checkpoint/Resume, Canvas, second Agent adapter or external signed-distributi
 
 ## Current milestone — Context Runtime v0.3 research
 
-Context Runtime v0.3 is now the active research milestone. PR #12 established the bounded research architecture. CR-001 / DS-008 has passed lead architecture review and merged through PR #14 at `main@34488ba`. CR-002 is the next authorized research step; CR-003 remains blocked until CR-002 evidence and schema review are accepted.
+Context Runtime v0.3 is now the active research milestone. PR #12 established the bounded research architecture. CR-001 / DS-008 has passed lead architecture review and merged through PR #14 at `main@34488ba`. CR-002 / DS-009 evidence is ready for architecture review (branch `agent/deepseek-ds-009-context-source-universe-shadow`, 556 tests green, enriched Pi + DeepSeek smoke EXECUTED); CR-003 remains blocked until CR-002 evidence and schema review are accepted.
 
 | Order | Owner             | Packet                                                                                         | Branch                                               | Status                         | Start gate                                  |
 | ----: | ----------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------ | ------------------------------------------- |
 |     0 | Lead architect    | PROPOSAL-030 Context Source / Source State / Context Universe                                   | —                                                    | PROPOSED — CR-002 evidence pending | CR-002/CR-003 evidence before contract freeze |
 |     0 | Lead architect    | PROPOSAL-031 Context Working Set / Planner / Decision                                           | —                                                    | PROPOSED — CR-003 evidence pending | CR-002 acceptance before CR-003            |
 |     1 | DeepSeek V4 Flash | [DS-008 Pi Context Shadow Observation](deepseek/DS-008-pi-context-shadow-observation.md)         | `agent/deepseek-ds-008-pi-context-shadow`            | ✅ ACCEPTED / MERGED — PR #14 | —                                           |
-|     2 | DeepSeek V4 Flash | [DS-009 Context Source Attribution + Shadow Universe](deepseek/DS-009-context-source-universe-shadow.md) | `agent/deepseek-ds-009-context-source-universe-shadow` | ASSIGNED / READY AFTER PACKET MERGE | this task packet merged to updated `main`   |
+|     2 | DeepSeek V4 Flash | [DS-009 Context Source Attribution + Shadow Universe](deepseek/DS-009-context-source-universe-shadow.md) | `agent/deepseek-ds-009-context-source-universe-shadow` | EVIDENCE READY — awaiting architecture review | CR-001 accepted + packet merged + user authorized |
 
 CR-001 accepted evidence: `docs/verification/context-runtime-cr-001-pi-shadow.md`. The final accepted implementation observes Pi at the semantic pre-LLM `context` boundary, returns messages unchanged, keeps `context-runtime` Agent/model neutral, records metadata-only semantic fingerprints, scopes estimates to `agent-messages-pre-provider`, and passed the full GitHub CI suite before PR #14 merged.
 

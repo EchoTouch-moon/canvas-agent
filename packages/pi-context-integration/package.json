@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build": "tsc --noEmit",
-    "smoke:deepseek": "tsx src/smoke/deepseek-smoke.ts"
+    "smoke:deepseek": "tsx src/smoke/deepseek-smoke.ts",
+    "smoke:deepseek:cr002": "tsx src/smoke/enriched-deepseek-smoke.ts"
   },
   "dependencies": {
     "@canvas-agent/context-runtime": "workspace:*",
