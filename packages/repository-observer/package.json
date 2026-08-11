@@ -1,0 +1,27 @@
+{
+  "name": "@canvas-agent/repository-observer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Authoritative provider-neutral Repository Observer (DS-011): world-state SourceObservation for canonical repository/file sources",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --noEmit",
+    "smoke:git-repo": "tsx src/smoke/git-repo-smoke.ts"
+  },
+  "dependencies": {
+    "@canvas-agent/context-runtime": "workspace:*",
+    "@canvas-agent/contracts": "workspace:*",
+    "@canvas-agent/worker-runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.23.7",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

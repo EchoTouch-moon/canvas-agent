@@ -36,7 +36,7 @@ No Checkpoint/Resume, Canvas, second Agent adapter or external signed-distributi
 
 ## Current milestone — Context Runtime v0.3 research
 
-Context Runtime v0.3 is now the active research milestone. PR #12 established the bounded research architecture. CR-001 / DS-008 merged (PR #14) and CR-002 / DS-009 merged (PR #16). CR-003A / DS-010 evidence is ready for architecture review (branch `agent/deepseek-ds-010-shadow-working-set-planner`, 582 tests green, CR-003A Shadow smoke EXECUTED).
+Context Runtime v0.3 is now the active research milestone. PR #12 established the bounded research architecture. CR-001 / DS-008 merged (PR #14), CR-002 / DS-009 merged (PR #16), and CR-003A / DS-010 merged (PR #18). DS-011 / Repository Observer evidence is ready for architecture review (branch `agent/deepseek-ds-011-repository-observer`, 618 tests green, real temporary-Git smoke EXECUTED).
 
 | Order | Owner             | Packet                                                                                         | Branch                                               | Status                         | Start gate                                  |
 | ----: | ----------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------ | ------------------------------------------- |
@@ -44,7 +44,8 @@ Context Runtime v0.3 is now the active research milestone. PR #12 established th
 |     0 | Lead architect    | PROPOSAL-031 Context Working Set / Planner / Decision                                           | —                                                    | PROPOSED — CR-003 evidence pending | CR-002 acceptance before CR-003            |
 |     1 | DeepSeek V4 Flash | [DS-008 Pi Context Shadow Observation](deepseek/DS-008-pi-context-shadow-observation.md)         | `agent/deepseek-ds-008-pi-context-shadow`            | ✅ ACCEPTED / MERGED — PR #14 | —                                           |
 |     2 | DeepSeek V4 Flash | [DS-009 Context Source Attribution + Shadow Universe](deepseek/DS-009-context-source-universe-shadow.md) | `agent/deepseek-ds-009-context-source-universe-shadow` | ✅ ACCEPTED / MERGED — PR #16 | CR-001 accepted + packet merged + user authorized |
-|     3 | DeepSeek V4 Flash | [DS-010 Shadow Working Set Planner](deepseek/DS-010-shadow-working-set-planner.md)               | `agent/deepseek-ds-010-shadow-working-set-planner`   | EVIDENCE READY — awaiting architecture review | CR-002 accepted + packet merged + user authorized |
+|     3 | DeepSeek V4 Flash | [DS-010 Shadow Working Set Planner](deepseek/DS-010-shadow-working-set-planner.md)               | `agent/deepseek-ds-010-shadow-working-set-planner`   | ✅ ACCEPTED / MERGED — PR #18 | CR-002 accepted + packet merged + user authorized |
+|     4 | DeepSeek V4 Flash | [DS-011 Repository Observer](deepseek/DS-011-repository-observer.md)                             | `agent/deepseek-ds-011-repository-observer`          | EVIDENCE READY — awaiting architecture review | CR-003A accepted + packet merged + user authorized |
 
 CR-001 accepted evidence: `docs/verification/context-runtime-cr-001-pi-shadow.md`. The final accepted implementation observes Pi at the semantic pre-LLM `context` boundary, returns messages unchanged, keeps `context-runtime` Agent/model neutral, records metadata-only semantic fingerprints, scopes estimates to `agent-messages-pre-provider`, and passed the full GitHub CI suite before PR #14 merged.
 
@@ -63,14 +64,18 @@ DS-009 / CR-002 Source Attribution + Shadow Universe
                  |
                  v
 DS-010 / CR-003A Shadow Working Set Planner kernel
-   deterministic Shadow planning only (no rewrite)
+   deterministic Shadow planning only (no rewrite)  ✅ ACCEPTED / MERGED
                  |
                  v
-architect reviews planning determinism / protection / Universe binding evidence
+DS-011 / Repository Observer
+   authoritative world-state observation (no policy)  EVIDENCE READY
                  |
-                 +--> file-aware CR-003B requires Repository Observer first
+                 v
+architect reviews repository truth / revision binding / AVAILABLE-ABSENT-UNAVAILABLE evidence
                  |
-                 +--> CR-004 Active Rewrite is NOT authorized by DS-010 evidence
+                 +--> file-aware CR-003B requires DS-011 acceptance
+                 |
+                 +--> CR-004 Active Rewrite is NOT authorized
 ```
 
 DS-009 must preserve the distinction `AgentMessage[] observation != ContextSource[]`. It may introduce experimental observed-element, attribution, source-reconciliation and Shadow Universe structures, but it may not rewrite Pi context, implement Working Set decisions, change production persistence, modify v0.2 Snapshot/ExecutionRequest contracts, or start OpenCode/Codex integration.
