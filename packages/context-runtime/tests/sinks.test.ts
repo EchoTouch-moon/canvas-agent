@@ -36,8 +36,8 @@ function observation(sequence: number, messages: NormalizedMessageInput[]) {
 describe('InMemoryObservationSink', () => {
   it('collects observations without touching the filesystem', () => {
     const sink = new InMemoryObservationSink()
-    sink.write(observation(1, [{ role: 'user', category: 'USER', contentType: 'text', text: 'a' }]))
-    sink.write(observation(2, [{ role: 'user', category: 'USER', contentType: 'text', text: 'b' }]))
+    sink.write(observation(1, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'a' }]))
+    sink.write(observation(2, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'b' }]))
     expect(sink.count).toBe(2)
     expect(sink.last()?.sequence).toBe(2)
     sink.clear()
@@ -51,8 +51,8 @@ describe('JsonlObservationSink', () => {
     const sink = new JsonlObservationSink({ directory, sessionId: 'session-001' })
     sink.write(
       observation(1, [
-        { role: 'user', category: 'USER', contentType: 'text', text: 'instructions' },
-        { role: 'assistant', category: 'ASSISTANT', contentType: 'text', text: 'reply' }
+        { role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'instructions' },
+        { role: 'assistant', category: 'ASSISTANT', contentType: 'text', fingerprintText: 'reply' }
       ])
     )
     await sink.flush()
@@ -73,7 +73,7 @@ describe('JsonlObservationSink', () => {
     const sink = new JsonlObservationSink({ directory, sessionId: 's2' })
     const secret = 'sk-supersecret-abcdef123456'
     sink.write(
-      observation(1, [{ role: 'user', category: 'USER', contentType: 'text', text: secret }])
+      observation(1, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: secret }])
     )
     await sink.flush()
     const content = await readFile(join(directory, 's2.jsonl'), 'utf8')
@@ -86,7 +86,7 @@ describe('JsonlObservationSink', () => {
     const directory = await tempDirectory()
     const a = new JsonlObservationSink({ directory, sessionId: 'sa' })
     const b = new JsonlObservationSink({ directory, sessionId: 'sb' })
-    const messages = [{ role: 'user', category: 'USER' as const, contentType: 'text', text: 'same' }]
+    const messages = [{ role: 'user', category: 'USER' as const, contentType: 'text', fingerprintText: 'same' }]
     a.write(observation(1, messages))
     b.write(observation(1, messages))
     await a.flush()
@@ -101,8 +101,8 @@ describe('JsonlObservationSink', () => {
   it('flush is idempotent and preserves line order', async () => {
     const directory = await tempDirectory()
     const sink = new JsonlObservationSink({ directory, sessionId: 's3' })
-    sink.write(observation(1, [{ role: 'user', category: 'USER', contentType: 'text', text: 'first' }]))
-    sink.write(observation(2, [{ role: 'user', category: 'USER', contentType: 'text', text: 'second' }]))
+    sink.write(observation(1, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'first' }]))
+    sink.write(observation(2, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'second' }]))
     await sink.flush()
     await sink.flush()
     const content = await readFile(join(directory, 's3.jsonl'), 'utf8')

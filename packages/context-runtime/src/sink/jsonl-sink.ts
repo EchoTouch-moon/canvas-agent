@@ -1,6 +1,10 @@
 import { mkdir, appendFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { ModelCallObservation, ModelMessageDescriptor } from '../observation/types'
+import type {
+  BinaryBlockMetadata,
+  ModelCallObservation,
+  ModelMessageDescriptor
+} from '../observation/types'
 import type { ObservationSink } from './in-memory-sink'
 
 export interface JsonlSinkOptions {
@@ -16,7 +20,9 @@ interface JsonlModelMessageDescriptor {
   readonly estimatedChars: number
   readonly contentHash: string
   readonly toolName?: string
+  readonly toolCallId?: string
   readonly isError?: boolean
+  readonly binaryBlocks?: readonly BinaryBlockMetadata[]
   readonly rawPreview?: string
 }
 
@@ -25,9 +31,11 @@ interface JsonlObservation {
   readonly runtimeSessionId: string
   readonly sequence: number
   readonly observedAt: string
-  readonly harness: 'PI'
+  readonly harness: string
+  readonly estimateScope: string
   readonly messageCount: number
-  readonly nativeContextEstimate: number
+  readonly observedMessageTokenEstimate: number
+  readonly observedMessageCharEstimate: number
   readonly categoryCounts: Record<string, number>
   readonly toolResultCount: number
   readonly messageDescriptors: JsonlModelMessageDescriptor[]
@@ -73,7 +81,11 @@ export class JsonlObservationSink implements ObservationSink {
           estimatedChars: descriptor.estimatedChars,
           contentHash: descriptor.contentHash,
           ...(descriptor.toolName !== undefined ? { toolName: descriptor.toolName } : {}),
+          ...(descriptor.toolCallId !== undefined ? { toolCallId: descriptor.toolCallId } : {}),
           ...(descriptor.isError !== undefined ? { isError: descriptor.isError } : {}),
+          ...(descriptor.binaryBlocks !== undefined
+            ? { binaryBlocks: descriptor.binaryBlocks }
+            : {}),
           ...(descriptor.rawPreview !== undefined ? { rawPreview: descriptor.rawPreview } : {})
         }
         return result
@@ -85,8 +97,10 @@ export class JsonlObservationSink implements ObservationSink {
       sequence: observation.sequence,
       observedAt: observation.observedAt,
       harness: observation.harness,
+      estimateScope: observation.estimateScope,
       messageCount: observation.messageCount,
-      nativeContextEstimate: observation.nativeContextEstimate,
+      observedMessageTokenEstimate: observation.observedMessageTokenEstimate,
+      observedMessageCharEstimate: observation.observedMessageCharEstimate,
       categoryCounts: observation.categoryCounts,
       toolResultCount: observation.toolResultCount,
       messageDescriptors: descriptors,

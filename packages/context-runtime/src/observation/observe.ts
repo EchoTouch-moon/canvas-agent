@@ -1,19 +1,23 @@
 import type { ModelCallObservation, ModelMessageDescriptor } from './types'
+import { ESTIMATE_SCOPE_AGENT_MESSAGES } from './types'
 import type { NormalizedMessageInput } from './normalize'
-import { countCategories, countToolResults, normalizeMessage } from './normalize'
-import { estimateTokens } from './token-estimate'
+import { countBinaryBlocks, countCategories, countToolResults, normalizeMessage } from './normalize'
+import { estimateChars, estimateTokens } from './token-estimate'
+import { truncateToUtf8Bytes } from '../util/utf8'
 import { redactSensitive } from '../sink/redaction'
 
 export interface ObserveRequest {
   readonly runtimeSessionId: string
   readonly sequence: number
   readonly observedAt: string
-  readonly harness: 'PI'
+  // Provider/Agent-neutral experimental harness identifier.
+  readonly harness: string
   readonly messages: readonly NormalizedMessageInput[]
 }
 
-// Per-run raw capture budget. Mutable: raw preview bytes are consumed across
-// multiple observations within one Runtime Session, so the total limit is real.
+// Per-run raw capture budget in UTF-8 BYTES. Mutable: raw preview bytes are
+// consumed across multiple observations within one Runtime Session, so the
+// total limit is real and byte-accurate.
 export class RawCaptureBudget {
   constructor(
     readonly perMessageSizeLimit: number,
@@ -45,7 +49,7 @@ export function rawCaptureBudget(
 }
 
 // Deterministic observation builder: the same normalized input set + the same
-// budget state always produces the same descriptors, hashes, counts and total.
+// budget state always produces the same descriptors, hashes, counts and totals.
 export function buildObservation(
   request: ObserveRequest,
   budget: RawCaptureBudget = RawCaptureBudget.disabled()
@@ -54,17 +58,21 @@ export function buildObservation(
   request.messages.forEach((message, index) => {
     let rawPreview: string | undefined
     if (budget.remainingBytes > 0) {
-      const raw = redactSensitive(message.text)
-      const bounded = raw.slice(0, budget.perMessageSizeLimit)
-      budget.consume(bounded.length)
+      const redacted = redactSensitive(message.fingerprintText)
+      const bounded = truncateToUtf8Bytes(redacted, budget.perMessageSizeLimit)
+      budget.consume(Buffer.byteLength(bounded, 'utf8'))
       if (bounded.length > 0) {
         rawPreview = bounded
       }
     }
     descriptors.push(normalizeMessage(message, index, rawPreview))
   })
-  const nativeContextEstimate = descriptors.reduce(
+  const observedMessageTokenEstimate = descriptors.reduce(
     (sum, descriptor) => sum + descriptor.estimatedTokens,
+    0
+  )
+  const observedMessageCharEstimate = descriptors.reduce(
+    (sum, descriptor) => sum + descriptor.estimatedChars,
     0
   )
   return {
@@ -72,12 +80,15 @@ export function buildObservation(
     sequence: request.sequence,
     observedAt: request.observedAt,
     harness: request.harness,
+    estimateScope: ESTIMATE_SCOPE_AGENT_MESSAGES,
     messageCount: request.messages.length,
-    nativeContextEstimate,
+    observedMessageTokenEstimate,
+    observedMessageCharEstimate,
     categoryCounts: countCategories(request.messages),
     toolResultCount: countToolResults(request.messages),
     messageDescriptors: descriptors
   }
 }
 
-export { estimateTokens }
+export { estimateChars, estimateTokens }
+export { countBinaryBlocks }

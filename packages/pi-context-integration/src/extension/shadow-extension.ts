@@ -13,7 +13,9 @@ export interface ShadowObservationSinks {
 
 export interface PiShadowObserverOptions {
   readonly runtimeSessionId?: string
-  readonly harness?: 'PI'
+  // Provider/Agent-neutral harness identifier. `'PI'` is the Pi integration's
+  // own value; the core never constrains this to Pi.
+  readonly harness?: string
   readonly sinks?: ShadowObservationSinks
   readonly now?: () => string
 }
@@ -24,7 +26,7 @@ export interface PiShadowObserverOptions {
 export class PiContextShadowObserver {
   readonly runtimeSession: RuntimeSession
   readonly inMemory: InMemoryObservationSink
-  private readonly harness: 'PI'
+  private readonly harness: string
   private readonly now: () => string
 
   constructor(options: PiShadowObserverOptions = {}) {

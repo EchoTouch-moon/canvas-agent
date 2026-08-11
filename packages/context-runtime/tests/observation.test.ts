@@ -10,15 +10,17 @@ import {
   normalizeMessage,
   containsKnownCredential,
   redactSensitive,
+  truncateToUtf8Bytes,
+  utf8ByteLength,
   type NormalizedMessageInput
 } from '../src'
 
 function userMessage(text: string): NormalizedMessageInput {
-  return { role: 'user', category: 'USER', contentType: 'text', text }
+  return { role: 'user', category: 'USER', contentType: 'text', fingerprintText: text }
 }
 
 function assistantMessage(text: string): NormalizedMessageInput {
-  return { role: 'assistant', category: 'ASSISTANT', contentType: 'text', text }
+  return { role: 'assistant', category: 'ASSISTANT', contentType: 'text', fingerprintText: text }
 }
 
 function toolResult(toolName: string, text: string): NormalizedMessageInput {
@@ -26,7 +28,7 @@ function toolResult(toolName: string, text: string): NormalizedMessageInput {
     role: 'toolResult',
     category: 'TOOL_RESULT',
     contentType: 'toolResult',
-    text,
+    fingerprintText: `toolName:${toolName}\n${text}`,
     toolName
   }
 }
@@ -58,7 +60,7 @@ describe('deterministic normalization', () => {
 
   it('tool result descriptor carries tool name and error flag', () => {
     const descriptor = normalizeMessage(
-      { role: 'toolResult', category: 'TOOL_RESULT', contentType: 'toolResult', text: 'out', toolName: 'bash', isError: true },
+      { role: 'toolResult', category: 'TOOL_RESULT', contentType: 'toolResult', fingerprintText: 'out', toolName: 'bash', isError: true },
       0
     )
     expect(descriptor.toolName).toBe('bash')
@@ -99,7 +101,8 @@ describe('buildObservation determinism and growth', () => {
     expect(obs1.messageCount).toBe(1)
     expect(obs2.messageCount).toBe(3)
     expect(obs2.toolResultCount).toBe(1)
-    expect(obs2.nativeContextEstimate).toBeGreaterThan(obs1.nativeContextEstimate)
+    expect(obs2.observedMessageTokenEstimate).toBeGreaterThan(obs1.observedMessageTokenEstimate)
+    expect(obs1.estimateScope).toBe('agent-messages-pre-provider')
   })
 
   it('raw capture off by default; no rawPreview present', () => {
@@ -108,13 +111,13 @@ describe('buildObservation determinism and growth', () => {
     expect(observation.messageDescriptors[0]?.rawPreview).toBeUndefined()
   })
 
-  it('raw capture opt-in is bounded and redacted', () => {
+  it('raw capture opt-in is bounded and redacted (byte-based)', () => {
     const messages = [userMessage('prefix sk-myapikey123456789 suffix and more content beyond limit')]
     const budget = new RawCaptureBudget(60, 200)
     const observation = buildObservation({ runtimeSessionId: 's', sequence: 1, observedAt: 't', harness: 'PI', messages }, budget)
     const rawPreview = observation.messageDescriptors[0]?.rawPreview
     expect(rawPreview).toBeDefined()
-    expect(rawPreview!.length).toBeLessThanOrEqual(60)
+    expect(utf8ByteLength(rawPreview!)).toBeLessThanOrEqual(60)
     expect(rawPreview).not.toContain('sk-myapikey123456789')
     expect(rawPreview).toContain('REDACTED')
   })
@@ -126,6 +129,52 @@ describe('buildObservation determinism and growth', () => {
     // First consumes 30 of 30; second has zero budget left.
     expect(first.messageDescriptors[0]?.rawPreview).toBeDefined()
     expect(second.messageDescriptors[0]?.rawPreview).toBeUndefined()
+  })
+})
+
+describe('UTF-8 byte budget', () => {
+  it('measures real UTF-8 bytes, not JS chars', () => {
+    // Each CJK char is 3 bytes, each emoji 4 bytes.
+    expect(utf8ByteLength('中')).toBe(3)
+    expect(utf8ByteLength('😀')).toBe(4)
+    expect(utf8ByteLength('中😀')).toBe(7)
+    expect(utf8ByteLength('abc')).toBe(3)
+  })
+
+  it('truncateToUtf8Bytes never splits a multi-byte code point', () => {
+    const text = '中文测试内容'
+    const truncated = truncateToUtf8Bytes(text, 6)
+    // 6 bytes = exactly 2 CJK chars.
+    expect(truncated).toBe('中文')
+    expect(utf8ByteLength(truncated)).toBe(6)
+  })
+
+  it('truncateToUtf8Bytes keeps whole emoji', () => {
+    const text = 'a😀b'
+    const truncated = truncateToUtf8Bytes(text, 3)
+    // 3 bytes can only fit 'a' (1 byte) + nothing else whole; the emoji is 4
+    // bytes so it must be excluded rather than split.
+    expect(truncated).toBe('a')
+  })
+
+  it('raw capture respects UTF-8 byte limits for CJK content', () => {
+    const messages = [userMessage('中'.repeat(30))] // 90 bytes
+    const budget = new RawCaptureBudget(9, 1000) // 9 bytes = 3 CJK chars
+    const observation = buildObservation({ runtimeSessionId: 's', sequence: 1, observedAt: 't', harness: 'PI', messages }, budget)
+    const rawPreview = observation.messageDescriptors[0]?.rawPreview
+    expect(rawPreview).toBeDefined()
+    expect(utf8ByteLength(rawPreview!)).toBe(9)
+    expect(rawPreview).toBe('中'.repeat(3))
+  })
+
+  it('raw capture byte budget caps emoji content without splitting', () => {
+    const messages = [userMessage('😀😀😀')] // 12 bytes
+    const budget = new RawCaptureBudget(6, 1000) // 6 bytes fits one 4-byte emoji + 2-byte remainder
+    const observation = buildObservation({ runtimeSessionId: 's', sequence: 1, observedAt: 't', harness: 'PI', messages }, budget)
+    const rawPreview = observation.messageDescriptors[0]?.rawPreview
+    expect(rawPreview).toBeDefined()
+    expect(rawPreview).toBe('😀')
+    expect(utf8ByteLength(rawPreview!)).toBe(4)
   })
 })
 
