@@ -1,6 +1,6 @@
 # Context Runtime v0.3 Experiment Plan
 
-- **Status:** PROPOSED / BLOCKED BY USER SCOPE GATE
+- **Status:** ACTIVE — CR-001 shadow evidence ready for architecture review (PROPOSED scope gates passed: v0.2 closeout + PR #12 merged + user selected v0.3)
 - **Depends on:** `docs/architecture/context-runtime-v0.3-direction.md`
 - **Domain proposals:** `PROPOSAL-030-context-source-universe-model.md`, `PROPOSAL-031-context-working-set-planner.md`
 - **Primary harness:** Pi
@@ -134,6 +134,8 @@ This is the first portability gate.
 **Start gate:** PR #12 architecture merged + the user explicitly selects Context Runtime v0.3 research as the next milestone. Product MVP v0.2 closeout is already complete.
 
 DeepSeek must create the DS-008 implementation branch from reviewed `main` after both gates are satisfied; the architecture PR branch is not an implementation base.
+
+**Status (2026-08-11):** EVIDENCE READY — awaiting architecture review. Full evidence in `docs/verification/context-runtime-cr-001-pi-shadow.md`. The opt-in Pi + DeepSeek live smoke was EXECUTED with 4 real semantic model-call observations; `pnpm check` is green (502 tests). DS-008 does not self-accept; CR-002/CR-003 remain blocked until the lead architect reviews the Pi evidence.
 
 ### Objective
 

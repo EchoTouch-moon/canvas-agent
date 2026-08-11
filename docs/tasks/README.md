@@ -36,25 +36,28 @@ No Checkpoint/Resume, Canvas, second Agent adapter or external signed-distributi
 
 ## Proposed next milestone — Context Runtime v0.3 research
 
-Context Runtime v0.3 is classified as a **Future direction**, not as unfinished Product MVP work. PR #12 may establish a bounded research baseline, but merging it does not authorize implementation. DS-008 remains blocked until the user explicitly chooses this as the next milestone.
+Context Runtime v0.3 is classified as a **Future direction**, not as unfinished Product MVP work. PR #12 establishes the bounded research baseline; the user explicitly selected v0.3 Context Runtime research as the next milestone and authorized DS-008. CR-001 shadow evidence is ready for architecture review; CR-002/CR-003 remain blocked until that review.
 
 | Order | Owner             | Packet                                                                                 | Branch                                    | Status                                  | Start gate                                      |
 | ----: | ----------------- | -------------------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------- | ----------------------------------------------- |
 |     0 | Lead architect    | PROPOSAL-030 Context Source / Source State / Context Universe                           | —                                         | PROPOSED — evidence pending             | CR-001/CR-003 evidence before contract freeze   |
 |     0 | Lead architect    | PROPOSAL-031 Context Working Set / Planner / Decision                                   | —                                         | PROPOSED — evidence pending             | CR-001/CR-003 evidence before contract freeze   |
-|     1 | DeepSeek V4 Flash | [DS-008 Pi Context Shadow Observation](deepseek/DS-008-pi-context-shadow-observation.md) | `agent/deepseek-ds-008-pi-context-shadow` | ASSIGNED / BLOCKED BY USER SCOPE GATE   | PR #12 merged + explicit user authorization     |
+|     1 | DeepSeek V4 Flash | [DS-008 Pi Context Shadow Observation](deepseek/DS-008-pi-context-shadow-observation.md) | `agent/deepseek-ds-008-pi-context-shadow` | EVIDENCE READY — awaiting architecture review | v0.2 closeout + PR #12 merged + user authorized |
+
+DS-008 executed on `agent/deepseek-ds-008-pi-context-shadow`: both new packages (`@canvas-agent/context-runtime`, `@canvas-agent/pi-context-integration`) are credential-free tested (32 tests), `pnpm check` is green (502 tests), and the opt-in Pi + DeepSeek live smoke was EXECUTED with 4 real semantic model-call observations. Evidence: `docs/verification/context-runtime-cr-001-pi-shadow.md`. DS-008 does not self-accept; the lead architect reviews the Pi evidence before CR-002/CR-003.
 
 Research gate:
 
 ```text
 Product MVP v0.2 closeout ✅
                  +
-PR #12 Context Runtime research baseline reviewed/merged
+PR #12 Context Runtime research baseline merged ✅
                  +
-user explicitly selects v0.3 research as the next milestone
+user explicitly selects v0.3 research as the next milestone ✅
                  |
                  v
 DS-008 — CR-001 Pi model-call Shadow Observation
+   EVIDENCE READY (awaiting architecture review)
                  |
                  v
 architect reviews real Pi evidence
