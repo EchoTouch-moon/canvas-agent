@@ -13,3 +13,15 @@ export {
   type PiContextShadowExtensionOptions,
   type ShadowObservationSinks
 } from './extension/shadow-extension'
+export {
+  EnrichedPiShadowObserver,
+  collectSourceObservations,
+  createEnrichedPiContextShadowExtension,
+  type EnrichedPiShadowObserverOptions,
+  type EnrichedShadowResult
+} from './extension/enriched-shadow-extension'
+export {
+  decomposePiMessage,
+  decomposePiMessages,
+  type ElementWithAttribution
+} from './element-decomposition'
