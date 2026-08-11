@@ -19,6 +19,7 @@
     "e2e:workspace": "node e2e/workspace.e2e.cjs",
     "e2e:agent": "node e2e/agent.e2e.cjs",
     "e2e:packaged-smoke": "node e2e/packaged-smoke.e2e.cjs",
+    "e2e:rc": "node e2e/rc-suite.e2e.cjs",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "pnpm build && electron-builder --dir",
     "build:unpack:unsigned": "pnpm build && electron-builder --dir -c.mac.identity=null",

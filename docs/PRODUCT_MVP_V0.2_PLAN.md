@@ -1,10 +1,11 @@
 # Canvas Agent Product MVP v0.2 — Closeout Execution Baseline
 
-- **Status:** APPROVED FOR TASKING
+- **Status:** DS-007 RC EVIDENCE IN REVIEW — FINAL PRODUCT DECISION PENDING
 - **Decision owner:** Lead architect
 - **Date:** 2026-08-09
 - **Supersedes for next-work ordering:** `docs/PROJECT_EXECUTION_PLAN.md`
 - **Verified code baseline:** `main@26ef285`
+- **RC task baseline:** `main@29b5425`; evidence index: `docs/verification/product-mvp-v0.2-rc.md`
 
 ## 1. Executive decision
 
