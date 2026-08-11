@@ -21,8 +21,19 @@ export interface SnapshotLikeSeed {
   readonly observedAt: string
 }
 
-export interface ContextUniverseEntry {
+// Provider-neutral experimental source descriptor carried by every Universe
+// entry. Explicit metadata (sourceKind/provenance) lets a consumer distinguish
+// snapshot-seeded vs run-derived sources without parsing the sourceKey.
+export interface ContextSourceDescriptor {
   readonly sourceKey: string
+  readonly sourceKind: string
+  readonly provenance: string
+  readonly authority?: string
+  readonly priority?: string
+}
+
+export interface ContextUniverseEntry {
+  readonly source: ContextSourceDescriptor
   readonly state: ContextSourceState
   readonly admittedVersion: ContextSourceVersion | null
 }
@@ -49,12 +60,16 @@ export interface ContextUniverseRevision {
 }
 
 function canonicalEntries(entries: readonly ContextUniverseEntry[]): string {
-  const sorted = [...entries].sort((a, b) => a.sourceKey.localeCompare(b.sourceKey))
+  const sorted = [...entries].sort((a, b) => a.source.sourceKey.localeCompare(b.source.sourceKey))
   return sorted
     .map((entry) => {
       const state = entry.state
       return [
-        entry.sourceKey,
+        entry.source.sourceKey,
+        entry.source.sourceKind,
+        entry.source.provenance,
+        entry.source.authority ?? '-',
+        entry.source.priority ?? '-',
         state.observationStatus,
         state.admittedVersionId ?? '-',
         state.lastAvailableVersionId ?? '-',
@@ -139,7 +154,17 @@ export function seedUniverse(options: SeedUniverseOptions): ContextUniverseRevis
       contentHash: seed.contentHash,
       observedAt: seed.observedAt
     }
-    return { sourceKey: seed.sourceKey, state, admittedVersion: version }
+    return {
+      source: {
+        sourceKey: seed.sourceKey,
+        sourceKind: seed.sourceKind,
+        provenance: seed.provenance,
+        ...(seed.authority !== undefined ? { authority: seed.authority } : {}),
+        ...(seed.priority !== undefined ? { priority: seed.priority } : {})
+      },
+      state,
+      admittedVersion: version
+    }
   })
   return createUniverseRevision({
     runtimeSessionId: options.runtimeSessionId,
@@ -156,6 +181,10 @@ export interface ApplyObservationsOptions {
   readonly observations: readonly SourceObservation[]
   readonly modelCallSequence: number
   readonly attributionSummary?: UniverseAttributionSummary | null
+  // Runtime-admitted source descriptors (sourceKind/provenance) supplied by the
+  // integration/adapter layer. Used when a source first enters the Universe via
+  // a runtime observation; the core never infers sourceKind from the key.
+  readonly sourceDescriptors?: readonly ContextSourceDescriptor[]
 }
 
 // Produces the next immutable Universe revision by applying observations to the
@@ -164,9 +193,14 @@ export function applySourceObservations(options: ApplyObservationsOptions): Cont
   const previous = options.previous
   const stateByKey = new Map<string, ContextSourceState>()
   const versionByKey = new Map<string, ContextSourceVersion | null>()
+  const descriptorByKey = new Map<string, ContextSourceDescriptor>()
   for (const entry of previous.entries) {
-    stateByKey.set(entry.sourceKey, entry.state)
-    versionByKey.set(entry.sourceKey, entry.admittedVersion)
+    stateByKey.set(entry.source.sourceKey, entry.state)
+    versionByKey.set(entry.source.sourceKey, entry.admittedVersion)
+    descriptorByKey.set(entry.source.sourceKey, entry.source)
+  }
+  for (const descriptor of options.sourceDescriptors ?? []) {
+    descriptorByKey.set(descriptor.sourceKey, descriptor)
   }
 
   const events: SourceReconciliationEvent[] = []
@@ -175,17 +209,46 @@ export function applySourceObservations(options: ApplyObservationsOptions): Cont
     const previousState = stateByKey.get(observation.sourceKey) ?? null
     const result = reconcileSource(previousState, observation, previous.sequence + index + 1)
     stateByKey.set(observation.sourceKey, result.state)
-    versionByKey.set(observation.sourceKey, result.admittedVersion)
+
+    // Retain the previous admitted ContextSourceVersion when the reconciled
+    // state still points at the same admitted version id (NO_CHANGE /
+    // RETAIN_LAST_KNOWN). Only clear it on confirmed ABSENT/REMOVE or when the
+    // reconcile produced a new version.
+    if (result.admittedVersion !== null) {
+      versionByKey.set(observation.sourceKey, result.admittedVersion)
+    } else if (result.state.admittedVersionId !== null) {
+      const previousVersion = versionByKey.get(observation.sourceKey)
+      if (previousVersion?.versionId === result.state.admittedVersionId) {
+        versionByKey.set(observation.sourceKey, previousVersion)
+      }
+    } else {
+      versionByKey.set(observation.sourceKey, null)
+    }
+
     events.push(result.event)
   }
 
   const entries: ContextUniverseEntry[] = [...stateByKey.entries()]
-    .map(([sourceKey, state]) => ({
-      sourceKey,
-      state,
-      admittedVersion: versionByKey.get(sourceKey) ?? null
-    }))
-    .sort((a, b) => a.sourceKey.localeCompare(b.sourceKey))
+    .map(([sourceKey, state]) => {
+      const descriptor = descriptorByKey.get(sourceKey)
+      if (descriptor === undefined) {
+        // No descriptor supplied and none inherited: the entry is unobservable
+        // by kind. This is a malformed state for a source that just entered the
+        // Universe; keep a neutral descriptor rather than guessing sourceKind
+        // from the key.
+        return {
+          source: { sourceKey, sourceKind: 'UNKNOWN', provenance: 'UNKNOWN' },
+          state,
+          admittedVersion: versionByKey.get(sourceKey) ?? null
+        }
+      }
+      return {
+        source: descriptor,
+        state,
+        admittedVersion: versionByKey.get(sourceKey) ?? null
+      }
+    })
+    .sort((a, b) => a.source.sourceKey.localeCompare(b.source.sourceKey))
 
   return createUniverseRevision({
     runtimeSessionId: previous.runtimeSessionId,
@@ -247,7 +310,11 @@ export function summarizeAttribution(
 export function replayUniverse(options: {
   readonly runtimeSessionId: string
   readonly seeds: readonly SnapshotLikeSeed[]
-  readonly observationBatches: readonly { readonly observations: readonly SourceObservation[]; readonly modelCallSequence: number }[]
+  readonly observationBatches: readonly {
+    readonly observations: readonly SourceObservation[]
+    readonly modelCallSequence: number
+    readonly sourceDescriptors?: readonly ContextSourceDescriptor[]
+  }[]
   readonly attributionSummaries?: readonly (UniverseAttributionSummary | null)[]
 }): ContextUniverseRevision {
   let revision = seedUniverse({
@@ -255,12 +322,14 @@ export function replayUniverse(options: {
     seeds: options.seeds
   })
   options.observationBatches.forEach((batch, index) => {
-    revision = applySourceObservations({
+    const baseOptions: ApplyObservationsOptions = {
       previous: revision,
       observations: batch.observations,
       modelCallSequence: batch.modelCallSequence,
-      attributionSummary: options.attributionSummaries?.[index] ?? null
-    })
+      attributionSummary: options.attributionSummaries?.[index] ?? null,
+      ...(batch.sourceDescriptors !== undefined ? { sourceDescriptors: batch.sourceDescriptors } : {})
+    }
+    revision = applySourceObservations(baseOptions)
   })
   return revision
 }

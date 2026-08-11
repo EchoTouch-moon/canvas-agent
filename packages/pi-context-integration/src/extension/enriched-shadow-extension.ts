@@ -1,7 +1,9 @@
 import {
   applySourceObservations,
   countAttributions,
+  createAvailableObservation,
   seedUniverse,
+  type ContextSourceDescriptor,
   type ContextUniverseRevision,
   type SnapshotLikeSeed,
   type SourceAttribution,
@@ -11,6 +13,7 @@ import {
 import type { ContextEvent, ExtensionAPI, ExtensionFactory } from '@earendil-works/pi-coding-agent'
 import { PiContextShadowObserver } from './shadow-extension'
 import { decomposePiMessages, type ElementWithAttribution } from '../element-decomposition'
+import { PI_SOURCE_KINDS, PI_SOURCE_PROVENANCE } from '../pi-source-methods'
 import type { PiMessageView } from '../pi-message-mapper'
 
 // Enriched CR-002 shadow observer. It keeps the CR-001 observation seam intact
@@ -26,6 +29,7 @@ export interface EnrichedShadowResult {
   readonly elements: readonly ElementWithAttribution[]
   readonly attributionSummary: UniverseAttributionSummary
   readonly sourceObservations: readonly SourceObservation[]
+  readonly sourceDescriptors: readonly ContextSourceDescriptor[]
   readonly universeRevision: ContextUniverseRevision
 }
 
@@ -61,7 +65,12 @@ export class EnrichedPiShadowObserver {
 
   observeModelCall(messages: readonly PiMessageView[]): EnrichedShadowResult {
     const sequence = this.base.beginModelCall()
-    this.base.observe(messages, sequence)
+
+    // Capture the model-call observation first so CR-001 and CR-002 share the
+    // SAME observedAt timestamp for this semantic model call (no second clock,
+    // no drift within the call).
+    const observation = this.base.observe(messages, sequence) as { observedAt: string }
+    const observedAt = observation.observedAt
 
     const elements = decomposePiMessages(messages, {
       runtimeSessionId: this.runtimeSessionId,
@@ -74,7 +83,7 @@ export class EnrichedPiShadowObserver {
         0
       )
     })
-    const sourceObservations = collectSourceObservations(elements, this.runtimeSessionId)
+    const { observations, descriptors } = collectSourceObservations(elements, observedAt)
 
     // Seed Universe #0 on the first observed model call so the very first
     // revision has a baseline.
@@ -86,7 +95,8 @@ export class EnrichedPiShadowObserver {
     }
     this.universe = applySourceObservations({
       previous: this.universe,
-      observations: sourceObservations,
+      observations,
+      sourceDescriptors: descriptors,
       modelCallSequence: sequence,
       attributionSummary
     })
@@ -94,7 +104,8 @@ export class EnrichedPiShadowObserver {
     const result: EnrichedShadowResult = {
       elements,
       attributionSummary,
-      sourceObservations,
+      sourceObservations: observations,
+      sourceDescriptors: descriptors,
       universeRevision: this.universe
     }
     ;(this.callResults as EnrichedShadowResult[]).push(result)
@@ -107,24 +118,42 @@ export class EnrichedPiShadowObserver {
 // id is directly exposed by the harness). DERIVED_HINT resource paths are NOT
 // converted to source observations: a read result is not proven canonical file
 // state. UNATTRIBUTED / OPAQUE produce no observation.
+//
+// The runtime source descriptor (sourceKind/provenance) is created HERE in the
+// Pi integration layer; the Runtime core never infers sourceKind from the key.
 export function collectSourceObservations(
   elements: readonly ElementWithAttribution[],
   observedAt: string
-): readonly SourceObservation[] {
+): {
+  readonly observations: readonly SourceObservation[]
+  readonly descriptors: readonly ContextSourceDescriptor[]
+} {
   const observations: SourceObservation[] = []
+  const descriptors: ContextSourceDescriptor[] = []
   for (const entry of elements) {
     const attribution: SourceAttribution = entry.attribution
     if (attribution.confidence !== 'EXACT') continue
     if (attribution.sourceKey === undefined) continue
     const sourceKey = attribution.sourceKey
-    // Only event-identity sources are admitted as AVAILABLE here.
-    if (!sourceKey.startsWith('run/tool-call://') && !sourceKey.startsWith('run/tool-result://')) {
-      continue
+    if (sourceKey.startsWith('run/tool-call://')) {
+      const contentHash = entry.element.semanticHash
+      observations.push(createAvailableObservation(sourceKey, contentHash, observedAt))
+      descriptors.push({
+        sourceKey,
+        sourceKind: PI_SOURCE_KINDS.RUN_TOOL_CALL,
+        provenance: PI_SOURCE_PROVENANCE.CONTEXT_EVENT
+      })
+    } else if (sourceKey.startsWith('run/tool-result://')) {
+      const contentHash = entry.element.semanticHash
+      observations.push(createAvailableObservation(sourceKey, contentHash, observedAt))
+      descriptors.push({
+        sourceKey,
+        sourceKind: PI_SOURCE_KINDS.RUN_TOOL_RESULT,
+        provenance: PI_SOURCE_PROVENANCE.CONTEXT_EVENT
+      })
     }
-    const contentHash = entry.element.semanticHash
-    observations.push({ sourceKey, status: 'AVAILABLE', observedAt, contentHash })
   }
-  return observations
+  return { observations, descriptors }
 }
 
 // Enriched Pi extension factory: runs the CR-001 observation seam plus CR-002

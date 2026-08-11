@@ -30,13 +30,13 @@ export { sha256Hex, hashNormalizedMessage } from './util/hash'
 export { truncateToUtf8Bytes, utf8ByteLength } from './util/utf8'
 export {
   ATTRIBUTION_CONFIDENCE,
-  ATTRIBUTION_METHODS,
   DERIVED_HINT_ATTRIBUTION,
   EXACT_ATTRIBUTION,
+  GENERIC_ATTRIBUTION_METHODS,
   OPAQUE_ATTRIBUTION,
   UNATTRIBUTED_ATTRIBUTION,
   type AttributionConfidence,
-  type AttributionMethod,
+  type AttributionMethodId,
   type ResourceHint,
   type SourceAttribution
 } from './attribution/attribution'
@@ -50,8 +50,11 @@ export {
 export {
   SOURCE_OBSERVATION_STATUSES,
   SOURCE_RECONCILIATION_ACTIONS,
+  createAbsentObservation,
+  createAvailableObservation,
   createContextSourceVersion,
   createSourceVersionId,
+  createUnavailableObservation,
   type ContextSourceState,
   type ContextSourceVersion,
   type ExperimentalContextSource,
@@ -73,6 +76,7 @@ export {
   type ApplyObservationsOptions,
   type AttributionCounts,
   type AttributionCountsInput,
+  type ContextSourceDescriptor,
   type ContextUniverseEntry,
   type ContextUniverseRevision,
   type SnapshotLikeSeed,

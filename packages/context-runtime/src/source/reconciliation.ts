@@ -22,6 +22,9 @@ export interface ReconcileResult {
 //   UNAVAILABLE                -> RETAIN_LAST_KNOWN
 //
 // UNAVAILABLE never becomes ABSENT and never clears the last available version.
+// AVAILABLE without a content hash is unrepresentable (discriminated union);
+// reconcileSource therefore never silently converts a malformed observation
+// into NO_CHANGE.
 export function reconcileSource(
   previous: ContextSourceState | null,
   observation: SourceObservation,
@@ -30,7 +33,7 @@ export function reconcileSource(
   const timestamp = observation.observedAt
 
   if (previous === null) {
-    if (observation.status === 'AVAILABLE' && observation.contentHash !== undefined) {
+    if (observation.status === 'AVAILABLE') {
       const version = createContextSourceVersion(
         observation.sourceKey,
         observation.contentHash,
@@ -59,7 +62,7 @@ export function reconcileSource(
         admittedVersion: version
       }
     }
-    // First observation not AVAILABLE: no admitted version yet.
+    // First observation ABSENT or UNAVAILABLE: no admitted version yet.
     const state: ContextSourceState = {
       sourceKey: observation.sourceKey,
       observationStatus: observation.status,
@@ -133,36 +136,8 @@ export function reconcileSource(
     }
   }
 
-  // AVAILABLE with a content hash.
+  // AVAILABLE: contentHash is guaranteed by the discriminated union.
   const contentHash = observation.contentHash
-  if (contentHash === undefined) {
-    // AVAILABLE without content is a malformed observation; treat as NO_CHANGE
-    // to stay deterministic rather than inventing a version.
-    const state: ContextSourceState = {
-      ...previous,
-      observationStatus: 'AVAILABLE',
-      reconciliationSequence: sequence,
-      lastObservedAt: timestamp
-    }
-    return {
-      state,
-      event: {
-        sourceKey: observation.sourceKey,
-        previousState: previous,
-        observation,
-        action: 'NO_CHANGE',
-        previousVersionId: previous.admittedVersionId,
-        nextVersionId: previous.admittedVersionId,
-        sequence,
-        timestamp
-      },
-      admittedVersion: null
-    }
-  }
-
-  // AVAILABLE with a content hash. Compare against the admitted version id:
-  // same hash means the source content is unchanged, so do not create a new
-  // version.
   const candidateVersionId = createSourceVersionId(observation.sourceKey, contentHash)
   if (previous.admittedVersionId === candidateVersionId) {
     const state: ContextSourceState = {

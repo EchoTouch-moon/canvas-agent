@@ -159,7 +159,7 @@ describe('source observation collection', () => {
       toolResultMessage('call-1', 'contents')
     ]
     const elements = decomposePiMessages(messages, { runtimeSessionId: 's', modelCallSequence: 1 })
-    const observations = collectSourceObservations(elements, FIXED_NOW)
+    const { observations } = collectSourceObservations(elements, FIXED_NOW)
     const keys = observations.map((o) => o.sourceKey).sort()
     expect(keys).toEqual(['run/tool-call://call-1', 'run/tool-result://call-1'])
     expect(observations.every((o) => o.status === 'AVAILABLE')).toBe(true)
@@ -169,7 +169,7 @@ describe('source observation collection', () => {
     const message = toolCallMessage('call-1', 'read', { path: 'src/auth.ts' })
     const [entry] = decomposePiMessages([message], { runtimeSessionId: 's', modelCallSequence: 1 })
     expect(entry!.attribution.confidence).toBe('EXACT')
-    const observations = collectSourceObservations([entry!], FIXED_NOW)
+    const { observations } = collectSourceObservations([entry!], FIXED_NOW)
     // Only run/tool-call://call-1; no repository/file:// key.
     expect(observations.map((o) => o.sourceKey)).toEqual(['run/tool-call://call-1'])
   })
@@ -177,7 +177,7 @@ describe('source observation collection', () => {
   it('UNATTRIBUTED / OPAQUE produce no source observations', () => {
     const messages = [assistantText('prose'), userMessage('hi')]
     const elements = decomposePiMessages(messages, { runtimeSessionId: 's', modelCallSequence: 1 })
-    const observations = collectSourceObservations(elements, FIXED_NOW)
+    const { observations } = collectSourceObservations(elements, FIXED_NOW)
     expect(observations).toHaveLength(0)
   })
 })
@@ -214,9 +214,9 @@ describe('enriched shadow observer', () => {
     expect(call2.universeRevision.sequence).toBe(2)
     expect(call3.universeRevision.sequence).toBe(3)
     const toolResultEntries = call3.universeRevision.entries.filter((e) =>
-      e.sourceKey.startsWith('run/tool-result://')
+      e.source.sourceKey.startsWith('run/tool-result://')
     )
-    expect(toolResultEntries.map((e) => e.sourceKey).sort()).toEqual([
+    expect(toolResultEntries.map((e) => e.source.sourceKey).sort()).toEqual([
       'run/tool-result://call-1',
       'run/tool-result://call-2'
     ])
@@ -248,7 +248,7 @@ describe('enriched shadow observer', () => {
     expect(call1.universeRevision.sequence).toBe(1)
     // The seeded file entry must still exist (no runtime observation changed it).
     const auth = call1.universeRevision.entries.find(
-      (e) => e.sourceKey === 'repository/file://src/auth.ts'
+      (e) => e.source.sourceKey === 'repository/file://src/auth.ts'
     )
     expect(auth?.admittedVersion?.contentHash).toBe('seed-hash')
   })
@@ -261,5 +261,70 @@ describe('enriched shadow observer', () => {
     expect(result.messages).toBe(messages)
     void enriched.observeModelCall(messages)
     expect(result.messages).toBe(messages)
+  })
+
+  it('PR16: ModelCallObservation.observedAt == SourceObservation.observedAt == state.lastObservedAt', () => {
+    const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
+    const enriched = new EnrichedPiShadowObserver({ base })
+    enriched.observeModelCall([toolCallMessage('call-1', 'read', { path: 'a.ts' })])
+    const modelObservation = base.inMemory.last()!
+    const result = enriched.callResults[0]!
+    // Timestamps must be identical and must NOT equal the runtimeSessionId.
+    expect(modelObservation.observedAt).toBe(FIXED_NOW)
+    expect(result.sourceObservations.length).toBeGreaterThan(0)
+    for (const obs of result.sourceObservations) {
+      expect(obs.observedAt).toBe(FIXED_NOW)
+      expect(obs.observedAt).not.toBe('sess')
+    }
+    const callEntry = result.universeRevision.entries.find((e) =>
+      e.source.sourceKey.startsWith('run/tool-call://')
+    )
+    expect(callEntry?.state.lastObservedAt).toBe(FIXED_NOW)
+    expect(callEntry?.state.lastObservedAt).not.toBe('sess')
+  })
+
+  it('PR16: same toolCallId + changed result content => different SourceVersion', () => {
+    const observer = enrichedObserver()
+    const call1 = observer.observeModelCall([toolResultMessage('call-1', 'content A')])
+    const call2 = observer.observeModelCall([toolResultMessage('call-1', 'content B')])
+    const entry1 = call1.universeRevision.entries.find((e) =>
+      e.source.sourceKey.startsWith('run/tool-result://')
+    )
+    const entry2 = call2.universeRevision.entries.find((e) =>
+      e.source.sourceKey.startsWith('run/tool-result://')
+    )
+    // Same source identity (same sourceKey) but changed model-visible content
+    // must produce different immutable SourceVersions.
+    expect(entry1?.source.sourceKey).toBe(entry2?.source.sourceKey)
+    expect(entry1?.state.admittedVersionId).not.toBe(entry2?.state.admittedVersionId)
+    expect(entry1?.admittedVersion?.contentHash).not.toBe(entry2?.admittedVersion?.contentHash)
+  })
+
+  it('PR16: snapshot-seeded and run-derived sources are distinguishable by provenance', () => {
+    const observer = enrichedObserver([
+      {
+        sourceKey: 'repository/file://src/auth.ts',
+        sourceKind: 'repository-file',
+        contentHash: 'seed-hash',
+        provenance: 'snapshot-seed',
+        observedAt: FIXED_NOW
+      }
+    ])
+    const call = observer.observeModelCall([
+      toolCallMessage('call-1', 'read', { path: 'a.ts' }),
+      toolResultMessage('call-1', 'content')
+    ])
+    const seeded = call.universeRevision.entries.find(
+      (e) => e.source.sourceKey === 'repository/file://src/auth.ts'
+    )
+    const run = call.universeRevision.entries.find((e) =>
+      e.source.sourceKey.startsWith('run/tool-')
+    )
+    expect(seeded?.source.provenance).toBe('snapshot-seed')
+    expect(seeded?.source.sourceKind).toBe('repository-file')
+    expect(run?.source.provenance).toBe('PI_CONTEXT_EVENT')
+    expect(run?.source.sourceKind).toMatch(/^RUN_TOOL_/)
+    // Distinguishable by explicit metadata, not URI-prefix parsing.
+    expect(run?.source.provenance).not.toBe(seeded?.source.provenance)
   })
 })

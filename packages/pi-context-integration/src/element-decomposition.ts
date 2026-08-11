@@ -3,16 +3,48 @@ import {
   OPAQUE_ATTRIBUTION,
   UNATTRIBUTED_ATTRIBUTION,
   elementSemanticHash,
+  hashNormalizedMessage,
   observationRef,
+  utf8ByteLength,
   type ObservedContextElement,
   type ResourceHint,
   type SourceAttribution
 } from '@canvas-agent/context-runtime'
+import { PI_ATTRIBUTION_METHODS } from './pi-source-methods'
 import type { PiContentBlockView, PiMessageView } from './pi-message-mapper'
 
 export interface ElementWithAttribution {
   readonly element: ObservedContextElement
   readonly attribution: SourceAttribution
+}
+
+// Canonical bounded semantic content of a tool result for hashing. Text and
+// thinking blocks contribute their content; image/binary blocks contribute
+// type + byte length + sha256 (never the payload); structured blocks contribute
+// a stable serialization. Deterministic and metadata-only (raw payload is never
+// persisted).
+export function toolResultSemanticParts(
+  content: unknown,
+  isError: boolean
+): readonly string[] {
+  const parts: string[] = []
+  for (const block of toBlocks(content)) {
+    if (block.type === 'text' && typeof block.text === 'string') {
+      parts.push(`text:${block.text}`)
+    } else if (block.type === 'thinking' && typeof block.thinking === 'string') {
+      parts.push(`thinking:${block.thinking}`)
+    } else if (block.type === 'image') {
+      const data = typeof block.data === 'string' ? block.data : ''
+      const byteLength = utf8ByteLength(data)
+      const dataHash = hashNormalizedMessage(data)
+      parts.push(`image:${block.mimeType ?? ''}:${byteLength}:${dataHash}`)
+    } else {
+      const serialized = JSON.stringify(block)
+      parts.push(`${block.type}:${serialized}`)
+    }
+  }
+  parts.push(`isError:${String(isError)}`)
+  return parts
 }
 
 // Canonical repository path hint extraction from structured tool arguments.
@@ -53,6 +85,7 @@ export function decomposePiMessage(
 
   if (role === 'toolResult') {
     const callId = message.toolCallId
+    const isError = message.isError ?? false
     if (callId === undefined) {
       // Tool result without a call id: opaque/unattributed.
       const element: ObservedContextElement = {
@@ -62,7 +95,12 @@ export function decomposePiMessage(
         messagePosition: ctx.messagePosition,
         role,
         elementKind: 'TOOL_RESULT',
-        semanticHash: elementSemanticHash(['toolResult', message.toolName ?? '', 'no-call-id']),
+        semanticHash: elementSemanticHash([
+          'toolResult',
+          message.toolName ?? '',
+          'no-call-id',
+          ...toolResultSemanticParts(message.content, isError)
+        ]),
         ...(message.toolName !== undefined ? { toolName: message.toolName } : {})
       }
       result.push({
@@ -75,6 +113,9 @@ export function decomposePiMessage(
       })
       return result
     }
+    // The complete model-relevant result content participates in the semantic
+    // hash so a changed result for the same run/tool-result://<callId> yields a
+    // different immutable SourceVersion (CR-002 review item).
     const element: ObservedContextElement = {
       observationRef: observationRef(ctx.runtimeSessionId, ctx.modelCallSequence, ctx.messagePosition),
       runtimeSessionId: ctx.runtimeSessionId,
@@ -86,7 +127,7 @@ export function decomposePiMessage(
         'toolResult',
         callId,
         message.toolName ?? '',
-        String(message.isError ?? false)
+        ...toolResultSemanticParts(message.content, isError)
       ]),
       toolCallId: callId,
       ...(message.toolName !== undefined ? { toolName: message.toolName } : {})
@@ -96,7 +137,7 @@ export function decomposePiMessage(
       attribution: {
         confidence: 'EXACT',
         sourceKey: `run/tool-result://${callId}`,
-        method: 'PI_TOOL_RESULT_ID_EXACT',
+        method: PI_ATTRIBUTION_METHODS.TOOL_RESULT_ID_EXACT,
         evidenceRefs: [
           `modelCall=${ctx.modelCallSequence}`,
           `messageIndex=${ctx.messagePosition}`,
@@ -170,7 +211,7 @@ export function decomposePiMessage(
         pathHint !== null
           ? {
               sourceKey: `repository/file://${pathHint}`,
-              method: 'PI_TOOL_ARGUMENT_PATH_HINT',
+              method: PI_ATTRIBUTION_METHODS.TOOL_ARGUMENT_PATH_HINT,
               evidenceRefs: [...evidence, `tool=${name}`, 'argumentField=path']
             }
           : undefined
@@ -180,7 +221,7 @@ export function decomposePiMessage(
         const attribution: SourceAttribution = {
           confidence: 'EXACT',
           sourceKey: `run/tool-call://${callId}`,
-          method: 'PI_TOOL_CALL_ID_EXACT',
+          method: PI_ATTRIBUTION_METHODS.TOOL_CALL_ID_EXACT,
           evidenceRefs: [...evidence, `toolCallId=${callId}`, `tool=${name}`],
           ...(resourceHint !== undefined ? { resourceHints: [resourceHint] } : {})
         }
@@ -192,7 +233,7 @@ export function decomposePiMessage(
           attribution: DERIVED_HINT_ATTRIBUTION(
             [...evidence, `tool=${name}`, 'argumentField=path'],
             `repository/file://${pathHint}`,
-            'PI_TOOL_ARGUMENT_PATH_HINT'
+            PI_ATTRIBUTION_METHODS.TOOL_ARGUMENT_PATH_HINT
           )
         })
       } else {

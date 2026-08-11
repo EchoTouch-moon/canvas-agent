@@ -144,8 +144,12 @@ describe('source reconciliation', () => {
       { sourceKey: 'repository/file://a.ts', status: 'UNAVAILABLE', reasonCode: 'adapter-down' }
     ])
     const observation = observer.observe('repository/file://a.ts', T0)
-    expect(observation?.status).toBe('UNAVAILABLE')
-    expect(observation?.reasonCode).toBe('adapter-down')
+    expect(observation).not.toBeNull()
+    if (observation !== null && observation.status === 'UNAVAILABLE') {
+      expect(observation.reasonCode).toBe('adapter-down')
+    } else {
+      expect.fail('expected UNAVAILABLE observation')
+    }
   })
 })
 
@@ -172,7 +176,7 @@ describe('shadow context universe', () => {
     expect(revision.sequence).toBe(0)
     expect(revision.modelCallSequence).toBeNull()
     expect(revision.entries).toHaveLength(2)
-    const auth = revision.entries.find((e) => e.sourceKey === 'repository/file://src/auth.ts')
+    const auth = revision.entries.find((e) => e.source.sourceKey === 'repository/file://src/auth.ts')
     expect(auth?.admittedVersion?.contentHash).toBe('hash-A')
     expect(auth?.state.observationStatus).toBe('AVAILABLE')
   })
@@ -187,10 +191,10 @@ describe('shadow context universe', () => {
     expect(next.sequence).toBe(1)
     expect(next.modelCallSequence).toBe(1)
     expect(next.previousRevisionId).toBe(seed.revisionId)
-    const auth = next.entries.find((e) => e.sourceKey === 'repository/file://src/auth.ts')
+    const auth = next.entries.find((e) => e.source.sourceKey === 'repository/file://src/auth.ts')
     expect(auth?.admittedVersion?.contentHash).toBe('hash-C')
     // The seed revision is immutable and still carries hash-A.
-    const seedAuth = seed.entries.find((e) => e.sourceKey === 'repository/file://src/auth.ts')
+    const seedAuth = seed.entries.find((e) => e.source.sourceKey === 'repository/file://src/auth.ts')
     expect(seedAuth?.admittedVersion?.contentHash).toBe('hash-A')
   })
 
@@ -251,10 +255,10 @@ describe('shadow context universe', () => {
     const replayed = replayUniverse({ runtimeSessionId: 's', seeds, observationBatches: batches })
     expect(replayed.sequence).toBe(3)
     expect(replayed.logicalHash).toBe(final.logicalHash)
-    const auth = replayed.entries.find((e) => e.sourceKey === 'repository/file://src/auth.ts')
+    const auth = replayed.entries.find((e) => e.source.sourceKey === 'repository/file://src/auth.ts')
     expect(auth?.state.observationStatus).toBe('UNAVAILABLE')
     expect(auth?.state.admittedVersionId).not.toBeNull()
-    const task = replayed.entries.find((e) => e.sourceKey === 'task-spec://task-1')
+    const task = replayed.entries.find((e) => e.source.sourceKey === 'task-spec://task-1')
     expect(task?.state.observationStatus).toBe('ABSENT')
   })
 
@@ -269,6 +273,93 @@ describe('shadow context universe', () => {
     const b = replayUniverse({ runtimeSessionId: 's', seeds, observationBatches: batches })
     expect(a.logicalHash).toBe(b.logicalHash)
     expect(a.entries).toEqual(b.entries)
+  })
+
+  it('PR16: AVAILABLE unchanged retains the admitted ContextSourceVersion in the entry', () => {
+    const seed = seedUniverse({ runtimeSessionId: 's', seeds })
+    // First observation: same hash as the seed version => NO_CHANGE.
+    const noChange = applySourceObservations({
+      previous: seed,
+      observations: [available('repository/file://src/auth.ts', 'hash-A')],
+      modelCallSequence: 1
+    })
+    const auth = noChange.entries.find((e) => e.source.sourceKey === 'repository/file://src/auth.ts')
+    expect(auth?.state.admittedVersionId).not.toBeNull()
+    expect(auth?.admittedVersion).not.toBeNull()
+    expect(auth!.admittedVersion!.versionId).toBe(auth!.state.admittedVersionId)
+  })
+
+  it('PR16: UNAVAILABLE retains the admitted ContextSourceVersion in the entry', () => {
+    const seed = seedUniverse({ runtimeSessionId: 's', seeds })
+    const unavailableRevision = applySourceObservations({
+      previous: seed,
+      observations: [unavailable('repository/file://src/auth.ts')],
+      modelCallSequence: 1
+    })
+    const auth = unavailableRevision.entries.find(
+      (e) => e.source.sourceKey === 'repository/file://src/auth.ts'
+    )
+    expect(auth?.state.observationStatus).toBe('UNAVAILABLE')
+    expect(auth?.state.admittedVersionId).not.toBeNull()
+    expect(auth?.admittedVersion).not.toBeNull()
+    expect(auth!.admittedVersion!.versionId).toBe(auth!.state.admittedVersionId)
+  })
+
+  it('PR16: ABSENT clears the admitted ContextSourceVersion in the entry', () => {
+    const seed = seedUniverse({ runtimeSessionId: 's', seeds })
+    const removed = applySourceObservations({
+      previous: seed,
+      observations: [absent('repository/file://src/auth.ts')],
+      modelCallSequence: 1
+    })
+    const auth = removed.entries.find((e) => e.source.sourceKey === 'repository/file://src/auth.ts')
+    expect(auth?.state.observationStatus).toBe('ABSENT')
+    expect(auth?.state.admittedVersionId).toBeNull()
+    expect(auth?.admittedVersion).toBeNull()
+  })
+
+  it('PR16: runtime-admitted source carries explicit descriptor (not key parsing)', () => {
+    const seed = seedUniverse({ runtimeSessionId: 's', seeds })
+    const descriptor = {
+      sourceKey: 'run/tool-result://call-1',
+      sourceKind: 'RUN_TOOL_RESULT',
+      provenance: 'PI_CONTEXT_EVENT'
+    }
+    const next = applySourceObservations({
+      previous: seed,
+      observations: [available('run/tool-result://call-1', 'result-hash')],
+      sourceDescriptors: [descriptor],
+      modelCallSequence: 1
+    })
+    const seeded = next.entries.find((e) => e.source.sourceKey === 'repository/file://src/auth.ts')
+    expect(seeded?.source.provenance).toBe('snapshot-seed')
+    expect(seeded?.source.sourceKind).toBe('repository-file')
+    const run = next.entries.find((e) => e.source.sourceKey === 'run/tool-result://call-1')
+    expect(run?.source.sourceKind).toBe('RUN_TOOL_RESULT')
+    expect(run?.source.provenance).toBe('PI_CONTEXT_EVENT')
+    // Distinguishable by explicit metadata, not by parsing the key.
+    expect(run?.source.provenance).not.toBe(seeded?.source.provenance)
+  })
+
+  it('PR16: same tool result identity + changed content => different SourceVersion', () => {
+    const seed = seedUniverse({ runtimeSessionId: 's', seeds })
+    const next = applySourceObservations({
+      previous: seed,
+      observations: [available('run/tool-result://call-1', 'content-A')],
+      sourceDescriptors: [{ sourceKey: 'run/tool-result://call-1', sourceKind: 'RUN_TOOL_RESULT', provenance: 'PI_CONTEXT_EVENT' }],
+      modelCallSequence: 1
+    })
+    const next2 = applySourceObservations({
+      previous: next,
+      observations: [available('run/tool-result://call-1', 'content-B')],
+      sourceDescriptors: [{ sourceKey: 'run/tool-result://call-1', sourceKind: 'RUN_TOOL_RESULT', provenance: 'PI_CONTEXT_EVENT' }],
+      modelCallSequence: 2
+    })
+    const entry1 = next.entries.find((e) => e.source.sourceKey === 'run/tool-result://call-1')
+    const entry2 = next2.entries.find((e) => e.source.sourceKey === 'run/tool-result://call-1')
+    expect(entry1!.state.admittedVersionId).not.toBe(entry2!.state.admittedVersionId)
+    expect(entry1!.admittedVersion!.contentHash).toBe('content-A')
+    expect(entry2!.admittedVersion!.contentHash).toBe('content-B')
   })
 })
 

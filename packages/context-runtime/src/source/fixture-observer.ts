@@ -1,4 +1,10 @@
-import type { SourceObservation, SourceObservationStatus } from '../source/source-types'
+import {
+  createAbsentObservation,
+  createAvailableObservation,
+  createUnavailableObservation,
+  type SourceObservation,
+  type SourceObservationStatus
+} from './source-types'
 
 // EXPERIMENTAL fixture-backed source observer. It answers "what is the current
 // state of this source?" from an explicit, in-memory fixture table. This is the
@@ -28,18 +34,18 @@ export class FixtureSourceObserver {
       // null means "not observed by this observer", never ABSENT.
       return null
     }
-    const base: SourceObservation = {
-      sourceKey,
-      status: entry.status,
-      observedAt
+    if (entry.status === 'AVAILABLE') {
+      const contentHash = entry.contentHash
+      if (contentHash === undefined) {
+        throw new Error(`FixtureSourceObserver: AVAILABLE entry for ${sourceKey} requires contentHash`)
+      }
+      return createAvailableObservation(sourceKey, contentHash, observedAt)
     }
-    if (entry.status === 'AVAILABLE' && entry.contentHash !== undefined) {
-      return { ...base, contentHash: entry.contentHash }
+    if (entry.status === 'ABSENT') {
+      return createAbsentObservation(sourceKey, observedAt)
     }
-    if (entry.status === 'UNAVAILABLE' && entry.reasonCode !== undefined) {
-      return { ...base, reasonCode: entry.reasonCode }
-    }
-    return base
+    const reasonCode = entry.reasonCode ?? 'unavailable'
+    return createUnavailableObservation(sourceKey, reasonCode, observedAt)
   }
 
   upsert(entry: FixtureSourceEntry): void {

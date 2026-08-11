@@ -46,14 +46,48 @@ export function createContextSourceVersion(
 // a confirmed absence (observer succeeded and the source no longer exists).
 // UNAVAILABLE is a failed attempt (state cannot be established). A source
 // merely missing from AgentMessage[] is neither.
-export interface SourceObservation {
-  readonly sourceKey: string
-  readonly status: SourceObservationStatus
-  readonly observedAt: string
-  // Present only for AVAILABLE observations.
-  readonly contentHash?: string
-  // Present only for UNAVAILABLE observations.
-  readonly reasonCode?: string
+//
+// Discriminated union so malformed states are unrepresentable:
+//   AVAILABLE   => contentHash required
+//   ABSENT      => no contentHash
+//   UNAVAILABLE => reasonCode required
+export type SourceObservation =
+  | {
+      readonly sourceKey: string
+      readonly status: 'AVAILABLE'
+      readonly observedAt: string
+      readonly contentHash: string
+    }
+  | {
+      readonly sourceKey: string
+      readonly status: 'ABSENT'
+      readonly observedAt: string
+    }
+  | {
+      readonly sourceKey: string
+      readonly status: 'UNAVAILABLE'
+      readonly observedAt: string
+      readonly reasonCode: string
+    }
+
+export function createAvailableObservation(
+  sourceKey: string,
+  contentHash: string,
+  observedAt: string
+): SourceObservation {
+  return { sourceKey, status: 'AVAILABLE', observedAt, contentHash }
+}
+
+export function createAbsentObservation(sourceKey: string, observedAt: string): SourceObservation {
+  return { sourceKey, status: 'ABSENT', observedAt }
+}
+
+export function createUnavailableObservation(
+  sourceKey: string,
+  reasonCode: string,
+  observedAt: string
+): SourceObservation {
+  return { sourceKey, status: 'UNAVAILABLE', observedAt, reasonCode }
 }
 
 // Reconciled head state for one source within a runtime session.

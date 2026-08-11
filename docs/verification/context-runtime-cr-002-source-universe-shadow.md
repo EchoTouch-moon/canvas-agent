@@ -1,10 +1,10 @@
 # CR-002 Verification — Context Source Attribution and Shadow Universe Model
 
-- **Status:** EVIDENCE READY — not self-accepted; awaits lead architect review of PR (DS-009)
+- **Status:** EVIDENCE READY (rev.2) — not self-accepted; awaits lead architect re-review of PR #16
 - **Packet:** `docs/tasks/deepseek/DS-009-context-source-universe-shadow.md`
 - **Owner:** DeepSeek V4 Flash — Context Runtime research implementer
 - **Branch:** `agent/deepseek-ds-009-context-source-universe-shadow`
-- **Date:** 2026-08-11
+- **Date:** 2026-08-11 (rev.2 after PR #16 architecture review)
 - **Pi exact version tested:** `@earendil-works/pi-coding-agent@0.84.1` (workspace pin). Tool-call lifecycle hooks (`tool_execution_start/end`, `tool_call`, `tool_result`) verified present in the installed package; `context` remains the authoritative model-call seam and no lifecycle hook is required for the implemented correlation.
 - **DeepSeek provider/model (live smoke):** provider `deepseek`, model `deepseek-v4-flash`, credential from local Pi `auth.json`.
 
@@ -76,38 +76,38 @@ UNAVAILABLE            -> RETAIN_LAST_KNOWN
 ## 6. Deterministic test results (credential-free, no network)
 
 ```bash
-pnpm --filter @canvas-agent/context-runtime test        49 passed
-pnpm --filter @canvas-agent/pi-context-integration test 37 passed
+pnpm --filter @canvas-agent/context-runtime test        54 passed
+pnpm --filter @canvas-agent/pi-context-integration test 40 passed
 pnpm --filter @canvas-agent/context-runtime typecheck   PASS
 pnpm --filter @canvas-agent/pi-context-integration typecheck PASS
-pnpm check                                              GREEN (556 tests + build)
+pnpm check                                              GREEN (564 tests + build)
 ```
 
 Coverage of the DS-009 required deterministic tests (26 items): all present —
-decomposition determinism; tool call/result correlation by toolCallId; structured path => DERIVED_HINT; assistant prose produces no repository source; contentHash equality does not create source identity; AVAILABLE first/same/changed; ABSENT=>REMOVE; UNAVAILABLE=>RETAIN_LAST_KNOWN; UNAVAILABLE retains lastAvailable; message disappearance != ABSENT; Universe immutable; logical hash deterministic; seed+events replay; replay hash identical; provider types never enter Runtime core; metadata output has no raw credentials.
+decomposition determinism; tool call/result correlation by toolCallId; structured path => DERIVED_HINT; assistant prose produces no repository source; contentHash equality does not create source identity; AVAILABLE first/same/changed; ABSENT=>REMOVE; UNAVAILABLE=>RETAIN_LAST_KNOWN; UNAVAILABLE retains lastAvailable; message disappearance != ABSENT; Universe immutable; logical hash deterministic; seed+events replay; replay hash identical; provider types never enter Runtime core; metadata output has no raw credentials. PR #16 review items added tests for admitted-version retention on NO_CHANGE/UNAVAILABLE, ABSENT version clearing, tool-result content versioning, timestamp correlation, and snapshot-vs-run provenance.
 
-## 7. Live enriched Pi + DeepSeek smoke (CR-002)
+## 7. Live enriched Pi + DeepSeek smoke (CR-002, rev.2)
 
 **Status: EXECUTED**
 
 ```text
 Command: CANVAS_CONTEXT_LIVE_SMOKE=1 pnpm --filter @canvas-agent/pi-context-integration smoke:deepseek:cr002
-runtimeSessionId: smoke-cr002-2026-08-11T07-33-49-119Z
+runtimeSessionId: smoke-cr002-2026-08-11T08-14-40-983Z
 provider: deepseek   model: deepseek-v4-flash
 ```
 
 Metadata-only attribution timeline:
 
 ```text
-modelCall  elements  EXACT  DERIVED_HINT  UNATTRIBUTED  OPAQUE  resourceHints  universe rev  sources
-  1            1        0        0             1          0           0              1          1
-  2            4        2        0             2          0           1              2          3
-  3            6        4        0             2          0           2              3          5
-  4           10        6        0             4          0           3              4          7
-  5           12        8        0             4          0           4              5          9
+modelCall  elements  EXACT  DERIVED_HINT  UNATTRIBUTED  OPAQUE  resourceHints  sourceObs  universe rev  sources
+  1            1        0        0             1          0           0            0         1          1
+  2            4        2        0             2          0           1            2         2          3
+  3            6        4        0             2          0           2            4         3          5
+  4            9        6        0             3          0           3            6         4          7
+  5           12        8        0             4          0           4            8         5          9
 ```
 
-Final attribution coverage (last model call): EXACT=8, DERIVED_HINT=0, UNATTRIBUTED=4, OPAQUE=0, resourceHints=4. Universe: revision 5, 9 sources, logicalHash `d3c86964fdbc7cc21dacd2cc547564a52b6c17a160d2c0ad0dd23f711b2e505d`. Source kinds observed: `run/tool-call://*`, `run/tool-result://*` (EXACT run-event identities) plus the snapshot-like seed `repository/file://notes.md` (seed only, not runtime-admitted). No raw prompt/tool-result content and no credentials in the JSONL trace (verified). Trace is under `.canvas-agent/research/**` (gitignored).
+Final attribution coverage (last model call): EXACT=8, DERIVED_HINT=0, UNATTRIBUTED=4, OPAQUE=0, resourceHints=4, sourceObservations=8. Universe: revision 5, 9 sources, logicalHash `c9e9895ecd0a7aac49ae2071b43442acf4d2d1a4d3290f8c24a2fcfd553831ea`. Source kinds observed: `run/tool-call://*`, `run/tool-result://*` (EXACT run-event identities, descriptor sourceKind RUN_TOOL_CALL / RUN_TOOL_RESULT, provenance PI_CONTEXT_EVENT) plus the snapshot-like seed `repository/file://notes.md` (seed only, not runtime-admitted). No raw prompt/tool-result content and no credentials in the JSONL trace (verified). Trace is under `.canvas-agent/research/**` (gitignored).
 
 ## 8. Source Reconciliation examples
 
@@ -183,7 +183,18 @@ Only run-event identities (tool-call / tool-result by toolCallId) are stable/EXA
 
 Recommendation (not authorization): allow CR-003 Shadow Planner work to begin **on the run-event universe** (tool-call/tool-result sources are trustworthy), while explicitly marking repository/file hints as non-canonical until a real repository observer is added. If the Planner requires canonical file sources, add a repository observer experiment first.
 
-## 16. Scope confirmation
+## 16. PR #16 review items — resolution
+
+| Review item | Resolution |
+|---|---|
+| P1 Universe loses admitted version on NO_CHANGE/UNAVAILABLE | ✅ `applySourceObservations` retains the previous admitted `ContextSourceVersion` whenever the reconciled state still references the same admitted version id; clears it only on ABSENT/REMOVE. Tests assert `entry.state.admittedVersionId === entry.admittedVersion.versionId` on both NO_CHANGE and UNAVAILABLE, and `admittedVersion === null` on ABSENT. |
+| P1 TOOL_RESULT version hash omits result content | ✅ `toolResultSemanticParts()` folds result text/thinking blocks, image (type+bytes+sha256) and error semantics into the in-memory `semanticHash`; `collectSourceObservations` promotes that hash to the SourceVersion `contentHash`. Same toolCallId + changed content => different version (test-locked). Raw result content never persisted. |
+| P1 SourceObservation observedAt was runtimeSessionId | ✅ `observeModelCall` now captures the CR-001 `ModelCallObservation.observedAt` once and passes that same value to `collectSourceObservations` and reconciliation. Test asserts `ModelCallObservation.observedAt === SourceObservation.observedAt === state.lastObservedAt` and `!== runtimeSessionId`. |
+| P1 Runtime attribution vocabulary hard-codes Pi | ✅ core uses neutral `AttributionMethodId` (string) + generic `NO_TRUSTWORTHY_IDENTITY` / `ORIGIN_OPAQUE`; Pi-specific constants moved to `pi-context-integration/src/pi-source-methods.ts`. No core test references a PI_* method. |
+| P1 Universe drops source descriptor/provenance | ✅ `ContextUniverseEntry` now carries a `ContextSourceDescriptor` (sourceKey/sourceKind/provenance, + authority/priority for snapshot seeds). Pi integration supplies `RUN_TOOL_CALL`/`RUN_TOOL_RESULT` + `PI_CONTEXT_EVENT` descriptors; core never parses the key. Test proves snapshot-seeded vs run-derived entries are distinguishable by explicit metadata. |
+| P2 SourceObservation structural validity | ✅ `SourceObservation` is a discriminated union (AVAILABLE requires contentHash, UNAVAILABLE requires reasonCode, ABSENT carries neither); `reconcileSource` never silently maps malformed AVAILABLE to NO_CHANGE. `FixtureSourceObserver` throws on a malformed AVAILABLE fixture entry. |
+
+## 17. Scope confirmation
 
 ```
 No Context Working Set Planner was implemented.
@@ -192,5 +203,5 @@ No production persistence schema was added.
 No v0.2 ContextSnapshot or ExecutionRequest contract was changed.
 ```
 
-CR-002 evidence ready for lead architecture review.
+CR-002 evidence ready for lead architecture review (rev.2).
 CR-003 was not started.
