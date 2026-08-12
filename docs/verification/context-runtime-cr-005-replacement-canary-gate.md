@@ -1,6 +1,6 @@
 # CR-005 Replacement Canary Execution Gate
 
-- **Status:** SUPERSEDED AFTER LIVE RUN 1 — execution gate worked and stopped on missing world-state evidence
+- **Status:** EXECUTED — RUN 1 STOPPED, RUN 2 PASSED
 - **Branch:** `codex/cr005-replacement-canary-gate`
 - **Base:** `main@d50e9c2dad466edd732be08b2ddb3a9589195b20`
 - **Date:** 2026-08-13
@@ -93,6 +93,10 @@ The first authorized two-record execution later completed and failed this machin
 [`context-runtime-cr-005-replacement-canary-run-1.md`](./context-runtime-cr-005-replacement-canary-run-1.md).
 That result does not retroactively invalidate the credential-free gate; it proves the gate
 correctly refused to accept incomplete live evidence.
+
+After the mutation-refresh remediation merged, a separately authorized rerun passed every
+machine check. See
+[`context-runtime-cr-005-replacement-canary-run-2.md`](./context-runtime-cr-005-replacement-canary-run-2.md).
 
 ## 5. Frozen next gate
 

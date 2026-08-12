@@ -1,6 +1,6 @@
 # CR-005 Mutation Refresh Preflight
 
-- **Status:** CREDENTIAL-FREE READY / LIVE RERUN NOT AUTHORIZED
+- **Status:** MERGED / LIVE RERUN PASSED
 - **Branch:** `codex/cr005-mutation-refresh-gate`
 - **Base:** `main@a359636609856977a98a883831392084f7cb4a4d`
 - **Date:** 2026-08-13
@@ -79,14 +79,14 @@ access.
 
 ## 6. Frozen next gate
 
-No live/provider call is authorized by this remediation. After Lead review, CI and merge, a
-replacement rerun would require a new explicit authorization for exactly another two records
-and for sending the same synthetic C1 fixture to DeepSeek.
+This credential-free remediation was merged at `main@08b13de`, with both PR and merge-commit CI
+green. A separately authorized two-record replacement rerun subsequently passed every machine
+gate; see the run-2 record below.
 
 ```text
 replacement run 1                FAIL / STOP (2 records consumed)
-mutation refresh preflight       CREDENTIAL-FREE READY
-replacement rerun                NOT AUTHORIZED
+mutation refresh remediation     MERGED / CI GREEN
+replacement run 2                PASS (2 records consumed)
 remaining CR-005 22 records      NO_GO
 CR-004 Active rewrite            NO_GO
 ```
@@ -94,4 +94,5 @@ CR-004 Active rewrite            NO_GO
 See also:
 
 - [replacement canary run 1](./context-runtime-cr-005-replacement-canary-run-1.md)
+- [replacement canary run 2](./context-runtime-cr-005-replacement-canary-run-2.md)
 - [DS-014 world-state preflight](./context-runtime-cr-005-shadow-world-state-preflight.md)
