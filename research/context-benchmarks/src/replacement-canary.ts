@@ -44,7 +44,7 @@ export function selectReplacementCanaryManifests(
   return selected
 }
 
-function recordIsValid(record: BenchmarkRunRecord): boolean {
+export function benchmarkRecordIsValid(record: BenchmarkRunRecord): boolean {
   return (
     record.status === 'VALID' &&
     record.objectiveOracle.passed &&
@@ -58,7 +58,7 @@ function recordIsValid(record: BenchmarkRunRecord): boolean {
   )
 }
 
-function retainedEvidenceIsSanitized(serialized: string): boolean {
+export function retainedEvidenceIsSanitized(serialized: string): boolean {
   // 只检查 durable record 中不应出现的机器绝对路径。repository/file://src/...
   // 是规范化 Source key，不属于本机路径。
   return !(
@@ -69,7 +69,7 @@ function retainedEvidenceIsSanitized(serialized: string): boolean {
   )
 }
 
-function retainedEvidenceHasSecretPattern(serialized: string): boolean {
+export function retainedEvidenceHasSecretPattern(serialized: string): boolean {
   return (
     /(?:DEEPSEEK|OPENAI|ANTHROPIC|GITHUB|AWS)_[A-Z0-9_]*(?:KEY|TOKEN|SECRET)/i.test(serialized) ||
     /Bearer\s+[A-Za-z0-9._-]{12,}/i.test(serialized) ||
@@ -154,7 +154,7 @@ export function evaluateReplacementCanaryGate(
     exactRepetition: records.every(
       (record) => record.repetition === REPLACEMENT_CANARY_REPETITIONS
     ),
-    allRecordsValid: records.every(recordIsValid),
+    allRecordsValid: records.every(benchmarkRecordIsValid),
     rawProviderPayloadsAbsent: records.every((record) => !record.rawProviderPayloadsCaptured),
     retainedEvidenceSanitized: retainedEvidenceIsSanitized(serialized),
     credentialValueAbsent:
