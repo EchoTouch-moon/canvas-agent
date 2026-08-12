@@ -10,6 +10,8 @@ output/playwright/
 
 # Local runtime state
 .canvas-agent/
+research/context-benchmarks/output/
+research/context-benchmarks/.live-output/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

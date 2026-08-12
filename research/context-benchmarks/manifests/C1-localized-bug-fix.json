@@ -1,0 +1,63 @@
+{
+  "taskId": "cr005-c1-localized-bug-fix",
+  "category": "C1-localized-bug-fix",
+  "title": "Fix the localized percentage discount bug",
+  "fixtureVersion": "c1-v1",
+  "fixturePath": "corpus/C1-localized-bug-fix/fixture",
+  "referencePath": "corpus/C1-localized-bug-fix/reference",
+  "repositoryRevision": {
+    "baseCommit": "ff3239541b98be14329281ea2cd11ef27f96f10b",
+    "treeHash": "4315df57ff701bcf56c7cff61c380ae99451ad9b",
+    "workingTreePatchHash": null
+  },
+  "initialStateHash": "60ada771a58af67e9275fde0eeba9064cb3412fcc71582208e041a38d29eab4f",
+  "prompt": "Fix the percentage discount calculation in src/discount.js. Preserve the existing validation behavior, run the oracle, and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
+  "acceptanceCriteria": [
+    {
+      "id": "C1-1",
+      "description": "A finite amount and percentage produce amount * (1 - percentage / 100).",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C1-2",
+      "description": "Existing finite-number validation remains intact.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C1-3",
+      "description": "The focused oracle passes.",
+      "check": "OBJECTIVE_ORACLE"
+    }
+  ],
+  "oracle": {
+    "command": "node",
+    "args": ["--test", "test/discount.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "regressionOracle": {
+    "command": "node",
+    "args": ["--test", "test/regression.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "allowedTools": ["read", "ls", "grep", "find", "bash", "edit", "write"],
+  "expectedTools": ["read", "edit", "bash"],
+  "modelProfile": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "thinkingLevel": "medium"
+  },
+  "contextStrategies": ["NATIVE", "SHADOW"],
+  "budget": {
+    "maxSemanticCalls": 12,
+    "maxToolCalls": 40,
+    "wallClockMs": 120000
+  },
+  "expectedWritablePaths": ["src/discount.js"],
+  "retentionPolicy": "metadata-only; raw provider payloads disabled; live output is gitignored",
+  "knownCandidatePaths": ["src/discount.js", "test/discount.test.js"],
+  "knownRelevantPaths": ["src/discount.js", "test/discount.test.js"],
+  "knownIrrelevantPaths": [],
+  "expectedArchitecturalRules": []
+}

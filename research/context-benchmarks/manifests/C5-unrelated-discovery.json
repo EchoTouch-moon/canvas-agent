@@ -1,0 +1,68 @@
+{
+  "taskId": "cr005-c5-unrelated-discovery",
+  "category": "C5-unrelated-discovery",
+  "title": "Find the boundary behavior among unrelated candidates",
+  "fixtureVersion": "c5-v2",
+  "fixturePath": "corpus/C5-unrelated-discovery/fixture",
+  "referencePath": "corpus/C5-unrelated-discovery/reference",
+  "repositoryRevision": {
+    "baseCommit": "ea1ef1e328fcfd0fa72e64c67eae1ba9fb829ce8",
+    "treeHash": "893fde9b32b2bd4b3e052580c7d2d38a5fac893a",
+    "workingTreePatchHash": null
+  },
+  "initialStateHash": "144d5e12693f52125c8e34a47a20739e7456a6824531e326e03386119af56f71",
+  "prompt": "Fix the session-expiry boundary reported by the focused oracle. Investigate the repository and use test evidence to identify the responsible implementation; preserve unrelated behavior. Run the oracle and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
+  "acceptanceCriteria": [
+    {
+      "id": "C5-1",
+      "description": "The session boundary behavior is correct when now equals expiresAt.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C5-2",
+      "description": "The session behavior is not expired before expiresAt.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C5-3",
+      "description": "Unrelated candidate modules remain unchanged.",
+      "check": "WRITABLE_PATH_SCOPE"
+    },
+    {
+      "id": "C5-4",
+      "description": "The focused oracle passes.",
+      "check": "OBJECTIVE_ORACLE"
+    }
+  ],
+  "oracle": {
+    "command": "node",
+    "args": ["--test", "test/boundary.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "regressionOracle": {
+    "command": "node",
+    "args": ["--test", "test/regression.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "allowedTools": ["read", "ls", "grep", "find", "bash", "edit", "write"],
+  "expectedTools": ["find", "grep", "read", "edit", "bash"],
+  "modelProfile": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "thinkingLevel": "medium"
+  },
+  "contextStrategies": ["NATIVE", "SHADOW"],
+  "budget": {
+    "maxSemanticCalls": 16,
+    "maxToolCalls": 70,
+    "wallClockMs": 150000
+  },
+  "expectedWritablePaths": ["src/candidate-d.js"],
+  "retentionPolicy": "metadata-only; raw provider payloads disabled; live output is gitignored",
+  "knownCandidatePaths": ["src/candidate-a.js", "src/candidate-b.js", "src/candidate-c.js", "src/candidate-d.js", "src/session-expiry.js", "test/boundary.test.js"],
+  "knownRelevantPaths": ["src/candidate-d.js", "src/session-expiry.js", "test/boundary.test.js"],
+  "knownIrrelevantPaths": ["src/candidate-a.js", "src/candidate-b.js", "src/candidate-c.js"],
+  "expectedArchitecturalRules": []
+}

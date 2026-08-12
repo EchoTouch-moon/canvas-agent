@@ -1,0 +1,7 @@
+{
+  "name": "cr-005-c5-unrelated-discovery",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}

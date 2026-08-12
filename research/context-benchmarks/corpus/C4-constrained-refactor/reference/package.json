@@ -1,0 +1,7 @@
+{
+  "name": "cr-005-c4-constrained-refactor",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}

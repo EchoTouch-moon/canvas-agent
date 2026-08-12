@@ -1,0 +1,68 @@
+{
+  "taskId": "cr005-c6-wrong-path-rehydration",
+  "category": "C6-wrong-path-rehydration",
+  "title": "Recover from a plausible wrong path to the nested-expression parser bug",
+  "fixtureVersion": "c6-v1",
+  "fixturePath": "corpus/C6-wrong-path-rehydration/fixture",
+  "referencePath": "corpus/C6-wrong-path-rehydration/reference",
+  "repositoryRevision": {
+    "baseCommit": "ae22d0e616df8e27b664c612f80703d9e0e443a5",
+    "treeHash": "695020a1deef724d43efd85c0b74187020b0a3fe",
+    "workingTreePatchHash": null
+  },
+  "initialStateHash": "13fdae63bbfc5cb5a053d83e66e7e06c5007cd0885d7026544223329447ddc13",
+  "prompt": "Diagnose the arithmetic failure through the public API. Investigate the repository, follow evidence from the failing oracle to the responsible implementation, and make the smallest correct fix. Run the oracle and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
+  "acceptanceCriteria": [
+    {
+      "id": "C6-1",
+      "description": "calculate(2 * (3 + 4) + 5) returns 19.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C6-2",
+      "description": "The public API remains the entry point used by the oracle.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C6-3",
+      "description": "The focused oracle passes.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C6-4",
+      "description": "No raw provider payload or unrelated fixture output is retained.",
+      "check": "RAW_PROVIDER_PAYLOADS_ABSENT"
+    }
+  ],
+  "oracle": {
+    "command": "node",
+    "args": ["--test", "test/evaluate.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "regressionOracle": {
+    "command": "node",
+    "args": ["--test", "test/regression.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "allowedTools": ["read", "ls", "grep", "find", "bash", "edit", "write"],
+  "expectedTools": ["find", "grep", "read", "bash", "edit"],
+  "modelProfile": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "thinkingLevel": "medium"
+  },
+  "contextStrategies": ["NATIVE", "SHADOW"],
+  "budget": {
+    "maxSemanticCalls": 20,
+    "maxToolCalls": 90,
+    "wallClockMs": 180000
+  },
+  "expectedWritablePaths": ["src/parser/evaluate.js"],
+  "retentionPolicy": "metadata-only; raw provider payloads disabled; live output is gitignored",
+  "knownCandidatePaths": ["src/search/cache.js", "src/parser/tokenize.js", "src/parser/evaluate.js", "src/runtime/public-api.js", "test/evaluate.test.js"],
+  "knownRelevantPaths": ["src/parser/evaluate.js", "src/runtime/public-api.js", "test/evaluate.test.js"],
+  "knownIrrelevantPaths": ["src/search/cache.js", "src/parser/tokenize.js"],
+  "expectedArchitecturalRules": []
+}

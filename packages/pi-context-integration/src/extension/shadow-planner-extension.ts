@@ -60,6 +60,13 @@ export interface ShadowPlannerCallResult {
   readonly planningRequest: ContextPlanningRequest
   readonly plannerResult: PlannerResult
   readonly metrics: ShadowPlanningMetrics
+  // Metadata-only representation inputs actually supplied to the Planner.
+  // Consumers must strip ephemeral `content` / `contentRef` before durable
+  // retention; the live planner result itself remains unchanged.
+  readonly representations: readonly {
+    readonly sourceKey: string
+    readonly representation: ContextRepresentation
+  }[]
   // Fail-safe materialization record: sourceKeys + reasons that fell back to
   // REFERENCE during this boundary (empty when all materializations succeeded
   // or no file-aware provider is configured).
@@ -144,6 +151,7 @@ export class ShadowPlannerObserver {
     // to the default REFERENCE representation so native Pi messages are never
     // corrupted (P1-4).
     const preparedRepresentations = new Map<string, ContextRepresentation>()
+    const resolvedRepresentations = new Map<string, ContextRepresentation>()
     const materializationFailures: string[] = []
     if (this.representationProvider !== undefined) {
       for (const entry of universe.entries) {
@@ -172,8 +180,11 @@ export class ShadowPlannerObserver {
         createdAt: new Date().toISOString(),
         represent: (entry) => {
           const prepared = preparedRepresentations.get(entry.source.sourceKey)
-          if (prepared !== undefined) return prepared
-          return representUniverseEntry(entry)
+          const representation = prepared ?? representUniverseEntry(entry)
+          if (representation !== null) {
+            resolvedRepresentations.set(entry.source.sourceKey, representation)
+          }
+          return representation
         }
       }
     })
@@ -208,6 +219,9 @@ export class ShadowPlannerObserver {
       planningRequest,
       plannerResult,
       metrics,
+      representations: [...resolvedRepresentations.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([sourceKey, representation]) => ({ sourceKey, representation })),
       materializationFailures
     }
     ;(this.callResults as ShadowPlannerCallResult[]).push(result)

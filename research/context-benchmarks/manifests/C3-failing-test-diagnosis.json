@@ -1,0 +1,68 @@
+{
+  "taskId": "cr005-c3-failing-test-diagnosis",
+  "category": "C3-failing-test-diagnosis",
+  "title": "Diagnose the cache hit regression from the failing test",
+  "fixtureVersion": "c3-v1",
+  "fixturePath": "corpus/C3-failing-test-diagnosis/fixture",
+  "referencePath": "corpus/C3-failing-test-diagnosis/reference",
+  "repositoryRevision": {
+    "baseCommit": "4330f29e37309b349327b12c24d6064528c4bbd9",
+    "treeHash": "c90cda0e5faf1beb44abebbd012669921a3e6569",
+    "workingTreePatchHash": null
+  },
+  "initialStateHash": "09b2f1adb09efe1d04dd69c39b855b1708fd9b7b18403cd6750a359c6ba89cfd",
+  "prompt": "Diagnose the failing cache test. Make a minimal fix so a cache hit returns the stored value without invoking the factory again; preserve clear(). Run the oracle and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
+  "acceptanceCriteria": [
+    {
+      "id": "C3-1",
+      "description": "A first getOrSet call evaluates and stores the factory value.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C3-2",
+      "description": "A cache hit returns the stored value and does not invoke the factory.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C3-3",
+      "description": "clear() removes the stored value.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C3-4",
+      "description": "The focused oracle passes.",
+      "check": "OBJECTIVE_ORACLE"
+    }
+  ],
+  "oracle": {
+    "command": "node",
+    "args": ["--test", "test/cache.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "regressionOracle": {
+    "command": "node",
+    "args": ["--test", "test/regression.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "allowedTools": ["read", "ls", "grep", "find", "bash", "edit", "write"],
+  "expectedTools": ["read", "bash", "edit"],
+  "modelProfile": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "thinkingLevel": "medium"
+  },
+  "contextStrategies": ["NATIVE", "SHADOW"],
+  "budget": {
+    "maxSemanticCalls": 12,
+    "maxToolCalls": 40,
+    "wallClockMs": 120000
+  },
+  "expectedWritablePaths": ["src/cache.js"],
+  "retentionPolicy": "metadata-only; raw provider payloads disabled; live output is gitignored",
+  "knownCandidatePaths": ["src/cache.js", "test/cache.test.js"],
+  "knownRelevantPaths": ["src/cache.js", "test/cache.test.js"],
+  "knownIrrelevantPaths": [],
+  "expectedArchitecturalRules": []
+}
