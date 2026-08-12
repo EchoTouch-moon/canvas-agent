@@ -1,6 +1,6 @@
 # CR-005 Replacement Canary Execution Gate
 
-- **Status:** CREDENTIAL-FREE READY — provider execution remains separately gated
+- **Status:** SUPERSEDED AFTER LIVE RUN 1 — execution gate worked and stopped on missing world-state evidence
 - **Branch:** `codex/cr005-replacement-canary-gate`
 - **Base:** `main@d50e9c2dad466edd732be08b2ddb3a9589195b20`
 - **Date:** 2026-08-13
@@ -88,6 +88,11 @@ exit 1
 
 No provider credential was loaded and no provider call was made during implementation or
 verification.
+
+The first authorized two-record execution later completed and failed this machine gate. See
+[`context-runtime-cr-005-replacement-canary-run-1.md`](./context-runtime-cr-005-replacement-canary-run-1.md).
+That result does not retroactively invalidate the credential-free gate; it proves the gate
+correctly refused to accept incomplete live evidence.
 
 ## 5. Frozen next gate
 
