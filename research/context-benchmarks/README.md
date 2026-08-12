@@ -28,10 +28,12 @@ fixtures. Live records carry one machine-backed result per manifest acceptance
 criterion, and `VALID` requires all of them to pass. It does not call a model
 provider.
 
-C2-3 has an additional deterministic contract check: it independently verifies
-that config, greeting, and the public index each carry the formal-option seam;
-the two-output objective oracle alone is not sufficient evidence for that
-criterion.
+C2-3 has an additional deterministic executable contract check: it loads the
+real CommonJS modules, verifies config exports the punctuation, probes greeting
+with a sentinel config to verify formal behavior, and injects a greeting spy to
+verify the public index forwards the option and returns the greeting result.
+An adversarial index-only implementation with comment/dead-code markers is
+covered and fails this check.
 
 When live mode is eventually authorized, Shadow repository/file candidates are
 populated only after an actual Agent `read` has been observed and verified by

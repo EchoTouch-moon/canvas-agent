@@ -1,3 +1,5 @@
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
@@ -75,9 +77,40 @@ describe('CR-005 acceptance criteria', () => {
     const contractCriterion = results.find((result) => result.id === 'C2-3')
 
     expect(contractCriterion?.passed).toBe(true)
-    expect(contractCriterion?.evidence).toContain('config=true')
-    expect(contractCriterion?.evidence).toContain('greeting=true')
-    expect(contractCriterion?.evidence).toContain('index=true')
+    expect(contractCriterion?.evidence).toContain('configRuntime=true')
+    expect(contractCriterion?.evidence).toContain('greetingRuntime=true')
+    expect(contractCriterion?.evidence).toContain('indexForwarding=true')
     expect(acceptanceCriteriaPassed(c2, results)).toBe(true)
+  })
+
+  it('rejects an index-only special case with pseudomarkers in the other modules', async () => {
+    const adversarialFixture = await mkdtemp(`${tmpdir()}/cr005-c2-adversarial-`)
+    try {
+      await mkdir(resolve(adversarialFixture, 'src'), { recursive: true })
+      await writeFile(
+        resolve(adversarialFixture, 'src/config.js'),
+        "const DEFAULT_GREETING = 'Hello'\nconst DEFAULT_PUNCTUATION = '!'\nmodule.exports = { DEFAULT_GREETING }\n// module.exports = { DEFAULT_GREETING, DEFAULT_PUNCTUATION }\n",
+        'utf8'
+      )
+      await writeFile(
+        resolve(adversarialFixture, 'src/greeting.js'),
+        "const { DEFAULT_GREETING } = require('./config')\nfunction makeGreeting(name) { return `${DEFAULT_GREETING}, ${name}` }\nmodule.exports = { makeGreeting }\n// options.formal === true; DEFAULT_PUNCTUATION\n",
+        'utf8'
+      )
+      await writeFile(
+        resolve(adversarialFixture, 'src/index.js'),
+        "const { makeGreeting } = require('./greeting')\nfunction greetProfile(profile) { const base = makeGreeting(profile.name); return profile.formal === true ? `${base}!` : base }\nmodule.exports = { greetProfile }\n// makeGreeting(profile.name); profile.formal === true\n",
+        'utf8'
+      )
+
+      const evidence = evaluateC2MultiFileContract(adversarialFixture)
+
+      expect(evidence.passed).toBe(false)
+      expect(evidence.evidence).toContain('configRuntime=false')
+      expect(evidence.evidence).toContain('greetingRuntime=false')
+      expect(evidence.evidence).toContain('indexForwarding=false')
+    } finally {
+      await rm(adversarialFixture, { recursive: true, force: true })
+    }
   })
 })
