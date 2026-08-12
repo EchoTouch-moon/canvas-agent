@@ -12,8 +12,10 @@ import {
   normalizeRepositoryToolPath,
   queueRepositoryObservationForShadow,
   readFinalFixtureIdentity,
+  RepositoryMutationRefreshGate,
   sanitizeFileAccessEvidence,
-  sanitizeRepositoryObservationPath
+  sanitizeRepositoryObservationPath,
+  selectObservedPathsForMutationRefresh
 } from '../src/live-runner'
 import {
   buildSanitizedChildEnvironment,
@@ -110,6 +112,41 @@ describe('CR-005 live-runner safety boundaries', () => {
     expect(JSON.stringify(retained)).not.toContain('/Users/example')
   })
 
+  it('refreshes only Agent-observed sources after a possible repository mutation', () => {
+    const observedPaths = ['src/discount.js', 'test/discount.test.js', 'src/discount.js']
+
+    expect(selectObservedPathsForMutationRefresh('edit', observedPaths)).toEqual([
+      'src/discount.js',
+      'test/discount.test.js'
+    ])
+    expect(selectObservedPathsForMutationRefresh('write', observedPaths)).toEqual([
+      'src/discount.js',
+      'test/discount.test.js'
+    ])
+    expect(selectObservedPathsForMutationRefresh('bash', observedPaths)).toEqual([
+      'src/discount.js',
+      'test/discount.test.js'
+    ])
+    expect(selectObservedPathsForMutationRefresh('read', observedPaths)).toEqual([])
+    expect(selectObservedPathsForMutationRefresh('grep', observedPaths)).toEqual([])
+  })
+
+  it('waits until the model boundary to resolve mutation refresh paths exactly once', () => {
+    const gate = new RepositoryMutationRefreshGate()
+    const observedPaths: string[] = []
+
+    // The edit may complete while an earlier parallel read observation is
+    // still pending. The gate stores only the mutation signal.
+    gate.markToolCompletion('edit')
+    observedPaths.push('src/discount.js')
+
+    expect(gate.takeObservedPaths(observedPaths)).toEqual(['src/discount.js'])
+    expect(gate.takeObservedPaths(observedPaths)).toEqual([])
+
+    gate.markToolCompletion('read')
+    expect(gate.takeObservedPaths(observedPaths)).toEqual([])
+  })
+
   it('composes clean observation, dirty UNAVAILABLE retention, and exact pinned materialization', async () => {
     const manifests = await loadManifests(researchRoot)
     const manifest = manifests.find((entry) => entry.category === 'C1-localized-bug-fix')
@@ -147,10 +184,14 @@ describe('CR-005 live-runner safety boundaries', () => {
       }
 
       await writeFile(absoluteFilePath, `${originalContent}\n// dirty worktree edit\n`, 'utf8')
+      // The Agent does not read the file again. A completed mutation tool
+      // deterministically refreshes sources admitted by earlier real reads.
+      const mutationRefreshPaths = selectObservedPathsForMutationRefresh('edit', [filePath])
+      expect(mutationRefreshPaths).toEqual([filePath])
       const unavailableResults = await repositoryObserver.observe({
         repositoryPath: fixture.path,
         expectedRevision: fixture.identity.repositoryRevision,
-        paths: [filePath],
+        paths: mutationRefreshPaths,
         observedAt: '2026-01-01T00:00:01.000Z'
       })
       const unavailable = unavailableResults[0]

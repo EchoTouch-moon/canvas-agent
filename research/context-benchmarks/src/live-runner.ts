@@ -254,6 +254,37 @@ export function queueRepositoryObservationForShadow(
   return entry.observation.status === 'AVAILABLE'
 }
 
+const REPOSITORY_MUTATION_TOOL_NAMES = new Set(['bash', 'edit', 'write'])
+
+/**
+ * A successful or partially failed mutating tool may change repository state
+ * without a later `read`. Refresh only sources already discovered from real
+ * Agent reads; evaluator annotations never enter this list.
+ */
+export function selectObservedPathsForMutationRefresh(
+  toolName: string,
+  observedPaths: readonly string[]
+): readonly string[] {
+  if (!REPOSITORY_MUTATION_TOOL_NAMES.has(toolName)) return []
+  return [...new Set(observedPaths)].sort()
+}
+
+export class RepositoryMutationRefreshGate {
+  private pendingToolName: string | null = null
+
+  markToolCompletion(toolName: string): void {
+    if (REPOSITORY_MUTATION_TOOL_NAMES.has(toolName)) {
+      this.pendingToolName = toolName
+    }
+  }
+
+  takeObservedPaths(observedPaths: readonly string[]): readonly string[] {
+    const toolName = this.pendingToolName
+    this.pendingToolName = null
+    return toolName === null ? [] : selectObservedPathsForMutationRefresh(toolName, observedPaths)
+  }
+}
+
 function readProperty(value: unknown, key: string): unknown {
   if (typeof value !== 'object' || value === null) return undefined
   return Object.entries(value).find(([candidate]) => candidate === key)?.[1]
@@ -511,6 +542,7 @@ async function runLiveTask(
   let repositoryObserver: RepositoryObserver | null = null
   let enrichedObserver: EnrichedPiShadowObserver | null = null
   let repositoryObservationQueue: Promise<void> = Promise.resolve()
+  const mutationRefreshGate = new RepositoryMutationRefreshGate()
   const observationFailures: string[] = []
   const repositoryObservations: RepositoryObservationEvidence[] = []
 
@@ -648,6 +680,10 @@ async function runLiveTask(
           } else {
             if (planner === null) throw new Error('shadow planner unavailable')
             await repositoryObservationQueue
+            for (const path of mutationRefreshGate.takeObservedPaths(observedRepositoryPaths)) {
+              queueRepositoryRead(path)
+            }
+            await repositoryObservationQueue
             await planner.observeModelCall(event.messages)
           }
           originalMessagesUnchanged = originalMessagesUnchanged && event.messages === originalMessages
@@ -689,6 +725,7 @@ async function runLiveTask(
       } else if (event.type === 'tool_execution_end') {
         const args = pendingToolArgs.get(event.toolCallId)
         pendingToolArgs.delete(event.toolCallId)
+        mutationRefreshGate.markToolCompletion(event.toolName)
         const access = collectToolAccess(event, args, semanticCallCount, accesses)
         if (access?.kind === 'READ') queueRepositoryRead(access.path)
         if (accesses.toolResultCount >= manifest.budget.maxToolCalls) {
