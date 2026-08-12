@@ -1,11 +1,11 @@
 # CR-003B Verification — File-aware Shadow Planner
 
-- **Status:** EVIDENCE READY (rev.2 — PR #22 corrections applied); not self-accepted; awaits lead re-review
+- **Status:** EVIDENCE READY (rev.3 — PR #22 final P1 + doc cleanup); not self-accepted; awaits lead re-review
 - **Packet:** `docs/tasks/deepseek/DS-012-file-aware-shadow-planner.md`
 - **Owner:** DeepSeek V4 Flash — Context Runtime research implementer
 - **Branch:** `agent/deepseek-ds-012-file-aware-shadow-planner`
-- **Date:** 2026-08-11 (rev.2 after PR #22 architecture review)
-- **Dependency:** DS-011 Repository Observer accepted and merged (PR #21)
+- **Date:** 2026-08-11 (rev.3 after PR #22 final P1 review)
+- **Dependency:** DS-011 Repository Observer accepted and merged (PR #20); DS-012 authorization is PR #21
 
 ---
 
@@ -81,9 +81,9 @@ Representation materialization only runs for repository/file entries **admitted 
 ```bash
 pnpm --filter @canvas-agent/context-runtime test        86 passed
 pnpm --filter @canvas-agent/repository-observer test    35 passed
-pnpm --filter @canvas-agent/pi-context-integration test 51 passed
+pnpm --filter @canvas-agent/pi-context-integration test 52 passed
 all three package typechecks                            PASS
-pnpm check                                              GREEN (642 tests + build)
+pnpm check                                              GREEN (643 tests + build)
 ```
 
 New CR-003B coverage: representation materialization (A incl. post-read race seam and binary), LINE_RANGE (B incl. exact content), PlanningRequest determinism (C incl. needs-in-hash), representation decisions / REPLACE (D), authority boundary (E via repo tests + Pi observer), Shadow seam (F via Pi observer tests incl. fail-safe + duplicate-need determinism), and scope regression (G).
@@ -108,7 +108,7 @@ Command: CANVAS_CONTEXT_LIVE_SMOKE=1 pnpm --filter @canvas-agent/pi-context-inte
 SMOKE_STATUS: EXECUTED
 provider: deepseek   model: deepseek-v4-flash
 observed model-call count: 2
-last plan FULL=1 LINE_RANGE=0 REFERENCE=2 proposed=18 native=81
+last plan FULL=1 LINE_RANGE=0 REFERENCE=2 proposed=18 native=104
 ```
 
 The file-aware planner observer materialized the authoritative fixture file into a FULL representation inside the real Pi `context` seam, recorded it in a Shadow Working Set, and returned the original Pi messages unchanged. `REPLACE` proof is carried by the deterministic + temporary-Git smokes; the live smoke proves real-seam interoperability. Trace is metadata-only, credential-free, and gitignored.
@@ -123,7 +123,7 @@ The file-aware planner observer materialized the authoritative fixture file into
 
 ```text
 FULL=1 LINE_RANGE=0 REFERENCE=2
-proposed=18 native=81
+proposed=18 native=104
 representationTokenDelta reported per boundary
 ```
 
@@ -146,6 +146,7 @@ representationTokenDelta reported per boundary
 | P1 Git smoke fake representation | ✅ Git smoke feeds the REAL materialized FULL/LINE_RANGE/v2 representations into `planWorkingSet`; Planner 3 proves `REPLACE(SOURCE_VERSION_ADVANCED)` on the real v1→v2 chain. |
 | P2 representationTokenDelta semantics | ✅ `representationTokenDelta` now sums `REPLACE.tokenDelta` only (representation transitions, not membership ADD/REMOVE) with a `representationDeltaBreakdown { narrowed, detailed, sourceVersionAdvanced }`. |
 | P2 duplicate need determinism | ✅ `buildRepresentationNeeds` rejects a second need for the same sourceKey (duplicate throw), so input ordering cannot change semantics. Test P2-duplicate asserts the throw. |
+| P1 (final, rev.2) custom `makePlanningRequest` can drop needs → hash/selection disagreement | ✅ `ShadowPlannerObserver` now CENTRALLY forces `representationNeeds` onto the final `ContextPlanningRequest` after the custom builder returns, so the hash that drives replay/audit always carries the same needs that materialization uses — no caller-supplied builder can produce a no-needs hash while materializing FULL. Integration test: a builder that deliberately drops `representationNeeds` still yields a request with the FULL need, materialization uses the same FULL need, and the hash differs from the no-needs variant. |
 
 ## 16. Scope confirmation
 

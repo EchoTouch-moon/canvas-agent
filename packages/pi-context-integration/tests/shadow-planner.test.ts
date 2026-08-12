@@ -348,3 +348,59 @@ describe('CR-003B file-aware observer corrections (PR #22)', () => {
     void planner
   })
 })
+
+describe('CR-003B final P1: PlanningRequest ↔ materialization need strong consistency', () => {
+  it('custom builder that drops representationNeeds still gets the needs centrally forced onto the request', async () => {
+    const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
+    const sourceKey = 'repository/file://a.ts'
+    const enriched = new EnrichedPiShadowObserver({
+      base,
+      seeds: [
+        {
+          sourceKey,
+          sourceKind: 'REPOSITORY_FILE',
+          contentHash: 'file-content-hash',
+          provenance: 'REPOSITORY_OBSERVER',
+          observedAt: FIXED_NOW
+        }
+      ]
+    })
+    const materializedNeedKinds: string[] = []
+    const planner = new ShadowPlannerObserver({
+      enriched,
+      policyVersion: 'policy-v0',
+      filePathCandidates: ['a.ts'],
+      // Custom builder DELIBERATELY omits representationNeeds.
+      makePlanningRequest: (input) => ({
+        runtimeSessionId: input.runtimeSessionId,
+        recompositionSequence: input.sequence,
+        taskPhase: 'GENERAL',
+        budget: { maxSemanticTokens: 8000 },
+        pinnedSourceKeys: [],
+        excludedSourceKeys: [],
+        currentTargetSourceKeys: [],
+        latestVerificationSourceKeys: [],
+        recentEvidenceSourceKeys: input.recentEvidenceSourceKeys,
+        previousWorkingSetId: input.previousWorkingSetId
+      }),
+      representationProvider: async ({ need }) => {
+        materializedNeedKinds.push(need.preferredKind)
+        return null
+      }
+    })
+    const call = await planner.observeModelCall([userMessage('task')])
+    const request = call.planningRequest
+    // Central enforcement: the final request STILL carries the FULL need.
+    expect(request.representationNeeds).toHaveLength(1)
+    expect(request.representationNeeds![0]!.sourceKey).toBe(sourceKey)
+    expect(request.representationNeeds![0]!.preferredKind).toBe('FULL')
+    // Materialization used the SAME need (FULL), so hash + selection agree.
+    expect(materializedNeedKinds).toEqual(['FULL'])
+    // The request hash deterministically includes the need.
+    const { planningRequestHash } = await import('@canvas-agent/context-runtime')
+    const hashWithNeed = planningRequestHash(request)
+    const stripped = { ...request }
+    delete stripped.representationNeeds
+    expect(hashWithNeed).not.toBe(planningRequestHash(stripped))
+  })
+})

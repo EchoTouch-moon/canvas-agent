@@ -102,7 +102,7 @@ export class ShadowPlannerObserver {
     const needsList = [...representationNeeds.values()]
 
     const removalHistory = [...this.removalHistoryBySource.values()]
-    const planningRequest = this.makePlanningRequest({
+    const customRequest = this.makePlanningRequest({
       runtimeSessionId: this.runtimeSessionId,
       sequence: universe.modelCallSequence ?? enrichedResult.universeRevision.sequence,
       universe,
@@ -112,6 +112,19 @@ export class ShadowPlannerObserver {
       removalHistory,
       representationNeeds: needsList
     })
+
+    // CENTRAL enforcement (PR #22 final P1): the final PlanningRequest that
+    // drives planningRequestHash and the Planner MUST carry EXACTLY the same
+    // normalized representation needs that materialization will use. A custom
+    // builder that omits or diverges representationNeeds must not produce a
+    // hash that disagrees with the actual representation selection. We
+    // centrally force the needs onto the final request so the invariant cannot
+    // be violated by any caller-supplied builder.
+    const finalRequest: ContextPlanningRequest = {
+      ...customRequest,
+      representationNeeds: needsList
+    }
+    const planningRequest = finalRequest
 
     // Validate bidirectional strict consistency: the request's claimed previous
     // Working Set id must equal the actual previous Working Set supplied to the
