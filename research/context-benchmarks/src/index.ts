@@ -65,3 +65,13 @@ export {
   type ReplacementCanaryChecks,
   type ReplacementCanaryGateResult
 } from './replacement-canary'
+export {
+  evaluateWaveAGate,
+  isWaveAExecutionAuthorized,
+  selectWaveAManifests,
+  WAVE_A_RECORD_COUNT,
+  WAVE_A_REPETITIONS,
+  WAVE_A_TARGETS,
+  type WaveAChecks,
+  type WaveAGateResult
+} from './wave-a'

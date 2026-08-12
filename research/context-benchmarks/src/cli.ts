@@ -8,6 +8,12 @@ import {
   selectReplacementCanaryManifests
 } from './replacement-canary'
 import { formatValidationSummary, validateCorpus } from './validation'
+import {
+  evaluateWaveAGate,
+  isWaveAExecutionAuthorized,
+  selectWaveAManifests,
+  WAVE_A_REPETITIONS
+} from './wave-a'
 
 async function main(): Promise<void> {
   const command = process.argv[2] ?? 'validate'
@@ -63,6 +69,36 @@ async function main(): Promise<void> {
     console.log(JSON.stringify(gate))
     console.log(`CR-005 replacement canary output: ${live.outputPath ?? 'none'}`)
     console.log(`REPLACEMENT_CANARY_STATUS=${gate.status}`)
+    if (gate.status !== 'PASS') process.exitCode = 1
+    return
+  }
+  if (command === 'wave-a') {
+    if (!isWaveAExecutionAuthorized(process.env)) {
+      console.log('CR-005 Wave A skipped: CANVAS_CR005_WAVE_A=1 is required')
+      console.log('WAVE_A_STATUS=SKIPPED')
+      process.exitCode = 1
+      return
+    }
+    const manifests = selectWaveAManifests(await loadManifests(researchRoot))
+    const live = await runLiveCorpus({
+      researchRoot,
+      manifests,
+      repetitions: WAVE_A_REPETITIONS,
+      outputDirectory: join(researchRoot, '.live-output', 'wave-a')
+    })
+    if (live.skipped) {
+      console.log(`CR-005 Wave A skipped: ${live.skipReason ?? 'unknown'}`)
+      console.log('WAVE_A_STATUS=SKIPPED')
+      process.exitCode = 1
+      return
+    }
+    const gate = evaluateWaveAGate(
+      live.records,
+      process.env['DEEPSEEK_API_KEY']
+    )
+    console.log(JSON.stringify(gate))
+    console.log(`CR-005 Wave A output: ${live.outputPath ?? 'none'}`)
+    console.log(`WAVE_A_STATUS=${gate.status}`)
     if (gate.status !== 'PASS') process.exitCode = 1
     return
   }

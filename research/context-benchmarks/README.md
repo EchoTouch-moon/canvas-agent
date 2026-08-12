@@ -74,3 +74,21 @@ CANVAS_CR005_REPLACEMENT_CANARY=1 \
 The command is still a real provider operation and must only be used after the
 lead's explicit cost authorization. Without the dedicated environment flag it
 fails closed before loading provider credentials or starting a run.
+
+The next research wave also has a separate fail-closed entry point. Wave A is
+frozen to the first repetition of categories C2 through C6, with one Native and
+one Shadow record per category: exactly ten records. C1 is excluded because its
+first repetition already passed the replacement canary. Canonical fingerprints
+pin each selected manifest's prompt, fixture identity, tools, model profile,
+budget, oracles, acceptance criteria, writable paths and evaluator annotations.
+Any drift is rejected before the provider runtime is created.
+
+```sh
+CANVAS_CR005_WAVE_A=1 \
+  pnpm --filter @canvas-agent/context-benchmarks benchmark:wave-a
+```
+
+`CANVAS_CR005_LIVE=1` cannot enable Wave A. The dedicated command remains a real
+provider operation and requires a new, explicit data/cost authorization. Its
+existence does not authorize the ten records, the twelve records left for a
+possible second wave, or CR-004 Active context rewriting.
