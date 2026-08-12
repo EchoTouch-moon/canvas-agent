@@ -36,20 +36,21 @@ No Checkpoint/Resume, Canvas, second Agent adapter or external signed-distributi
 
 ## Current milestone — Context Runtime v0.3 research
 
-Context Runtime v0.3 is now the active research milestone. PR #12 established the bounded research architecture. CR-001 / DS-008 merged (PR #14), CR-002 / DS-009 merged (PR #16), CR-003A / DS-010 merged (PR #18), DS-011 Repository Observer merged (PR #20), and DS-012 / CR-003B merged (PR #22). PR #23 merged the DS-013 packet and CR-003B acceptance record at `38d096b318860262e5ddafd7d9fd32add98a2689`, closing the artifact lag. DS-013 / CR-003 Shadow Go-No-Go review is complete (branch `agent/deepseek-ds-013-shadow-go-no-go-review`, 643 tests green); both recommendations are NO_GO until the representative Native/Shadow corpus is reviewed.
+Context Runtime v0.3 is now the active research milestone. PR #12 established the bounded research architecture. CR-001 / DS-008 merged (PR #14), CR-002 / DS-009 merged (PR #16), CR-003A / DS-010 merged (PR #18), DS-011 Repository Observer merged (PR #20), and DS-012 / CR-003B merged (PR #22). PR #23 merged the DS-013 packet and CR-003B acceptance record. DS-013 / CR-003 Shadow Go/No-Go review was accepted and merged through PR #24 at `2db57fa77779c13db4c5902faeda7c56f427a0a8`; both CR-004 implementation and the first Active experiment remain NO_GO until a representative Native/Shadow corpus is reviewed. CR-005 is assigned to GPT-5.6 Luna as the next evidence task.
 
 | Order | Owner             | Packet                                                                                         | Branch                                               | Status                         | Start gate                                  |
 | ----: | ----------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------ | ------------------------------------------- |
 |     0 | Lead architect    | PROPOSAL-030 Context Source / Source State / Context Universe                                   | —                                                    | PROPOSED — research evidence available | CR-002/CR-003 evidence before contract freeze |
-|     0 | Lead architect    | PROPOSAL-031 Context Working Set / Planner / Decision                                           | —                                                    | PROPOSED — CR-003 evidence accumulating | reviewed Shadow evidence before contract freeze |
+|     0 | Lead architect    | PROPOSAL-031 Context Working Set / Planner / Decision                                           | —                                                    | PROPOSED — CR-003 evidence accumulated | reviewed corpus before Active authorization |
 |     1 | DeepSeek V4 Flash | [DS-008 Pi Context Shadow Observation](deepseek/DS-008-pi-context-shadow-observation.md)         | `agent/deepseek-ds-008-pi-context-shadow`            | ✅ ACCEPTED / MERGED — PR #14 | —                                           |
 |     2 | DeepSeek V4 Flash | [DS-009 Context Source Attribution + Shadow Universe](deepseek/DS-009-context-source-universe-shadow.md) | `agent/deepseek-ds-009-context-source-universe-shadow` | ✅ ACCEPTED / MERGED — PR #16 | CR-001 accepted + packet merged + user authorized |
 |     3 | DeepSeek V4 Flash | [DS-010 Shadow Working Set Planner](deepseek/DS-010-shadow-working-set-planner.md)               | `agent/deepseek-ds-010-shadow-working-set-planner`   | ✅ ACCEPTED / MERGED — PR #18 | CR-002 accepted + packet merged + user authorized |
 |     4 | DeepSeek V4 Flash | [DS-011 Repository Observer](deepseek/DS-011-repository-observer.md)                             | `agent/deepseek-ds-011-repository-observer`          | ✅ ACCEPTED / MERGED — PR #20 | CR-003A accepted + packet merged + user authorized |
 |     5 | DeepSeek V4 Flash | [DS-012 File-aware Shadow Planner](deepseek/DS-012-file-aware-shadow-planner.md)                 | `agent/deepseek-ds-012-file-aware-shadow-planner`    | ✅ ACCEPTED / MERGED — PR #22 | DS-011 accepted + packet merged + user authorized |
-|     6 | DeepSeek V4 Flash | [DS-013 Shadow Go/No-Go Review](deepseek/DS-013-shadow-evidence-go-no-go-review.md)                 | `agent/deepseek-ds-013-shadow-go-no-go-review`       | CHANGES REQUESTED — bounded doc correction / final re-review | CR-003B accepted; representative corpus first |
+|     6 | DeepSeek V4 Flash | [DS-013 Shadow Go/No-Go Review](deepseek/DS-013-shadow-evidence-go-no-go-review.md)              | `agent/deepseek-ds-013-shadow-go-no-go-review`       | ✅ ACCEPTED / MERGED — PR #24 | CR-003B accepted + packet authorized |
+|     7 | GPT-5.6 Luna      | [CR-005 Native + Shadow Benchmark Corpus](luna/CR-005-native-shadow-benchmark-corpus.md)         | `agent/luna-cr-005-native-shadow-corpus`              | ASSIGNED — READY AFTER PACKET MERGE | DS-013 accepted; representative corpus is first blocker |
 
-CR-001 accepted evidence: `docs/verification/context-runtime-cr-001-pi-shadow.md`. CR-002 acceptance is recorded in `docs/verification/context-runtime-cr-002-acceptance.md`. CR-003A acceptance is recorded in `docs/verification/context-runtime-cr-003a-acceptance.md`. DS-011 acceptance is recorded in `docs/verification/context-runtime-ds-011-acceptance.md`.
+CR-001 accepted evidence: `docs/verification/context-runtime-cr-001-pi-shadow.md`. CR-002 acceptance is recorded in `docs/verification/context-runtime-cr-002-acceptance.md`. CR-003A acceptance is recorded in `docs/verification/context-runtime-cr-003a-acceptance.md`. DS-011 acceptance is recorded in `docs/verification/context-runtime-ds-011-acceptance.md`. CR-003B acceptance is recorded in `docs/verification/context-runtime-cr-003b-acceptance.md`. DS-013's accepted Go/No-Go evidence is `docs/verification/context-runtime-cr-003-shadow-go-no-go.md`.
 
 Research gate:
 
@@ -71,25 +72,30 @@ DS-011 / Repository Observer ✅ ACCEPTED / MERGED
                  |
                  v
 DS-012 / CR-003B File-aware Shadow Planner ✅ ACCEPTED / MERGED
-   exact file representation + representation transitions
                  |
                  v
-DS-013 / CR-003 Shadow Go-No-Go Review  REVIEW COMPLETE
-   Recommendation A: NO_GO (CR-004 not authorized yet)
+DS-013 / CR-003 Shadow Go-No-Go Review ✅ ACCEPTED / MERGED
+   Recommendation A: NO_GO (CR-004 implementation)
    Recommendation B: NO_GO (first real Active experiment)
-   next move: BUILD_NATIVE_SHADOW_CORPUS_FIRST
-              → RE-RUN_LEAD_GO_NO_GO
-              → if passed, AUTHORIZE_CR004_PACKET
-              → packet stage 1: capability / kill switch / mandatory re-assertion
-                (still no rewritten provider call)
-              → safety gate → first real Active experiment
                  |
-                 +--> CR-004 Active Rewrite remains NOT AUTHORIZED
+                 v
+GPT-5.6 Luna / CR-005 Native + Shadow Benchmark Corpus
+   six reproducible coding-task categories
+   objective oracles + fixed fixture revisions
+   balanced Native/Shadow evidence
+   REMOVE/REHYDRATE/REPLACE + false-removal telemetry
+                 |
+                 v
+RE-RUN LEAD GO/NO-GO
+                 |
+                 +--> only if passed: AUTHORIZE CR-004 PACKET
+
+CR-004 Active Rewrite remains NOT AUTHORIZED.
 ```
 
-DS-012 must preserve the distinction between source truth, membership and representation. Repository/file truth comes only from the accepted Repository Observer. Pi resource hints may identify bounded paths worth observing but may not establish canonical file content. The real Pi/model request must remain unchanged.
+CR-005 must preserve the accepted Native/Shadow distinction. Native and Shadow must run the same task/repository/model/tool-policy/budget; Shadow computes hypothetical Working Sets but returns original Pi messages unchanged. Fixture/unit tests do not substitute for an executed corpus, and Native observed-message estimates must not be compared to Shadow semantic estimates as provider token savings.
 
-The DS-012 implementation branch must be created from reviewed `main` after its task packet lands. Do not branch implementation work from the DS-011 implementation branch or the task-packet branch.
+The Luna CR-005 implementation branch must be created from reviewed `main` after its task packet lands. Do not branch implementation work from the packet branch or any previous DeepSeek implementation branch.
 
 ## Completed foundation
 
