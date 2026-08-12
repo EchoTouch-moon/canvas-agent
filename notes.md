@@ -175,7 +175,7 @@
 ## Verification snapshot
 
 - CR-005 typecheck: PASS.
-- CR-005 tests: 8/8 PASS.
+- CR-005 tests: 9/9 PASS.
 - Pi context integration typecheck/tests: PASS, 53/53 tests.
 - Credential-free validator: all six objective known-bad, regression, reference and reproducibility checks PASS.
 - Root `CI=1 pnpm check`: PASS (format, lint, workspace typecheck, workspace tests, and build).
