@@ -135,3 +135,9 @@
 - Package typecheck passes; package tests pass (7 tests). Verification artifact is `docs/verification/context-runtime-cr-005-native-shadow-corpus.md` with verdict `HARNESS_ONLY` because no provider calls were made.
 - One environment issue was encountered: the sandbox denied the `tsx` CLI temporary IPC pipe; direct Node 24 + tsx loader ran the validator successfully. Dependency installation required the approved escalated network retry after the sandbox registry DNS failure.
 - Next step is final root checks and commit/handoff. No CR-004 authorization or Active evidence is inferred.
+
+## 2026-08-12 CR-005 handoff
+
+- Final implementation commit `25d09b242b433403ae0b18ebab15e948b294311f` is pushed to `origin/agent/luna-cr-005-native-shadow-corpus`.
+- Root Node 24 `pnpm check` passed; the standalone workspace build and direct credential-free validator also passed.
+- Lead review remains the next decision point. CR-004 implementation and the first real Active call remain `NO_GO`.

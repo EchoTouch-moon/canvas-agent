@@ -10,7 +10,7 @@ Build a research-only, reproducible six-category Native + Shadow benchmark corpu
 - [x] Phase 2: Design and implement six deterministic fixtures, manifests and objective oracles
 - [x] Phase 3: Implement Native/Shadow-safe orchestration metadata and telemetry aggregation
 - [x] Phase 4: Add credential-free validation and research verification artifact
-- [ ] Phase 5: Run supported checks, review scope, commit and hand off for lead review
+- [x] Phase 5: Run supported checks, review scope, commit and hand off for lead review
 
 ## Key Questions
 
@@ -30,7 +30,7 @@ Build a research-only, reproducible six-category Native + Shadow benchmark corpu
 
 ## Status
 
-**Currently in Phase 5** — running the supported workspace checks, reviewing the final diff, and preparing the lead handoff. Live provider execution remains opt-in and was not used for this implementation check.
+**Complete for implementation handoff** — commit `25d09b242b433403ae0b18ebab15e948b294311f` is pushed to the Luna branch. Live provider execution remains opt-in and was not used; the verification verdict is `HARNESS_ONLY`.
 
 ---
 
