@@ -36,7 +36,7 @@ No Checkpoint/Resume, Canvas, second Agent adapter or external signed-distributi
 
 ## Current milestone — Context Runtime v0.3 research
 
-Context Runtime v0.3 is now the active research milestone. PR #12 established the bounded research architecture. CR-001 / DS-008 merged (PR #14), CR-002 / DS-009 merged (PR #16), CR-003A / DS-010 merged (PR #18), and DS-011 Repository Observer merged (PR #20). DS-012 / CR-003B evidence is ready for architecture review (branch `agent/deepseek-ds-012-file-aware-shadow-planner`, 637 tests green, credential-free Git smoke + real Pi Shadow smoke EXECUTED); it does not authorize CR-004.
+Context Runtime v0.3 is now the active research milestone. PR #12 established the bounded research architecture. CR-001 / DS-008 merged (PR #14), CR-002 / DS-009 merged (PR #16), CR-003A / DS-010 merged (PR #18), DS-011 Repository Observer merged (PR #20), and DS-012 / CR-003B merged (PR #22). DS-013 / CR-003 Shadow Go-No-Go review is complete (branch `agent/deepseek-ds-013-shadow-go-no-go-review`, 643 tests green); it recommends NO_GO for the first Active experiment pending a representative Native corpus, and CONDITIONAL_GO for a bounded CR-004 implementation packet.
 
 | Order | Owner             | Packet                                                                                         | Branch                                               | Status                         | Start gate                                  |
 | ----: | ----------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------ | ------------------------------------------- |
@@ -46,7 +46,8 @@ Context Runtime v0.3 is now the active research milestone. PR #12 established th
 |     2 | DeepSeek V4 Flash | [DS-009 Context Source Attribution + Shadow Universe](deepseek/DS-009-context-source-universe-shadow.md) | `agent/deepseek-ds-009-context-source-universe-shadow` | ✅ ACCEPTED / MERGED — PR #16 | CR-001 accepted + packet merged + user authorized |
 |     3 | DeepSeek V4 Flash | [DS-010 Shadow Working Set Planner](deepseek/DS-010-shadow-working-set-planner.md)               | `agent/deepseek-ds-010-shadow-working-set-planner`   | ✅ ACCEPTED / MERGED — PR #18 | CR-002 accepted + packet merged + user authorized |
 |     4 | DeepSeek V4 Flash | [DS-011 Repository Observer](deepseek/DS-011-repository-observer.md)                             | `agent/deepseek-ds-011-repository-observer`          | ✅ ACCEPTED / MERGED — PR #20 | CR-003A accepted + packet merged + user authorized |
-|     5 | DeepSeek V4 Flash | [DS-012 File-aware Shadow Planner](deepseek/DS-012-file-aware-shadow-planner.md)                 | `agent/deepseek-ds-012-file-aware-shadow-planner`    | EVIDENCE READY — awaiting architecture review | DS-011 accepted + packet merged + user authorized |
+|     5 | DeepSeek V4 Flash | [DS-012 File-aware Shadow Planner](deepseek/DS-012-file-aware-shadow-planner.md)                 | `agent/deepseek-ds-012-file-aware-shadow-planner`    | ✅ ACCEPTED / MERGED — PR #22 | DS-011 accepted + packet merged + user authorized |
+|     6 | DeepSeek V4 Flash | [DS-013 Shadow Go/No-Go Review](deepseek/DS-013-shadow-evidence-go-no-go-review.md)                 | `agent/deepseek-ds-013-shadow-go-no-go-review`       | REVIEW COMPLETE — awaiting lead decision | CR-003B accepted + packet authorized |
 
 CR-001 accepted evidence: `docs/verification/context-runtime-cr-001-pi-shadow.md`. CR-002 acceptance is recorded in `docs/verification/context-runtime-cr-002-acceptance.md`. CR-003A acceptance is recorded in `docs/verification/context-runtime-cr-003a-acceptance.md`. DS-011 acceptance is recorded in `docs/verification/context-runtime-ds-011-acceptance.md`.
 
@@ -69,8 +70,14 @@ DS-010 / CR-003A Shadow Working Set Planner kernel ✅ ACCEPTED / MERGED
 DS-011 / Repository Observer ✅ ACCEPTED / MERGED
                  |
                  v
-DS-012 / CR-003B File-aware Shadow Planner
-   exact file representation + representation transitions  EVIDENCE READY
+DS-012 / CR-003B File-aware Shadow Planner ✅ ACCEPTED / MERGED
+   exact file representation + representation transitions
+                 |
+                 v
+DS-013 / CR-003 Shadow Go-No-Go Review  REVIEW COMPLETE
+   Recommendation A: CONDITIONAL_GO (bounded CR-004 packet)
+   Recommendation B: NO_GO (representative Native corpus first)
+   next move: BUILD_NATIVE_SHADOW_CORPUS_FIRST
                  |
                  +--> CR-004 Active Rewrite remains NOT AUTHORIZED
 ```
