@@ -122,3 +122,5 @@ CR-004 Active rewrite            NO_GO
 
 The follow-up credential-free evidence is recorded in
 [`context-runtime-cr-005-mutation-refresh-preflight.md`](./context-runtime-cr-005-mutation-refresh-preflight.md).
+The separately authorized post-remediation rerun passed; see
+[`context-runtime-cr-005-replacement-canary-run-2.md`](./context-runtime-cr-005-replacement-canary-run-2.md).
