@@ -1,0 +1,31 @@
+{
+  "name": "@canvas-agent/context-benchmarks",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CR-005 reproducible Native + Shadow benchmark corpus and harness",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run tests",
+    "build": "tsc --noEmit",
+    "benchmark:validate": "tsx src/cli.ts validate",
+    "benchmark:live": "tsx src/cli.ts live"
+  },
+  "dependencies": {
+    "@canvas-agent/context-runtime": "workspace:*",
+    "@canvas-agent/contracts": "workspace:*",
+    "@canvas-agent/pi-context-integration": "workspace:*",
+    "@canvas-agent/repository-observer": "workspace:*",
+    "@earendil-works/pi-coding-agent": "0.84.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.23.7",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

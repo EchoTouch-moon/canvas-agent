@@ -1,0 +1,7 @@
+{
+  "name": "cr-005-c6-wrong-path-rehydration",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}

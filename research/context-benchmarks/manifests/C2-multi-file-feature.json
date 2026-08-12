@@ -1,0 +1,46 @@
+{
+  "taskId": "cr005-c2-multi-file-feature",
+  "category": "C2-multi-file-feature",
+  "title": "Add a formal greeting profile option across the greeting contract",
+  "fixtureVersion": "c2-v1",
+  "fixturePath": "corpus/C2-multi-file-feature/fixture",
+  "referencePath": "corpus/C2-multi-file-feature/reference",
+  "repositoryRevision": {
+    "baseCommit": "12e461d4166749df7716f104ec9b24e9fc6c7068",
+    "treeHash": "7173c55ec2a83cfa4616103c18fb3a31fec3100d",
+    "workingTreePatchHash": null
+  },
+  "initialStateHash": "fd46b5cadf4b186c798c10739d05f0b77ee60bd78b8baf735f5cee4eea92b5ee",
+  "prompt": "Add the formal greeting profile option. A profile with formal=true must produce `Hello, Ada!`; existing profiles must remain `Hello, Ada`. Thread the option through config, greeting, and the public index contract, run the oracle, and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
+  "acceptanceCriteria": [
+    "The default greeting remains `Hello, <name>`. ",
+    "The formal profile produces `Hello, <name>!`.",
+    "The option is forwarded through the public profile entry point and implemented across the source contract.",
+    "The focused oracle passes."
+  ],
+  "oracle": {
+    "command": "node",
+    "args": ["--test", "test/greeting.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "allowedTools": ["read", "ls", "grep", "find", "bash", "edit", "write"],
+  "expectedTools": ["read", "grep", "edit", "bash"],
+  "modelProfile": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "thinkingLevel": "medium"
+  },
+  "contextStrategies": ["NATIVE", "SHADOW"],
+  "budget": {
+    "maxSemanticCalls": 16,
+    "maxToolCalls": 60,
+    "wallClockMs": 150000
+  },
+  "expectedWritablePaths": ["src/config.js", "src/greeting.js", "src/index.js"],
+  "retentionPolicy": "metadata-only; raw provider payloads disabled; live output is gitignored",
+  "knownCandidatePaths": ["src/config.js", "src/greeting.js", "src/index.js", "test/greeting.test.js"],
+  "knownRelevantPaths": ["src/config.js", "src/greeting.js", "src/index.js", "test/greeting.test.js"],
+  "knownIrrelevantPaths": [],
+  "expectedArchitecturalRules": []
+}

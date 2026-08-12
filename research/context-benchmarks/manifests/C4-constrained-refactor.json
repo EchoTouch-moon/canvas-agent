@@ -1,0 +1,46 @@
+{
+  "taskId": "cr005-c4-constrained-refactor",
+  "category": "C4-constrained-refactor",
+  "title": "Refactor normalization without a domain-to-CLI dependency",
+  "fixtureVersion": "c4-v1",
+  "fixturePath": "corpus/C4-constrained-refactor/fixture",
+  "referencePath": "corpus/C4-constrained-refactor/reference",
+  "repositoryRevision": {
+    "baseCommit": "90b1da4875bf4277c4579f59d8771caadeec646c",
+    "treeHash": "a79d15135137e18c6ae75bd4f00bea45d307a36e",
+    "workingTreePatchHash": null
+  },
+  "initialStateHash": "228899998ea2219d54e63b19261d8b5f198811d931e21ae1e759d792db706eaf",
+  "prompt": "Refactor display-name normalization while preserving behavior. Read ARCHITECTURE.md and move shared normalization behind a domain-owned module; the domain layer must not import from src/cli. A narrow test-only change that leaves the architectural dependency is not accepted. Run the oracle and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
+  "acceptanceCriteria": [
+    "Display-name formatting behavior remains unchanged.",
+    "src/domain/user.js has no dependency on the CLI layer.",
+    "The explicit architecture rule remains satisfied by executable evidence.",
+    "The focused oracle passes."
+  ],
+  "oracle": {
+    "command": "node",
+    "args": ["--test", "test/refactor.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "allowedTools": ["read", "ls", "grep", "find", "bash", "edit", "write"],
+  "expectedTools": ["read", "grep", "edit", "bash"],
+  "modelProfile": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "thinkingLevel": "medium"
+  },
+  "contextStrategies": ["NATIVE", "SHADOW"],
+  "budget": {
+    "maxSemanticCalls": 16,
+    "maxToolCalls": 60,
+    "wallClockMs": 150000
+  },
+  "expectedWritablePaths": ["src/domain/normalize.js", "src/domain/user.js"],
+  "retentionPolicy": "metadata-only; raw provider payloads disabled; live output is gitignored",
+  "knownCandidatePaths": ["ARCHITECTURE.md", "src/cli/normalize.js", "src/domain/user.js", "test/refactor.test.js"],
+  "knownRelevantPaths": ["ARCHITECTURE.md", "src/cli/normalize.js", "src/domain/user.js", "test/refactor.test.js"],
+  "knownIrrelevantPaths": [],
+  "expectedArchitecturalRules": ["Domain modules must not import from the CLI layer."]
+}

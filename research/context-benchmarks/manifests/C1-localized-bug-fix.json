@@ -1,0 +1,45 @@
+{
+  "taskId": "cr005-c1-localized-bug-fix",
+  "category": "C1-localized-bug-fix",
+  "title": "Fix the localized percentage discount bug",
+  "fixtureVersion": "c1-v1",
+  "fixturePath": "corpus/C1-localized-bug-fix/fixture",
+  "referencePath": "corpus/C1-localized-bug-fix/reference",
+  "repositoryRevision": {
+    "baseCommit": "9bf11fe9f7c8b3d8aba808e61f5ce4a5993dc653",
+    "treeHash": "5dd1e4e2a8fa397fbe29a43dba6b6c924b6081fb",
+    "workingTreePatchHash": null
+  },
+  "initialStateHash": "dd926cee8b39f581782f7b19181a7e357ae79cbe3a0bfeaf8d93589b444bff11",
+  "prompt": "Fix the percentage discount calculation in src/discount.js. Preserve the existing validation behavior, run the oracle, and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
+  "acceptanceCriteria": [
+    "A finite amount and percentage produce amount * (1 - percentage / 100).",
+    "Existing finite-number validation remains intact.",
+    "The focused oracle passes."
+  ],
+  "oracle": {
+    "command": "node",
+    "args": ["--test", "test/discount.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "allowedTools": ["read", "ls", "grep", "find", "bash", "edit", "write"],
+  "expectedTools": ["read", "edit", "bash"],
+  "modelProfile": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "thinkingLevel": "medium"
+  },
+  "contextStrategies": ["NATIVE", "SHADOW"],
+  "budget": {
+    "maxSemanticCalls": 12,
+    "maxToolCalls": 40,
+    "wallClockMs": 120000
+  },
+  "expectedWritablePaths": ["src/discount.js"],
+  "retentionPolicy": "metadata-only; raw provider payloads disabled; live output is gitignored",
+  "knownCandidatePaths": ["src/discount.js", "test/discount.test.js"],
+  "knownRelevantPaths": ["src/discount.js", "test/discount.test.js"],
+  "knownIrrelevantPaths": [],
+  "expectedArchitecturalRules": []
+}

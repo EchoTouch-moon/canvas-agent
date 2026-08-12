@@ -1,0 +1,4 @@
+const DEFAULT_GREETING = 'Hello'
+const DEFAULT_PUNCTUATION = '!'
+
+module.exports = { DEFAULT_GREETING, DEFAULT_PUNCTUATION }

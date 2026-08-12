@@ -1,0 +1,46 @@
+{
+  "taskId": "cr005-c3-failing-test-diagnosis",
+  "category": "C3-failing-test-diagnosis",
+  "title": "Diagnose the cache hit regression from the failing test",
+  "fixtureVersion": "c3-v1",
+  "fixturePath": "corpus/C3-failing-test-diagnosis/fixture",
+  "referencePath": "corpus/C3-failing-test-diagnosis/reference",
+  "repositoryRevision": {
+    "baseCommit": "14c989061bdb06891f260bbc14519a81f95d415b",
+    "treeHash": "5554d820b48359e8d411e9bee767392d9cc35388",
+    "workingTreePatchHash": null
+  },
+  "initialStateHash": "40d76b7e16f65631871ed19a3e7f74647a9642b470913bd8fbc18e1afbde7421",
+  "prompt": "Diagnose the failing cache test. Make a minimal fix so a cache hit returns the stored value without invoking the factory again; preserve clear(). Run the oracle and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
+  "acceptanceCriteria": [
+    "A first getOrSet call evaluates and stores the factory value.",
+    "A cache hit returns the stored value and does not invoke the factory.",
+    "clear() removes the stored value.",
+    "The focused oracle passes."
+  ],
+  "oracle": {
+    "command": "node",
+    "args": ["--test", "test/cache.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "allowedTools": ["read", "ls", "grep", "find", "bash", "edit", "write"],
+  "expectedTools": ["read", "bash", "edit"],
+  "modelProfile": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "thinkingLevel": "medium"
+  },
+  "contextStrategies": ["NATIVE", "SHADOW"],
+  "budget": {
+    "maxSemanticCalls": 12,
+    "maxToolCalls": 40,
+    "wallClockMs": 120000
+  },
+  "expectedWritablePaths": ["src/cache.js"],
+  "retentionPolicy": "metadata-only; raw provider payloads disabled; live output is gitignored",
+  "knownCandidatePaths": ["src/cache.js", "test/cache.test.js"],
+  "knownRelevantPaths": ["src/cache.js", "test/cache.test.js"],
+  "knownIrrelevantPaths": [],
+  "expectedArchitecturalRules": []
+}

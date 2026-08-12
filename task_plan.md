@@ -1,3 +1,39 @@
+# Active task — CR-005 Native + Shadow Benchmark Corpus (2026-08-12)
+
+## Goal
+
+Build a research-only, reproducible six-category Native + Shadow benchmark corpus and credential-free harness on the Luna CR-005 branch, without changing real Pi/model context or authorizing CR-004.
+
+## Phases
+
+- [x] Phase 1: Confirm the exact CR-005 branch, packet, baseline and scope gate
+- [x] Phase 2: Design and implement six deterministic fixtures, manifests and objective oracles
+- [x] Phase 3: Implement Native/Shadow-safe orchestration metadata and telemetry aggregation
+- [x] Phase 4: Add credential-free validation and research verification artifact
+- [ ] Phase 5: Run supported checks, review scope, commit and hand off for lead review
+
+## Key Questions
+
+1. Can all six task fixtures be rebuilt byte-identically from versioned definitions?
+2. Can Native and Shadow runs share the same fixture revision and preserve the original Pi messages unchanged?
+3. Are objective oracles and telemetry sufficient to distinguish task quality from hypothetical Shadow planning evidence?
+
+## Decisions Made
+
+- Use a research-only `research/context-benchmarks/` boundary; do not modify production Runtime, contracts, persistence or renderer code.
+- Keep live provider execution optional and disabled by default; credential-free corpus validation must remain complete and honest.
+- Treat Native observed-message estimates and Shadow semantic Working Set estimates as separate scopes; never report their difference as provider token savings.
+
+## Errors Encountered
+
+- Local checkout initially pointed to the old DeepSeek DS-013 branch; fetched and switched to `agent/luna-cr-005-native-shadow-corpus` at exact merge `13d3b9087c980296e92eba91958d89c877cd40d8`.
+
+## Status
+
+**Currently in Phase 5** — running the supported workspace checks, reviewing the final diff, and preparing the lead handoff. Live provider execution remains opt-in and was not used for this implementation check.
+
+---
+
 # Canvas Agent — Product MVP v0.2 收口计划
 
 ## Goal

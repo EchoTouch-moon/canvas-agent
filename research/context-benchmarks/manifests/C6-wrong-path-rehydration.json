@@ -1,0 +1,46 @@
+{
+  "taskId": "cr005-c6-wrong-path-rehydration",
+  "category": "C6-wrong-path-rehydration",
+  "title": "Recover from a plausible wrong path to the nested-expression parser bug",
+  "fixtureVersion": "c6-v1",
+  "fixturePath": "corpus/C6-wrong-path-rehydration/fixture",
+  "referencePath": "corpus/C6-wrong-path-rehydration/reference",
+  "repositoryRevision": {
+    "baseCommit": "a128b6de309c9363dc635682f9ae50386c24537e",
+    "treeHash": "3edd61a9e53b2fb8710a2529be5ec06689103b91",
+    "workingTreePatchHash": null
+  },
+  "initialStateHash": "9d79a724d1a3fffb9f8d1b221674b90742b3406b715ad8e79775f537687f31e6",
+  "prompt": "Diagnose the nested arithmetic failure through the public API. It is reasonable to inspect the search cache and tokenizer first, but later evidence must lead to the parser's nested-expression path. Fix the smallest correct parser issue, run the oracle, and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
+  "acceptanceCriteria": [
+    "calculate(2 * (3 + 4) + 5) returns 19.",
+    "The public API remains the entry point used by the oracle.",
+    "The focused oracle passes.",
+    "No raw provider payload or unrelated fixture output is retained."
+  ],
+  "oracle": {
+    "command": "node",
+    "args": ["--test", "test/evaluate.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "allowedTools": ["read", "ls", "grep", "find", "bash", "edit", "write"],
+  "expectedTools": ["find", "grep", "read", "bash", "edit"],
+  "modelProfile": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "thinkingLevel": "medium"
+  },
+  "contextStrategies": ["NATIVE", "SHADOW"],
+  "budget": {
+    "maxSemanticCalls": 20,
+    "maxToolCalls": 90,
+    "wallClockMs": 180000
+  },
+  "expectedWritablePaths": ["src/parser/evaluate.js"],
+  "retentionPolicy": "metadata-only; raw provider payloads disabled; live output is gitignored",
+  "knownCandidatePaths": ["src/search/cache.js", "src/parser/tokenize.js", "src/parser/evaluate.js", "src/runtime/public-api.js", "test/evaluate.test.js"],
+  "knownRelevantPaths": ["src/parser/evaluate.js", "src/runtime/public-api.js", "test/evaluate.test.js"],
+  "knownIrrelevantPaths": ["src/search/cache.js", "src/parser/tokenize.js"],
+  "expectedArchitecturalRules": []
+}

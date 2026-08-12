@@ -1,0 +1,46 @@
+{
+  "taskId": "cr005-c5-unrelated-discovery",
+  "category": "C5-unrelated-discovery",
+  "title": "Find the security session expiry boundary among unrelated candidates",
+  "fixtureVersion": "c5-v1",
+  "fixturePath": "corpus/C5-unrelated-discovery/fixture",
+  "referencePath": "corpus/C5-unrelated-discovery/reference",
+  "repositoryRevision": {
+    "baseCommit": "6a91e4eea26f38a8ae64a2eca5c49bb8b1e368ed",
+    "treeHash": "014a59f8f070716f04dd7aa383276dbf90e6c9d5",
+    "workingTreePatchHash": null
+  },
+  "initialStateHash": "301d6550ccfc93cdcfe7301de1ac6190e96e6dcbe31f8af79197c46aeba53d8f",
+  "prompt": "Fix the security session expiry boundary. Discover the relevant candidate among the unrelated auth, billing, notifications, and security session helpers; only a security session at or past expiresAt is expired. Run the oracle and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
+  "acceptanceCriteria": [
+    "The security session is expired when now equals expiresAt.",
+    "The security session is not expired before expiresAt.",
+    "Unrelated candidate modules remain unchanged.",
+    "The focused oracle passes."
+  ],
+  "oracle": {
+    "command": "node",
+    "args": ["--test", "test/security.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "allowedTools": ["read", "ls", "grep", "find", "bash", "edit", "write"],
+  "expectedTools": ["find", "grep", "read", "edit", "bash"],
+  "modelProfile": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "thinkingLevel": "medium"
+  },
+  "contextStrategies": ["NATIVE", "SHADOW"],
+  "budget": {
+    "maxSemanticCalls": 16,
+    "maxToolCalls": 70,
+    "wallClockMs": 150000
+  },
+  "expectedWritablePaths": ["src/security/session.js"],
+  "retentionPolicy": "metadata-only; raw provider payloads disabled; live output is gitignored",
+  "knownCandidatePaths": ["src/auth/session.js", "src/billing/session.js", "src/notifications/session.js", "src/security/session.js", "test/security.test.js"],
+  "knownRelevantPaths": ["src/security/session.js", "test/security.test.js"],
+  "knownIrrelevantPaths": ["src/auth/session.js", "src/billing/session.js", "src/notifications/session.js"],
+  "expectedArchitecturalRules": []
+}

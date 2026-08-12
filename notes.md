@@ -118,3 +118,20 @@
 - 首个候选工单 DS-008 仅做 model-call Shadow observation，不改写上下文、不改生产 SQLite/Desktop/Worker/冻结 v0.2 契约。
 - 外部事实已按上游固定提交复核：Pi `cd6852a123f2c0cc646a41a2a52f3711a603b822`（`@earendil-works/pi-coding-agent` `0.84.1`），OpenCode `d041eee55c4b669f583fcbe0eb73e78d53393ae8`。
 - 研究实现仍受用户范围门约束；PR #12 合并本身不等于授权 DS-008 开工。
+
+## 2026-08-12 CR-005 Luna takeover
+
+- PR #25 merged at `main@13d3b9087c980296e92eba91958d89c877cd40d8`; implementation branch `agent/luna-cr-005-native-shadow-corpus` is checked out.
+- DS-013 is accepted/merged; CR-004 implementation and first Active experiment remain `NO_GO`.
+- CR-005 scope is research-only: six deterministic Git-backed fixtures, manifests, objective oracles, Native/Shadow-safe orchestration metadata, telemetry aggregation and verification evidence.
+- No renderer, provider payload rewrite, Dynamic/Active mode, Policy V0 change, production contract, persistence schema or OpenCode/Codex integration is authorized.
+- Current local baseline has no benchmark/corpus directory. The first implementation phase is API inspection plus deterministic fixture/harness design.
+
+## 2026-08-12 CR-005 implementation progress
+
+- Added six versioned fixture/reference pairs under `research/context-benchmarks/corpus/` and six strict manifests with fixed Git commit/tree/state hashes.
+- Added objective `node --test` oracles, deterministic fixture materialization, Native/Shadow metadata types, order-independent aggregation, false-removal candidate derivation, and explicit opt-in Pi live runner.
+- Credential-free validator passes: all six known-bad fixtures fail, all six known-good references pass, and repeated identities reproduce exactly.
+- Package typecheck passes; package tests pass (7 tests). Verification artifact is `docs/verification/context-runtime-cr-005-native-shadow-corpus.md` with verdict `HARNESS_ONLY` because no provider calls were made.
+- One environment issue was encountered: the sandbox denied the `tsx` CLI temporary IPC pipe; direct Node 24 + tsx loader ran the validator successfully. Dependency installation required the approved escalated network retry after the sandbox registry DNS failure.
+- Next step is final root checks and commit/handoff. No CR-004 authorization or Active evidence is inferred.
