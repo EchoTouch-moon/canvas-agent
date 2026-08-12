@@ -33,6 +33,7 @@ import type {
   FileAccessEvidence,
   NativeCallEvidence,
   OracleResult,
+  RepositoryObservationEvidence,
   ShadowCallEvidence,
   ShadowRepresentationEvidence,
   RunStatus
@@ -117,6 +118,18 @@ export function buildShadowFilePathCandidates(
   return buildObservedShadowCandidatePaths(input.observedFilePaths)
 }
 
+// Sanitize a retained path: redact the absolute fixture root, collapse control
+// characters and whitespace, and bound the length. Never persist absolute temp
+// roots in repository observation evidence (DS-014 C).
+export function sanitizeRepositoryObservationPath(path: string, fixturePath: string): string {
+  return path
+    .replaceAll(fixturePath, '<fixture>')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160)
+}
+
 export function formatRepositoryObservationFailure(
   path: string,
   error: unknown,
@@ -129,12 +142,7 @@ export function formatRepositoryObservationFailure(
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 240)
-  const safePath = path
-    .replaceAll(fixturePath, '<fixture>')
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 160)
+  const safePath = sanitizeRepositoryObservationPath(path, fixturePath)
   return `repository-observation:${safePath}:${reason || 'unknown_failure'}`
 }
 
@@ -386,10 +394,20 @@ async function runLiveTask(
   let enrichedObserver: EnrichedPiShadowObserver | null = null
   let repositoryObservationQueue: Promise<void> = Promise.resolve()
   const observationFailures: string[] = []
+  const repositoryObservations: RepositoryObservationEvidence[] = []
 
   const recordObservationFailure = (path: string, error: unknown): void => {
     if (observationFailures.length >= 32) return
     observationFailures.push(formatRepositoryObservationFailure(path, error, fixture.path))
+  }
+
+  const recordRepositoryObservation = (path: string, status: RepositoryObservationEvidence['status'], reasonCode: string | null): void => {
+    if (repositoryObservations.length >= 64) return
+    repositoryObservations.push({
+      path: sanitizeRepositoryObservationPath(path, fixture.path),
+      status,
+      reasonCode
+    })
   }
   const refreshShadowFilePathCandidates = (): void => {
     const nextCandidates = buildShadowFilePathCandidates({
@@ -420,23 +438,36 @@ async function runLiveTask(
           recordObservationFailure(path, new Error('observer_returned_no_observation'))
           return
         }
-        if (entry.observation.status !== 'AVAILABLE') {
-          if (entry.observation.status === 'UNAVAILABLE') {
-            recordObservationFailure(path, new Error(`observer_unavailable:${entry.observation.reasonCode}`))
+        // Enqueue the exact SourceObservation + descriptor regardless of
+        // AVAILABLE/ABSENT/UNAVAILABLE so the Universe records the state
+        // transition explicitly (DS-014 C). The observation carries the
+        // contentHash for AVAILABLE and reasonCode for UNAVAILABLE.
+        enrichedObserver?.queueExternalObservations([{
+          observation: entry.observation,
+          descriptor: {
+            sourceKey: entry.sourceKey,
+            sourceKind: entry.sourceKind,
+            provenance: entry.provenance
           }
-          return
-        }
-        if (!observedRepositoryPaths.includes(path)) {
-          observedRepositoryPaths.push(path)
-          refreshShadowFilePathCandidates()
-        }
-        enrichedObserver?.queueExternalSeeds([{
-          sourceKey: entry.sourceKey,
-          sourceKind: entry.sourceKind,
-          contentHash: entry.observation.contentHash,
-          provenance: entry.provenance,
-          observedAt: FIXED_OBSERVATION_TIME
         }])
+        // Record the state (not only prose) for auditable evidence. Sanitize
+        // path and bound the retained list.
+        recordRepositoryObservation(
+          path,
+          entry.observation.status,
+          entry.observation.status === 'UNAVAILABLE' ? entry.observation.reasonCode : null
+        )
+        // A path enters the Planner candidate set only after an authoritative
+        // AVAILABLE observation. UNAVAILABLE/ABSENT observations never promote
+        // a path to candidates.
+        if (entry.observation.status === 'AVAILABLE') {
+          if (!observedRepositoryPaths.includes(path)) {
+            observedRepositoryPaths.push(path)
+            refreshShadowFilePathCandidates()
+          }
+        } else if (entry.observation.status === 'UNAVAILABLE') {
+          recordObservationFailure(path, new Error(`observer_unavailable:${entry.observation.reasonCode}`))
+        }
       })
       .catch((error: unknown) => {
         recordObservationFailure(path, error)
@@ -632,6 +663,7 @@ async function runLiveTask(
       nativeCalls,
       shadowCalls,
       observationFailures: [...observationFailures],
+      repositoryObservations: [...repositoryObservations],
       originalMessagesUnchanged,
       rawProviderPayloadsCaptured: false
     }
@@ -666,6 +698,7 @@ async function runLiveTask(
       nativeCalls: nativeObserver === null ? [] : buildNativeCalls(nativeObserver, accesses.accesses),
       shadowCalls: planner === null ? [] : buildShadowCalls(planner, accesses.accesses),
       observationFailures: [...observationFailures],
+      repositoryObservations: [...repositoryObservations],
       originalMessagesUnchanged,
       rawProviderPayloadsCaptured: false
     }

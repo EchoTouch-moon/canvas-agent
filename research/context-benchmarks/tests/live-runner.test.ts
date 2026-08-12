@@ -7,7 +7,8 @@ import {
   determineRunStatus,
   evaluateWritablePaths,
   formatRepositoryObservationFailure,
-  readFinalFixtureIdentity
+  readFinalFixtureIdentity,
+  sanitizeRepositoryObservationPath
 } from '../src/live-runner'
 import {
   buildSanitizedChildEnvironment,
@@ -30,6 +31,27 @@ describe('CR-005 live-runner safety boundaries', () => {
     expect(evidence).toContain('DIRTY_REVISION_UNSUPPORTED raw detail')
     expect(evidence).not.toContain('/private/tmp/fixture-123')
     expect(evidence.length).toBeLessThanOrEqual(240 + 'repository-observation:<fixture>/src/example.js:'.length)
+  })
+
+  it('sanitizes retained repository observation paths (no absolute temp roots)', () => {
+    const safe = sanitizeRepositoryObservationPath(
+      '/private/tmp/fixture-456/src/discount.js',
+      '/private/tmp/fixture-456'
+    )
+    expect(safe).toBe('<fixture>/src/discount.js')
+    expect(safe).not.toContain('/private/tmp/fixture-456')
+
+    const control = sanitizeRepositoryObservationPath(
+      'src/discount.js\nraw\x00bytes',
+      '/private/tmp/fixture-456'
+    )
+    expect(control).toBe('src/discount.js raw bytes')
+    expect(control).not.toContain('\x00')
+  })
+
+  it('sanitized observation path is bounded to 160 characters', () => {
+    const long = sanitizeRepositoryObservationPath('a'.repeat(500), '/private/tmp/fixture')
+    expect(long.length).toBeLessThanOrEqual(160)
   })
 
   it('detects an out-of-scope file committed after a passing objective oracle', async () => {

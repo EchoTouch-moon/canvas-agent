@@ -162,6 +162,16 @@ export interface ShadowCallEvidence {
   readonly fileAccesses: readonly FileAccessEvidence[]
 }
 
+// Bounded per-path repository observation state retained in a run record
+// (DS-014 C). Distinguishes AVAILABLE / ABSENT / UNAVAILABLE with the exact
+// UNAVAILABLE reasonCode; never contains raw content, provider payloads,
+// credentials or absolute temp roots.
+export interface RepositoryObservationEvidence {
+  readonly path: string
+  readonly status: 'AVAILABLE' | 'ABSENT' | 'UNAVAILABLE'
+  readonly reasonCode: string | null
+}
+
 export interface BenchmarkRunRecord {
   readonly runId: string
   readonly taskId: string
@@ -192,6 +202,9 @@ export interface BenchmarkRunRecord {
   readonly nativeCalls: readonly NativeCallEvidence[]
   readonly shadowCalls: readonly ShadowCallEvidence[]
   readonly observationFailures: readonly string[]
+  // Populated by the live runner (DS-014 C); optional so hand-built records in
+  // non-live tests do not need to enumerate repository observations.
+  readonly repositoryObservations?: readonly RepositoryObservationEvidence[]
   readonly originalMessagesUnchanged: boolean
   readonly rawProviderPayloadsCaptured: false
 }

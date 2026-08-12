@@ -6,6 +6,7 @@ import {
   ShadowPlannerObserver,
   createShadowPlannerPiExtension
 } from '@canvas-agent/pi-context-integration'
+import { createUnavailableObservation } from '@canvas-agent/context-runtime'
 import { buildShadowFilePathCandidates } from '../src/live-runner'
 import type { ContextEvent, ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { benchmarkManifestSchema, loadManifests } from '../src/manifest'
@@ -81,6 +82,35 @@ describe('CR-005 Native/Shadow separation', () => {
     expect(second.planningRequest).toEqual(first.planningRequest)
     expect(second.plannerResult.workingSet.logicalHash).toBe(first.plannerResult.workingSet.logicalHash)
     expect(second.plannerResult.transition.logicalHash).toBe(first.plannerResult.transition.logicalHash)
+  })
+
+  it('candidate admission still requires AVAILABLE (UNAVAILABLE/ABSENT never promote a path)', async () => {
+    const base = new PiContextShadowObserver({ runtimeSessionId: 'cr005-candidate-available' })
+    const enriched = new EnrichedPiShadowObserver({ base })
+    const sourceKey = 'repository/file://src/auth.ts'
+    const descriptor = {
+      sourceKey,
+      sourceKind: 'REPOSITORY_FILE',
+      provenance: 'REPOSITORY_OBSERVER'
+    }
+    // An authoritative UNAVAILABLE observation is queued, but the path never
+    // enters the Planner candidate set: filePathCandidates stays empty.
+    enriched.queueExternalObservations([{
+      observation: createUnavailableObservation(sourceKey, 'REVISION_MISMATCH', '2026-01-01T00:00:00.000Z'),
+      descriptor
+    }])
+    const planner = new ShadowPlannerObserver({ enriched, filePathCandidates: [] })
+    const call = await planner.observeModelCall([])
+
+    // The source is represented in the Universe as UNAVAILABLE, but it is not
+    // admitted and no representation / ADD decision is produced.
+    const entry = call.enrichedResult.universeRevision.entries.find(
+      (candidate) => candidate.source.sourceKey === sourceKey
+    )
+    expect(entry?.state.observationStatus).toBe('UNAVAILABLE')
+    expect(entry?.admittedVersion).toBeNull()
+    expect(call.representations).toHaveLength(0)
+    expect(call.plannerResult.decisions.every((decision) => decision.kind !== 'ADD')).toBe(true)
   })
 
   it('runs the real Shadow extension and returns the exact original messages array', async () => {

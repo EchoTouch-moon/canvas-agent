@@ -88,7 +88,7 @@ describe('A. representation materialization', () => {
     }
   })
 
-  it('5) revision mismatch before materialization fails closed', async () => {
+  it('5) missing pinned commit fails closed (REPOSITORY_UNAVAILABLE)', async () => {
     const r = await repo({ 'a.ts': FILE_CONTENT })
     const { sourceKey, contentHash, versionId } = await admitVersion(r, 'a.ts', FILE_CONTENT)
     const provider = new FileRepresentationProvider()
@@ -102,7 +102,72 @@ describe('A. representation materialization', () => {
     })
     expect(result.kind).toBe('failed')
     if (result.kind === 'failed') {
+      expect(result.reason).toBe('REPOSITORY_UNAVAILABLE')
+    }
+  })
+
+  it('5b) wrong expected tree hash for an existing pinned commit fails closed (REVISION_MISMATCH)', async () => {
+    const r = await repo({ 'a.ts': FILE_CONTENT })
+    const { revision, sourceKey, contentHash, versionId } = await admitVersion(r, 'a.ts', FILE_CONTENT)
+    const provider = new FileRepresentationProvider()
+    const result = await provider.materialize({
+      repositoryPath: r.directory,
+      expectedRevision: { ...revision, treeHash: 'f'.repeat(40) },
+      sourceKey,
+      sourceVersionId: versionId,
+      sourceVersionContentHash: contentHash,
+      need: fullNeed(sourceKey)
+    })
+    expect(result.kind).toBe('failed')
+    if (result.kind === 'failed') {
       expect(result.reason).toBe('REVISION_MISMATCH')
+    }
+  })
+
+  it('5c) clean source admitted then worktree edited -> old FULL still materializes exact old bytes (DS-014)', async () => {
+    const r = await repo({ 'a.ts': FILE_CONTENT })
+    const { revision, sourceKey, contentHash, versionId } = await admitVersion(r, 'a.ts', FILE_CONTENT)
+    // The Agent later edits the worktree without committing. The pinned commit
+    // object and admitted SourceVersion remain immutable and exact.
+    const { writeFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    await writeFile(join(r.directory, 'a.ts'), 'edited new content\n', 'utf8')
+    const provider = new FileRepresentationProvider()
+    const result = await provider.materialize({
+      repositoryPath: r.directory,
+      expectedRevision: revision,
+      sourceKey,
+      sourceVersionId: versionId,
+      sourceVersionContentHash: contentHash,
+      need: fullNeed(sourceKey)
+    })
+    expect(result.kind).toBe('representation')
+    if (result.kind === 'representation') {
+      expect(result.representation.kind).toBe('FULL')
+      // Exact OLD bytes from the pinned blob, NOT the edited worktree file.
+      expect(result.representation.content).toBe(FILE_CONTENT)
+    }
+  })
+
+  it('5d) untracked file elsewhere does not block exact old blob materialization (DS-014)', async () => {
+    const r = await repo({ 'a.ts': FILE_CONTENT })
+    const { revision, sourceKey, contentHash, versionId } = await admitVersion(r, 'a.ts', FILE_CONTENT)
+    // An unrelated untracked file appears in the worktree (never committed).
+    const { writeFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    await writeFile(join(r.directory, 'untracked.js'), 'module.exports = 1\n', 'utf8')
+    const provider = new FileRepresentationProvider()
+    const result = await provider.materialize({
+      repositoryPath: r.directory,
+      expectedRevision: revision,
+      sourceKey,
+      sourceVersionId: versionId,
+      sourceVersionContentHash: contentHash,
+      need: fullNeed(sourceKey)
+    })
+    expect(result.kind).toBe('representation')
+    if (result.kind === 'representation') {
+      expect(result.representation.content).toBe(FILE_CONTENT)
     }
   })
 
@@ -172,17 +237,18 @@ describe('A. representation materialization', () => {
     }
   })
 
-  it('6b) post-materialization revision change fails closed via revision-reader seam', async () => {
+  it('6b) post-materialization pinned-tree change fails closed via pinned-tree-reader seam', async () => {
     const r = await repo({ 'a.ts': FILE_CONTENT })
     const { revision, sourceKey, contentHash, versionId } = await admitVersion(r, 'a.ts', FILE_CONTENT)
-    // Seam: pre-read returns expected; post-read returns a different revision.
+    // Seam: pre-read returns the expected tree; post-read returns a different
+    // pinned tree (destructive repository mutation during the read window).
     let calls = 0
     const provider = new FileRepresentationProvider({
-      revisionReader: {
-        async read(): Promise<RepositoryRevisionContract> {
+      pinnedTreeReader: {
+        async readTreeHash(): Promise<{ readonly kind: 'tree-hash'; readonly treeHash: string }> {
           calls += 1
-          if (calls === 1) return revision
-          return { ...revision, baseCommit: 'f'.repeat(40) }
+          if (calls === 1) return { kind: 'tree-hash', treeHash: revision.treeHash }
+          return { kind: 'tree-hash', treeHash: 'f'.repeat(40) }
         }
       }
     })
