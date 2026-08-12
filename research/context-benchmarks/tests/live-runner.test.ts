@@ -15,15 +15,15 @@ const researchRoot = resolve(import.meta.dirname, '..')
 describe('CR-005 live-runner safety boundaries', () => {
   it('retains bounded and sanitized Repository Observer failure evidence', () => {
     const evidence = formatRepositoryObservationFailure(
-      'src/example.js',
+      '/private/tmp/fixture-123/src/example.js',
       new Error('/private/tmp/fixture-123 DIRTY_REVISION_UNSUPPORTED\nraw detail'),
       '/private/tmp/fixture-123'
     )
 
-    expect(evidence).toContain('<fixture>')
+    expect(evidence).toContain('repository-observation:<fixture>/src/example.js:')
     expect(evidence).toContain('DIRTY_REVISION_UNSUPPORTED raw detail')
     expect(evidence).not.toContain('/private/tmp/fixture-123')
-    expect(evidence.length).toBeLessThanOrEqual(240 + 'repository-observation:src/example.js:'.length)
+    expect(evidence.length).toBeLessThanOrEqual(240 + 'repository-observation:<fixture>/src/example.js:'.length)
   })
 
   it('detects an out-of-scope file committed after a passing objective oracle', async () => {

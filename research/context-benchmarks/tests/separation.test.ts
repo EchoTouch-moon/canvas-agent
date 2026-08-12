@@ -1,13 +1,12 @@
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  buildRepresentationNeeds,
   EnrichedPiShadowObserver,
   PiContextShadowObserver,
   ShadowPlannerObserver,
   createShadowPlannerPiExtension
 } from '@canvas-agent/pi-context-integration'
-import { buildObservedShadowCandidatePaths } from '../src/live-runner'
+import { buildShadowFilePathCandidates } from '../src/live-runner'
 import type { ContextEvent, ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { benchmarkManifestSchema, loadManifests } from '../src/manifest'
 
@@ -50,11 +49,11 @@ describe('CR-005 Native/Shadow separation', () => {
         knownIrrelevantPaths: ['src/candidate-d.js']
       }
     ]
-    const plannerInputs = annotationVariants.map(() =>
-      [...buildRepresentationNeeds(buildObservedShadowCandidatePaths(observedFilePaths)).entries()]
+    const candidatePaths = annotationVariants.map((evaluatorAnnotations) =>
+      buildShadowFilePathCandidates({ observedFilePaths, evaluatorAnnotations })
     )
 
-    const createPlanner = () => {
+    const createPlanner = (filePathCandidates: readonly string[]) => {
       const base = new PiContextShadowObserver({ runtimeSessionId: 'cr005-annotation-invariance' })
       const enriched = new EnrichedPiShadowObserver({ base })
       enriched.queueExternalSeeds([{
@@ -66,14 +65,19 @@ describe('CR-005 Native/Shadow separation', () => {
       }])
       return new ShadowPlannerObserver({
         enriched,
-        filePathCandidates: buildObservedShadowCandidatePaths(observedFilePaths)
+        filePathCandidates
       })
     }
-    const first = await createPlanner().observeModelCall([])
-    const second = await createPlanner().observeModelCall([])
+    const firstCandidates = candidatePaths[0]
+    const secondCandidates = candidatePaths[1]
+    if (firstCandidates === undefined || secondCandidates === undefined) {
+      throw new Error('missing annotation-invariance candidate paths')
+    }
+    const first = await createPlanner(firstCandidates).observeModelCall([])
+    const second = await createPlanner(secondCandidates).observeModelCall([])
 
-    expect(plannerInputs[1]).toEqual(plannerInputs[0])
-    expect(JSON.stringify(plannerInputs[0])).not.toContain('evaluator-answer')
+    expect(candidatePaths[1]).toEqual(candidatePaths[0])
+    expect(JSON.stringify(firstCandidates)).not.toContain('evaluator-answer')
     expect(second.planningRequest).toEqual(first.planningRequest)
     expect(second.plannerResult.workingSet.logicalHash).toBe(first.plannerResult.workingSet.logicalHash)
     expect(second.plannerResult.transition.logicalHash).toBe(first.plannerResult.transition.logicalHash)

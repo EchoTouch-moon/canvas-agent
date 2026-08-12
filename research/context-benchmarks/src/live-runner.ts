@@ -36,7 +36,11 @@ import type {
   ShadowRepresentationEvidence,
   RunStatus
 } from './types'
-import { acceptanceCriteriaPassed, evaluateAcceptanceCriteria } from './acceptance'
+import {
+  acceptanceCriteriaPassed,
+  evaluateAcceptanceCriteria,
+  evaluateC2MultiFileContract
+} from './acceptance'
 import { computeInitialStateHash, materializeFixture, runOracle, runProcess } from './fixture-generator'
 
 const DEEPSEEK_PROVIDER = 'deepseek'
@@ -72,6 +76,24 @@ export function buildObservedShadowCandidatePaths(
   return [...new Set(observedFilePaths)].sort()
 }
 
+export interface ShadowCandidateInput {
+  readonly observedFilePaths: readonly string[]
+  readonly evaluatorAnnotations: Pick<
+    BenchmarkManifest,
+    'knownCandidatePaths' | 'knownRelevantPaths' | 'knownIrrelevantPaths'
+  >
+}
+
+// Keep the evaluator annotations in the call shape so the runner's boundary
+// is covered by invariance tests, but never consult them when building the
+// Planner candidate set.
+export function buildShadowFilePathCandidates(
+  input: ShadowCandidateInput
+): readonly string[] {
+  void input.evaluatorAnnotations
+  return buildObservedShadowCandidatePaths(input.observedFilePaths)
+}
+
 export function formatRepositoryObservationFailure(
   path: string,
   error: unknown,
@@ -84,7 +106,12 @@ export function formatRepositoryObservationFailure(
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 240)
-  const safePath = path.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 160)
+  const safePath = path
+    .replaceAll(fixturePath, '<fixture>')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160)
   return `repository-observation:${safePath}:${reason || 'unknown_failure'}`
 }
 
@@ -326,6 +353,7 @@ async function runLiveTask(
   let originalMessagesUnchanged = true
   let runError: string | null = null
   const observedRepositoryPaths: string[] = []
+  const shadowFilePathCandidates: string[] = []
   let repositoryObserver: RepositoryObserver | null = null
   let enrichedObserver: EnrichedPiShadowObserver | null = null
   let repositoryObservationQueue: Promise<void> = Promise.resolve()
@@ -334,6 +362,17 @@ async function runLiveTask(
   const recordObservationFailure = (path: string, error: unknown): void => {
     if (observationFailures.length >= 32) return
     observationFailures.push(formatRepositoryObservationFailure(path, error, fixture.path))
+  }
+  const refreshShadowFilePathCandidates = (): void => {
+    const nextCandidates = buildShadowFilePathCandidates({
+      observedFilePaths: observedRepositoryPaths,
+      evaluatorAnnotations: {
+        knownCandidatePaths: manifest.knownCandidatePaths,
+        knownRelevantPaths: manifest.knownRelevantPaths,
+        knownIrrelevantPaths: manifest.knownIrrelevantPaths
+      }
+    })
+    shadowFilePathCandidates.splice(0, shadowFilePathCandidates.length, ...nextCandidates)
   }
   let nativeObserver: PiContextShadowObserver | null = null
   let planner: ShadowPlannerObserver | null = null
@@ -359,7 +398,10 @@ async function runLiveTask(
           }
           return
         }
-        if (!observedRepositoryPaths.includes(path)) observedRepositoryPaths.push(path)
+        if (!observedRepositoryPaths.includes(path)) {
+          observedRepositoryPaths.push(path)
+          refreshShadowFilePathCandidates()
+        }
         enrichedObserver?.queueExternalSeeds([{
           sourceKey: entry.sourceKey,
           sourceKind: entry.sourceKind,
@@ -387,7 +429,7 @@ async function runLiveTask(
         // This mutable list is populated only after an actual Agent `read`
         // has been authoritatively observed. Manifest candidate/relevant paths
         // never enter the Planner.
-        filePathCandidates: observedRepositoryPaths,
+        filePathCandidates: shadowFilePathCandidates,
         representationProvider: async ({ entry, need }) => {
           if (entry.admittedVersion === null) return null
           const result = await representationProvider.materialize({
@@ -506,12 +548,16 @@ async function runLiveTask(
     const outOfScopePaths = writablePathEvaluation.outOfScopePaths
     const writablePathsValid = writablePathEvaluation.valid
     const agentDeclaredSuccess = declaredSuccess(lastAgentMessages)
+    const c2MultiFileContract = manifest.category === 'C2-multi-file-feature'
+      ? await evaluateC2MultiFileContract(fixture.path)
+      : null
     const acceptanceCriteriaResults = evaluateAcceptanceCriteria(manifest, {
       objectiveOracle,
       regressionOracle,
       writablePathsValid,
       originalMessagesUnchanged,
-      rawProviderPayloadsCaptured: false
+      rawProviderPayloadsCaptured: false,
+      c2MultiFileContract
     })
     const acceptanceCriteriaPassedResult = acceptanceCriteriaPassed(manifest, acceptanceCriteriaResults)
     const status = determineRunStatus({

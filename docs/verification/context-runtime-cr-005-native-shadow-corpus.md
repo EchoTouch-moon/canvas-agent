@@ -4,7 +4,7 @@
 
 - Branch: `agent/luna-cr-005-native-shadow-corpus`
 - Review target: PR #26 current correction round (live/provider execution remains disabled)
-- Correction scope: three P1 and two P2 benchmark-validity fixes; no live provider execution.
+- Correction scope: one P1 and two P2 benchmark-validity fixes; no live provider execution.
 
 ## 2. Corpus layout
 
@@ -48,7 +48,7 @@ All fixture repositories are created from committed templates with fixed Git aut
 
 ## 5. Acceptance criteria and oracles
 
-Each manifest declares structured acceptance criteria with an id and a machine-check kind. Each run records one bounded result and evidence string per criterion; `VALID` requires every declared criterion result to pass in addition to the objective/regression oracles, message pass-through, and writable-path checks. The criteria use deterministic oracle, path-scope, pass-through, and retention evidence rather than an unreviewed Agent claim.
+Each manifest declares structured acceptance criteria with an id and a machine-check kind. Each run records one bounded result and evidence string per criterion; `VALID` requires every declared criterion result to pass in addition to the objective/regression oracles, message pass-through, and writable-path checks. The criteria use deterministic oracle, path-scope, pass-through, retention, and source-contract evidence rather than an unreviewed Agent claim. C2-3 uses an independent `C2_MULTI_FILE_CONTRACT` check for the config, greeting, and public index seams, so changing only the public index cannot satisfy the criterion.
 
 Each manifest uses `node --test` against a focused objective `test/` file and a separate `test/regression.test.js`. The initial fixture is deliberately known-bad for the objective oracle, while the independent regression oracle passes on both the fixture and paired reference tree. C4's architecture rule is executable via a source assertion. C5's oracle now enters through a domain-neutral `src/session-expiry.js` seam; it does not directly import the answer path, so the four candidate modules must be distinguished through repository evidence.
 
@@ -60,7 +60,7 @@ Each manifest uses `node --test` against a focused objective `test/` file and a 
 - Repository Observer `UNAVAILABLE`/`ABSENT` results and thrown observation errors are retained as bounded, sanitized `observationFailures` evidence rather than silently discarded.
 - Aggregation counts a matching read/search at the same semantic sequence as `REMOVE`.
 - Aggregation also covers the next semantic call after `REMOVE`; same-call evidence has distance `0` and next-call evidence has distance `1`.
-- Evaluator annotation variants cannot enter Shadow planner inputs; a credential-free regression test holds observed evidence constant while changing those annotations.
+- Evaluator annotation variants cannot enter Shadow planner inputs; the credential-free regression test varies them through the same `buildShadowFilePathCandidates` seam used by the live runner while holding observed evidence constant.
 - Each Shadow call retains Universe, PlanningRequest, previous Working Set, transition identity, and content-free representation identity inputs. Replay invokes `planWorkingSet` and rejects identity drift.
 - The real Shadow extension pass-through test asserts the original `ContextEvent.messages` array identity.
 - Objective and regression oracles are distinct commands; the task-board history now records DS-013 as PR #24 and CR-005 assignment as PR #25.

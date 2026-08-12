@@ -13,7 +13,13 @@ export {
   type FalseRemovalCandidate,
   type RehydrationObservation
 } from './types'
-export { acceptanceCriteriaPassed, evaluateAcceptanceCriteria, type AcceptanceEvaluationInput } from './acceptance'
+export {
+  acceptanceCriteriaPassed,
+  evaluateAcceptanceCriteria,
+  evaluateC2MultiFileContract,
+  type AcceptanceEvaluationInput,
+  type DeterministicAcceptanceEvidence
+} from './acceptance'
 export { benchmarkManifestSchema, loadManifests, parseManifestFile, validateManifestReferences } from './manifest'
 export {
   computeInitialStateHash,
@@ -34,11 +40,13 @@ export {
 } from './validation'
 export {
   buildObservedShadowCandidatePaths,
+  buildShadowFilePathCandidates,
   determineRunStatus,
   evaluateWritablePaths,
   formatRepositoryObservationFailure,
   readFinalFixtureIdentity,
   runLiveCorpus,
   type LiveCorpusOptions,
-  type LiveCorpusResult
+  type LiveCorpusResult,
+  type ShadowCandidateInput
 } from './live-runner'

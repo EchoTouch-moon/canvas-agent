@@ -25,8 +25,8 @@
     },
     {
       "id": "C2-3",
-      "description": "The option is forwarded through the public profile entry point and implemented across the source contract.",
-      "check": "OBJECTIVE_ORACLE"
+      "description": "The formal option is structurally threaded through config, greeting, and the public index source contract.",
+      "check": "C2_MULTI_FILE_CONTRACT"
     },
     {
       "id": "C2-4",
