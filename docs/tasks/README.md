@@ -36,7 +36,7 @@ No Checkpoint/Resume, Canvas, second Agent adapter or external signed-distributi
 
 ## Current milestone — Context Runtime v0.3 research
 
-Context Runtime v0.3 is now the active research milestone. PR #12 established the bounded research architecture. CR-001 / DS-008 merged (PR #14), CR-002 / DS-009 merged (PR #16), CR-003A / DS-010 merged (PR #18), and DS-011 Repository Observer merged (PR #20). DS-012 / CR-003B is the next bounded Shadow-only task and does not authorize CR-004.
+Context Runtime v0.3 is now the active research milestone. PR #12 established the bounded research architecture. CR-001 / DS-008 merged (PR #14), CR-002 / DS-009 merged (PR #16), CR-003A / DS-010 merged (PR #18), and DS-011 Repository Observer merged (PR #20). DS-012 / CR-003B evidence is ready for architecture review (branch `agent/deepseek-ds-012-file-aware-shadow-planner`, 637 tests green, credential-free Git smoke + real Pi Shadow smoke EXECUTED); it does not authorize CR-004.
 
 | Order | Owner             | Packet                                                                                         | Branch                                               | Status                         | Start gate                                  |
 | ----: | ----------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------ | ------------------------------------------- |
@@ -46,7 +46,7 @@ Context Runtime v0.3 is now the active research milestone. PR #12 established th
 |     2 | DeepSeek V4 Flash | [DS-009 Context Source Attribution + Shadow Universe](deepseek/DS-009-context-source-universe-shadow.md) | `agent/deepseek-ds-009-context-source-universe-shadow` | ✅ ACCEPTED / MERGED — PR #16 | CR-001 accepted + packet merged + user authorized |
 |     3 | DeepSeek V4 Flash | [DS-010 Shadow Working Set Planner](deepseek/DS-010-shadow-working-set-planner.md)               | `agent/deepseek-ds-010-shadow-working-set-planner`   | ✅ ACCEPTED / MERGED — PR #18 | CR-002 accepted + packet merged + user authorized |
 |     4 | DeepSeek V4 Flash | [DS-011 Repository Observer](deepseek/DS-011-repository-observer.md)                             | `agent/deepseek-ds-011-repository-observer`          | ✅ ACCEPTED / MERGED — PR #20 | CR-003A accepted + packet merged + user authorized |
-|     5 | DeepSeek V4 Flash | [DS-012 File-aware Shadow Planner](deepseek/DS-012-file-aware-shadow-planner.md)                 | `agent/deepseek-ds-012-file-aware-shadow-planner`    | ASSIGNED — READY AFTER PACKET MERGE | DS-011 accepted + packet merged + user authorized |
+|     5 | DeepSeek V4 Flash | [DS-012 File-aware Shadow Planner](deepseek/DS-012-file-aware-shadow-planner.md)                 | `agent/deepseek-ds-012-file-aware-shadow-planner`    | EVIDENCE READY — awaiting architecture review | DS-011 accepted + packet merged + user authorized |
 
 CR-001 accepted evidence: `docs/verification/context-runtime-cr-001-pi-shadow.md`. CR-002 acceptance is recorded in `docs/verification/context-runtime-cr-002-acceptance.md`. CR-003A acceptance is recorded in `docs/verification/context-runtime-cr-003a-acceptance.md`. DS-011 acceptance is recorded in `docs/verification/context-runtime-ds-011-acceptance.md`.
 
@@ -70,7 +70,7 @@ DS-011 / Repository Observer ✅ ACCEPTED / MERGED
                  |
                  v
 DS-012 / CR-003B File-aware Shadow Planner
-   exact file representation + representation transitions only
+   exact file representation + representation transitions  EVIDENCE READY
                  |
                  +--> CR-004 Active Rewrite remains NOT AUTHORIZED
 ```

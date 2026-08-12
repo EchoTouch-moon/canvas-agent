@@ -16,6 +16,20 @@ export interface ContextBudget {
   readonly maxSemanticTokens: number
 }
 
+// Provider-neutral normalized representation need for one source. The adapter /
+// integration layer interprets file/task semantics and produces this normalized
+// input; the Runtime core never inspects path suffixes, source-key text
+// patterns, Pi tool names, provider payloads or source-kind literals.
+export interface ContextRepresentationNeed {
+  readonly sourceKey: string
+  readonly preferredKind: 'FULL' | 'LINE_RANGE' | 'REFERENCE'
+  readonly lineRange?: {
+    readonly startLine: number
+    readonly endLine: number
+  }
+  readonly reasonCode: 'DETAIL_REQUIRED' | 'REPRESENTATION_NARROWED' | string
+}
+
 // Normalized inputs for one planning boundary. No provider-specific message
 // payloads; missing task semantics default conservatively (GENERAL, empty
 // target lists).
@@ -41,6 +55,9 @@ export interface ContextPlanningRequest {
   // eligible for REHYDRATE when it was previously active and then removed/cold;
   // a first-time pin/current-target is a plain ADD.
   readonly removalHistory?: readonly RemovalRecord[]
+  // Bounded normalized representation needs. Deterministic selection of
+  // FULL / LINE_RANGE / REFERENCE for active sources.
+  readonly representationNeeds?: readonly ContextRepresentationNeed[]
   readonly previousWorkingSetId: string | null
 }
 
@@ -73,6 +90,13 @@ export function normalizePlanningRequest(
           )
         }
       : {}),
+    ...(request.representationNeeds !== undefined
+      ? {
+          representationNeeds: [...request.representationNeeds].sort((a, b) =>
+            a.sourceKey.localeCompare(b.sourceKey)
+          )
+        }
+      : {}),
     previousWorkingSetId: request.previousWorkingSetId
   }
 }
@@ -99,6 +123,12 @@ export function planningRequestHash(request: ContextPlanningRequest): string {
             `${record.sourceKey}:${record.originalRemovalReasonCodes.join(',')}:${record.removedAtSequence}`
         )
         .join(';'),
+      (normalized.representationNeeds ?? [])
+        .map(
+          (need) =>
+            `${need.sourceKey}:${need.preferredKind}:${need.lineRange !== undefined ? `${need.lineRange.startLine}-${need.lineRange.endLine}` : '-'}:${need.reasonCode}`
+        )
+        .join(';'),
       normalized.previousWorkingSetId ?? '-'
     ].join('\u241F')
   )
@@ -118,6 +148,9 @@ export const REASON_CODES = [
   'SOURCE_UNAVAILABLE_CONSERVATIVE_KEEP',
   'BUDGET_PRESSURE',
   'REHYDRATION_TRIGGERED',
-  'EXPLICIT_EXCLUDE'
+  'EXPLICIT_EXCLUDE',
+  'REPRESENTATION_NARROWED',
+  'DETAIL_REQUIRED',
+  'SOURCE_VERSION_ADVANCED'
 ] as const
 export type ReasonCode = (typeof REASON_CODES)[number]

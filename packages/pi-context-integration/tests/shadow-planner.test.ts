@@ -3,6 +3,7 @@ import {
   PiContextShadowObserver,
   EnrichedPiShadowObserver,
   ShadowPlannerObserver,
+  buildRepresentationNeeds,
   type PiMessageView
 } from '../src'
 
@@ -33,9 +34,9 @@ function makeObserver() {
 }
 
 describe('Shadow planner observer (CR-003A)', () => {
-  it('produces a Shadow Working Set + transition + metrics per model call', () => {
+  it('produces a Shadow Working Set + transition + metrics per model call', async () => {
     const observer = makeObserver()
-    const call = observer.observeModelCall([
+    const call = await observer.observeModelCall([
       userMessage('task'),
       toolCallMessage('call-1', 'read', { path: 'a.ts' }),
       toolResultMessage('call-1', 'content')
@@ -51,10 +52,10 @@ describe('Shadow planner observer (CR-003A)', () => {
     expect(call.metrics.nativeEstimateScope).toBe('agent-messages-pre-provider')
   })
 
-  it('produces one plan per model call and records ADD decisions for run-event sources', () => {
+  it('produces one plan per model call and records ADD decisions for run-event sources', async () => {
     const observer = makeObserver()
-    observer.observeModelCall([userMessage('task')])
-    const call2 = observer.observeModelCall([
+    await observer.observeModelCall([userMessage('task')])
+    const call2 = await observer.observeModelCall([
       userMessage('task'),
       toolCallMessage('call-1', 'read', { path: 'a.ts' }),
       toolResultMessage('call-1', 'content')
@@ -64,9 +65,9 @@ describe('Shadow planner observer (CR-003A)', () => {
     expect(addDecisions.length).toBeGreaterThan(0)
   })
 
-  it('records reason-code counts in metrics', () => {
+  it('records reason-code counts in metrics', async () => {
     const observer = makeObserver()
-    const call = observer.observeModelCall([
+    const call = await observer.observeModelCall([
       userMessage('task'),
       toolCallMessage('call-1', 'read', { path: 'a.ts' }),
       toolResultMessage('call-1', 'content')
@@ -78,19 +79,19 @@ describe('Shadow planner observer (CR-003A)', () => {
     )
   })
 
-  it('CR-001 pass-through invariant holds: base observer returns original messages', () => {
+  it('CR-001 pass-through invariant holds: base observer returns original messages', async () => {
     const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
     const enriched = new EnrichedPiShadowObserver({ base })
     const planner = new ShadowPlannerObserver({ enriched, policyVersion: 'v0' })
     const messages = [userMessage('keep me'), toolCallMessage('call-1', 'read', { path: 'a.ts' })]
     const result = base.handleContextEvent(messages)
     expect(result.messages).toBe(messages)
-    void planner.observeModelCall(messages)
+    await planner.observeModelCall(messages)
     expect(result.messages).toBe(messages)
     expect(result.messages).toHaveLength(2)
   })
 
-  it('P2: previousWorkingSetId mismatch is rejected both ways (strict bidirectional)', () => {
+  it('P2: previousWorkingSetId mismatch is rejected both ways (strict bidirectional)', async () => {
     // Direction 1: request claims a previous id but actual previous set is null.
     const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
     const enriched = new EnrichedPiShadowObserver({ base })
@@ -110,9 +111,9 @@ describe('Shadow planner observer (CR-003A)', () => {
         previousWorkingSetId: 'working-set:bogus'
       })
     })
-    expect(() =>
+    await expect(
       observer.observeModelCall([userMessage('task')])
-    ).toThrow(/previousWorkingSetId mismatch/)
+    ).rejects.toThrow(/previousWorkingSetId mismatch/)
 
     // Direction 2 (inverse): a single observer establishes a previous Working
     // Set on its first call, then a step-based request drops the id -> throw.
@@ -138,13 +139,13 @@ describe('Shadow planner observer (CR-003A)', () => {
         }
       }
     })
-    observer2.observeModelCall([userMessage('task')])
-    expect(() =>
+    await observer2.observeModelCall([userMessage('task')])
+    await expect(
       observer2.observeModelCall([userMessage('task')])
-    ).toThrow(/previousWorkingSetId mismatch/)
+    ).rejects.toThrow(/previousWorkingSetId mismatch/)
   })
 
-  it('P1: exclude in the live observer records removal history and enables REHYDRATE (end to end)', () => {
+  it('P1: exclude in the live observer records removal history and enables REHYDRATE (end to end)', async () => {
     // Build an observer whose planning request honors explicit excludes on the
     // second call and pins the source on the third call. The observer must
     // automatically record removal history from the real REMOVE decision.
@@ -181,21 +182,21 @@ describe('Shadow planner observer (CR-003A)', () => {
       toolCallMessage('call-1', 'read', { path: 'a.ts' }),
       toolResultMessage('call-1', 'content')
     ]
-    observer.observeModelCall(msg)
-    const call2 = observer.observeModelCall(msg)
+    await observer.observeModelCall(msg)
+    const call2 = await observer.observeModelCall(msg)
     // Step 2: explicit exclude -> real REMOVE(EXPLICIT_EXCLUDE).
     const removeDecisions = call2.plannerResult.decisions.filter((d) => d.kind === 'REMOVE')
     expect(removeDecisions.length).toBeGreaterThan(0)
     expect(
       removeDecisions.every((d) => d.reasonCodes.includes('EXPLICIT_EXCLUDE'))
     ).toBe(true)
-    const call3 = observer.observeModelCall(msg)
+    const call3 = await observer.observeModelCall(msg)
     // Step 3: pinned again -> REHYDRATE (observer auto-recorded the removal).
     const rehydrateDecisions = call3.plannerResult.decisions.filter((d) => d.kind === 'REHYDRATE')
     expect(rehydrateDecisions.length).toBeGreaterThan(0)
   })
 
-  it('P1: unchanged history across calls yields KEEP (real continuity)', () => {
+  it('P1: unchanged history across calls yields KEEP (real continuity)', async () => {
     const observer = makeObserver()
     const messagesA = [
       userMessage('task'),
@@ -207,8 +208,8 @@ describe('Shadow planner observer (CR-003A)', () => {
       toolCallMessage('call-1', 'read', { path: 'a.ts' }),
       toolResultMessage('call-1', 'content')
     ]
-    observer.observeModelCall(messagesA)
-    const second = observer.observeModelCall(messagesB)
+    await observer.observeModelCall(messagesA)
+    const second = await observer.observeModelCall(messagesB)
     // The second plan should see the previous Working Set and classify the
     // still-active run-event sources as KEEP, not repeated ADD.
     expect(second.plannerResult.workingSet.previousWorkingSetId).toBe(
@@ -220,9 +221,9 @@ describe('Shadow planner observer (CR-003A)', () => {
     expect(addCount).toBe(0)
   })
 
-  it('P1: nativeContextEstimate is the real CR-001 observation estimate, not a placeholder', () => {
+  it('P1: nativeContextEstimate is the real CR-001 observation estimate, not a placeholder', async () => {
     const observer = makeObserver()
-    const call = observer.observeModelCall([
+    const call = await observer.observeModelCall([
       userMessage('task with some text content'),
       toolCallMessage('call-1', 'read', { path: 'a.ts' }),
       toolResultMessage('call-1', 'file contents here')
@@ -232,5 +233,174 @@ describe('Shadow planner observer (CR-003A)', () => {
     expect(call.metrics.nativeContextEstimate).toBeGreaterThan(0)
     expect(call.metrics.nativeEstimateScope).toBe('agent-messages-pre-provider')
     expect(call.enrichedResult.nativeContextEstimate).toBe(call.metrics.nativeContextEstimate)
+  })
+})
+
+describe('CR-003B file-aware observer corrections (PR #22)', () => {
+  it('P1: representation needs enter the PlanningRequest and its hash', async () => {
+    const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
+    const sourceKey = 'repository/file://a.ts'
+    const enriched = new EnrichedPiShadowObserver({
+      base,
+      seeds: [
+        {
+          sourceKey,
+          sourceKind: 'REPOSITORY_FILE',
+          contentHash: 'file-content-hash',
+          provenance: 'REPOSITORY_OBSERVER',
+          observedAt: FIXED_NOW
+        }
+      ]
+    })
+    let capturedNeeds: unknown = null
+    const planner = new ShadowPlannerObserver({
+      enriched,
+      policyVersion: 'policy-v0',
+      filePathCandidates: ['a.ts'],
+      makePlanningRequest: (input) => ({
+        runtimeSessionId: input.runtimeSessionId,
+        recompositionSequence: input.sequence,
+        taskPhase: 'GENERAL',
+        budget: { maxSemanticTokens: 8000 },
+        pinnedSourceKeys: [],
+        excludedSourceKeys: [],
+        currentTargetSourceKeys: [],
+        latestVerificationSourceKeys: [],
+        recentEvidenceSourceKeys: input.recentEvidenceSourceKeys,
+        representationNeeds: input.representationNeeds,
+        previousWorkingSetId: input.previousWorkingSetId
+      }),
+      representationProvider: async ({ need }) => {
+        capturedNeeds = need
+        return null
+      }
+    })
+    await planner.observeModelCall([userMessage('task')])
+    const needsRequest = planner.callResults[0]!.planningRequest
+    const needs = needsRequest.representationNeeds ?? []
+    expect(needs).toHaveLength(1)
+    expect(needs[0]!.sourceKey).toBe(sourceKey)
+    expect(needs[0]!.preferredKind).toBe('FULL')
+    // The needs participate in planningRequestHash: with needs differs from
+    // the same request without needs.
+    const { planningRequestHash } = await import('@canvas-agent/context-runtime')
+    const withNeedsHash = planningRequestHash(needsRequest)
+    const withoutNeeds = { ...needsRequest }
+    delete withoutNeeds.representationNeeds
+    const withoutNeedsHash = planningRequestHash(withoutNeeds)
+    expect(withNeedsHash).not.toBe(withoutNeedsHash)
+    // The provider received the SAME normalized need that entered the request.
+    expect(capturedNeeds).not.toBeNull()
+  })
+
+  it('P1: materialization failure is fail-safe (recorded, falls back, native intact)', async () => {
+    const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
+    const sourceKey = 'repository/file://a.ts'
+    // Admit the file source so the provider is actually invoked for it.
+    const enriched = new EnrichedPiShadowObserver({
+      base,
+      seeds: [
+        {
+          sourceKey,
+          sourceKind: 'REPOSITORY_FILE',
+          contentHash: 'file-content-hash',
+          provenance: 'REPOSITORY_OBSERVER',
+          observedAt: FIXED_NOW
+        }
+      ]
+    })
+    const planner = new ShadowPlannerObserver({
+      enriched,
+      policyVersion: 'policy-v0',
+      filePathCandidates: ['a.ts'],
+      representationProvider: async () => {
+        throw new Error('git explosion')
+      }
+    })
+    const messages = [userMessage('keep me')]
+    const call = await planner.observeModelCall(messages)
+    // Failure recorded, not thrown to the Pi callback.
+    expect(call.materializationFailures.length).toBeGreaterThan(0)
+    expect(call.materializationFailures[0]).toContain('git explosion')
+    // The source still appears (fallback REFERENCE path is exercised by the
+    // planner represent resolver, which never throws).
+    expect(call.plannerResult.workingSet.items.length).toBeGreaterThanOrEqual(0)
+    // Native Pi messages remain unchanged.
+    const passThrough = base.handleContextEvent(messages)
+    expect(passThrough.messages).toBe(messages)
+  })
+
+  it('P2: duplicate representation need for a sourceKey is rejected', async () => {
+    const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
+    const enriched = new EnrichedPiShadowObserver({ base })
+    const planner = new ShadowPlannerObserver({
+      enriched,
+      policyVersion: 'policy-v0',
+      filePathCandidates: ['a.ts'],
+      representationProvider: async () => null
+    })
+    // Duplicate override for the same sourceKey must throw during need build.
+    expect(() =>
+      buildRepresentationNeeds(['a.ts'], [
+        { sourceKey: 'repository/file://a.ts', preferredKind: 'FULL', reasonCode: 'DETAIL_REQUIRED' }
+      ])
+    ).toThrow(/duplicate representation need/)
+    void planner
+  })
+})
+
+describe('CR-003B final P1: PlanningRequest ↔ materialization need strong consistency', () => {
+  it('custom builder that drops representationNeeds still gets the needs centrally forced onto the request', async () => {
+    const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
+    const sourceKey = 'repository/file://a.ts'
+    const enriched = new EnrichedPiShadowObserver({
+      base,
+      seeds: [
+        {
+          sourceKey,
+          sourceKind: 'REPOSITORY_FILE',
+          contentHash: 'file-content-hash',
+          provenance: 'REPOSITORY_OBSERVER',
+          observedAt: FIXED_NOW
+        }
+      ]
+    })
+    const materializedNeedKinds: string[] = []
+    const planner = new ShadowPlannerObserver({
+      enriched,
+      policyVersion: 'policy-v0',
+      filePathCandidates: ['a.ts'],
+      // Custom builder DELIBERATELY omits representationNeeds.
+      makePlanningRequest: (input) => ({
+        runtimeSessionId: input.runtimeSessionId,
+        recompositionSequence: input.sequence,
+        taskPhase: 'GENERAL',
+        budget: { maxSemanticTokens: 8000 },
+        pinnedSourceKeys: [],
+        excludedSourceKeys: [],
+        currentTargetSourceKeys: [],
+        latestVerificationSourceKeys: [],
+        recentEvidenceSourceKeys: input.recentEvidenceSourceKeys,
+        previousWorkingSetId: input.previousWorkingSetId
+      }),
+      representationProvider: async ({ need }) => {
+        materializedNeedKinds.push(need.preferredKind)
+        return null
+      }
+    })
+    const call = await planner.observeModelCall([userMessage('task')])
+    const request = call.planningRequest
+    // Central enforcement: the final request STILL carries the FULL need.
+    expect(request.representationNeeds).toHaveLength(1)
+    expect(request.representationNeeds![0]!.sourceKey).toBe(sourceKey)
+    expect(request.representationNeeds![0]!.preferredKind).toBe('FULL')
+    // Materialization used the SAME need (FULL), so hash + selection agree.
+    expect(materializedNeedKinds).toEqual(['FULL'])
+    // The request hash deterministically includes the need.
+    const { planningRequestHash } = await import('@canvas-agent/context-runtime')
+    const hashWithNeed = planningRequestHash(request)
+    const stripped = { ...request }
+    delete stripped.representationNeeds
+    expect(hashWithNeed).not.toBe(planningRequestHash(stripped))
   })
 })

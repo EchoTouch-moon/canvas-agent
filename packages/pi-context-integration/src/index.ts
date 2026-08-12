@@ -27,6 +27,7 @@ export {
 } from './element-decomposition'
 export {
   ShadowPlannerObserver,
+  buildRepresentationNeeds,
   createShadowPlannerPiExtension,
   representUniverseEntry,
   type ShadowPlannerCallResult,

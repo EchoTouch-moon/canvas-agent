@@ -82,6 +82,21 @@ function removalRecordFor(
   return (request.removalHistory ?? []).find((record) => record.sourceKey === sourceKey)
 }
 
+// The normalized representation need reason for a source, when present.
+// Defaults to the narrowing direction (REPRESENTATION_NARROWED) for a
+// representation change; the adapter may supply DETAIL_REQUIRED.
+function representationNeedReasonFor(
+  request: ContextPlanningRequest,
+  sourceKey: string
+): ReasonCode {
+  const need = (request.representationNeeds ?? []).find((n) => n.sourceKey === sourceKey)
+  if (need !== undefined) {
+    if (need.reasonCode === 'DETAIL_REQUIRED') return 'DETAIL_REQUIRED'
+    if (need.reasonCode === 'REPRESENTATION_NARROWED') return 'REPRESENTATION_NARROWED'
+  }
+  return 'REPRESENTATION_NARROWED'
+}
+
 function defaultProtectionOf(
   entry: ContextUniverseEntry,
   request: ContextPlanningRequest
@@ -233,6 +248,7 @@ export function planWorkingSet(input: {
     const item: ContextWorkingSetItem = {
       position: items.length,
       representationId: representation.id,
+      representationKind: representation.kind,
       sourceKeys: [sourceKey],
       sourceVersionIds: representation.sourceVersionIds,
       authority: entry.source.authority ?? 'REFERENCE',
@@ -246,24 +262,67 @@ export function planWorkingSet(input: {
     items.push(item)
     totalTokens += representation.tokenEstimate
 
-    // Decision classification: KEEP / REHYDRATE / ADD.
+    // Decision classification: KEEP / REPLACE / REHYDRATE / ADD.
     const previous = previousByKey.get(sourceKey)
     if (previous !== undefined) {
-      decisions.push(
-        makeDecision({
-          sequence,
-          kind: 'KEEP',
-          sourceKey,
-          sourceVersionId: admittedVersion.versionId,
-          representationId: representation.id,
-          fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
-          toWorkingSetId: workingSetId,
-          reasonCodes,
-          policyVersion,
-          tokenDelta: representation.tokenEstimate - previous.tokenEstimate,
-          previousToken: previous.tokenEstimate
-        })
-      )
+      const previousVersionId = previous.sourceVersionIds[0] ?? null
+      const sameVersion = previousVersionId === admittedVersion.versionId
+      const sameRepresentation = previous.representationId === representation.id
+      if (sameVersion && sameRepresentation) {
+        // Same source/version + same representation: plain KEEP.
+        decisions.push(
+          makeDecision({
+            sequence,
+            kind: 'KEEP',
+            sourceKey,
+            sourceVersionId: admittedVersion.versionId,
+            representationId: representation.id,
+            fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
+            toWorkingSetId: workingSetId,
+            reasonCodes,
+            policyVersion,
+            tokenDelta: representation.tokenEstimate - previous.tokenEstimate,
+            previousToken: previous.tokenEstimate
+          })
+        )
+      } else if (!sameVersion) {
+        // Same sourceKey, admitted SourceVersion advanced: the old
+        // representation is stale; replace it with a fresh representation of
+        // the new version.
+        decisions.push(
+          makeDecision({
+            sequence,
+            kind: 'REPLACE',
+            sourceKey,
+            sourceVersionId: admittedVersion.versionId,
+            representationId: representation.id,
+            fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
+            toWorkingSetId: workingSetId,
+            reasonCodes: ['SOURCE_VERSION_ADVANCED', ...reasonCodes],
+            policyVersion,
+            tokenDelta: representation.tokenEstimate - previous.tokenEstimate,
+            previousToken: previous.tokenEstimate
+          })
+        )
+      } else {
+        // Same source/version, representation changed: explicit REPLACE.
+        const representationReason = representationNeedReasonFor(request, sourceKey)
+        decisions.push(
+          makeDecision({
+            sequence,
+            kind: 'REPLACE',
+            sourceKey,
+            sourceVersionId: admittedVersion.versionId,
+            representationId: representation.id,
+            fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
+            toWorkingSetId: workingSetId,
+            reasonCodes: [representationReason, ...reasonCodes],
+            policyVersion,
+            tokenDelta: representation.tokenEstimate - previous.tokenEstimate,
+            previousToken: previous.tokenEstimate
+          })
+        )
+      }
     } else if (removalRecordFor(request, sourceKey) !== undefined) {
       // The source was previously active and removed/cold (evidence in
       // removalHistory). Re-admission is REHYDRATE, with the original removal

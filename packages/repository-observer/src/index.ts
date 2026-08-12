@@ -14,3 +14,10 @@ export {
   type RevisionReader
 } from './repository-observer'
 export { MAX_REPOSITORY_CONTENT_BYTES, readGitBlob, type BlobReadOutcome } from './git-blob-reader'
+export {
+  FileRepresentationProvider,
+  sourceKeyToPath,
+  type RepresentationMaterializeFailureReason,
+  type RepresentationMaterializeResult,
+  type RepositoryRepresentationRequest
+} from './representation-provider'
