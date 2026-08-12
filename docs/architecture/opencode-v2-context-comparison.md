@@ -64,7 +64,7 @@ Do not model runtime context only as anonymous strings such as:
 Prefer stable source identity:
 
 ```text
-project-rule:root/AGENTS.md
+project-rule:root/CONTRIBUTING.md
 repository-file:src/auth.ts
 repository-symbol:src/auth.ts#refreshSession
 run-tool-result:tool-call-018

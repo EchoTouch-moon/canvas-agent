@@ -1,5 +1,5 @@
 # UI-003 visual harness transcript
-# Invocation: PATH=/opt/homebrew/opt/node@24/bin:$PATH node apps/desktop/e2e/ui003-visual.e2e.cjs
+# Invocation: node apps/desktop/e2e/ui003-visual.e2e.cjs
 # Runtime: Node v24.15.0
 
 [visual] PASS no-workspace-light-1080x720
