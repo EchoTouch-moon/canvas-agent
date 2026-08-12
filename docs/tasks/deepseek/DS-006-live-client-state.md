@@ -14,7 +14,7 @@ Give the Renderer a complete typed product state model for workspace selection a
 
 ## Read first
 
-- `AGENTS.md`
+- `CONTRIBUTING.md`
 - `docs/PRODUCT_MVP_V0.2_PLAN.md` sections 5.4 and 6
 - `docs/architecture/decisions/PROPOSAL-029-first-workspace-bootstrap-flow.md`
 - `docs/architecture/decisions/PROPOSAL-028C-agent-readiness-command-contract.md`

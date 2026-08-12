@@ -14,7 +14,7 @@ Turn the merged product flow into a repeatable release candidate with determinis
 
 ## Read first
 
-- `AGENTS.md`
+- `CONTRIBUTING.md`
 - `docs/PRODUCT_MVP_V0.2_PLAN.md` sections 8–12
 - all DS-003…DS-006 and UI-003 handoffs
 - `.github/workflows/ci.yml`

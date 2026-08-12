@@ -14,7 +14,7 @@ The Worker is replaceable execution infrastructure, not the owner of project sta
 
 Read first:
 
-- `AGENTS.md`
+- `CONTRIBUTING.md`
 - `docs/architecture/implementation-baseline-v0.1.md`
 - `canvas_agent_design_baseline_v1.1/03_上下文与执行架构.md` sections 3–5
 - `packages/contracts/src/execution-request.ts`

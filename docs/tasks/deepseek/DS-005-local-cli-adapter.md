@@ -15,7 +15,7 @@ Replace production fixture execution with one real, policy-bounded Codex CLI ada
 
 ## Read first
 
-- `AGENTS.md`
+- `CONTRIBUTING.md`
 - `docs/architecture/decisions/PROPOSAL-028-local-cli-adapter-v1.md`
 - `docs/architecture/decisions/PROPOSAL-028A-execution-request-v2-contract.md`
 - `docs/architecture/decisions/PROPOSAL-028B-local-agent-runtime-discovery.md`

@@ -17,7 +17,7 @@ Make the current engineering loop honestly releasable: all checks pass determini
 
 ## Read first
 
-- `AGENTS.md`
+- `CONTRIBUTING.md`
 - `docs/PRODUCT_MVP_V0.2_PLAN.md`
 - `apps/desktop/src/main/index.ts`
 - `apps/desktop/src/main/execution-coordinator.ts`

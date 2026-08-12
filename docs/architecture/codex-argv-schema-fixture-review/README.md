@@ -57,7 +57,7 @@ a PATH that can resolve both `codex` and `node`.
 - `--ephemeral` avoids persisting session files.
 - `--ignore-user-config` / `--ignore-rules` isolate the run from user/project config and
   execpolicy rules (exercised by Codex CLI's own `cli_tests.rs`).
-- `-c project_doc_max_bytes=0` prevents the repository `AGENTS.md` from injecting instructions
+- `-c project_doc_max_bytes=0` prevents repository-local project instructions from injecting instructions
   outside the frozen Context Bundle (Canvas Agent accepts only frozen request context).
 - `--output-schema` points to a schema file the adapter writes into the isolated runtime area.
 

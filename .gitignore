@@ -33,3 +33,9 @@ worktrees/
 *.log
 pnpm-debug.log*
 npm-debug.log*
+
+# Maintainer-only local planning (never publish)
+/AGENTS.md
+/notes.md
+/task_plan.md
+/Canvas Agent 首席架构师与开发总控提示词.md

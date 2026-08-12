@@ -52,7 +52,7 @@ Pi supports DeepSeek as a built-in API-key provider through `DEEPSEEK_API_KEY`. 
 
 Repository architecture:
 
-- `AGENTS.md`
+- `CONTRIBUTING.md`
 - `docs/architecture/context-runtime-v0.3-direction.md`
 - `docs/architecture/opencode-v2-context-comparison.md`
 - `docs/architecture/decisions/PROPOSAL-030-context-source-universe-model.md`

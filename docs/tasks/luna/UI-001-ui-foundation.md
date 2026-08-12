@@ -14,7 +14,7 @@ The product is a compact desktop productivity workbench: neutral surfaces, deep 
 
 Inspect all four PNG files in `canvas_agent_design_baseline_v1.1/` and read:
 
-- `AGENTS.md`
+- `CONTRIBUTING.md`
 - `canvas_agent_design_baseline_v1.1/10_UI设计与开发基线.md`
 - `docs/architecture/implementation-baseline-v0.1.md`
 - current `apps/desktop/src/renderer/**`

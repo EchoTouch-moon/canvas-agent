@@ -18,7 +18,7 @@ Turn the existing prototype shell into a compact production workspace that opens
 
 ## Read first
 
-- `AGENTS.md`
+- `CONTRIBUTING.md`
 - `docs/PRODUCT_MVP_V0.2_PLAN.md` sections 3 and 5.4
 - DS-006 interface handoff in this directory
 - `docs/architecture/decisions/PROPOSAL-029-first-workspace-bootstrap-flow.md`

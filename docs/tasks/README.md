@@ -111,7 +111,7 @@ Phase 1–4 integration work is already in `main`; `docs/PROGRESS.md` records th
 ## Start protocol
 
 1. Pull reviewed `main`; confirm a clean tree.
-2. Read `AGENTS.md`, the master plan, required proposals and the assigned packet.
+2. Read `CONTRIBUTING.md`, the required proposals and the assigned packet.
 3. Create the packet's exact branch.
 4. Before a public contract/security/database deviation, stop and submit a short proposal.
 5. Run packet-specific checks and `pnpm check` before handoff.

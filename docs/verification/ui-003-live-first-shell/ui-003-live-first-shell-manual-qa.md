@@ -51,26 +51,26 @@ with no clipping or horizontal overflow.
 
 | id | kind | description | path |
 |---|---|---|---|
-| e2e-transcript | terminal transcript | 18 visual captures, overflow/control/live-region assertions, and complete keyboard focus path | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/ui003-visual-e2e-transcript.txt |
-| renderer-tests | test transcript | supporting renderer component tests: 4 files / 12 tests | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/ui003-renderer-component-tests.txt |
-| harness-source | source artifact | runnable visual fixture state list, including first-project, baseline-draft, first-task, task-spec, dirty, and keyboard-path states | /Users/v/Documents/V/apps/desktop/e2e/ui003-harness/main.tsx |
-| all-state-screenshots | screenshot set | all 18 state captures listed below | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/ |
-| paired-theme-screenshots | screenshot set | light/dark pairs for no-workspace, opening, error, ready, and switch-blocked | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/ |
-| shot-no-workspace-light | screenshot | no-workspace light 1080x720 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/no-workspace-light-1080x720.png |
-| shot-no-workspace-dark | screenshot | no-workspace dark 1080x720 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/no-workspace-dark-1080x720.png |
-| shot-opening-light | screenshot | opening light 1080x720 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/opening-light-1080x720.png |
-| shot-opening-dark | screenshot | opening dark 1080x720 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/opening-dark-1080x720.png |
-| shot-error-light | screenshot | invalid/error light 1080x720 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/error-light-1080x720.png |
-| shot-error-dark | screenshot | invalid/error dark 1080x720 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/error-dark-1080x720.png |
-| shot-ready-light | screenshot | ready light 1440x960 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/ready-light-1440x960.png |
-| shot-ready-dark | screenshot | ready dark 1440x960 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/ready-dark-1440x960.png |
-| shot-switch-light | screenshot | switch-blocked light 1440x960 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/switch-blocked-light-1440x960.png |
-| shot-switch-dark | screenshot | switch-blocked dark 1440x960 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/switch-blocked-dark-1440x960.png |
-| shot-booting-light | screenshot | booting light 1080x720 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/booting-light-1080x720.png |
-| shot-closing-dark | screenshot | closing dark 1440x960 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/closing-dark-1440x960.png |
-| shot-agent-auth-light | screenshot | Agent auth/sign-in required light 1440x960 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/agent-auth-light-1440x960.png |
-| shot-first-project-light | screenshot | First Project light 1440x960 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/first-project-light-1440x960.png |
-| shot-baseline-light | screenshot | Initial Baseline DRAFT review light 1440x960 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/baseline-draft-light-1440x960.png |
-| shot-first-task-light | screenshot | First Task light 1440x960 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/first-task-light-1440x960.png |
-| shot-task-spec-light | screenshot | TaskSpec publication light 1440x960 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/task-spec-light-1440x960.png |
-| shot-dirty-dark | screenshot | Dirty/read-only setup dark 1440x960 | /Users/v/Documents/V/docs/verification/ui-003-live-first-shell/dirty-dark-1440x960.png |
+| e2e-transcript | terminal transcript | 18 visual captures, overflow/control/live-region assertions, and complete keyboard focus path | `docs/verification/ui-003-live-first-shell/ui003-visual-e2e-transcript.txt` |
+| renderer-tests | test transcript | supporting renderer component tests: 4 files / 12 tests | `docs/verification/ui-003-live-first-shell/ui003-renderer-component-tests.txt` |
+| harness-source | source artifact | runnable visual fixture state list, including first-project, baseline-draft, first-task, task-spec, dirty, and keyboard-path states | `apps/desktop/e2e/ui003-harness/main.tsx` |
+| all-state-screenshots | screenshot set | all 18 state captures listed below | `docs/verification/ui-003-live-first-shell/` |
+| paired-theme-screenshots | screenshot set | light/dark pairs for no-workspace, opening, error, ready, and switch-blocked | `docs/verification/ui-003-live-first-shell/` |
+| shot-no-workspace-light | screenshot | no-workspace light 1080x720 | `docs/verification/ui-003-live-first-shell/no-workspace-light-1080x720.png` |
+| shot-no-workspace-dark | screenshot | no-workspace dark 1080x720 | `docs/verification/ui-003-live-first-shell/no-workspace-dark-1080x720.png` |
+| shot-opening-light | screenshot | opening light 1080x720 | `docs/verification/ui-003-live-first-shell/opening-light-1080x720.png` |
+| shot-opening-dark | screenshot | opening dark 1080x720 | `docs/verification/ui-003-live-first-shell/opening-dark-1080x720.png` |
+| shot-error-light | screenshot | invalid/error light 1080x720 | `docs/verification/ui-003-live-first-shell/error-light-1080x720.png` |
+| shot-error-dark | screenshot | invalid/error dark 1080x720 | `docs/verification/ui-003-live-first-shell/error-dark-1080x720.png` |
+| shot-ready-light | screenshot | ready light 1440x960 | `docs/verification/ui-003-live-first-shell/ready-light-1440x960.png` |
+| shot-ready-dark | screenshot | ready dark 1440x960 | `docs/verification/ui-003-live-first-shell/ready-dark-1440x960.png` |
+| shot-switch-light | screenshot | switch-blocked light 1440x960 | `docs/verification/ui-003-live-first-shell/switch-blocked-light-1440x960.png` |
+| shot-switch-dark | screenshot | switch-blocked dark 1440x960 | `docs/verification/ui-003-live-first-shell/switch-blocked-dark-1440x960.png` |
+| shot-booting-light | screenshot | booting light 1080x720 | `docs/verification/ui-003-live-first-shell/booting-light-1080x720.png` |
+| shot-closing-dark | screenshot | closing dark 1440x960 | `docs/verification/ui-003-live-first-shell/closing-dark-1440x960.png` |
+| shot-agent-auth-light | screenshot | Agent auth/sign-in required light 1440x960 | `docs/verification/ui-003-live-first-shell/agent-auth-light-1440x960.png` |
+| shot-first-project-light | screenshot | First Project light 1440x960 | `docs/verification/ui-003-live-first-shell/first-project-light-1440x960.png` |
+| shot-baseline-light | screenshot | Initial Baseline DRAFT review light 1440x960 | `docs/verification/ui-003-live-first-shell/baseline-draft-light-1440x960.png` |
+| shot-first-task-light | screenshot | First Task light 1440x960 | `docs/verification/ui-003-live-first-shell/first-task-light-1440x960.png` |
+| shot-task-spec-light | screenshot | TaskSpec publication light 1440x960 | `docs/verification/ui-003-live-first-shell/task-spec-light-1440x960.png` |
+| shot-dirty-dark | screenshot | Dirty/read-only setup dark 1440x960 | `docs/verification/ui-003-live-first-shell/dirty-dark-1440x960.png` |

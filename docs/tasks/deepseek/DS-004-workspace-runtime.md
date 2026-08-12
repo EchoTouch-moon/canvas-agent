@@ -14,7 +14,7 @@ Replace the environment-only startup composition with a recoverable, Main-owned,
 
 ## Read first
 
-- `AGENTS.md`
+- `CONTRIBUTING.md`
 - `docs/architecture/decisions/PROPOSAL-027-product-workspace-runtime.md`
 - `docs/architecture/decisions/PROPOSAL-027A-workspace-command-contract.md`
 - `docs/architecture/decisions/ADR-018-desktop-runtime-and-storage.md`

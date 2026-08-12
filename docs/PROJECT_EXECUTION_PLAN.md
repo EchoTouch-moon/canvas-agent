@@ -50,7 +50,7 @@ pnpm install --frozen-lockfile
 pnpm check
 ```
 
-随后阅读根目录 `AGENTS.md`、`CONTRIBUTING.md`、`docs/tasks/README.md` 与自己的工单，再创建工单指定分支。
+随后阅读根目录 `CONTRIBUTING.md`、`docs/tasks/README.md` 与自己的工单，再创建工单指定分支。
 
 ## 5. 发布门槛
 

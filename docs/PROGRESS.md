@@ -2,7 +2,7 @@
 
 - **日期：** 2026-08-11
 - **里程碑：** `PRODUCT MVP v0.2 COMPLETE — LOCAL/INTERNAL UNSIGNED`
-- **仓库：** https://github.com/EchoTouch-moon/canvas-agent（私有）
+- **仓库：** https://github.com/EchoTouch-moon/canvas-agent
 - **基线：** `main@38820ec`（DS-003…DS-007 与 UI-003 全部合并）
 
 > **2026-08-11 status update:** DS-003…DS-007 与 UI-003 已全部合并。PR #13 的 source、production audit 与 macOS credential-free RC jobs 全绿；真实 Codex smoke 为 `executed=1` 且六项 checks 全 true。Lead architect 已对照发布矩阵批准 Product MVP v0.2 完成。范围为 local/internal unsigned use；外部签名与公证另立发布决策。`docs/PROJECT_EXECUTION_PLAN.md` 的 next-work ordering 已被 `docs/PRODUCT_MVP_V0.2_PLAN.md` 取代。

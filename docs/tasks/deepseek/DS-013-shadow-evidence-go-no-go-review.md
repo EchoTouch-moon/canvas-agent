@@ -41,7 +41,7 @@ The central research rule remains:
 
 Read these before writing the review:
 
-- `AGENTS.md`
+- `CONTRIBUTING.md`
 - `docs/architecture/context-runtime-v0.3-direction.md`
 - `docs/architecture/decisions/PROPOSAL-030-context-source-universe-model.md`
 - `docs/architecture/decisions/PROPOSAL-031-context-working-set-planner.md`

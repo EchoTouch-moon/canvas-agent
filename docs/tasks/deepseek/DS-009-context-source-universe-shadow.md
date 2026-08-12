@@ -72,7 +72,7 @@ DS-009 must not erase that distinction.
 
 Repository architecture and evidence:
 
-- `AGENTS.md`
+- `CONTRIBUTING.md`
 - `docs/architecture/context-runtime-v0.3-direction.md`
 - `docs/architecture/opencode-v2-context-comparison.md`
 - `docs/architecture/decisions/PROPOSAL-030-context-source-universe-model.md`
