@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, open, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { join, posix, win32 } from 'node:path'
 import {
   createAgentSession,
@@ -51,6 +52,20 @@ import {
   runOracle,
   runProcess
 } from './fixture-generator'
+import { aggregateRuns } from './aggregation'
+import {
+  benchmarkRecordIsValid,
+  retainedEvidenceHasSecretPattern,
+  retainedEvidenceIsSanitized
+} from './replacement-canary'
+import {
+  evaluateWaveAGate,
+  evaluateWaveAPairGate,
+  selectWaveAManifests,
+  WAVE_A_REPETITIONS,
+  WAVE_A_TARGETS,
+  waveAManifestExecutionFingerprint
+} from './wave-a'
 
 const DEEPSEEK_PROVIDER = 'deepseek'
 const FIXED_OBSERVATION_TIME = '2026-01-01T00:00:00.000Z'
@@ -67,6 +82,98 @@ export interface LiveCorpusResult {
   readonly skipped: boolean
   readonly skipReason: string | null
   readonly outputPath: string | null
+}
+
+export interface ProgressiveWaveATask {
+  readonly researchRoot: string
+  readonly manifest: BenchmarkManifest
+  readonly strategy: ContextStrategy
+  readonly repetition: typeof WAVE_A_REPETITIONS
+}
+
+export type ProgressiveWaveATaskExecutor = (
+  task: ProgressiveWaveATask
+) => Promise<BenchmarkRunRecord>
+
+export type ProgressiveWaveAStatus = 'PASS' | 'STOPPED' | 'SKIPPED'
+
+export interface ProgressiveWaveACheckpointManifest {
+  readonly schemaVersion: 1
+  readonly runId: string
+  readonly baselineSha: string
+  readonly createdAt: string
+  readonly authorizationScope: {
+    readonly provider: string
+    readonly model: string
+    readonly thinkingLevel: string
+    readonly maxRecords: number
+    readonly maxSemanticCalls: number
+    readonly maxToolCalls: number
+    readonly maxWallClockMs: number
+  }
+  readonly expectedScope: {
+    readonly repetitions: typeof WAVE_A_REPETITIONS
+    readonly records: readonly {
+      readonly runId: string
+      readonly taskId: string
+      readonly category: BenchmarkManifest['category']
+      readonly strategy: ContextStrategy
+      readonly repetition: typeof WAVE_A_REPETITIONS
+      readonly manifestFingerprint: string
+    }[]
+  }
+}
+
+export interface ProgressiveWaveAProgress {
+  readonly schemaVersion: 1
+  readonly runId: string
+  readonly baselineSha: string
+  readonly status: 'RUNNING' | 'PASS' | 'STOPPED'
+  readonly completedPairs: readonly string[]
+  readonly nextCategory: BenchmarkManifest['category'] | null
+  readonly nextStrategy: ContextStrategy | null
+  readonly recordCount: number
+  readonly recordIds: readonly string[]
+  readonly recordHashes: readonly string[]
+  readonly stopReason: string | null
+}
+
+export interface ProgressiveWaveACheckpointWriteEvent {
+  readonly kind: 'manifest' | 'records' | 'progress' | 'aggregate'
+  readonly path: string
+  readonly metadata: {
+    readonly runId: string
+    readonly recordCount: number
+    readonly completedPairs: number
+    readonly status: string
+  }
+}
+
+export interface ProgressiveWaveAOptions {
+  readonly researchRoot: string
+  readonly manifests: readonly BenchmarkManifest[]
+  readonly baselineSha: string
+  readonly outputDirectory?: string
+  readonly runId?: string
+  readonly resume?: boolean
+  /** Required for provider-backed execution; fake executors may omit it. */
+  readonly providerExecutionAuthorized?: boolean
+  readonly credentialValue?: string
+  readonly executeTask?: ProgressiveWaveATaskExecutor
+  readonly checkpointWriteInterceptor?: (
+    event: ProgressiveWaveACheckpointWriteEvent
+  ) => void | Promise<void>
+}
+
+export interface ProgressiveWaveAResult {
+  readonly records: readonly BenchmarkRunRecord[]
+  readonly skipped: boolean
+  readonly skipReason: string | null
+  readonly status: ProgressiveWaveAStatus
+  readonly stopReason: string | null
+  readonly outputPath: string | null
+  readonly checkpointDirectory: string | null
+  readonly completedPairs: number
 }
 
 /**
@@ -887,4 +994,923 @@ export async function runLiveCorpus(options: LiveCorpusOptions): Promise<LiveCor
   const outputPath = join(outputDirectory, `cr005-${Date.now()}.jsonl`)
   await writeFile(outputPath, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`, 'utf8')
   return { records, skipped: false, skipReason: null, outputPath }
+}
+
+const PROGRESSIVE_CHECKPOINT_SCHEMA_VERSION = 1 as const
+
+interface ProgressiveCheckpointFilePaths {
+  readonly manifest: string
+  readonly records: string
+  readonly progress: string
+  readonly aggregate: string
+}
+
+function progressiveCheckpointPaths(directory: string): ProgressiveCheckpointFilePaths {
+  return {
+    manifest: join(directory, 'manifest.json'),
+    records: join(directory, 'records.jsonl'),
+    progress: join(directory, 'progress.json'),
+    aggregate: join(directory, 'aggregate.json')
+  }
+}
+
+async function writeAtomicCheckpointFile(
+  path: string,
+  content: string,
+  event: ProgressiveWaveACheckpointWriteEvent,
+  interceptor?: ProgressiveWaveAOptions['checkpointWriteInterceptor']
+): Promise<void> {
+  await interceptor?.(event)
+  const temporaryPath = `${path}.tmp-${process.pid}-${randomUUID()}`
+  try {
+    const handle = await open(temporaryPath, 'wx')
+    try {
+      await handle.writeFile(content, 'utf8')
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+    await rename(temporaryPath, path)
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => undefined)
+    throw error
+  }
+}
+
+class ProgressiveWaveACheckpointStore {
+  readonly paths: ProgressiveCheckpointFilePaths
+
+  constructor(
+    readonly directory: string,
+    private readonly runId: string,
+    private readonly interceptor?: ProgressiveWaveAOptions['checkpointWriteInterceptor']
+  ) {
+    this.paths = progressiveCheckpointPaths(directory)
+  }
+
+  private async writeJson(
+    kind: 'manifest' | 'progress' | 'aggregate',
+    path: string,
+    value: unknown,
+    metadata: ProgressiveWaveACheckpointWriteEvent['metadata']
+  ): Promise<void> {
+    await writeAtomicCheckpointFile(
+      path,
+      `${JSON.stringify(value, null, 2)}\n`,
+      { kind, path, metadata },
+      this.interceptor
+    )
+  }
+
+  async writeManifest(value: ProgressiveWaveACheckpointManifest): Promise<void> {
+    await this.writeJson('manifest', this.paths.manifest, value, {
+      runId: this.runId,
+      recordCount: 0,
+      completedPairs: 0,
+      status: 'RUNNING'
+    })
+  }
+
+  async writeRecords(records: readonly BenchmarkRunRecord[], completedPairs: number): Promise<void> {
+    const content = records.length === 0
+      ? ''
+      : `${records.map((record) => JSON.stringify(record)).join('\n')}\n`
+    await writeAtomicCheckpointFile(
+      this.paths.records,
+      content,
+      {
+        kind: 'records',
+        path: this.paths.records,
+        metadata: {
+          runId: this.runId,
+          recordCount: records.length,
+          completedPairs,
+          status: 'RUNNING'
+        }
+      },
+      this.interceptor
+    )
+  }
+
+  async writeProgress(value: ProgressiveWaveAProgress): Promise<void> {
+    await this.writeJson('progress', this.paths.progress, value, {
+      runId: this.runId,
+      recordCount: value.recordCount,
+      completedPairs: value.completedPairs.length,
+      status: value.status
+    })
+  }
+
+  async writeAggregate(
+    value: ReturnType<typeof aggregateRuns>,
+    records: readonly BenchmarkRunRecord[],
+    completedPairs: number,
+    status: 'PASS' | 'STOPPED',
+    baselineSha: string,
+    stopReason: string | null = null
+  ): Promise<void> {
+    const recordsContent = await readFile(this.paths.records, 'utf8')
+    // The aggregate keeps its existing top-level shape for simple inspection,
+    // while this marker makes a terminal checkpoint recognizable even when a
+    // later progress write fails.
+    const aggregateWithTerminalMarker = {
+      ...value,
+      checkpointSchemaVersion: PROGRESSIVE_CHECKPOINT_SCHEMA_VERSION,
+      checkpointStatus: status,
+      checkpointStopReason: stopReason,
+      checkpointBaselineSha: baselineSha,
+      checkpointOutputSha256: sha256Hex(recordsContent),
+      checkpointOutputBytes: Buffer.byteLength(recordsContent, 'utf8'),
+      checkpointOutputRecordCount: records.length
+    }
+    await writeAtomicCheckpointFile(
+      this.paths.aggregate,
+      `${JSON.stringify(aggregateWithTerminalMarker, null, 2)}\n`,
+      {
+        kind: 'aggregate',
+        path: this.paths.aggregate,
+        metadata: {
+          runId: this.runId,
+          recordCount: records.length,
+          completedPairs,
+          status
+        }
+      },
+      this.interceptor
+    )
+  }
+
+  async readManifest(): Promise<ProgressiveWaveACheckpointManifest> {
+    return JSON.parse(await readFile(this.paths.manifest, 'utf8')) as ProgressiveWaveACheckpointManifest
+  }
+
+  async readProgress(): Promise<ProgressiveWaveAProgress> {
+    return JSON.parse(await readFile(this.paths.progress, 'utf8')) as ProgressiveWaveAProgress
+  }
+
+  async readAggregateMarker(): Promise<{
+    readonly checkpointSchemaVersion?: unknown
+    readonly checkpointStatus?: unknown
+  } | null> {
+    try {
+      const parsed = JSON.parse(await readFile(this.paths.aggregate, 'utf8')) as unknown
+      if (typeof parsed !== 'object' || parsed === null) {
+        throw new Error('wave_a_checkpoint_aggregate_schema_invalid')
+      }
+      return parsed as {
+        readonly checkpointSchemaVersion?: unknown
+        readonly checkpointStatus?: unknown
+      }
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null
+      throw error
+    }
+  }
+
+  async readRecords(): Promise<readonly BenchmarkRunRecord[]> {
+    let content: string
+    try {
+      content = await readFile(this.paths.records, 'utf8')
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return []
+      throw error
+    }
+    const lines = content.split('\n').filter((line) => line.trim().length > 0)
+    return lines.map((line, index) => {
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(line)
+      } catch {
+        throw new Error(`wave_a_checkpoint_record_json_invalid:index=${index}`)
+      }
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        typeof (parsed as { runId?: unknown }).runId !== 'string'
+      ) {
+        throw new Error(`wave_a_checkpoint_record_schema_invalid:index=${index}`)
+      }
+      return parsed as BenchmarkRunRecord
+    })
+  }
+}
+
+function isSafeProgressiveRunId(runId: string): boolean {
+  return /^[A-Za-z0-9._-]{1,160}$/.test(runId)
+}
+
+function checkpointRecordHash(record: BenchmarkRunRecord): string {
+  return sha256Hex(JSON.stringify(record))
+}
+
+function checkpointRecordHashes(records: readonly BenchmarkRunRecord[]): readonly string[] {
+  return records.map(checkpointRecordHash)
+}
+
+function checkpointRecordsMetadataOnly(
+  records: readonly BenchmarkRunRecord[],
+  credentialValue?: string
+): boolean {
+  const serialized = JSON.stringify(records)
+  return (
+    retainedEvidenceIsSanitized(serialized) &&
+    !retainedEvidenceHasSecretPattern(serialized) &&
+    (credentialValue === undefined || credentialValue.length === 0 || !serialized.includes(credentialValue)) &&
+    records.every((record) => !record.rawProviderPayloadsCaptured)
+  )
+}
+
+function buildProgressiveCheckpointManifest(
+  runId: string,
+  baselineSha: string,
+  manifests: readonly BenchmarkManifest[]
+): ProgressiveWaveACheckpointManifest {
+  const records = WAVE_A_TARGETS.flatMap((target) => {
+    const manifest = manifests.find(
+      (candidate) => candidate.category === target.category && candidate.taskId === target.taskId
+    )
+    if (manifest === undefined) {
+      throw new Error(`wave_a_checkpoint_manifest_missing:${target.taskId}`)
+    }
+    return (['NATIVE', 'SHADOW'] as const).map((strategy) => ({
+      runId: `${target.taskId}-${strategy.toLowerCase()}-r${WAVE_A_REPETITIONS}`,
+      taskId: target.taskId,
+      category: target.category,
+      strategy,
+      repetition: WAVE_A_REPETITIONS as typeof WAVE_A_REPETITIONS,
+      manifestFingerprint: waveAManifestExecutionFingerprint(manifest)
+    }))
+  })
+  return {
+    schemaVersion: PROGRESSIVE_CHECKPOINT_SCHEMA_VERSION,
+    runId,
+    baselineSha,
+    createdAt: new Date().toISOString(),
+    authorizationScope: {
+      provider: manifests[0]?.modelProfile.provider ?? 'deepseek',
+      model: manifests[0]?.modelProfile.model ?? 'deepseek-v4-flash',
+      thinkingLevel: manifests[0]?.modelProfile.thinkingLevel ?? 'medium',
+      maxRecords: WAVE_A_TARGETS.length * 2,
+      maxSemanticCalls: manifests.reduce(
+        (total, manifest) => total + manifest.budget.maxSemanticCalls * 2,
+        0
+      ),
+      maxToolCalls: manifests.reduce(
+        (total, manifest) => total + manifest.budget.maxToolCalls * 2,
+        0
+      ),
+      maxWallClockMs: manifests.reduce(
+        (total, manifest) => total + manifest.budget.wallClockMs * 2,
+        0
+      )
+    },
+    expectedScope: {
+      repetitions: WAVE_A_REPETITIONS,
+      records
+    }
+  }
+}
+
+function checkpointProgressFor(
+  metadata: ProgressiveWaveACheckpointManifest,
+  records: readonly BenchmarkRunRecord[],
+  completedPairs: readonly string[],
+  status: ProgressiveWaveAProgress['status'],
+  stopReason: string | null
+): ProgressiveWaveAProgress {
+  const nextTarget = WAVE_A_TARGETS[completedPairs.length]
+  const nextStrategy = status === 'RUNNING'
+    ? (records.length % 2 === 0 ? 'NATIVE' : 'SHADOW')
+    : null
+  return {
+    schemaVersion: PROGRESSIVE_CHECKPOINT_SCHEMA_VERSION,
+    runId: metadata.runId,
+    baselineSha: metadata.baselineSha,
+    status,
+    completedPairs,
+    nextCategory: nextTarget?.category ?? null,
+    nextStrategy,
+    recordCount: records.length,
+    recordIds: records.map((record) => record.runId),
+    recordHashes: checkpointRecordHashes(records),
+    stopReason
+  }
+}
+
+function expectedProgressiveRecord(
+  metadata: ProgressiveWaveACheckpointManifest,
+  index: number
+): ProgressiveWaveACheckpointManifest['expectedScope']['records'][number] | undefined {
+  return metadata.expectedScope.records[index]
+}
+
+function matchingWaveATarget(
+  record: BenchmarkRunRecord
+): (typeof WAVE_A_TARGETS)[number] | undefined {
+  return WAVE_A_TARGETS.find(
+    (target) => target.category === record.category && target.taskId === record.taskId
+  )
+}
+
+function recordMatchesProgressiveIdentity(
+  record: BenchmarkRunRecord,
+  expected: ProgressiveWaveACheckpointManifest['expectedScope']['records'][number],
+  manifests: readonly BenchmarkManifest[]
+): boolean {
+  const target = matchingWaveATarget(record)
+  const manifest = manifests.find(
+    (candidate) => candidate.category === expected.category && candidate.taskId === expected.taskId
+  )
+  return (
+    target !== undefined &&
+    manifest !== undefined &&
+    record.runId === expected.runId &&
+    record.taskId === expected.taskId &&
+    record.category === expected.category &&
+    record.strategy === expected.strategy &&
+    record.repetition === expected.repetition &&
+    JSON.stringify(record.fixtureIdentity) === JSON.stringify(target.fixtureIdentity) &&
+    waveAManifestExecutionFingerprint(manifest) === expected.manifestFingerprint &&
+    record.modelProfile.provider === 'deepseek' &&
+    record.modelProfile.model === 'deepseek-v4-flash' &&
+    record.modelProfile.thinkingLevel === 'medium'
+  )
+}
+
+export interface ProgressiveWaveACheckpointSnapshot {
+  readonly manifest: ProgressiveWaveACheckpointManifest
+  readonly progress: ProgressiveWaveAProgress
+  readonly records: readonly BenchmarkRunRecord[]
+  readonly recoveredRecordLag: boolean
+}
+
+function checkpointExpectedCompletedPairs(
+  metadata: ProgressiveWaveACheckpointManifest,
+  recordCount: number
+): readonly string[] {
+  const pairCount = Math.floor(recordCount / 2)
+  return metadata.expectedScope.records
+    .filter((_, index) => index < pairCount * 2 && index % 2 === 0)
+    .map((record) => record.taskId)
+}
+
+function checkpointProgressMatchesPrefix(
+  progress: ProgressiveWaveAProgress,
+  records: readonly BenchmarkRunRecord[]
+): boolean {
+  if (progress.recordCount > records.length) return false
+  const prefix = records.slice(0, progress.recordCount)
+  return (
+    JSON.stringify(progress.recordIds) === JSON.stringify(prefix.map((record) => record.runId)) &&
+    JSON.stringify(progress.recordHashes) === JSON.stringify(checkpointRecordHashes(prefix))
+  )
+}
+
+function checkpointProgressShapeIsValid(
+  progress: ProgressiveWaveAProgress,
+  metadata: ProgressiveWaveACheckpointManifest
+): boolean {
+  return (
+    progress.schemaVersion === PROGRESSIVE_CHECKPOINT_SCHEMA_VERSION &&
+    progress.runId === metadata.runId &&
+    progress.baselineSha === metadata.baselineSha &&
+    ['RUNNING', 'PASS', 'STOPPED'].includes(progress.status) &&
+    Number.isInteger(progress.recordCount) &&
+    progress.recordCount >= 0 &&
+    Array.isArray(progress.recordIds) &&
+    Array.isArray(progress.recordHashes) &&
+    Array.isArray(progress.completedPairs)
+  )
+}
+
+export async function readProgressiveWaveACheckpoint(input: {
+  readonly directory: string
+  readonly runId: string
+  readonly baselineSha: string
+  readonly manifests: readonly BenchmarkManifest[]
+  readonly credentialValue?: string
+}): Promise<ProgressiveWaveACheckpointSnapshot> {
+  if (!isSafeProgressiveRunId(input.runId)) {
+    throw new Error('wave_a_checkpoint_run_id_invalid')
+  }
+  const manifests = selectWaveAManifests(input.manifests)
+  const expectedManifest = buildProgressiveCheckpointManifest(
+    input.runId,
+    input.baselineSha,
+    manifests
+  )
+  const store = new ProgressiveWaveACheckpointStore(input.directory, input.runId)
+  const manifest = await store.readManifest()
+  const progress = await store.readProgress()
+  const aggregateMarker = await store.readAggregateMarker()
+  if (aggregateMarker !== null) {
+    if (
+      aggregateMarker.checkpointSchemaVersion !== PROGRESSIVE_CHECKPOINT_SCHEMA_VERSION ||
+      (aggregateMarker.checkpointStatus !== 'PASS' &&
+        aggregateMarker.checkpointStatus !== 'STOPPED')
+    ) {
+      throw new Error('wave_a_checkpoint_aggregate_schema_invalid')
+    }
+    throw new Error('wave_a_checkpoint_terminal')
+  }
+  const records = await store.readRecords()
+  if (
+    manifest.schemaVersion !== PROGRESSIVE_CHECKPOINT_SCHEMA_VERSION ||
+    manifest.runId !== expectedManifest.runId ||
+    manifest.baselineSha !== expectedManifest.baselineSha ||
+    JSON.stringify(manifest.authorizationScope) !==
+      JSON.stringify(expectedManifest.authorizationScope) ||
+    JSON.stringify(manifest.expectedScope) !== JSON.stringify(expectedManifest.expectedScope)
+  ) {
+    throw new Error('wave_a_checkpoint_identity_mismatch')
+  }
+  if (!checkpointProgressShapeIsValid(progress, manifest)) {
+    throw new Error('wave_a_checkpoint_progress_schema_invalid')
+  }
+  if (progress.recordCount > records.length) {
+    throw new Error('wave_a_checkpoint_progress_ahead_of_records')
+  }
+  if (!checkpointProgressMatchesPrefix(progress, records)) {
+    throw new Error('wave_a_checkpoint_record_hash_or_order_mismatch')
+  }
+  if (records.length > manifest.expectedScope.records.length) {
+    throw new Error('wave_a_checkpoint_record_count_invalid')
+  }
+
+  for (const [index, record] of records.entries()) {
+    const expected = expectedProgressiveRecord(manifest, index)
+    if (expected === undefined || !recordMatchesProgressiveIdentity(record, expected, manifests)) {
+      throw new Error(`wave_a_checkpoint_record_identity_invalid:index=${index}`)
+    }
+  }
+  if (!checkpointRecordsMetadataOnly(records, input.credentialValue)) {
+    throw new Error('wave_a_checkpoint_durable_evidence_unsafe')
+  }
+  for (let index = 0; index + 1 < records.length; index += 2) {
+    const pairGate = evaluateWaveAPairGate(
+      records.slice(index, index + 2),
+      input.credentialValue
+    )
+    if (pairGate.status !== 'PASS') {
+      throw new Error(
+        `wave_a_checkpoint_pair_invalid:${pairGate.failedChecks.join(',')}`
+      )
+    }
+  }
+  if (records.length % 2 === 1) {
+    const last = records.at(-1)
+    if (last === undefined || !benchmarkRecordIsValid(last)) {
+      throw new Error('wave_a_checkpoint_partial_record_invalid')
+    }
+  }
+
+  const expectedCompletedPairs = checkpointExpectedCompletedPairs(manifest, records.length)
+  const expectedProgressPairs = checkpointExpectedCompletedPairs(manifest, progress.recordCount)
+  const progressMatchesAllRecords = progress.recordCount === records.length
+  const nextTarget = WAVE_A_TARGETS[expectedProgressPairs.length]
+  const expectedNextCategory = nextTarget?.category ?? null
+  const expectedNextStrategy = progress.status === 'RUNNING' &&
+    progress.recordCount < manifest.expectedScope.records.length
+    ? (progress.recordCount % 2 === 0 ? 'NATIVE' : 'SHADOW')
+    : null
+  if (
+    progress.status === 'RUNNING' &&
+    JSON.stringify(progress.completedPairs) !== JSON.stringify(expectedProgressPairs)
+  ) {
+    throw new Error('wave_a_checkpoint_completed_pairs_mismatch')
+  }
+  if (
+    progress.status === 'RUNNING' &&
+    (progress.nextCategory !== expectedNextCategory ||
+      progress.nextStrategy !== expectedNextStrategy)
+  ) {
+    throw new Error('wave_a_checkpoint_next_boundary_mismatch')
+  }
+  if (
+    progress.status === 'RUNNING' &&
+    progress.recordCount === records.length &&
+    progress.stopReason !== null
+  ) {
+    throw new Error('wave_a_checkpoint_running_stop_reason_invalid')
+  }
+  if (progress.status === 'PASS') {
+    const finalGate = evaluateWaveAGate(records, input.credentialValue)
+    if (finalGate.status !== 'PASS') throw new Error('wave_a_checkpoint_pass_gate_invalid')
+  }
+
+  if (progressMatchesAllRecords) {
+    return { manifest, progress, records, recoveredRecordLag: false }
+  }
+  if (progress.status !== 'RUNNING') {
+    throw new Error('wave_a_checkpoint_terminal_record_lag')
+  }
+  const recoveredProgress = checkpointProgressFor(
+    manifest,
+    records,
+    expectedCompletedPairs,
+    'RUNNING',
+    null
+  )
+  return {
+    manifest,
+    progress: recoveredProgress,
+    records,
+    recoveredRecordLag: true
+  }
+}
+
+function recordWithinManifestBudget(
+  record: BenchmarkRunRecord,
+  manifest: BenchmarkManifest
+): boolean {
+  return (
+    Number.isInteger(record.semanticCallCount) &&
+    record.semanticCallCount >= 0 &&
+    record.semanticCallCount <= manifest.budget.maxSemanticCalls &&
+    Number.isInteger(record.toolCallCount) &&
+    record.toolCallCount >= 0 &&
+    record.toolCallCount <= manifest.budget.maxToolCalls &&
+    Number.isInteger(record.toolResultCount) &&
+    record.toolResultCount === record.toolCallCount &&
+    Number.isInteger(record.wallClockMs) &&
+    record.wallClockMs >= 0 &&
+    record.wallClockMs <= manifest.budget.wallClockMs
+  )
+}
+
+function progressiveBudgetUsage(records: readonly BenchmarkRunRecord[]): {
+  readonly semanticCallCount: number
+  readonly toolCallCount: number
+  readonly wallClockMs: number
+} {
+  return records.reduce(
+    (usage, record) => ({
+      semanticCallCount: usage.semanticCallCount + record.semanticCallCount,
+      toolCallCount: usage.toolCallCount + record.toolCallCount,
+      wallClockMs: usage.wallClockMs + record.wallClockMs
+    }),
+    { semanticCallCount: 0, toolCallCount: 0, wallClockMs: 0 }
+  )
+}
+
+function progressiveBudgetLimits(manifests: readonly BenchmarkManifest[]): {
+  readonly semanticCallCount: number
+  readonly toolCallCount: number
+  readonly wallClockMs: number
+} {
+  return manifests.reduce(
+    (limits, manifest) => ({
+      semanticCallCount: limits.semanticCallCount + manifest.budget.maxSemanticCalls * 2,
+      toolCallCount: limits.toolCallCount + manifest.budget.maxToolCalls * 2,
+      wallClockMs: limits.wallClockMs + manifest.budget.wallClockMs * 2
+    }),
+    { semanticCallCount: 0, toolCallCount: 0, wallClockMs: 0 }
+  )
+}
+
+function progressiveBudgetExceeded(
+  records: readonly BenchmarkRunRecord[],
+  manifests: readonly BenchmarkManifest[]
+): boolean {
+  const usage = progressiveBudgetUsage(records)
+  const limits = progressiveBudgetLimits(manifests)
+  return (
+    usage.semanticCallCount > limits.semanticCallCount ||
+    usage.toolCallCount > limits.toolCallCount ||
+    usage.wallClockMs > limits.wallClockMs
+  )
+}
+
+function progressiveStopReason(reason: string): string {
+  return reason
+    .replace(/(?:\/private)?\/(?:tmp|var\/folders|Users)\/[^\s"'<>]+/g, '<absolute-path>')
+    .replace(/[A-Za-z]:[\\/][^\s"'<>]+/g, '<absolute-path>')
+    .replace(/Bearer\s+[A-Za-z0-9._-]{8,}/gi, 'Bearer <redacted>')
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, '<redacted>')
+    .slice(0, 240)
+}
+
+export async function runProgressiveWaveA(
+  options: ProgressiveWaveAOptions
+): Promise<ProgressiveWaveAResult> {
+  const manifests = selectWaveAManifests(options.manifests)
+  if (options.baselineSha.trim().length === 0) {
+    throw new Error('wave_a_baseline_sha_required')
+  }
+  const outputDirectory = options.outputDirectory ?? join(
+    options.researchRoot,
+    '.live-output',
+    'wave-a'
+  )
+  const injectedExecutor = options.executeTask
+  const authorized = options.providerExecutionAuthorized === true ||
+    (options.providerExecutionAuthorized === undefined && injectedExecutor !== undefined)
+  if (options.resume === true && options.providerExecutionAuthorized !== true) {
+    throw new Error('wave_a_resume_authorization_required')
+  }
+  if (injectedExecutor === undefined && !authorized) {
+    return {
+      records: [],
+      skipped: true,
+      skipReason: 'provider_execution_not_authorized',
+      status: 'SKIPPED',
+      stopReason: null,
+      outputPath: null,
+      checkpointDirectory: null,
+      completedPairs: 0
+    }
+  }
+
+  const runId = options.runId ?? `wave-a-${Date.now()}-${randomUUID()}`
+  if (!isSafeProgressiveRunId(runId)) throw new Error('wave_a_run_id_invalid')
+  await mkdir(outputDirectory, { recursive: true })
+  const checkpointDirectory = join(outputDirectory, runId)
+  let checkpointExists = false
+  try {
+    const existing = await stat(checkpointDirectory)
+    checkpointExists = existing.isDirectory()
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error
+  }
+  if (checkpointExists && options.resume !== true) {
+    throw new Error('wave_a_run_identity_exists')
+  }
+  if (!checkpointExists && options.resume === true) {
+    throw new Error('wave_a_checkpoint_missing')
+  }
+  if (!checkpointExists) await mkdir(checkpointDirectory)
+
+  const credentialValue = options.credentialValue ?? (
+    injectedExecutor === undefined ? process.env['DEEPSEEK_API_KEY'] : undefined
+  )
+  const checkpointStore = new ProgressiveWaveACheckpointStore(
+    checkpointDirectory,
+    runId,
+    options.checkpointWriteInterceptor
+  )
+  const checkpointManifest = buildProgressiveCheckpointManifest(
+    runId,
+    options.baselineSha,
+    manifests
+  )
+  let records: BenchmarkRunRecord[] = []
+  let completedPairs: string[] = []
+  let recoveredRecordLag = false
+
+  if (checkpointExists) {
+    const checkpointReadInput = {
+      directory: checkpointDirectory,
+      runId,
+      baselineSha: options.baselineSha,
+      manifests
+    } as const
+    const snapshot = await readProgressiveWaveACheckpoint(
+      credentialValue === undefined
+        ? checkpointReadInput
+        : { ...checkpointReadInput, credentialValue }
+    )
+    if (snapshot.progress.status !== 'RUNNING') {
+      throw new Error('wave_a_checkpoint_terminal')
+    }
+    records = [...snapshot.records]
+    completedPairs = [...snapshot.progress.completedPairs]
+    recoveredRecordLag = snapshot.recoveredRecordLag
+  } else {
+    await checkpointStore.writeManifest(checkpointManifest)
+    const writtenManifest = await checkpointStore.readManifest()
+    if (JSON.stringify(writtenManifest) !== JSON.stringify(checkpointManifest)) {
+      throw new Error('wave_a_checkpoint_manifest_reverify_failed')
+    }
+    await checkpointStore.writeRecords(records, completedPairs.length)
+    const initialRecords = await checkpointStore.readRecords()
+    if (initialRecords.length !== 0) throw new Error('wave_a_checkpoint_records_reverify_failed')
+    const initialProgress = checkpointProgressFor(
+      checkpointManifest,
+      records,
+      completedPairs,
+      'RUNNING',
+      null
+    )
+    await checkpointStore.writeProgress(initialProgress)
+    const writtenProgress = await checkpointStore.readProgress()
+    if (JSON.stringify(writtenProgress) !== JSON.stringify(initialProgress)) {
+      throw new Error('wave_a_checkpoint_progress_reverify_failed')
+    }
+  }
+
+  const stop = async (reason: string): Promise<ProgressiveWaveAResult> => {
+    let finalReason = progressiveStopReason(reason)
+    const terminalProgress = checkpointProgressFor(
+      checkpointManifest,
+      records,
+      completedPairs,
+      'STOPPED',
+      finalReason
+    )
+    try {
+      await checkpointStore.writeAggregate(
+        aggregateRuns(records),
+        records,
+        completedPairs.length,
+        'STOPPED',
+        checkpointManifest.baselineSha,
+        finalReason
+      )
+    } catch {
+      finalReason = 'checkpoint_persistence_failed'
+    }
+    try {
+      await checkpointStore.writeProgress({ ...terminalProgress, stopReason: finalReason })
+      const reread = await checkpointStore.readProgress()
+      if (JSON.stringify(reread) !== JSON.stringify({ ...terminalProgress, stopReason: finalReason })) {
+        finalReason = 'checkpoint_persistence_failed'
+      }
+    } catch {
+      finalReason = 'checkpoint_persistence_failed'
+    }
+    return {
+      records,
+      skipped: false,
+      skipReason: null,
+      status: 'STOPPED',
+      stopReason: finalReason,
+      outputPath: checkpointStore.paths.records,
+      checkpointDirectory,
+      completedPairs: completedPairs.length
+    }
+  }
+
+  let executeTask = injectedExecutor
+  if (executeTask === undefined) {
+    let runtime: ModelRuntime
+    try {
+      runtime = await ModelRuntime.create({ refreshOnCreate: false, allowModelNetwork: false })
+      const apiKey = process.env['DEEPSEEK_API_KEY']
+      if (apiKey !== undefined && apiKey.length > 0) {
+        await runtime.setRuntimeApiKey(DEEPSEEK_PROVIDER, apiKey)
+      }
+      const providers = [...new Set(manifests.map((manifest) => manifest.modelProfile.provider))]
+      for (const provider of providers) {
+        const auth = await runtime.checkAuth(provider)
+        if (auth === undefined) return stop('provider_credentials_unavailable')
+      }
+      for (const manifest of manifests) {
+        const model = runtime.getModel(manifest.modelProfile.provider, manifest.modelProfile.model)
+        if (model === undefined) {
+          return stop(`model_unavailable:${manifest.modelProfile.provider}/${manifest.modelProfile.model}`)
+        }
+      }
+    } catch {
+      return stop('provider_runtime_unavailable')
+    }
+    executeTask = (task) => runLiveTask(
+      task.researchRoot,
+      task.manifest,
+      task.strategy,
+      task.repetition,
+      runtime
+    )
+  }
+
+  if (recoveredRecordLag) {
+    try {
+      const recoveredProgress = checkpointProgressFor(
+        checkpointManifest,
+        records,
+        completedPairs,
+        'RUNNING',
+        null
+      )
+      await checkpointStore.writeProgress(recoveredProgress)
+      const reread = await checkpointStore.readProgress()
+      if (JSON.stringify(reread) !== JSON.stringify(recoveredProgress)) {
+        return stop('checkpoint_persistence_failed')
+      }
+    } catch {
+      return stop('checkpoint_persistence_failed')
+    }
+  }
+
+  const expectedRecords = checkpointManifest.expectedScope.records
+  const manifestByTaskId = new Map(manifests.map((manifest) => [manifest.taskId, manifest]))
+
+  for (let index = records.length; index < expectedRecords.length; index += 1) {
+    const expected = expectedRecords[index]
+    if (expected === undefined) return stop('wave_a_scope_exhausted')
+    const manifest = manifestByTaskId.get(expected.taskId)
+    if (manifest === undefined) return stop('wave_a_manifest_lookup_failed')
+    if (progressiveBudgetExceeded(records, manifests)) {
+      return stop('approved_budget_upper_bound_exceeded')
+    }
+
+    let record: BenchmarkRunRecord
+    try {
+      record = await executeTask({
+        researchRoot: options.researchRoot,
+        manifest,
+        strategy: expected.strategy,
+        repetition: WAVE_A_REPETITIONS
+      })
+    } catch {
+      return stop('provider_task_execution_failed')
+    }
+
+    const safe = checkpointRecordsMetadataOnly([record], credentialValue)
+    if (!safe) return stop('durable_evidence_unsafe')
+    const nextRecords = [...records, record]
+    try {
+      await checkpointStore.writeRecords(nextRecords, completedPairs.length)
+      const rereadRecords = await checkpointStore.readRecords()
+      if (
+        JSON.stringify(checkpointRecordHashes(rereadRecords)) !==
+          JSON.stringify(checkpointRecordHashes(nextRecords)) ||
+        JSON.stringify(rereadRecords.map((entry) => entry.runId)) !==
+          JSON.stringify(nextRecords.map((entry) => entry.runId))
+      ) {
+        return stop('checkpoint_record_reverify_failed')
+      }
+    } catch {
+      return stop('checkpoint_persistence_failed')
+    }
+    records = nextRecords
+
+    const recordValid =
+      recordMatchesProgressiveIdentity(record, expected, manifests) &&
+      benchmarkRecordIsValid(record) &&
+      recordWithinManifestBudget(record, manifest)
+    if (!recordValid) return stop('record_gate_failed')
+    if (progressiveBudgetExceeded(records, manifests)) {
+      return stop('approved_budget_upper_bound_exceeded')
+    }
+
+    if (index % 2 === 1) {
+      const pair = records.slice(index - 1, index + 1)
+      const pairGate = evaluateWaveAPairGate(pair, credentialValue)
+      if (pairGate.status !== 'PASS') {
+        return stop(`pair_gate_failed:${pairGate.failedChecks.join(',')}`)
+      }
+      completedPairs = [...completedPairs, expected.taskId]
+    }
+
+    const runningProgress = checkpointProgressFor(
+      checkpointManifest,
+      records,
+      completedPairs,
+      'RUNNING',
+      null
+    )
+    try {
+      await checkpointStore.writeProgress(runningProgress)
+      const rereadProgress = await checkpointStore.readProgress()
+      if (JSON.stringify(rereadProgress) !== JSON.stringify(runningProgress)) {
+        return stop('checkpoint_progress_reverify_failed')
+      }
+    } catch {
+      return stop('checkpoint_persistence_failed')
+    }
+  }
+
+  const finalGate = evaluateWaveAGate(records, credentialValue)
+  if (finalGate.status !== 'PASS') {
+    const failedChecks = Object.entries(finalGate.checks)
+      .filter(([, passed]) => !passed)
+      .map(([name]) => name)
+    return stop(`wave_a_gate_failed:${failedChecks.join(',')}`)
+  }
+
+  const aggregate = aggregateRuns(records)
+  try {
+    await checkpointStore.writeAggregate(
+      aggregate,
+      records,
+      completedPairs.length,
+      'PASS',
+      checkpointManifest.baselineSha,
+      null
+    )
+    const passProgress = checkpointProgressFor(
+      checkpointManifest,
+      records,
+      completedPairs,
+      'PASS',
+      null
+    )
+    await checkpointStore.writeProgress(passProgress)
+    const rereadProgress = await checkpointStore.readProgress()
+    if (JSON.stringify(rereadProgress) !== JSON.stringify(passProgress)) {
+      return stop('checkpoint_progress_reverify_failed')
+    }
+  } catch {
+    return stop('checkpoint_persistence_failed')
+  }
+  return {
+    records,
+    skipped: false,
+    skipReason: null,
+    status: 'PASS',
+    stopReason: null,
+    outputPath: checkpointStore.paths.records,
+    checkpointDirectory,
+    completedPairs: completedPairs.length
+  }
 }

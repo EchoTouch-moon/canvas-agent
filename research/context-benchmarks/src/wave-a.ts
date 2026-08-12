@@ -4,6 +4,7 @@ import {
   retainedEvidenceHasSecretPattern,
   retainedEvidenceIsSanitized
 } from './replacement-canary'
+import { replayShadowCallsHash } from './aggregation'
 import type {
   BenchmarkCategory,
   BenchmarkManifest,
@@ -11,7 +12,7 @@ import type {
   ContextStrategy
 } from './types'
 
-interface WaveATarget {
+export interface WaveATarget {
   readonly category: BenchmarkCategory
   readonly taskId: string
   readonly manifestFingerprint: string
@@ -127,10 +128,14 @@ export interface WaveAGateResult {
 export function isWaveAExecutionAuthorized(
   environment: Readonly<Record<string, string | undefined>>
 ): boolean {
-  return environment['CANVAS_CR005_WAVE_A'] === '1'
+  return (
+    environment['CANVAS_CR005_WAVE_A'] === '1' &&
+    environment['CANVAS_CR005_LIVE'] !== '1' &&
+    environment['CANVAS_CR005_REPLACEMENT_CANARY'] !== '1'
+  )
 }
 
-function manifestExecutionFingerprint(manifest: BenchmarkManifest): string {
+export function waveAManifestExecutionFingerprint(manifest: BenchmarkManifest): string {
   return sha256Hex(
     JSON.stringify({
       taskId: manifest.taskId,
@@ -204,7 +209,7 @@ export function selectWaveAManifests(
         `wave_a_manifest_task_invalid:category=${target.category};expected=${target.taskId};actual=${manifest?.taskId ?? 'missing'}`
       )
     }
-    const fingerprint = manifestExecutionFingerprint(manifest)
+    const fingerprint = waveAManifestExecutionFingerprint(manifest)
     if (fingerprint !== target.manifestFingerprint) {
       throw new Error(
         `wave_a_manifest_fingerprint_invalid:category=${target.category};expected=${target.manifestFingerprint};actual=${fingerprint}`
@@ -212,6 +217,151 @@ export function selectWaveAManifests(
     }
     return manifest
   })
+}
+
+export interface WaveAPairChecks {
+  readonly exactRecordCount: boolean
+  readonly exactCategoryAndTask: boolean
+  readonly exactStrategyPair: boolean
+  readonly exactRepetition: boolean
+  readonly exactRunIds: boolean
+  readonly uniqueRunIds: boolean
+  readonly allRecordsValid: boolean
+  readonly exactFixtureIdentity: boolean
+  readonly pairedFixtureIdentityMatches: boolean
+  readonly pairedModelProfileMatches: boolean
+  readonly exactModelProfile: boolean
+  readonly rawProviderPayloadsAbsent: boolean
+  readonly retainedEvidenceSanitized: boolean
+  readonly credentialValueAbsent: boolean
+  readonly secretPatternsAbsent: boolean
+  readonly materializationFailuresAbsent: boolean
+  readonly shadowReplayValid: boolean
+}
+
+export interface WaveAPairGateResult {
+  readonly schemaVersion: 1
+  readonly status: 'PASS' | 'FAIL'
+  readonly category: BenchmarkCategory | null
+  readonly taskId: string | null
+  readonly recordCount: number
+  readonly checks: WaveAPairChecks
+  readonly failedChecks: readonly string[]
+}
+
+function pairTarget(records: readonly BenchmarkRunRecord[]): WaveATarget | undefined {
+  const first = records[0]
+  if (first === undefined) return undefined
+  return WAVE_A_TARGETS.find(
+    (target) => target.category === first.category && target.taskId === first.taskId
+  )
+}
+
+function expectedPairRunIds(target: WaveATarget): ReadonlySet<string> {
+  return new Set([
+    `${target.taskId}-native-r${WAVE_A_REPETITIONS}`,
+    `${target.taskId}-shadow-r${WAVE_A_REPETITIONS}`
+  ])
+}
+
+function exactPairRecordIdentity(
+  record: BenchmarkRunRecord,
+  target: WaveATarget
+): boolean {
+  return (
+    record.category === target.category &&
+    record.taskId === target.taskId &&
+    record.repetition === WAVE_A_REPETITIONS &&
+    expectedPairRunIds(target).has(record.runId) &&
+    JSON.stringify(record.fixtureIdentity) === JSON.stringify(target.fixtureIdentity) &&
+    record.modelProfile.provider === 'deepseek' &&
+    record.modelProfile.model === 'deepseek-v4-flash' &&
+    record.modelProfile.thinkingLevel === 'medium'
+  )
+}
+
+function shadowReplayIsValid(record: BenchmarkRunRecord): boolean {
+  if (record.strategy !== 'SHADOW') return true
+  try {
+    // Empty Shadow evidence is retained as a valid no-observation result for
+    // compatibility with hand-built records. When evidence exists, every
+    // Universe/Working Set/Transition identity is independently replayed.
+    if (record.shadowCalls.length > 0) replayShadowCallsHash(record.shadowCalls)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function pairHasNoMaterializationFailures(
+  records: readonly BenchmarkRunRecord[]
+): boolean {
+  return records.every((record) =>
+    record.shadowCalls.every((call) => call.materializationFailures.length === 0)
+  )
+}
+
+function pairSetsEqual(
+  left: ReadonlySet<string>,
+  right: ReadonlySet<string>
+): boolean {
+  return left.size === right.size && [...left].every((value) => right.has(value))
+}
+
+export function evaluateWaveAPairGate(
+  records: readonly BenchmarkRunRecord[],
+  credentialValue?: string
+): WaveAPairGateResult {
+  const target = pairTarget(records)
+  const serialized = JSON.stringify(records)
+  const actualRunIds = new Set(records.map((record) => record.runId))
+  const expectedIds = target === undefined ? new Set<string>() : expectedPairRunIds(target)
+  const exactCategoryAndTask =
+    target !== undefined && records.every((record) => exactPairRecordIdentity(record, target))
+  const strategies = records.map((record) => record.strategy).sort()
+  const checks: WaveAPairChecks = {
+    exactRecordCount: records.length === 2,
+    exactCategoryAndTask,
+    exactStrategyPair:
+      strategies.length === 2 && strategies[0] === 'NATIVE' && strategies[1] === 'SHADOW',
+    exactRepetition: records.every((record) => record.repetition === WAVE_A_REPETITIONS),
+    exactRunIds: target !== undefined && pairSetsEqual(actualRunIds, expectedIds),
+    uniqueRunIds: actualRunIds.size === records.length,
+    allRecordsValid: records.every(benchmarkRecordIsValid),
+    exactFixtureIdentity:
+      target !== undefined && records.every((record) =>
+        JSON.stringify(record.fixtureIdentity) === JSON.stringify(target.fixtureIdentity)
+      ),
+    pairedFixtureIdentityMatches: pairHasMatchingFixtureIdentity(records),
+    pairedModelProfileMatches: pairHasMatchingModelProfile(records),
+    exactModelProfile: records.every(
+      (record) =>
+        record.modelProfile.provider === 'deepseek' &&
+        record.modelProfile.model === 'deepseek-v4-flash' &&
+        record.modelProfile.thinkingLevel === 'medium'
+    ),
+    rawProviderPayloadsAbsent: records.every((record) => !record.rawProviderPayloadsCaptured),
+    retainedEvidenceSanitized: retainedEvidenceIsSanitized(serialized),
+    credentialValueAbsent:
+      credentialValue === undefined ||
+      credentialValue.length === 0 ||
+      !serialized.includes(credentialValue),
+    secretPatternsAbsent: !retainedEvidenceHasSecretPattern(serialized),
+    materializationFailuresAbsent: pairHasNoMaterializationFailures(records),
+    shadowReplayValid: records.every(shadowReplayIsValid)
+  }
+  const failedChecks = Object.entries(checks)
+    .filter(([, passed]) => !passed)
+    .map(([name]) => name)
+  return {
+    schemaVersion: 1,
+    status: failedChecks.length === 0 ? 'PASS' : 'FAIL',
+    category: target?.category ?? null,
+    taskId: target?.taskId ?? null,
+    recordCount: records.length,
+    checks,
+    failedChecks
+  }
 }
 
 function recordsForTarget(
