@@ -1,13 +1,18 @@
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { EnrichedPiShadowObserver, PiContextShadowObserver } from '@canvas-agent/pi-context-integration'
+import { FileRepresentationProvider, RepositoryObserver } from '@canvas-agent/repository-observer'
 import { loadManifests } from '../src/manifest'
 import {
   createBenchmarkBashTool,
   determineRunStatus,
   evaluateWritablePaths,
   formatRepositoryObservationFailure,
+  normalizeRepositoryToolPath,
+  queueRepositoryObservationForShadow,
   readFinalFixtureIdentity,
+  sanitizeFileAccessEvidence,
   sanitizeRepositoryObservationPath
 } from '../src/live-runner'
 import {
@@ -53,6 +58,141 @@ describe('CR-005 live-runner safety boundaries', () => {
     const long = sanitizeRepositoryObservationPath('a'.repeat(500), '/private/tmp/fixture')
     expect(long.length).toBeLessThanOrEqual(160)
   })
+
+  it('normalizes macOS temp aliases and rejects other absolute retained paths', () => {
+    const privateFixture = '/private/var/folders/demo/canvas-fixture'
+    const publicFixture = '/var/folders/demo/canvas-fixture'
+
+    expect(
+      sanitizeRepositoryObservationPath(`${publicFixture}/src/discount.js`, privateFixture)
+    ).toBe('<fixture>/src/discount.js')
+    expect(
+      sanitizeRepositoryObservationPath(`${privateFixture}/src/discount.js`, publicFixture)
+    ).toBe('<fixture>/src/discount.js')
+    expect(sanitizeRepositoryObservationPath('/Users/example/private.txt', privateFixture)).toBe(
+      '<absolute-path>'
+    )
+    expect(
+      sanitizeRepositoryObservationPath('file:///Users/example/private.txt', privateFixture)
+    ).toBe('<absolute-path>')
+    expect(
+      normalizeRepositoryToolPath(`${publicFixture}/src/discount.js`, privateFixture)
+    ).toBe('src/discount.js')
+    expect(normalizeRepositoryToolPath('/Users/example/private.txt', privateFixture)).toBeNull()
+
+    const failure = formatRepositoryObservationFailure(
+      `${publicFixture}/src/discount.js`,
+      new Error(`failed to inspect ${publicFixture}/src/discount.js`),
+      privateFixture
+    )
+    expect(failure).toContain('<fixture>/src/discount.js')
+    expect(failure).not.toContain('/var/folders')
+    expect(failure).not.toContain('/private/var/folders')
+  })
+
+  it('sanitizes every durable file-access path while preserving repository-relative identity', () => {
+    const fixturePath = '/private/var/folders/demo/canvas-fixture'
+    const retained = sanitizeFileAccessEvidence(
+      [
+        { toolName: 'read', path: '/var/folders/demo/canvas-fixture/src/a.ts', kind: 'READ', sequence: 1 },
+        { toolName: 'grep', path: 'src/b.ts', kind: 'SEARCH', sequence: 1 },
+        { toolName: 'read', path: '/Users/example/outside.ts', kind: 'READ', sequence: 2 }
+      ],
+      fixturePath
+    )
+
+    expect(retained.map((entry) => entry.path)).toEqual([
+      'src/a.ts',
+      'src/b.ts',
+      '<absolute-path>'
+    ])
+    expect(JSON.stringify(retained)).not.toContain('/var/folders')
+    expect(JSON.stringify(retained)).not.toContain('/Users/example')
+  })
+
+  it('composes clean observation, dirty UNAVAILABLE retention, and exact pinned materialization', async () => {
+    const manifests = await loadManifests(researchRoot)
+    const manifest = manifests.find((entry) => entry.category === 'C1-localized-bug-fix')
+    if (manifest === undefined) throw new Error('missing C1 benchmark manifest')
+    const fixture = await materializeFixture(researchRoot, manifest)
+    const filePath = 'src/discount.js'
+    const absoluteFilePath = join(fixture.path, filePath)
+
+    try {
+      const originalContent = await readFile(absoluteFilePath, 'utf8')
+      const repositoryObserver = new RepositoryObserver()
+      const enriched = new EnrichedPiShadowObserver({
+        base: new PiContextShadowObserver({ runtimeSessionId: 'ds014-composed-world-state' })
+      })
+      const representationProvider = new FileRepresentationProvider()
+
+      const availableResults = await repositoryObserver.observe({
+        repositoryPath: fixture.path,
+        expectedRevision: fixture.identity.repositoryRevision,
+        paths: [filePath],
+        observedAt: '2026-01-01T00:00:00.000Z'
+      })
+      const available = availableResults[0]
+      if (available === undefined) throw new Error('missing AVAILABLE observation')
+      expect(available.observation.status).toBe('AVAILABLE')
+      expect(queueRepositoryObservationForShadow(enriched, available)).toBe(true)
+
+      const firstCall = enriched.observeModelCall([])
+      const firstEntry = firstCall.universeRevision.entries.find(
+        (entry) => entry.source.sourceKey === available.sourceKey
+      )
+      const admitted = firstEntry?.admittedVersion
+      if (admitted === undefined || admitted === null) {
+        throw new Error('clean observation did not admit a SourceVersion')
+      }
+
+      await writeFile(absoluteFilePath, `${originalContent}\n// dirty worktree edit\n`, 'utf8')
+      const unavailableResults = await repositoryObserver.observe({
+        repositoryPath: fixture.path,
+        expectedRevision: fixture.identity.repositoryRevision,
+        paths: [filePath],
+        observedAt: '2026-01-01T00:00:01.000Z'
+      })
+      const unavailable = unavailableResults[0]
+      if (unavailable === undefined) throw new Error('missing UNAVAILABLE observation')
+      expect(unavailable.observation).toMatchObject({
+        status: 'UNAVAILABLE',
+        reasonCode: 'REVISION_MISMATCH'
+      })
+      expect(queueRepositoryObservationForShadow(enriched, unavailable)).toBe(false)
+
+      const secondCall = enriched.observeModelCall([])
+      const secondEntry = secondCall.universeRevision.entries.find(
+        (entry) => entry.source.sourceKey === available.sourceKey
+      )
+      expect(secondEntry?.state).toMatchObject({
+        observationStatus: 'UNAVAILABLE',
+        admittedVersionId: admitted.versionId,
+        lastAvailableVersionId: admitted.versionId
+      })
+      expect(secondEntry?.admittedVersion).toEqual(admitted)
+
+      const materialized = await representationProvider.materialize({
+        repositoryPath: fixture.path,
+        expectedRevision: fixture.identity.repositoryRevision,
+        sourceKey: available.sourceKey,
+        sourceVersionId: admitted.versionId,
+        sourceVersionContentHash: admitted.contentHash,
+        need: {
+          sourceKey: available.sourceKey,
+          preferredKind: 'FULL',
+          reasonCode: 'DETAIL_REQUIRED'
+        }
+      })
+      expect(materialized.kind).toBe('representation')
+      if (materialized.kind === 'representation') {
+        expect(materialized.representation.kind).toBe('FULL')
+        expect(materialized.representation.content).toBe(originalContent)
+      }
+    } finally {
+      await fixture.cleanup()
+    }
+  }, 30000)
 
   it('detects an out-of-scope file committed after a passing objective oracle', async () => {
     const manifests = await loadManifests(researchRoot)

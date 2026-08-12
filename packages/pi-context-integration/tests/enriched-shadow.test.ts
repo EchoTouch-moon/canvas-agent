@@ -463,6 +463,30 @@ describe('DS-014 external observation seam', () => {
     expect(call.sourceDescriptors).toContainEqual(FILE_DESCRIPTOR)
   })
 
+  it('rejects a mismatched observation/descriptor batch before queueing any item', () => {
+    const observer = queuedObserver()
+    expect(() =>
+      observer.queueExternalObservations([
+        {
+          observation: createAvailableObservation(FILE_KEY, 'hash-a', FIXED_NOW),
+          descriptor: FILE_DESCRIPTOR
+        },
+        {
+          observation: createUnavailableObservation(
+            'repository/file://src/mismatched.ts',
+            'REVISION_MISMATCH',
+            FIXED_NOW
+          ),
+          descriptor: { ...FILE_DESCRIPTOR, sourceKey: 'repository/file://src/other.ts' }
+        }
+      ])
+    ).toThrow('external_observation_descriptor_source_key_mismatch')
+
+    const call = observer.observeModelCall([userMessage('task')])
+    expect(findEntry(call.universeRevision, FILE_KEY)).toBeUndefined()
+    expect(findEntry(call.universeRevision, 'repository/file://src/other.ts')).toBeUndefined()
+  })
+
   it('Pi messages remain identity-equal and unchanged across queued observations', () => {
     const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
     const observer = new EnrichedPiShadowObserver({ base })

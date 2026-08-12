@@ -1,5 +1,9 @@
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { FileRepresentationProvider, repositorySourceKey } from '../src'
+import { FileRepresentationProvider, readGitBlob, repositorySourceKey } from '../src'
+import { readPinnedTreeHash } from '../src/pinned-tree'
 import { createTempRepo, type TempRepo } from './helpers'
 import { createAvailableObservation, sha256Hex } from '@canvas-agent/context-runtime'
 import { createSourceVersionId, applySourceObservations, seedUniverse } from '@canvas-agent/context-runtime'
@@ -366,6 +370,59 @@ describe('B. LINE_RANGE semantics', () => {
     expect(result.kind).toBe('representation')
     if (result.kind === 'representation') {
       expect(result.representation.sourceVersionIds).toEqual([versionId])
+    }
+  })
+})
+
+describe('C. repository Git child environment', () => {
+  it('does not expose provider credentials to pinned-tree or blob Git children', async () => {
+    const fakeBin = await mkdtemp(join(tmpdir(), 'canvas-repository-git-canary-'))
+    const fakeGit = join(fakeBin, 'git')
+    const previousPath = process.env['PATH']
+    const previousCredential = process.env['DEEPSEEK_API_KEY']
+    await writeFile(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "rev-parse" ]; then
+  if [ -n "\${DEEPSEEK_API_KEY-}" ]; then
+    printf '%s\\n' '${'f'.repeat(40)}'
+  else
+    printf '%s\\n' '${'a'.repeat(40)}'
+  fi
+  exit 0
+fi
+if [ "$1" = "cat-file" ] && [ "$2" = "-e" ]; then
+  exit 0
+fi
+if [ "$1" = "cat-file" ] && [ "$2" = "blob" ]; then
+  if [ -n "\${DEEPSEEK_API_KEY-}" ]; then
+    printf '%s' 'credential-visible'
+  else
+    printf '%s' 'credential-isolated'
+  fi
+  exit 0
+fi
+exit 1
+`,
+      'utf8'
+    )
+    await chmod(fakeGit, 0o755)
+    process.env['PATH'] = fakeBin
+    process.env['DEEPSEEK_API_KEY'] = 'repository-observer-credential-canary'
+
+    try {
+      const tree = await readPinnedTreeHash(fakeBin, 'b'.repeat(40))
+      const blob = await readGitBlob(fakeBin, 'b'.repeat(40), 'a.ts')
+
+      expect(tree).toEqual({ kind: 'tree-hash', treeHash: 'a'.repeat(40) })
+      expect(blob).toEqual({ kind: 'content', content: 'credential-isolated' })
+      expect(JSON.stringify({ tree, blob })).not.toContain('credential-canary')
+    } finally {
+      if (previousPath === undefined) delete process.env['PATH']
+      else process.env['PATH'] = previousPath
+      if (previousCredential === undefined) delete process.env['DEEPSEEK_API_KEY']
+      else process.env['DEEPSEEK_API_KEY'] = previousCredential
+      await rm(fakeBin, { recursive: true, force: true })
     }
   })
 })

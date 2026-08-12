@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { ISOLATED_GIT_ENV } from '@canvas-agent/worker-runtime'
+import { buildRepositoryGitChildEnvironment } from './git-child-environment'
 
 // Byte-safe pinned-tree hash reader for exact historical SourceVersion
 // materialization (DS-014). It reads ONLY the pinned commit object's tree hash
@@ -21,12 +21,13 @@ export async function readPinnedTreeHash(
 ): Promise<PinnedTreeReadResult> {
   return new Promise<PinnedTreeReadResult>((resolve) => {
     // shell:false: git runs directly with argv (no shell interpolation).
-    // ISOLATED_GIT_ENV overrides GIT_CONFIG_GLOBAL/SYSTEM to /dev/null so no
-    // hostile global git config or credential helper is inherited.
+    // The strict child environment preserves only platform process-launch
+    // keys. Provider credentials and arbitrary parent configuration are never
+    // inherited; Git config and prompting are disabled explicitly.
     const child = spawn('git', ['rev-parse', `${baseCommit}^{tree}`], {
       cwd: repositoryPath,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, ...ISOLATED_GIT_ENV },
+      env: buildRepositoryGitChildEnvironment(),
       shell: false
     })
     const chunks: Buffer[] = []

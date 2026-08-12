@@ -1,7 +1,7 @@
 # CR-005 Shadow World-State Preflight Verification (DS-014)
 
-- **Status:** READY FOR LEAD ARCHITECTURE REVIEW — bounded evidence-correctness repair
-- **Author:** DeepSeek V4 Flash (research implementer, DS-014)
+- **Status:** LEAD REMEDIATION COMPLETE — all credential-free gates passing
+- **Author:** DeepSeek V4 Flash (initial implementation) + lead architect (bounded remediation)
 - **Branch:** `agent/deepseek-ds-014-cr005-shadow-world-state`
 - **Base:** `main@0efc0961772c678683c7ead63ae07f045dc1184b`
 - **Date:** 2026-08-12
@@ -29,6 +29,8 @@ leak, but the Shadow evidence was not interpretable as Planner value:
 |---|---|---|
 | A. Exact historical materialization | `packages/repository-observer/src/representation-provider.ts` | Verify pinned tree instead of current worktree |
 | A. helper | `packages/repository-observer/src/pinned-tree.ts` | New bounded, shell:false, allowlisted pinned `baseCommit^{tree}` reader |
+| A. child environment | `packages/repository-observer/src/git-child-environment.ts` | Strict Git child environment allowlist; no parent credential inheritance |
+| A. blob boundary | `packages/repository-observer/src/git-blob-reader.ts` | Use the same strict child environment and explicit `shell:false` |
 | A. tests | `packages/repository-observer/tests/representation-provider.test.ts` | Missing-commit/wrong-tree/dirty-worktree/untracked tests |
 | B. observation seam | `packages/pi-context-integration/src/extension/enriched-shadow-extension.ts` | `queueExternalObservations` accepts AVAILABLE/ABSENT/UNAVAILABLE + descriptor |
 | B. tests | `packages/pi-context-integration/tests/enriched-shadow.test.ts` | AVAILABLE/ABSENT/UNAVAILABLE reconciliation tests |
@@ -41,6 +43,19 @@ No `packages/contracts/**`, `packages/worker-runtime/**`, `packages/domain/**`,
 Persistence, Desktop, Planner policy, decision vocabulary, public Context Runtime
 contracts, CR-004/Active/Dynamic code, manifests, task prompts or acceptance oracles were
 touched.
+
+### Lead remediation scope addendum
+
+The first review found four bounded correctness/security gaps and authorized the adjacent
+Git blob boundary and tests:
+
+1. both direct Git children inherited `process.env`, including provider credentials;
+2. `/var` versus `/private/var` aliases and durable `fileAccesses` bypassed path redaction;
+3. the clean → dirty → `UNAVAILABLE` → retained old-version path lacked one composed test;
+4. an observation/descriptor source-key mismatch could create incoherent Universe metadata.
+
+The remediation changes only the research/observer boundaries listed above. It does not
+change Planner policy, the public Context Runtime contract, manifests, or provider behavior.
 
 ## 3. A. Exact historical SourceVersion materialization
 
@@ -131,40 +146,65 @@ reconciliation — no second reconciliation implementation was added:
 - never exposes evaluator-known candidate/relevant paths to the Planner;
 - never persists source content, raw Pi/provider payloads, credentials or absolute temp roots.
 
+Before an Agent path reaches `RepositoryObserver`, an in-fixture absolute path is normalized
+to the canonical repository-relative path (including macOS `/var` ↔ `/private/var` and
+`/tmp` ↔ `/private/tmp` aliases). An outside/non-canonical path is rejected before it can
+become a Source key or Planner candidate. Durable Native/Shadow `fileAccesses` are separately
+normalized at the persistence boundary; raw paths remain in-memory only long enough to drive
+the authoritative observation.
+
 ### Deterministic tests
 
 - `live-runner.test.ts`: sanitization of retained observation paths (no absolute temp roots,
-  control chars collapsed, 160-char bound);
+  control chars collapsed, 160-char bound), alias normalization, outside-path rejection, and
+  durable Native/Shadow file-access redaction;
 - `separation.test.ts`: candidate admission still requires AVAILABLE — a queued UNAVAILABLE
   observation yields an `UNAVAILABLE` Universe entry with no admitted version, no
   representation and no `ADD` decision.
+- `live-runner.test.ts`: one credential-free composed world-state regression runs the real
+  `RepositoryObserver` and runner queue bridge: clean AVAILABLE admission → worktree edit →
+  `UNAVAILABLE(REVISION_MISMATCH)` → `RETAIN_LAST_KNOWN` → exact old bytes materialized from
+  the pinned blob.
 
-## 6. Credential-free acceptance results
+## 6. Review remediation evidence
+
+- A fake executable `git` child changes its output if `DEEPSEEK_API_KEY` is visible. Both
+  `readPinnedTreeHash` and `readGitBlob` return the credential-isolated branch, proving the
+  real spawned children receive only the explicit allowlist environment.
+- `queueExternalObservations` validates the entire batch before mutation and throws
+  `external_observation_descriptor_source_key_mismatch` when observation and descriptor keys
+  differ; a regression proves no earlier item in that invalid batch is queued.
+- The composed clean/dirty test retains the exact admitted `versionId` as both
+  `admittedVersionId` and `lastAvailableVersionId`, while `FileRepresentationProvider`
+  returns the original pre-edit bytes.
+- No live/provider call is part of these tests.
+
+## 7. Credential-free acceptance results
 
 ```text
-pnpm --filter @canvas-agent/repository-observer test        38 passed
-pnpm --filter @canvas-agent/pi-context-integration test     61 passed
-pnpm --filter @canvas-agent/context-benchmarks test         26 passed
+pnpm --filter @canvas-agent/repository-observer test        39 passed
+pnpm --filter @canvas-agent/pi-context-integration test     62 passed
+pnpm --filter @canvas-agent/context-benchmarks test         29 passed
 pnpm --filter @canvas-agent/context-benchmarks benchmark:validate  PASS (all 6 categories)
-pnpm check                                                  GREEN (28/28 steps, 643+ tests + build)
+pnpm check                                                  GREEN (686 tests + build)
 git diff --check                                            OK
 ```
 
 Total context-benchmarks corpus categories validated: C1–C6 fixture oracles fail,
 regression/reference oracles pass, identities reproduce.
 
-## 7. Public/stable type change
+## 8. Public/stable type change
 
 No public or stable contract type changed. `RepositoryObservationEvidence` is a new
 research-only type in `research/context-benchmarks/src/types.ts`; the run-record field is
 optional so hand-built records in non-live tests remain valid.
 
-## 8. Live/provider call count
+## 9. Live/provider call count
 
 **Zero provider calls during implementation.** The replacement canary is not authorized by
 this packet; the lead architect decides after review and cost authorization.
 
-## 9. Final state
+## 10. Final state
 
 ```text
 CR-005 remaining matrix   NO_GO
@@ -172,7 +212,7 @@ CR-004                    NO_GO
 provider calls            0 during implementation
 ```
 
-## 10. Remaining risk and canary authorization request
+## 11. Remaining risk and canary authorization request
 
 Risk: the observer still fails closed on a dirty *expected revision*, but the fixture
 identity's clean revision remains materializable from the pinned object; the runner now

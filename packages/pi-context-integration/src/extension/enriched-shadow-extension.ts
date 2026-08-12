@@ -89,6 +89,11 @@ export class EnrichedPiShadowObserver {
   // resource-hint paths by itself.
   queueExternalObservations(observations: readonly ExternalObservation[]): void {
     for (const item of observations) {
+      if (item.observation.sourceKey !== item.descriptor.sourceKey) {
+        throw new Error('external_observation_descriptor_source_key_mismatch')
+      }
+    }
+    for (const item of observations) {
       this.pendingExternalObservations.set(item.observation.sourceKey, item)
     }
   }
