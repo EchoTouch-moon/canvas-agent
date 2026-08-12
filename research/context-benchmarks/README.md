@@ -59,3 +59,18 @@ CANVAS_CR005_LIVE=1 pnpm --filter @canvas-agent/context-benchmarks benchmark:liv
 Live output is metadata-only and ignored by Git. The harness does not report
 provider billing or token savings; Native estimates and Shadow semantic
 estimates remain separate measurements.
+
+The post-DS-014 replacement canary has a separate fail-closed entry point. It
+selects exactly `C1-localized-bug-fix`, uses one repetition, and therefore can
+produce only one Native plus one Shadow record. It exits non-zero on skipped,
+invalid, over-broad, unsanitized, revision-degraded, or missing world-state
+evidence. This command does **not** authorize the remaining 22 records:
+
+```sh
+CANVAS_CR005_REPLACEMENT_CANARY=1 \
+  pnpm --filter @canvas-agent/context-benchmarks benchmark:replacement-canary
+```
+
+The command is still a real provider operation and must only be used after the
+lead's explicit cost authorization. Without the dedicated environment flag it
+fails closed before loading provider credentials or starting a run.

@@ -56,3 +56,12 @@ export {
   type LiveCorpusResult,
   type ShadowCandidateInput
 } from './live-runner'
+export {
+  evaluateReplacementCanaryGate,
+  REPLACEMENT_CANARY_CATEGORY,
+  REPLACEMENT_CANARY_RECORD_COUNT,
+  REPLACEMENT_CANARY_REPETITIONS,
+  selectReplacementCanaryManifests,
+  type ReplacementCanaryChecks,
+  type ReplacementCanaryGateResult
+} from './replacement-canary'
