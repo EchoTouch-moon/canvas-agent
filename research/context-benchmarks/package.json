@@ -12,7 +12,8 @@
     "test": "vitest run tests",
     "build": "tsc --noEmit",
     "benchmark:validate": "tsx src/cli.ts validate",
-    "benchmark:live": "tsx src/cli.ts live"
+    "benchmark:live": "tsx src/cli.ts live",
+    "benchmark:replacement-canary": "tsx src/cli.ts replacement-canary"
   },
   "dependencies": {
     "@canvas-agent/context-runtime": "workspace:*",
