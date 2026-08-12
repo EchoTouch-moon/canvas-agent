@@ -24,6 +24,10 @@ export type RepresentationLossiness = (typeof REPRESENTATION_LOSSINESS)[number]
 
 // Immutable model-usable representation. `sourceVersionIds` must reference
 // exact admitted ContextSourceVersion ids present in the planning Universe.
+// `content` is EPHEMERAL bounded model-usable text (never persisted by default);
+// it carries the exact FULL/LINE_RANGE payload so the representation is actually
+// model-usable, not just metadata. `contentRef` may reference an ephemeral
+// content handle. Both are research-only and must not be durable.
 export interface ContextRepresentation {
   readonly id: string
   readonly kind: RepresentationKind
@@ -32,6 +36,8 @@ export interface ContextRepresentation {
   readonly tokenEstimate: number
   readonly lossiness: RepresentationLossiness
   readonly derivation: unknown
+  readonly content?: string
+  readonly contentRef?: string
 }
 
 export function createRepresentationId(input: {
@@ -53,6 +59,8 @@ export function createRepresentation(input: {
   readonly tokenEstimate: number
   readonly lossiness: RepresentationLossiness
   readonly derivation: unknown
+  readonly content?: string
+  readonly contentRef?: string
 }): ContextRepresentation {
   const id = createRepresentationId(input)
   return {
@@ -62,7 +70,9 @@ export function createRepresentation(input: {
     contentHash: input.contentHash,
     tokenEstimate: input.tokenEstimate,
     lossiness: input.lossiness,
-    derivation: input.derivation
+    derivation: input.derivation,
+    ...(input.content !== undefined ? { content: input.content } : {}),
+    ...(input.contentRef !== undefined ? { contentRef: input.contentRef } : {})
   }
 }
 

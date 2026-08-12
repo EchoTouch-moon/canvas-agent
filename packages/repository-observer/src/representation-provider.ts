@@ -24,6 +24,9 @@ import type { RepositoryUnavailableReason } from './types'
 //   → verify full-content hash == admitted SourceVersion contentHash
 //   → post-verify exact revision
 //   → derive FULL / LINE_RANGE / REFERENCE
+//
+// The resulting FULL / LINE_RANGE representation carries the exact ephemeral
+// bounded content (model-usable), never persisted by default.
 
 export type RepresentationMaterializeFailureReason =
   | RepositoryUnavailableReason
@@ -50,7 +53,42 @@ export interface RepositoryRepresentationRequest {
   readonly need: ContextRepresentationNeed
 }
 
+// Injectable revision reader seam so deterministic tests can drive a
+// before/after revision sequence without a real concurrent mutation.
+export interface RevisionReader {
+  read(repositoryPath: string, options: GitRunOptions): Promise<RepositoryRevisionContract>
+}
+
+const realRevisionReader: RevisionReader = {
+  async read(repositoryPath, options): Promise<RepositoryRevisionContract> {
+    let actual: {
+      baseCommit: string | null
+      treeHash: string | null
+      workingTreePatchHash: string | null
+    }
+    try {
+      actual = await readRepositoryRevision(repositoryPath, options)
+    } catch {
+      return { baseCommit: '', treeHash: '', workingTreePatchHash: null }
+    }
+    if (actual.baseCommit === null || actual.treeHash === null) {
+      return { baseCommit: '', treeHash: '', workingTreePatchHash: null }
+    }
+    return {
+      baseCommit: actual.baseCommit,
+      treeHash: actual.treeHash,
+      workingTreePatchHash: actual.workingTreePatchHash
+    }
+  }
+}
+
 export class FileRepresentationProvider {
+  private readonly revisionReader: RevisionReader
+
+  constructor(options: { revisionReader?: RevisionReader } = {}) {
+    this.revisionReader = options.revisionReader ?? realRevisionReader
+  }
+
   async materialize(
     request: RepositoryRepresentationRequest
   ): Promise<RepresentationMaterializeResult> {
@@ -123,6 +161,7 @@ export class FileRepresentationProvider {
         contentHash: fullContentHash,
         tokenEstimate: tokenEstimate(blob.content),
         lossiness: 'NONE',
+        content: blob.content,
         derivation: {
           sourceKey: request.sourceKey,
           sourceVersionId: request.sourceVersionId,
@@ -154,6 +193,7 @@ export class FileRepresentationProvider {
       contentHash: rangeContentHash,
       tokenEstimate: tokenEstimate(selected),
       lossiness: 'BOUNDED',
+      content: selected,
       derivation: {
         sourceKey: request.sourceKey,
         sourceVersionId: request.sourceVersionId,
@@ -175,16 +215,12 @@ export class FileRepresentationProvider {
       commandAllowlist: ['git'],
       signal: undefined
     }
-    try {
-      const actual = await readRepositoryRevision(request.repositoryPath, options)
-      return (
-        actual.baseCommit === request.expectedRevision.baseCommit &&
-        actual.treeHash === request.expectedRevision.treeHash &&
-        actual.workingTreePatchHash === request.expectedRevision.workingTreePatchHash
-      )
-    } catch {
-      return false
-    }
+    const actual = await this.revisionReader.read(request.repositoryPath, options)
+    return (
+      actual.baseCommit === request.expectedRevision.baseCommit &&
+      actual.treeHash === request.expectedRevision.treeHash &&
+      actual.workingTreePatchHash === request.expectedRevision.workingTreePatchHash
+    )
   }
 }
 

@@ -14,8 +14,8 @@ import {
   ShadowPlannerObserver,
   createShadowPlannerPiExtension
 } from '../index'
-import { FileRepresentationProvider, repositorySourceKey } from '@canvas-agent/repository-observer'
-import { createAvailableObservation, createSourceVersionId, seedUniverse, sha256Hex } from '@canvas-agent/context-runtime'
+import { FileRepresentationProvider, RepositoryObserver, repositorySourceKey } from '@canvas-agent/repository-observer'
+import { createSourceVersionId } from '@canvas-agent/context-runtime'
 
 // Opt-in CR-003B file-aware Pi + DeepSeek Shadow smoke. Requires DEEPSEEK_API_KEY
 // (or Pi auth.json) + CANVAS_CONTEXT_LIVE_SMOKE=1.
@@ -90,19 +90,31 @@ async function run(): Promise<void> {
     const sessionId = `smoke-cr003b-${new Date().toISOString().replace(/[:.]/g, '-')}`
     const base = new PiContextShadowObserver({ runtimeSessionId: sessionId })
     const sourceKey = repositorySourceKey('src/greet.ts')
-    const contentHash = sha256Hex(FILE_CONTENT)
+
+    // REAL chain: RepositoryObserver.observe produces the authoritative
+    // SourceObservation + descriptor; the admitted SourceVersion in the
+    // Universe is derived from that observation, not a hand-computed seed.
+    const observer = new RepositoryObserver()
+    const observed = await observer.observe({
+      repositoryPath: fixtureDir,
+      expectedRevision: revision,
+      paths: ['src/greet.ts'],
+      observedAt: new Date().toISOString()
+    })
+    const fileObs = observed.find((o) => o.sourceKey === sourceKey)
+    if (fileObs === undefined || fileObs.observation.status !== 'AVAILABLE') {
+      throw new Error(`file observation failed: ${JSON.stringify(observed)}`)
+    }
+    const contentHash = fileObs.observation.contentHash
     const versionId = createSourceVersionId(sourceKey, contentHash)
-    // Seed the file source into the enriched observer's Universe so the
-    // file-aware representation provider has an admitted repository/file
-    // SourceVersion to materialize against (authoritative, not a Pi hint).
     const enriched = new EnrichedPiShadowObserver({
       base,
       seeds: [
         {
           sourceKey,
-          sourceKind: 'REPOSITORY_FILE',
+          sourceKind: fileObs.sourceKind,
           contentHash,
-          provenance: 'REPOSITORY_OBSERVER',
+          provenance: fileObs.provenance,
           observedAt: new Date().toISOString()
         }
       ]
@@ -170,16 +182,11 @@ async function run(): Promise<void> {
       'Read src/greet.ts with the read tool, then briefly describe the greeting function. Be concise.'
     )
 
-    // Admit the fixture file into a Universe revision for metric display.
-    const seeded = seedUniverse({ runtimeSessionId: sessionId, seeds: [] })
-    const { applySourceObservations } = await import('@canvas-agent/context-runtime')
-    const universe = applySourceObservations({
-      previous: seeded,
-      observations: [createAvailableObservation(sourceKey, contentHash, new Date().toISOString())],
-      sourceDescriptors: [{ sourceKey, sourceKind: 'REPOSITORY_FILE', provenance: 'REPOSITORY_OBSERVER' }],
-      modelCallSequence: 1
-    })
-    void universe
+    // The file source was admitted through the REAL RepositoryObserver
+    // observation (not a Pi hint); confirm it appears in the planner universe.
+    const universe = planner.callResults[planner.callResults.length - 1]?.plannerResult.workingSet
+    const fileAdmitted = universe?.items.some((item) => item.sourceKeys.includes(sourceKey)) ?? false
+    console.log(`[smoke:cr003b] file source admitted via RepositoryObserver=${fileAdmitted}`)
 
     const lines = planner.callResults.map((call, index) =>
       JSON.stringify({

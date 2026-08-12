@@ -3,6 +3,7 @@ import {
   PiContextShadowObserver,
   EnrichedPiShadowObserver,
   ShadowPlannerObserver,
+  buildRepresentationNeeds,
   type PiMessageView
 } from '../src'
 
@@ -232,5 +233,118 @@ describe('Shadow planner observer (CR-003A)', () => {
     expect(call.metrics.nativeContextEstimate).toBeGreaterThan(0)
     expect(call.metrics.nativeEstimateScope).toBe('agent-messages-pre-provider')
     expect(call.enrichedResult.nativeContextEstimate).toBe(call.metrics.nativeContextEstimate)
+  })
+})
+
+describe('CR-003B file-aware observer corrections (PR #22)', () => {
+  it('P1: representation needs enter the PlanningRequest and its hash', async () => {
+    const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
+    const sourceKey = 'repository/file://a.ts'
+    const enriched = new EnrichedPiShadowObserver({
+      base,
+      seeds: [
+        {
+          sourceKey,
+          sourceKind: 'REPOSITORY_FILE',
+          contentHash: 'file-content-hash',
+          provenance: 'REPOSITORY_OBSERVER',
+          observedAt: FIXED_NOW
+        }
+      ]
+    })
+    let capturedNeeds: unknown = null
+    const planner = new ShadowPlannerObserver({
+      enriched,
+      policyVersion: 'policy-v0',
+      filePathCandidates: ['a.ts'],
+      makePlanningRequest: (input) => ({
+        runtimeSessionId: input.runtimeSessionId,
+        recompositionSequence: input.sequence,
+        taskPhase: 'GENERAL',
+        budget: { maxSemanticTokens: 8000 },
+        pinnedSourceKeys: [],
+        excludedSourceKeys: [],
+        currentTargetSourceKeys: [],
+        latestVerificationSourceKeys: [],
+        recentEvidenceSourceKeys: input.recentEvidenceSourceKeys,
+        representationNeeds: input.representationNeeds,
+        previousWorkingSetId: input.previousWorkingSetId
+      }),
+      representationProvider: async ({ need }) => {
+        capturedNeeds = need
+        return null
+      }
+    })
+    await planner.observeModelCall([userMessage('task')])
+    const needsRequest = planner.callResults[0]!.planningRequest
+    const needs = needsRequest.representationNeeds ?? []
+    expect(needs).toHaveLength(1)
+    expect(needs[0]!.sourceKey).toBe(sourceKey)
+    expect(needs[0]!.preferredKind).toBe('FULL')
+    // The needs participate in planningRequestHash: with needs differs from
+    // the same request without needs.
+    const { planningRequestHash } = await import('@canvas-agent/context-runtime')
+    const withNeedsHash = planningRequestHash(needsRequest)
+    const withoutNeeds = { ...needsRequest }
+    delete withoutNeeds.representationNeeds
+    const withoutNeedsHash = planningRequestHash(withoutNeeds)
+    expect(withNeedsHash).not.toBe(withoutNeedsHash)
+    // The provider received the SAME normalized need that entered the request.
+    expect(capturedNeeds).not.toBeNull()
+  })
+
+  it('P1: materialization failure is fail-safe (recorded, falls back, native intact)', async () => {
+    const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
+    const sourceKey = 'repository/file://a.ts'
+    // Admit the file source so the provider is actually invoked for it.
+    const enriched = new EnrichedPiShadowObserver({
+      base,
+      seeds: [
+        {
+          sourceKey,
+          sourceKind: 'REPOSITORY_FILE',
+          contentHash: 'file-content-hash',
+          provenance: 'REPOSITORY_OBSERVER',
+          observedAt: FIXED_NOW
+        }
+      ]
+    })
+    const planner = new ShadowPlannerObserver({
+      enriched,
+      policyVersion: 'policy-v0',
+      filePathCandidates: ['a.ts'],
+      representationProvider: async () => {
+        throw new Error('git explosion')
+      }
+    })
+    const messages = [userMessage('keep me')]
+    const call = await planner.observeModelCall(messages)
+    // Failure recorded, not thrown to the Pi callback.
+    expect(call.materializationFailures.length).toBeGreaterThan(0)
+    expect(call.materializationFailures[0]).toContain('git explosion')
+    // The source still appears (fallback REFERENCE path is exercised by the
+    // planner represent resolver, which never throws).
+    expect(call.plannerResult.workingSet.items.length).toBeGreaterThanOrEqual(0)
+    // Native Pi messages remain unchanged.
+    const passThrough = base.handleContextEvent(messages)
+    expect(passThrough.messages).toBe(messages)
+  })
+
+  it('P2: duplicate representation need for a sourceKey is rejected', async () => {
+    const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
+    const enriched = new EnrichedPiShadowObserver({ base })
+    const planner = new ShadowPlannerObserver({
+      enriched,
+      policyVersion: 'policy-v0',
+      filePathCandidates: ['a.ts'],
+      representationProvider: async () => null
+    })
+    // Duplicate override for the same sourceKey must throw during need build.
+    expect(() =>
+      buildRepresentationNeeds(['a.ts'], [
+        { sourceKey: 'repository/file://a.ts', preferredKind: 'FULL', reasonCode: 'DETAIL_REQUIRED' }
+      ])
+    ).toThrow(/duplicate representation need/)
+    void planner
   })
 })

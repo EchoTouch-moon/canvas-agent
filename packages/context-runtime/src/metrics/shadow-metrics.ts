@@ -27,7 +27,16 @@ export interface ShadowPlanningMetrics {
     readonly lineRange: number
     readonly reference: number
   }
+  // Representation-only token delta: sum of REPLACE tokenDelta across
+  // representation transitions (membership ADD/REMOVE is NOT included, so this
+  // measures FULL->LINE_RANGE savings / LINE_RANGE->FULL re-expansion / stale
+  // replacements).
   readonly representationTokenDelta: number
+  readonly representationDeltaBreakdown: {
+    readonly narrowed: number
+    readonly detailed: number
+    readonly sourceVersionAdvanced: number
+  }
 }
 
 export function computeShadowMetrics(input: {
@@ -37,7 +46,8 @@ export function computeShadowMetrics(input: {
   readonly nativeContextEstimate: number
   readonly workingSet: ContextWorkingSet
   readonly decisions: readonly ContextDecision[]
-  // Previous working set token total (for representation token delta).
+  // Previous working set token total (deprecated for representation delta;
+  // retained for callers that still want total WS delta).
   readonly previousTokenEstimate?: number
 }): ShadowPlanningMetrics {
   let add = 0
@@ -47,12 +57,24 @@ export function computeShadowMetrics(input: {
   let replace = 0
   let compress = 0
   const reasonCodeCounts: Record<string, number> = {}
+  // Representation-only accounting: accumulate REPLACE tokenDelta and classify
+  // by the leading representation reason.
+  let representationTokenDelta = 0
+  let narrowed = 0
+  let detailed = 0
+  let sourceVersionAdvanced = 0
   for (const decision of input.decisions) {
     if (decision.kind === 'ADD') add += 1
     else if (decision.kind === 'KEEP') keep += 1
     else if (decision.kind === 'REMOVE') remove += 1
     else if (decision.kind === 'REHYDRATE') rehydrate += 1
-    else if (decision.kind === 'REPLACE') replace += 1
+    else if (decision.kind === 'REPLACE') {
+      replace += 1
+      representationTokenDelta += decision.tokenDelta
+      if (decision.reasonCodes.includes('SOURCE_VERSION_ADVANCED')) sourceVersionAdvanced += 1
+      else if (decision.reasonCodes.includes('REPRESENTATION_NARROWED')) narrowed += 1
+      else if (decision.reasonCodes.includes('DETAIL_REQUIRED')) detailed += 1
+    }
     else if (decision.kind === 'COMPRESS') compress += 1
     for (const reason of decision.reasonCodes) {
       reasonCodeCounts[reason] = (reasonCodeCounts[reason] ?? 0) + 1
@@ -67,8 +89,7 @@ export function computeShadowMetrics(input: {
     else if (kind === 'LINE_RANGE') lineRange += 1
     else if (kind === 'REFERENCE') reference += 1
   }
-  const representationTokenDelta =
-    input.workingSet.totalTokenEstimate - (input.previousTokenEstimate ?? 0)
+  void input.previousTokenEstimate
   return {
     modelCallSequence: input.modelCallSequence,
     universeSequence: input.universeSequence,
@@ -86,6 +107,7 @@ export function computeShadowMetrics(input: {
     churn: add + remove + rehydrate,
     reasonCodeCounts,
     representationCounts: { full, lineRange, reference },
-    representationTokenDelta
+    representationTokenDelta,
+    representationDeltaBreakdown: { narrowed, detailed, sourceVersionAdvanced }
   }
 }

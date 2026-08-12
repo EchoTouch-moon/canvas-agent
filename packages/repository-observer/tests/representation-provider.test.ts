@@ -3,6 +3,7 @@ import { FileRepresentationProvider, repositorySourceKey } from '../src'
 import { createTempRepo, type TempRepo } from './helpers'
 import { createAvailableObservation, sha256Hex } from '@canvas-agent/context-runtime'
 import { createSourceVersionId, applySourceObservations, seedUniverse } from '@canvas-agent/context-runtime'
+import type { RepositoryRevisionContract } from '@canvas-agent/contracts'
 
 const T0 = '2026-08-11T00:00:00.000Z'
 const repos: TempRepo[] = []
@@ -63,6 +64,8 @@ describe('A. representation materialization', () => {
       expect(result.representation.sourceVersionIds).toEqual([versionId])
       expect(result.representation.lossiness).toBe('NONE')
       expect(result.representation.contentHash).toBe(sha256Hex(FILE_CONTENT))
+      // The FULL representation is model-usable: it carries the exact content.
+      expect(result.representation.content).toBe(FILE_CONTENT)
     }
   })
 
@@ -141,6 +144,63 @@ describe('A. representation materialization', () => {
     }
   })
 
+  it('8b) binary (non-UTF-8) source cannot become FULL/LINE_RANGE', async () => {
+    const r = await repo({ 'b.ts': 'placeholder' })
+    const { writeFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    await writeFile(join(r.directory, 'b.ts'), Buffer.from([0xff, 0xfe, 0x00, 0x01]), 'binary')
+    await r.git(['add', '-A'])
+    await r.git(['commit', '-q', '-m', 'binary'])
+    const revision = await r.readRevision()
+    const sourceKey = repositorySourceKey('b.ts')
+    const contentHash = sha256Hex('binary-bytes')
+    const versionId = createSourceVersionId(sourceKey, contentHash)
+    const provider = new FileRepresentationProvider()
+    const result = await provider.materialize({
+      repositoryPath: r.directory,
+      expectedRevision: revision,
+      sourceKey,
+      sourceVersionId: versionId,
+      sourceVersionContentHash: contentHash,
+      need: fullNeed(sourceKey)
+    })
+    // The binary file cannot decode as UTF-8, so materialization fails closed
+    // (either UNSUPPORTED_BINARY or READ_FAILED) - never a FULL representation.
+    expect(result.kind).toBe('failed')
+    if (result.kind === 'failed') {
+      expect(['UNSUPPORTED_BINARY', 'READ_FAILED']).toContain(result.reason)
+    }
+  })
+
+  it('6b) post-materialization revision change fails closed via revision-reader seam', async () => {
+    const r = await repo({ 'a.ts': FILE_CONTENT })
+    const { revision, sourceKey, contentHash, versionId } = await admitVersion(r, 'a.ts', FILE_CONTENT)
+    // Seam: pre-read returns expected; post-read returns a different revision.
+    let calls = 0
+    const provider = new FileRepresentationProvider({
+      revisionReader: {
+        async read(): Promise<RepositoryRevisionContract> {
+          calls += 1
+          if (calls === 1) return revision
+          return { ...revision, baseCommit: 'f'.repeat(40) }
+        }
+      }
+    })
+    const result = await provider.materialize({
+      repositoryPath: r.directory,
+      expectedRevision: revision,
+      sourceKey,
+      sourceVersionId: versionId,
+      sourceVersionContentHash: contentHash,
+      need: fullNeed(sourceKey)
+    })
+    expect(calls).toBe(2)
+    expect(result.kind).toBe('failed')
+    if (result.kind === 'failed') {
+      expect(result.reason).toBe('REVISION_CHANGED_DURING_OBSERVATION')
+    }
+  })
+
   it('9) REFERENCE is possible without claiming file text', async () => {
     const r = await repo({ 'a.ts': FILE_CONTENT })
     const { revision, sourceKey, contentHash, versionId } = await admitVersion(r, 'a.ts', FILE_CONTENT)
@@ -180,6 +240,8 @@ describe('B. LINE_RANGE semantics', () => {
       expect(repr.kind).toBe('LINE_RANGE')
       expect(repr.lossiness).toBe('BOUNDED')
       expect(repr.sourceVersionIds).toEqual([versionId])
+      // B-10: the representation carries the EXACT deterministic content.
+      expect(repr.content).toBe('line two\nline three\nline four')
       const derivation = repr.derivation as { requestedRange: { startLine: number; endLine: number } }
       expect(derivation.requestedRange).toEqual({ startLine: 2, endLine: 4 })
     }

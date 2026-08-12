@@ -1,10 +1,10 @@
 # CR-003B Verification — File-aware Shadow Planner
 
-- **Status:** EVIDENCE READY — not self-accepted; awaits lead architect review
+- **Status:** EVIDENCE READY (rev.2 — PR #22 corrections applied); not self-accepted; awaits lead re-review
 - **Packet:** `docs/tasks/deepseek/DS-012-file-aware-shadow-planner.md`
 - **Owner:** DeepSeek V4 Flash — Context Runtime research implementer
 - **Branch:** `agent/deepseek-ds-012-file-aware-shadow-planner`
-- **Date:** 2026-08-11
+- **Date:** 2026-08-11 (rev.2 after PR #22 architecture review)
 - **Dependency:** DS-011 Repository Observer accepted and merged (PR #21)
 
 ---
@@ -80,13 +80,13 @@ Representation materialization only runs for repository/file entries **admitted 
 
 ```bash
 pnpm --filter @canvas-agent/context-runtime test        86 passed
-pnpm --filter @canvas-agent/repository-observer test    33 passed
-pnpm --filter @canvas-agent/pi-context-integration test 48 passed
+pnpm --filter @canvas-agent/repository-observer test    35 passed
+pnpm --filter @canvas-agent/pi-context-integration test 51 passed
 all three package typechecks                            PASS
-pnpm check                                              GREEN (637 tests + build)
+pnpm check                                              GREEN (642 tests + build)
 ```
 
-New CR-003B coverage: representation materialization (A), LINE_RANGE (B), PlanningRequest determinism (C), representation decisions / REPLACE (D), authority boundary (E via repo tests + Pi observer), Shadow seam (F via Pi observer tests), and scope regression (G).
+New CR-003B coverage: representation materialization (A incl. post-read race seam and binary), LINE_RANGE (B incl. exact content), PlanningRequest determinism (C incl. needs-in-hash), representation decisions / REPLACE (D), authority boundary (E via repo tests + Pi observer), Shadow seam (F via Pi observer tests incl. fail-safe + duplicate-need determinism), and scope regression (G).
 
 ## 11. Credential-free temporary-Git smoke
 
@@ -133,6 +133,19 @@ representationTokenDelta reported per boundary
 - Dirty revisions remain unsupported (DS-011 rule preserved).
 - Live smoke does not force a REPLACE; REPLACE is proven by deterministic tests + temporary-Git smoke.
 - `LINE_RANGE` range selection is always explicit (no heuristic range picking).
+
+## 15a. PR #22 review items — resolution
+
+| Review item | Resolution |
+|---|---|
+| P1 needs not in request/hash | ✅ `ShadowPlannerObserver` builds normalized `representationNeeds` FIRST, passes them into `makePlanningRequest` and `planningRequestHash`; materialization reuses the SAME need map. Test proves the needs appear in the request and change the hash (with-needs != without-needs). |
+| P1 no model-usable content | ✅ `ContextRepresentation` gained ephemeral `content`/`contentRef`; `FileRepresentationProvider` keeps the exact FULL/LINE_RANGE payload (never persisted). Tests A-1 (`content === FILE_CONTENT`) and B-10 (`content === 'line two\\nline three\\nline four'`). |
+| P1 smoke bypasses RepositoryObserver | ✅ Both smokes now run the real chain `RepositoryObserver.observe → SourceObservation → Universe → materialize → Planner`. Git smoke: v1/v2 observed via `RepositoryObserver`; Pi smoke admits the file source from a real observation (`file source admitted via RepositoryObserver=true`). |
+| P1 not fail-safe | ✅ Materialization throws are caught, recorded in `materializationFailures`, and fall back to the default REFERENCE resolver; native Pi messages never corrupted. Test P1-failsafe asserts the recorded failure and unchanged messages. |
+| P1 post-read race / binary evidence | ✅ Provider gained an injectable revision-reader seam; test 6b drives `before==expected → read → after!=expected` → `REVISION_CHANGED_DURING_OBSERVATION`. Test 8b covers a real non-UTF-8 binary fixture → fail-closed. |
+| P1 Git smoke fake representation | ✅ Git smoke feeds the REAL materialized FULL/LINE_RANGE/v2 representations into `planWorkingSet`; Planner 3 proves `REPLACE(SOURCE_VERSION_ADVANCED)` on the real v1→v2 chain. |
+| P2 representationTokenDelta semantics | ✅ `representationTokenDelta` now sums `REPLACE.tokenDelta` only (representation transitions, not membership ADD/REMOVE) with a `representationDeltaBreakdown { narrowed, detailed, sourceVersionAdvanced }`. |
+| P2 duplicate need determinism | ✅ `buildRepresentationNeeds` rejects a second need for the same sourceKey (duplicate throw), so input ordering cannot change semantics. Test P2-duplicate asserts the throw. |
 
 ## 16. Scope confirmation
 
