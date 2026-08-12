@@ -6,11 +6,11 @@
   "fixturePath": "corpus/C3-failing-test-diagnosis/fixture",
   "referencePath": "corpus/C3-failing-test-diagnosis/reference",
   "repositoryRevision": {
-    "baseCommit": "14c989061bdb06891f260bbc14519a81f95d415b",
-    "treeHash": "5554d820b48359e8d411e9bee767392d9cc35388",
+    "baseCommit": "0b82bb4894076ec16ca058c6a8e9425988e1c4a3",
+    "treeHash": "b18b46768414bbf4f5fd91d84cce08ba912dd2d5",
     "workingTreePatchHash": null
   },
-  "initialStateHash": "40d76b7e16f65631871ed19a3e7f74647a9642b470913bd8fbc18e1afbde7421",
+  "initialStateHash": "6e2fdf66f3a6304be88dfed35b3b7a4a0e5e2727502d22e3139328592cfc22e3",
   "prompt": "Diagnose the failing cache test. Make a minimal fix so a cache hit returns the stored value without invoking the factory again; preserve clear(). Run the oracle and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
   "acceptanceCriteria": [
     "A first getOrSet call evaluates and stores the factory value.",
@@ -21,6 +21,12 @@
   "oracle": {
     "command": "node",
     "args": ["--test", "test/cache.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "regressionOracle": {
+    "command": "node",
+    "args": ["--test", "test/regression.test.js"],
     "expectedExitCode": 0,
     "timeoutMs": 10000
   },

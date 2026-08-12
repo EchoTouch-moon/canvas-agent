@@ -234,6 +234,35 @@ describe('Shadow planner observer (CR-003A)', () => {
     expect(call.metrics.nativeEstimateScope).toBe('agent-messages-pre-provider')
     expect(call.enrichedResult.nativeContextEstimate).toBe(call.metrics.nativeContextEstimate)
   })
+
+  it('accepts only explicitly queued external repository seeds at the next boundary', async () => {
+    const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
+    const enriched = new EnrichedPiShadowObserver({ base })
+    const planner = new ShadowPlannerObserver({
+      enriched,
+      policyVersion: 'policy-v0',
+      filePathCandidates: ['src/observed.ts']
+    })
+
+    const first = await planner.observeModelCall([userMessage('first call')])
+    expect(first.enrichedResult.universeRevision.entries).toHaveLength(0)
+    enriched.queueExternalSeeds([
+      {
+        sourceKey: 'repository/file://src/observed.ts',
+        sourceKind: 'REPOSITORY_FILE',
+        contentHash: 'b'.repeat(64),
+        provenance: 'REPOSITORY_OBSERVER',
+        observedAt: FIXED_NOW
+      }
+    ])
+    const second = await planner.observeModelCall([userMessage('second call')])
+
+    expect(second.enrichedResult.universeRevision.entries.map((entry) => entry.source.sourceKey)).toEqual([
+      'repository/file://src/observed.ts'
+    ])
+    expect(second.representations).toHaveLength(1)
+    expect(second.plannerResult.decisions.some((decision) => decision.kind === 'ADD')).toBe(true)
+  })
 })
 
 describe('CR-003B file-aware observer corrections (PR #22)', () => {

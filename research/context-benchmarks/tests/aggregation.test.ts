@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { aggregateRuns, replayShadowEvidenceHash } from '../src/aggregation'
+import { planWorkingSet, seedUniverse } from '@canvas-agent/context-runtime'
+import { aggregateRuns, replayShadowCallsHash } from '../src/aggregation'
 import type { BenchmarkRunRecord, ShadowCallEvidence, ShadowDecisionEvidence } from '../src/types'
 
 const hash = 'a'.repeat(64)
@@ -20,13 +21,10 @@ function decision(kind: ShadowDecisionEvidence['kind'], sourceKey = 'repository/
 }
 
 function shadowCall(sequence: number, decisions: readonly ShadowDecisionEvidence[], fileAccesses: ShadowCallEvidence['fileAccesses'] = []): ShadowCallEvidence {
+  const replay = replayMetadata(sequence)
   return {
     sequence,
-    universeSequence: sequence,
-    universeHash: `universe-${sequence}`,
-    workingSetId: `working-set-${sequence}`,
-    workingSetHash: `working-set-hash-${sequence}`,
-    planningRequestHash: `planning-request-${sequence}`,
+    ...replay,
     proposedSemanticTokenEstimate: sequence + 2,
     itemCount: sequence,
     nativeContextEstimate: 12,
@@ -38,12 +36,47 @@ function shadowCall(sequence: number, decisions: readonly ShadowDecisionEvidence
   }
 }
 
+function replayMetadata(sequence: number): Pick<ShadowCallEvidence, 'universeSequence' | 'universeHash' | 'workingSetId' | 'workingSetHash' | 'planningRequestHash' | 'universe' | 'planningRequest' | 'previousWorkingSet' | 'policyVersion' | 'transitionHash' | 'representations'> {
+  const universe = seedUniverse({ runtimeSessionId: `replay-${sequence}`, seeds: [] })
+  const planningRequest = {
+    runtimeSessionId: universe.runtimeSessionId,
+    recompositionSequence: sequence,
+    taskPhase: 'GENERAL' as const,
+    budget: { maxSemanticTokens: 8000 },
+    pinnedSourceKeys: [],
+    excludedSourceKeys: [],
+    currentTargetSourceKeys: [],
+    latestVerificationSourceKeys: [],
+    recentEvidenceSourceKeys: [],
+    previousWorkingSetId: null
+  }
+  const replayed = planWorkingSet({
+    universe,
+    request: planningRequest,
+    previousWorkingSet: null,
+    options: { policyVersion: 'policy-v0', createdAt: '2026-01-01T00:00:00.000Z', represent: () => null }
+  })
+  return {
+    universeSequence: universe.sequence,
+    universeHash: universe.logicalHash,
+    workingSetId: replayed.workingSet.workingSetId,
+    workingSetHash: replayed.workingSet.logicalHash,
+    planningRequestHash: replayed.workingSet.planningRequestHash,
+    universe,
+    planningRequest,
+    previousWorkingSet: null,
+    policyVersion: 'policy-v0',
+    transitionHash: replayed.transition.logicalHash,
+    representations: []
+  }
+}
+
 function run(strategy: 'NATIVE' | 'SHADOW', runId: string): BenchmarkRunRecord {
   const calls = [
-    shadowCall(1, [decision('REMOVE')]),
-    shadowCall(2, [decision('ADD')], [
-      { toolName: 'read', path: 'src/example.ts', kind: 'READ', sequence: 2 }
+    shadowCall(1, [decision('REMOVE')], [
+      { toolName: 'read', path: 'src/example.ts', kind: 'READ', sequence: 1 }
     ]),
+    shadowCall(2, [decision('ADD')]),
     shadowCall(3, [decision('REHYDRATE')])
   ]
   return {
@@ -59,6 +92,9 @@ function run(strategy: 'NATIVE' | 'SHADOW', runId: string): BenchmarkRunRecord {
     },
     finalRepositoryRevision: null,
     finalStateHash: null,
+    changedPaths: [],
+    outOfScopePaths: [],
+    writablePathsValid: true,
     modelProfile: { provider: 'deepseek', model: 'deepseek-v4-flash', thinkingLevel: 'medium' },
     semanticCallCount: 3,
     toolCallCount: 4,
@@ -96,9 +132,22 @@ describe('CR-005 aggregation', () => {
     expect(forward.providerSavings).toBeNull()
   })
 
-  it('keeps replay evidence deterministic when run IDs are changed', () => {
-    const first = run('SHADOW', 'shadow-run-a')
-    const second = run('SHADOW', 'shadow-run-b')
-    expect(replayShadowEvidenceHash(first)).toBe(replayShadowEvidenceHash(second))
+  it('replays the Planner from saved metadata and rejects tampered identity', () => {
+    const call = shadowCall(1, [])
+    const first = replayShadowCallsHash([call])
+    const second = replayShadowCallsHash([{ ...call, fileAccesses: [] }])
+    expect(first).toBe(second)
+    expect(() => replayShadowCallsHash([{ ...call, workingSetHash: 'tampered' }])).toThrow(/Working Set hash mismatch/)
+  })
+
+  it('excludes a run with an out-of-scope final change from validity totals', () => {
+    const outOfScope = {
+      ...run('NATIVE', 'native-out-of-scope'),
+      outOfScopePaths: ['src/unexpected.ts'],
+      writablePathsValid: false
+    }
+    const aggregate = aggregateRuns([outOfScope])
+    expect(aggregate.validRuns).toBe(0)
+    expect(aggregate.runIdsExcludedFromValidity).toEqual(['native-out-of-scope'])
   })
 })

@@ -6,11 +6,11 @@
   "fixturePath": "corpus/C4-constrained-refactor/fixture",
   "referencePath": "corpus/C4-constrained-refactor/reference",
   "repositoryRevision": {
-    "baseCommit": "90b1da4875bf4277c4579f59d8771caadeec646c",
-    "treeHash": "a79d15135137e18c6ae75bd4f00bea45d307a36e",
+    "baseCommit": "83187a56da63026fb161da3b828f10ed014f3e1f",
+    "treeHash": "758c13f8ba231579452404a9e6d3c3b6630b22cb",
     "workingTreePatchHash": null
   },
-  "initialStateHash": "228899998ea2219d54e63b19261d8b5f198811d931e21ae1e759d792db706eaf",
+  "initialStateHash": "c47338e610585a750cad330c4b30c9915bc675076cd1f614ac8cea9f77e74159",
   "prompt": "Refactor display-name normalization while preserving behavior. Read ARCHITECTURE.md and move shared normalization behind a domain-owned module; the domain layer must not import from src/cli. A narrow test-only change that leaves the architectural dependency is not accepted. Run the oracle and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
   "acceptanceCriteria": [
     "Display-name formatting behavior remains unchanged.",
@@ -21,6 +21,12 @@
   "oracle": {
     "command": "node",
     "args": ["--test", "test/refactor.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "regressionOracle": {
+    "command": "node",
+    "args": ["--test", "test/regression.test.js"],
     "expectedExitCode": 0,
     "timeoutMs": 10000
   },

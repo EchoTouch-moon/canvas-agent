@@ -6,11 +6,11 @@
   "fixturePath": "corpus/C1-localized-bug-fix/fixture",
   "referencePath": "corpus/C1-localized-bug-fix/reference",
   "repositoryRevision": {
-    "baseCommit": "9bf11fe9f7c8b3d8aba808e61f5ce4a5993dc653",
-    "treeHash": "5dd1e4e2a8fa397fbe29a43dba6b6c924b6081fb",
+    "baseCommit": "c7e08c35f608a1a9cfbca927f5a36a0ed0ea5e7c",
+    "treeHash": "3f0a45846714cb3a1623f31a3c4c3a7235fe659b",
     "workingTreePatchHash": null
   },
-  "initialStateHash": "dd926cee8b39f581782f7b19181a7e357ae79cbe3a0bfeaf8d93589b444bff11",
+  "initialStateHash": "d6e7864fffe3023a55985f3bdad822eb0820af84e9af42ae7df7ebe566933b40",
   "prompt": "Fix the percentage discount calculation in src/discount.js. Preserve the existing validation behavior, run the oracle, and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
   "acceptanceCriteria": [
     "A finite amount and percentage produce amount * (1 - percentage / 100).",
@@ -20,6 +20,12 @@
   "oracle": {
     "command": "node",
     "args": ["--test", "test/discount.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "regressionOracle": {
+    "command": "node",
+    "args": ["--test", "test/regression.test.js"],
     "expectedExitCode": 0,
     "timeoutMs": 10000
   },

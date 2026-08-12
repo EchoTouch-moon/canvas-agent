@@ -1,6 +1,12 @@
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { PiContextShadowObserver } from '@canvas-agent/pi-context-integration'
+import {
+  EnrichedPiShadowObserver,
+  PiContextShadowObserver,
+  ShadowPlannerObserver,
+  createShadowPlannerPiExtension
+} from '@canvas-agent/pi-context-integration'
+import type { ContextEvent, ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { benchmarkManifestSchema, loadManifests } from '../src/manifest'
 
 const researchRoot = resolve(import.meta.dirname, '..')
@@ -24,5 +30,25 @@ describe('CR-005 Native/Shadow separation', () => {
     expect(() =>
       benchmarkManifestSchema.parse({ ...manifest, contextStrategies: ['ACTIVE', 'SHADOW'] })
     ).toThrow()
+  })
+
+  it('runs the real Shadow extension and returns the exact original messages array', async () => {
+    const messages: ContextEvent['messages'] = []
+    const base = new PiContextShadowObserver({ runtimeSessionId: 'cr005-shadow-pass-through' })
+    const enriched = new EnrichedPiShadowObserver({ base })
+    const observer = new ShadowPlannerObserver({ enriched })
+    const extension = createShadowPlannerPiExtension({ observer })
+    let contextHandler: ((event: ContextEvent, context: unknown) => Promise<{ messages: ContextEvent['messages'] }>) | undefined
+    const register = extension as unknown as (api: Pick<ExtensionAPI, 'on'>) => void
+    register({
+      on: (_event, handler) => {
+        contextHandler = handler as unknown as (event: ContextEvent, context: unknown) => Promise<{ messages: ContextEvent['messages'] }>
+      }
+    })
+    if (contextHandler === undefined) throw new Error('Shadow extension did not register a context handler')
+
+    const result = await contextHandler({ type: 'context', messages }, {})
+    expect(result.messages).toBe(messages)
+    expect(observer.callResults).toHaveLength(1)
   })
 })

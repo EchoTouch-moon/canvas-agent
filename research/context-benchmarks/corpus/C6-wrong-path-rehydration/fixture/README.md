@@ -1,4 +1,4 @@
-# C6 — longer wrong investigative path
+# C6 — evidence-driven behavior diagnosis
 
-Diagnose the arithmetic evaluator. Search and inspect the plausible cache and
-tokenizer leads before following the nested-expression path to the bug.
+Diagnose the arithmetic evaluator through its public behavior. The repository
+contains several plausible modules; use the failing tests and subsequent evidence to find the responsible implementation.

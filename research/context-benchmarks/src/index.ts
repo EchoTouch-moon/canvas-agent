@@ -20,7 +20,7 @@ export {
   type MaterializedFixture,
   type ProcessResult
 } from './fixture-generator'
-export { aggregateRuns, allCategoriesHaveNativeAndShadow, replayShadowEvidenceHash } from './aggregation'
+export { aggregateRuns, allCategoriesHaveNativeAndShadow, replayShadowCallsHash, replayShadowEvidenceHash } from './aggregation'
 export {
   formatValidationSummary,
   validateCorpus,

@@ -1,4 +1,11 @@
-import type { ContextDecision, ShadowPlanningMetrics } from '@canvas-agent/context-runtime'
+import type {
+  ContextDecision,
+  ContextPlanningRequest,
+  ContextRepresentation,
+  ContextUniverseRevision,
+  ContextWorkingSet,
+  ShadowPlanningMetrics
+} from '@canvas-agent/context-runtime'
 import type { RepositoryRevisionContract } from '@canvas-agent/contracts'
 
 export const BENCHMARK_CATEGORIES = [
@@ -47,6 +54,7 @@ export interface BenchmarkManifest {
   readonly prompt: string
   readonly acceptanceCriteria: readonly string[]
   readonly oracle: BenchmarkOracleSpec
+  readonly regressionOracle: BenchmarkOracleSpec
   readonly allowedTools: readonly string[]
   readonly expectedTools: readonly string[]
   readonly modelProfile: BenchmarkModelProfile
@@ -102,6 +110,11 @@ export interface ShadowDecisionEvidence {
   readonly representationKind: string | null
 }
 
+// Durable Shadow evidence deliberately excludes ephemeral representation
+// content/contentRef. The Planner only needs these identity and budgeting
+// fields to replay the same Working Set and transition.
+export type ShadowRepresentationEvidence = Omit<ContextRepresentation, 'content' | 'contentRef'>
+
 export interface ShadowCallEvidence {
   readonly sequence: number
   readonly universeSequence: number
@@ -109,6 +122,15 @@ export interface ShadowCallEvidence {
   readonly workingSetId: string
   readonly workingSetHash: string
   readonly planningRequestHash: string
+  readonly universe: ContextUniverseRevision
+  readonly planningRequest: ContextPlanningRequest
+  readonly previousWorkingSet: ContextWorkingSet | null
+  readonly policyVersion: string
+  readonly transitionHash: string
+  readonly representations: readonly {
+    readonly sourceKey: string
+    readonly representation: ShadowRepresentationEvidence
+  }[]
   readonly proposedSemanticTokenEstimate: number
   readonly itemCount: number
   readonly nativeContextEstimate: number
@@ -129,6 +151,9 @@ export interface BenchmarkRunRecord {
   readonly fixtureIdentity: FixtureIdentity
   readonly finalRepositoryRevision: RepositoryRevisionContract | null
   readonly finalStateHash: string | null
+  readonly changedPaths: readonly string[]
+  readonly outOfScopePaths: readonly string[]
+  readonly writablePathsValid: boolean
   readonly modelProfile: BenchmarkModelProfile
   readonly semanticCallCount: number
   readonly toolCallCount: number

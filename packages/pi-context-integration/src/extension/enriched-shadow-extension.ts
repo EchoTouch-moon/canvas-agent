@@ -47,6 +47,7 @@ export interface EnrichedPiShadowObserverOptions {
 export class EnrichedPiShadowObserver {
   private readonly base: PiContextShadowObserver
   private readonly seeds: readonly SnapshotLikeSeed[]
+  private readonly pendingExternalSeeds = new Map<string, SnapshotLikeSeed>()
   private universe: ContextUniverseRevision | null
   readonly callResults: readonly EnrichedShadowResult[]
 
@@ -67,6 +68,23 @@ export class EnrichedPiShadowObserver {
 
   get callCount(): number {
     return this.callResults.length
+  }
+
+  // An integration adapter may queue authoritative, metadata-only observations
+  // discovered outside the Pi message stream. They are consumed at the next
+  // model-call boundary, after the adapter has verified the source against its
+  // own authority. This additive seam is intentionally inert unless a caller
+  // supplies seeds; it never promotes Pi resource-hint paths by itself.
+  queueExternalSeeds(seeds: readonly SnapshotLikeSeed[]): void {
+    for (const seed of seeds) {
+      this.pendingExternalSeeds.set(seed.sourceKey, seed)
+    }
+  }
+
+  private takeExternalSeeds(): readonly SnapshotLikeSeed[] {
+    const seeds = [...this.pendingExternalSeeds.values()]
+    this.pendingExternalSeeds.clear()
+    return seeds.sort((left, right) => left.sourceKey.localeCompare(right.sourceKey))
   }
 
   observeModelCall(messages: readonly PiMessageView[]): EnrichedShadowResult {
@@ -93,14 +111,27 @@ export class EnrichedPiShadowObserver {
         0
       )
     })
-    const { observations, descriptors } = collectSourceObservations(elements, observedAt)
+    const piSources = collectSourceObservations(elements, observedAt)
+    const externalSeeds = this.takeExternalSeeds()
+    const externalObservations = externalSeeds.map((seed) =>
+      createAvailableObservation(seed.sourceKey, seed.contentHash, seed.observedAt)
+    )
+    const externalDescriptors = externalSeeds.map((seed) => ({
+      sourceKey: seed.sourceKey,
+      sourceKind: seed.sourceKind,
+      provenance: seed.provenance,
+      ...(seed.authority !== undefined ? { authority: seed.authority } : {}),
+      ...(seed.priority !== undefined ? { priority: seed.priority } : {})
+    }))
+    const observations = [...externalObservations, ...piSources.observations]
+    const descriptors = [...externalDescriptors, ...piSources.descriptors]
 
     // Seed Universe #0 on the first observed model call so the very first
     // revision has a baseline.
     if (this.universe === null) {
       this.universe = seedUniverse({
         runtimeSessionId: this.runtimeSessionId,
-        seeds: this.seeds
+        seeds: [...this.seeds, ...externalSeeds]
       })
     }
     this.universe = applySourceObservations({
@@ -117,6 +148,7 @@ export class EnrichedPiShadowObserver {
     const recentEvidenceSourceKeys = descriptors
       .filter((d) => d.provenance === PI_SOURCE_PROVENANCE.CONTEXT_EVENT)
       .map((d) => d.sourceKey)
+      .concat(externalDescriptors.map((d) => d.sourceKey))
 
     const result: EnrichedShadowResult = {
       elements,

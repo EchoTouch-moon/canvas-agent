@@ -32,6 +32,14 @@ export const benchmarkManifestSchema = z
         timeoutMs: z.number().int().positive()
       })
       .strict(),
+    regressionOracle: z
+      .object({
+        command: z.literal('node'),
+        args: z.array(z.string().min(1)).min(1),
+        expectedExitCode: z.number().int(),
+        timeoutMs: z.number().int().positive()
+      })
+      .strict(),
     allowedTools: z.array(z.string().min(1)).min(1),
     expectedTools: z.array(z.string().min(1)).min(1),
     modelProfile: z
@@ -80,15 +88,25 @@ export async function parseManifestFile(path: string): Promise<BenchmarkManifest
 export function validateManifestReferences(researchRoot: string, manifest: BenchmarkManifest): void {
   const fixtureRoot = assertSafeRelativePath(researchRoot, manifest.fixturePath, 'fixturePath')
   const referenceRoot = assertSafeRelativePath(researchRoot, manifest.referencePath, 'referencePath')
-  if (manifest.oracle.args[0] !== '--test') {
-    throw new Error(`${manifest.taskId} oracle must use node --test`)
+  const validateOracle = (
+    oracle: BenchmarkManifest['oracle'],
+    label: string
+  ): void => {
+    if (oracle.args[0] !== '--test') {
+      throw new Error(`${manifest.taskId} ${label} must use node --test`)
+    }
+    const oraclePath = oracle.args.at(-1)
+    if (oraclePath === undefined || !oraclePath.startsWith('test/')) {
+      throw new Error(`${manifest.taskId} ${label} must target a test/ path`)
+    }
+    assertSafeRelativePath(fixtureRoot, oraclePath, `${manifest.taskId}.${label}.args`)
+    assertSafeRelativePath(referenceRoot, oraclePath, `${manifest.taskId}.reference ${label}`)
   }
-  const oraclePath = manifest.oracle.args.at(-1)
-  if (oraclePath === undefined || !oraclePath.startsWith('test/')) {
-    throw new Error(`${manifest.taskId} oracle must target a test/ path`)
+  validateOracle(manifest.oracle, 'oracle')
+  validateOracle(manifest.regressionOracle, 'regressionOracle')
+  if (JSON.stringify(manifest.oracle) === JSON.stringify(manifest.regressionOracle)) {
+    throw new Error(`${manifest.taskId} objective and regression oracles must be distinct`)
   }
-  assertSafeRelativePath(fixtureRoot, oraclePath, `${manifest.taskId}.oracle.args`)
-  assertSafeRelativePath(referenceRoot, oraclePath, `${manifest.taskId}.reference oracle`)
 }
 
 export async function loadManifests(researchRoot: string): Promise<readonly BenchmarkManifest[]> {

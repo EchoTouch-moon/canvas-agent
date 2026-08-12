@@ -6,12 +6,12 @@
   "fixturePath": "corpus/C5-unrelated-discovery/fixture",
   "referencePath": "corpus/C5-unrelated-discovery/reference",
   "repositoryRevision": {
-    "baseCommit": "6a91e4eea26f38a8ae64a2eca5c49bb8b1e368ed",
-    "treeHash": "014a59f8f070716f04dd7aa383276dbf90e6c9d5",
+    "baseCommit": "a27eab2d457c37a8e24b2fb9599293d6650474f4",
+    "treeHash": "0079f79280ece50ad29415877cfdbe2cd5cf621c",
     "workingTreePatchHash": null
   },
-  "initialStateHash": "301d6550ccfc93cdcfe7301de1ac6190e96e6dcbe31f8af79197c46aeba53d8f",
-  "prompt": "Fix the security session expiry boundary. Discover the relevant candidate among the unrelated auth, billing, notifications, and security session helpers; only a security session at or past expiresAt is expired. Run the oracle and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
+  "initialStateHash": "db707f55f66682135138e38da1083b630bc0a5da44e4cefecfcbd3b8a0911aad",
+  "prompt": "Fix the session-expiry boundary reported by the focused oracle. Investigate the repository and use test evidence to identify the responsible implementation; preserve unrelated behavior. Run the oracle and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
   "acceptanceCriteria": [
     "The security session is expired when now equals expiresAt.",
     "The security session is not expired before expiresAt.",
@@ -21,6 +21,12 @@
   "oracle": {
     "command": "node",
     "args": ["--test", "test/security.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "regressionOracle": {
+    "command": "node",
+    "args": ["--test", "test/regression.test.js"],
     "expectedExitCode": 0,
     "timeoutMs": 10000
   },

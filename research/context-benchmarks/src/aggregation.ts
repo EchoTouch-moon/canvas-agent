@@ -1,3 +1,4 @@
+import { planWorkingSet, sha256Hex, type ContextRepresentation } from '@canvas-agent/context-runtime'
 import type {
   AggregateResult,
   BenchmarkRunRecord,
@@ -30,6 +31,7 @@ function isValidRun(run: BenchmarkRunRecord): boolean {
     run.objectiveOracle.passed &&
     run.regressionOracle.passed &&
     run.originalMessagesUnchanged &&
+    run.writablePathsValid &&
     !run.rawProviderPayloadsCaptured
   )
 }
@@ -105,7 +107,10 @@ function deriveShadowEvidence(run: BenchmarkRunRecord): {
     }
     for (const access of call.fileAccesses) {
       for (const removal of removals.values()) {
-        if (call.sequence <= removal.sequence || !sourceMatchesAccess(removal.sourceKey, access.path)) continue
+        // A tool read emitted after the Planner's REMOVE decision can belong to
+        // the same semantic model call. Keep equality so the most important
+        // same-call false-removal evidence is not discarded.
+        if (call.sequence < removal.sequence || !sourceMatchesAccess(removal.sourceKey, access.path)) continue
         neededAgain.add(removal.sourceKey)
         if (access.kind === 'READ') readAfterRemoveCount += 1
         if (access.kind === 'SEARCH') searchAfterRemoveCount += 1
@@ -278,36 +283,58 @@ export function aggregateRuns(records: readonly BenchmarkRunRecord[]): Aggregate
   }
 }
 
-export function replayShadowEvidenceHash(run: BenchmarkRunRecord): string {
-  const canonical = sortedShadowCalls(run)
-    .map((call) =>
-      [
+export function replayShadowCallsHash(calls: readonly ShadowCallEvidence[]): string {
+  const canonical = [...calls]
+    .sort((left, right) => left.sequence - right.sequence)
+    .map((call) => {
+      if (call.universe.sequence !== call.universeSequence || call.universe.logicalHash !== call.universeHash) {
+        throw new Error(`${call.sequence}: saved Universe identity mismatch`)
+      }
+      if (call.planningRequest.recompositionSequence !== call.sequence) {
+        throw new Error(`${call.sequence}: saved PlanningRequest sequence mismatch`)
+      }
+      const representations = new Map<string, ContextRepresentation>(
+        call.representations.map(({ sourceKey, representation }) => [sourceKey, representation])
+      )
+      const replayed = planWorkingSet({
+        universe: call.universe,
+        request: call.planningRequest,
+        previousWorkingSet: call.previousWorkingSet,
+        options: {
+          policyVersion: call.policyVersion,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          represent: (entry) => representations.get(entry.source.sourceKey) ?? null
+        }
+      })
+      if (replayed.workingSet.workingSetId !== call.workingSetId) {
+        throw new Error(`${call.sequence}: replay Working Set id mismatch`)
+      }
+      if (replayed.workingSet.logicalHash !== call.workingSetHash) {
+        throw new Error(`${call.sequence}: replay Working Set hash mismatch`)
+      }
+      if (replayed.workingSet.planningRequestHash !== call.planningRequestHash) {
+        throw new Error(`${call.sequence}: replay PlanningRequest hash mismatch`)
+      }
+      if (replayed.transition.logicalHash !== call.transitionHash) {
+        throw new Error(`${call.sequence}: replay transition hash mismatch`)
+      }
+      return [
         call.sequence,
         call.universeSequence,
         call.universeHash,
-        call.workingSetId,
-        call.workingSetHash,
-        call.planningRequestHash,
-        call.proposedSemanticTokenEstimate,
-        call.decisions
-          .map((decision) =>
-            [
-              decision.kind,
-              decision.sourceKey,
-              decision.sourceVersionId,
-              decision.representationId,
-              decision.fromWorkingSetId ?? '-',
-              decision.toWorkingSetId,
-              decision.reasonCodes.join(','),
-              decision.tokenDelta,
-              decision.representationKind ?? '-'
-            ].join('|')
-          )
-          .join(';')
+        replayed.workingSet.workingSetId,
+        replayed.workingSet.logicalHash,
+        replayed.workingSet.planningRequestHash,
+        replayed.transition.logicalHash,
+        replayed.decisions.map((decision) => decision.decisionId).join(';')
       ].join('\u241f')
-    )
+    })
     .join('\n')
-  return canonical
+  return sha256Hex(`shadow-planner-replay-v1|${canonical}`)
+}
+
+export function replayShadowEvidenceHash(run: BenchmarkRunRecord): string {
+  return replayShadowCallsHash(run.shadowCalls)
 }
 
 export function allCategoriesHaveNativeAndShadow(aggregate: AggregateResult): boolean {

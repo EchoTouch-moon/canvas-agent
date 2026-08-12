@@ -6,12 +6,12 @@
   "fixturePath": "corpus/C6-wrong-path-rehydration/fixture",
   "referencePath": "corpus/C6-wrong-path-rehydration/reference",
   "repositoryRevision": {
-    "baseCommit": "a128b6de309c9363dc635682f9ae50386c24537e",
-    "treeHash": "3edd61a9e53b2fb8710a2529be5ec06689103b91",
+    "baseCommit": "ae22d0e616df8e27b664c612f80703d9e0e443a5",
+    "treeHash": "695020a1deef724d43efd85c0b74187020b0a3fe",
     "workingTreePatchHash": null
   },
-  "initialStateHash": "9d79a724d1a3fffb9f8d1b221674b90742b3406b715ad8e79775f537687f31e6",
-  "prompt": "Diagnose the nested arithmetic failure through the public API. It is reasonable to inspect the search cache and tokenizer first, but later evidence must lead to the parser's nested-expression path. Fix the smallest correct parser issue, run the oracle, and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
+  "initialStateHash": "13fdae63bbfc5cb5a053d83e66e7e06c5007cd0885d7026544223329447ddc13",
+  "prompt": "Diagnose the arithmetic failure through the public API. Investigate the repository, follow evidence from the failing oracle to the responsible implementation, and make the smallest correct fix. Run the oracle and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
   "acceptanceCriteria": [
     "calculate(2 * (3 + 4) + 5) returns 19.",
     "The public API remains the entry point used by the oracle.",
@@ -21,6 +21,12 @@
   "oracle": {
     "command": "node",
     "args": ["--test", "test/evaluate.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "regressionOracle": {
+    "command": "node",
+    "args": ["--test", "test/regression.test.js"],
     "expectedExitCode": 0,
     "timeoutMs": 10000
   },

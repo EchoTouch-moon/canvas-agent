@@ -27,7 +27,7 @@ describe('CR-005 corpus', () => {
     expect(result.tasks.every((task) => !task.fixtureOracle.passed)).toBe(true)
     expect(result.tasks.every((task) => task.referenceOracle.passed)).toBe(true)
     expect(result.tasks.every((task) => task.reproducibleIdentity)).toBe(true)
-  })
+  }, 30000)
 
   it('does not accept a weak unrelated command as the focused oracle', async () => {
     const manifests = await loadManifests(researchRoot)

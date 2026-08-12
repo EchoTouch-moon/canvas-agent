@@ -1,4 +1,20 @@
-# Active task — CR-005 Native + Shadow Benchmark Corpus (2026-08-12)
+# Active task — CR-005 bounded validity corrections (2026-08-12)
+
+## Current correction objective
+
+Apply the lead review's eight bounded CR-005 harness corrections, keep all provider/live calls at zero, run local verification, and prepare the branch for a fast follow-up review.
+
+## Active correction phases
+
+- [x] Inspect the harness and package seams against the five P1 and three P2 findings
+- [x] Remove evaluator/path leakage and add dynamic Shadow discovery
+- [x] Enforce writable-path validity, same-call removal evidence, and real planner replay
+- [x] Add regression-oracle separation, pass-through coverage, and board-history correction
+- [x] Run local checks only and update verification notes; live runs remain at zero
+
+## Scope guard
+
+This is bounded benchmark-validity work. No architecture redesign, runtime mechanism expansion beyond the minimum discovery/replay seam, or live Native/Shadow provider execution is authorized.
 
 ## Goal
 
@@ -30,7 +46,7 @@ Build a research-only, reproducible six-category Native + Shadow benchmark corpu
 
 ## Status
 
-**Complete for implementation handoff** — commit `25d09b242b433403ae0b18ebab15e948b294311f` is pushed to the Luna branch. Live provider execution remains opt-in and was not used; the verification verdict is `HARNESS_ONLY`.
+**Correction implementation complete locally; handoff pending commit/push** — credential-free validation and the full repository `pnpm check` are green. Live provider execution remains opt-in and was not used; the verification verdict remains `HARNESS_ONLY`.
 
 ---
 

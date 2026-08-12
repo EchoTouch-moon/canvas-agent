@@ -22,11 +22,18 @@ import {
 } from '@canvas-agent/pi-context-integration'
 import {
   FileRepresentationProvider,
-  RepositoryObserver,
-  repositorySourceKey
+  RepositoryObserver
 } from '@canvas-agent/repository-observer'
 import type { RepositoryRevisionContract } from '@canvas-agent/contracts'
-import type { BenchmarkManifest, BenchmarkRunRecord, ContextStrategy, FileAccessEvidence, NativeCallEvidence, ShadowCallEvidence } from './types'
+import type {
+  BenchmarkManifest,
+  BenchmarkRunRecord,
+  ContextStrategy,
+  FileAccessEvidence,
+  NativeCallEvidence,
+  ShadowCallEvidence,
+  ShadowRepresentationEvidence
+} from './types'
 import { computeInitialStateHash, materializeFixture, runOracle, runProcess } from './fixture-generator'
 
 const DEEPSEEK_PROVIDER = 'deepseek'
@@ -89,24 +96,27 @@ function declaredSuccess(messages: readonly unknown[]): boolean | null {
   return null
 }
 
-function collectToolAccess(event: ToolExecutionEndEvent, args: unknown, sequence: number, collector: AccessCollector): void {
+function collectToolAccess(
+  event: ToolExecutionEndEvent,
+  args: unknown,
+  sequence: number,
+  collector: AccessCollector
+): FileAccessEvidence | null {
   collector.toolResultCount += 1
   const toolName = event.toolName
   const isRead = toolName === 'read'
   const isSearch = toolName === 'grep' || toolName === 'find'
-  if (!isRead && !isSearch) return
+  if (!isRead && !isSearch) return null
   const path = extractPath(args)
-  if (path === null) return
+  if (path === null) return null
   const kind = isRead ? 'READ' : 'SEARCH'
   const existing = collector.accesses.some((access) => access.kind === kind && access.path === path)
   if (existing) collector.repeatedAccesses += 1
-  collector.accesses.push({ toolName, path, kind, sequence })
+  const access = { toolName, path, kind, sequence } satisfies FileAccessEvidence
+  collector.accesses.push(access)
   if (isRead) collector.fileReadCount += 1
   if (isSearch) collector.searchCount += 1
-}
-
-function candidatePaths(manifest: BenchmarkManifest): readonly string[] {
-  return [...new Set([...manifest.knownCandidatePaths, ...manifest.knownRelevantPaths])].sort()
+  return access
 }
 
 function buildNativeCalls(observer: PiContextShadowObserver, accesses: readonly FileAccessEvidence[]): readonly NativeCallEvidence[] {
@@ -121,6 +131,7 @@ function buildNativeCalls(observer: PiContextShadowObserver, accesses: readonly 
 
 function buildShadowCalls(observer: ShadowPlannerObserver, accesses: readonly FileAccessEvidence[]): readonly ShadowCallEvidence[] {
   const previousRepresentationBySource = new Map<string, string | null>()
+  let previousWorkingSet = null as ShadowPlannerObserver['callResults'][number]['plannerResult']['workingSet'] | null
   const records: ShadowCallEvidence[] = []
   for (const call of observer.callResults) {
     const decisions = call.plannerResult.decisions.map((decision) => {
@@ -138,6 +149,20 @@ function buildShadowCalls(observer: ShadowPlannerObserver, accesses: readonly Fi
         representationKind: item?.representationKind ?? null
       }
     })
+    const representations: { readonly sourceKey: string; readonly representation: ShadowRepresentationEvidence }[] = call.representations.map(
+      ({ sourceKey, representation }) => ({
+        sourceKey,
+        representation: {
+          id: representation.id,
+          kind: representation.kind,
+          sourceVersionIds: representation.sourceVersionIds,
+          contentHash: representation.contentHash,
+          tokenEstimate: representation.tokenEstimate,
+          lossiness: representation.lossiness,
+          derivation: { sourceKey, kind: representation.kind }
+        }
+      })
+    )
     records.push({
       sequence: call.metrics.modelCallSequence,
       universeSequence: call.metrics.universeSequence,
@@ -145,6 +170,12 @@ function buildShadowCalls(observer: ShadowPlannerObserver, accesses: readonly Fi
       workingSetId: call.metrics.workingSetId,
       workingSetHash: call.plannerResult.workingSet.logicalHash,
       planningRequestHash: call.plannerResult.workingSet.planningRequestHash,
+      universe: call.enrichedResult.universeRevision,
+      planningRequest: call.planningRequest,
+      previousWorkingSet,
+      policyVersion: call.plannerResult.workingSet.policyVersion,
+      transitionHash: call.plannerResult.transition.logicalHash,
+      representations,
       proposedSemanticTokenEstimate: call.metrics.proposedSemanticTokenEstimate,
       itemCount: call.plannerResult.workingSet.items.length,
       nativeContextEstimate: call.metrics.nativeContextEstimate,
@@ -163,6 +194,7 @@ function buildShadowCalls(observer: ShadowPlannerObserver, accesses: readonly Fi
         previousRepresentationBySource.set(sourceKey, item.representationKind ?? null)
       }
     }
+    previousWorkingSet = call.plannerResult.workingSet
   }
   return records
 }
@@ -170,27 +202,43 @@ function buildShadowCalls(observer: ShadowPlannerObserver, accesses: readonly Fi
 async function readFinalFixtureIdentity(fixturePath: string): Promise<{
   readonly repositoryRevision: RepositoryRevisionContract
   readonly stateHash: string
+  readonly changedPaths: readonly string[]
 } | null> {
   const gitOptions = {
     cwd: fixturePath,
     timeoutMs: 30000,
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
   }
-  const [commit, tree, diff] = await Promise.all([
+  const [commit, tree, diff, stagedDiff, changed, stagedChanged, untracked] = await Promise.all([
     runProcess('git', ['rev-parse', 'HEAD'], gitOptions),
     runProcess('git', ['rev-parse', 'HEAD^{tree}'], gitOptions),
-    runProcess('git', ['diff', '--binary', '--no-ext-diff'], gitOptions)
+    runProcess('git', ['diff', '--binary', '--no-ext-diff'], gitOptions),
+    runProcess('git', ['diff', '--cached', '--binary', '--no-ext-diff'], gitOptions),
+    runProcess('git', ['diff', '--name-only', '--no-ext-diff'], gitOptions),
+    runProcess('git', ['diff', '--cached', '--name-only', '--no-ext-diff'], gitOptions),
+    runProcess('git', ['ls-files', '--others', '--exclude-standard'], gitOptions)
   ])
-  if (commit.exitCode !== 0 || tree.exitCode !== 0 || diff.exitCode !== 0 || commit.timedOut || tree.timedOut || diff.timedOut) {
+  const processResults = [commit, tree, diff, stagedDiff, changed, stagedChanged, untracked]
+  if (processResults.some((result) => result.exitCode !== 0 || result.timedOut)) {
     return null
   }
+  const changedPaths = [...new Set(
+    [changed.stdout, stagedChanged.stdout, untracked.stdout]
+      .flatMap((output) => output.split('\n'))
+      .map((path) => path.trim())
+      .filter((path) => path.length > 0)
+  )].sort()
   return {
     repositoryRevision: {
       baseCommit: commit.stdout.trim(),
       treeHash: tree.stdout.trim(),
-      workingTreePatchHash: diff.stdout.length === 0 ? null : sha256Hex(diff.stdout)
+      workingTreePatchHash:
+        diff.stdout.length === 0 && stagedDiff.stdout.length === 0
+          ? null
+          : sha256Hex(`${diff.stdout}\n${stagedDiff.stdout}`)
     },
-    stateHash: await computeInitialStateHash(fixturePath)
+    stateHash: await computeInitialStateHash(fixturePath),
+    changedPaths
   }
 }
 
@@ -217,38 +265,52 @@ async function runLiveTask(
   let lastAgentMessages: readonly unknown[] = []
   let originalMessagesUnchanged = true
   let runError: string | null = null
-  const paths = candidatePaths(manifest)
+  const observedRepositoryPaths: string[] = []
+  let repositoryObserver: RepositoryObserver | null = null
+  let enrichedObserver: EnrichedPiShadowObserver | null = null
+  let repositoryObservationQueue: Promise<void> = Promise.resolve()
   let nativeObserver: PiContextShadowObserver | null = null
   let planner: ShadowPlannerObserver | null = null
+
+  const queueRepositoryRead = (path: string): void => {
+    if (strategy !== 'SHADOW' || repositoryObserver === null || enrichedObserver === null) return
+    repositoryObservationQueue = repositoryObservationQueue
+      .then(async () => {
+        const observed = await repositoryObserver?.observe({
+          repositoryPath: fixture.path,
+          expectedRevision: fixture.identity.repositoryRevision,
+          paths: [path],
+          observedAt: FIXED_OBSERVATION_TIME
+        })
+        const entry = observed?.[0]
+        if (entry?.observation.status !== 'AVAILABLE') return
+        if (!observedRepositoryPaths.includes(path)) observedRepositoryPaths.push(path)
+        enrichedObserver?.queueExternalSeeds([{
+          sourceKey: entry.sourceKey,
+          sourceKind: entry.sourceKind,
+          contentHash: entry.observation.contentHash,
+          provenance: entry.provenance,
+          observedAt: FIXED_OBSERVATION_TIME
+        }])
+      })
+      .catch(() => undefined)
+  }
 
   try {
     const base = new PiContextShadowObserver({ runtimeSessionId, harness: 'PI' })
     if (strategy === 'NATIVE') {
       nativeObserver = base
     } else {
-      const repositoryObserver = new RepositoryObserver()
-      const observed = await repositoryObserver.observe({
-        repositoryPath: fixture.path,
-        expectedRevision: fixture.identity.repositoryRevision,
-        paths,
-        observedAt: FIXED_OBSERVATION_TIME
-      })
-      const seeds = observed.flatMap((entry) => {
-        if (entry.observation.status !== 'AVAILABLE') return []
-        return [{
-          sourceKey: entry.sourceKey,
-          sourceKind: entry.sourceKind,
-          contentHash: entry.observation.contentHash,
-          provenance: entry.provenance,
-          observedAt: FIXED_OBSERVATION_TIME
-        }]
-      })
-      const enriched = new EnrichedPiShadowObserver({ base, seeds })
+      repositoryObserver = new RepositoryObserver()
+      enrichedObserver = new EnrichedPiShadowObserver({ base })
       const representationProvider = new FileRepresentationProvider()
       planner = new ShadowPlannerObserver({
-        enriched,
+        enriched: enrichedObserver,
         policyVersion: 'policy-v0',
-        filePathCandidates: paths,
+        // This mutable list is populated only after an actual Agent `read`
+        // has been authoritatively observed. Manifest candidate/relevant paths
+        // never enter the Planner.
+        filePathCandidates: observedRepositoryPaths,
         representationProvider: async ({ entry, need }) => {
           if (entry.admittedVersion === null) return null
           const result = await representationProvider.materialize({
@@ -273,10 +335,11 @@ async function runLiveTask(
       name: `cr005-${strategy.toLowerCase()}-${manifest.taskId}`,
       factory: (pi: ExtensionAPI) => {
         const contextHandler = async (event: ContextEvent) => {
+          const originalMessages = event.messages
           if (semanticCallCount >= manifest.budget.maxSemanticCalls) {
             budgetExceeded = true
             abortIfActive()
-            return { messages: event.messages }
+            return { messages: originalMessages }
           }
           semanticCallCount += 1
           if (strategy === 'NATIVE') {
@@ -285,9 +348,11 @@ async function runLiveTask(
             originalMessagesUnchanged = originalMessagesUnchanged && result.messages === event.messages
           } else {
             if (planner === null) throw new Error('shadow planner unavailable')
+            await repositoryObservationQueue
             await planner.observeModelCall(event.messages)
           }
-          return { messages: event.messages }
+          originalMessagesUnchanged = originalMessagesUnchanged && event.messages === originalMessages
+          return { messages: originalMessages }
         }
         pi.on('context', contextHandler)
       }
@@ -325,7 +390,8 @@ async function runLiveTask(
       } else if (event.type === 'tool_execution_end') {
         const args = pendingToolArgs.get(event.toolCallId)
         pendingToolArgs.delete(event.toolCallId)
-        collectToolAccess(event, args, semanticCallCount, accesses)
+        const access = collectToolAccess(event, args, semanticCallCount, accesses)
+        if (access?.kind === 'READ') queueRepositoryRead(access.path)
         if (accesses.toolResultCount >= manifest.budget.maxToolCalls) {
           budgetExceeded = true
           abortIfActive()
@@ -350,13 +416,18 @@ async function runLiveTask(
     const wallClockMs = Date.now() - startedAt
     unsubscribe()
     const objectiveOracle = await runOracle(manifest, fixture.path)
-    const regressionOracle = await runOracle(manifest, fixture.path)
+    const regressionOracle = await runOracle(manifest, fixture.path, manifest.regressionOracle)
     const finalIdentity = await readFinalFixtureIdentity(fixture.path)
+    const changedPaths = finalIdentity?.changedPaths ?? []
+    const outOfScopePaths = finalIdentity === null
+      ? []
+      : changedPaths.filter((path) => !manifest.expectedWritablePaths.includes(path))
+    const writablePathsValid = finalIdentity !== null && outOfScopePaths.length === 0
     const agentDeclaredSuccess = declaredSuccess(lastAgentMessages)
     const status =
       budgetExceeded || runError !== null
         ? 'ABORTED'
-        : objectiveOracle.passed && regressionOracle.passed && originalMessagesUnchanged
+        : objectiveOracle.passed && regressionOracle.passed && originalMessagesUnchanged && writablePathsValid
           ? 'VALID'
           : 'INVALID'
     const nativeCalls = nativeObserver === null ? [] : buildNativeCalls(nativeObserver, accesses.accesses)
@@ -371,6 +442,9 @@ async function runLiveTask(
       fixtureIdentity: fixture.identity,
       finalRepositoryRevision: finalIdentity?.repositoryRevision ?? null,
       finalStateHash: finalIdentity?.stateHash ?? null,
+      changedPaths,
+      outOfScopePaths,
+      writablePathsValid,
       modelProfile: manifest.modelProfile,
       semanticCallCount,
       toolCallCount: accesses.toolResultCount,
@@ -399,6 +473,9 @@ async function runLiveTask(
       fixtureIdentity: fixture.identity,
       finalRepositoryRevision: null,
       finalStateHash: null,
+      changedPaths: [],
+      outOfScopePaths: [],
+      writablePathsValid: false,
       modelProfile: manifest.modelProfile,
       semanticCallCount,
       toolCallCount: accesses.toolResultCount,

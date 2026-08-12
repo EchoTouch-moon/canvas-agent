@@ -205,14 +205,18 @@ export async function materializeFixture(
   }
 }
 
-export async function runOracle(manifest: BenchmarkManifest, cwd: string): Promise<OracleResult> {
-  const processResult = await runProcess(process.execPath, manifest.oracle.args, {
+export async function runOracle(
+  manifest: BenchmarkManifest,
+  cwd: string,
+  oracle: BenchmarkManifest['oracle'] = manifest.oracle
+): Promise<OracleResult> {
+  const processResult = await runProcess(process.execPath, oracle.args, {
     cwd,
-    timeoutMs: manifest.oracle.timeoutMs,
+    timeoutMs: oracle.timeoutMs,
     env: { ...process.env, CI: '1', NODE_ENV: 'test' }
   })
   return {
-    passed: !processResult.timedOut && processResult.exitCode === manifest.oracle.expectedExitCode,
+    passed: !processResult.timedOut && processResult.exitCode === oracle.expectedExitCode,
     exitCode: processResult.exitCode,
     timedOut: processResult.timedOut,
     stdout: processResult.stdout,

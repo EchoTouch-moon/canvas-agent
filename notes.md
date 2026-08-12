@@ -141,3 +141,42 @@
 - Final implementation commit `25d09b242b433403ae0b18ebab15e948b294311f` is pushed to `origin/agent/luna-cr-005-native-shadow-corpus`.
 - Root Node 24 `pnpm check` passed; the standalone workspace build and direct credential-free validator also passed.
 - Lead review remains the next decision point. CR-004 implementation and the first real Active call remain `NO_GO`.
+# 2026-08-12 CR-005 lead review correction log
+
+## Current status
+
+- PR #26 exact review target: `4e575d2d3004d4933136f5d6775524acd295327b`
+- Review id: `4913326034`
+- Verdict remains `HARNESS_ONLY`; live Native/Shadow matrix remains paused at zero provider calls.
+- Scope is bounded benchmark-validity correction only. CR-004 remains `NO_GO`.
+
+## Required corrections
+
+1. Remove evaluator-known candidate/relevant paths from Shadow planning inputs; discovery must come from actual Agent reads.
+2. Remove C5/C6 prompt and fixture prose that tells the Agent where to investigate.
+3. Enforce `expectedWritablePaths` against tracked, staged and untracked final changes.
+4. Count a file read in the same semantic call as a planned `REMOVE` as read-after-remove evidence.
+5. Make replay invoke the Planner from saved Universe, PlanningRequest, previous Working Set and metadata-only representations.
+6. Add a real Shadow runner pass-through test preserving the exact original messages array.
+7. Use a distinct regression oracle instead of executing the objective oracle twice.
+8. Correct the task-board history: DS-013 merged via PR #24; PR #25 assigned the CR-005 packet.
+
+## Decisions
+
+- The smallest discovery seam is an additive queue of repository-observed seeds consumed before the next Shadow model call; it does not expose evaluator metadata or change production context behavior unless explicitly used by the research runner.
+- Regression tests will exercise behavior outside each fixture's known-bad target so the regression oracle remains independently meaningful and passes on both known-bad and known-good revisions.
+- No live command, provider call, credential lookup, or `CANVAS_CR005_LIVE=1` execution will be used during this correction.
+
+## Errors encountered
+
+- Initial `task_plan.md` patch used the wrong heading and was rejected; no file was changed by that failed patch.
+- The package `tsx` CLI wrapper cannot open its temporary IPC pipe in this sandbox (`listen EPERM`); the same credential-free validator passed through the direct Node loader.
+
+## Verification snapshot
+
+- CR-005 typecheck: PASS.
+- CR-005 tests: 8/8 PASS.
+- Pi context integration typecheck/tests: PASS, 53/53 tests.
+- Credential-free validator: all six objective known-bad, regression, reference and reproducibility checks PASS.
+- Root `CI=1 pnpm check`: PASS (format, lint, workspace typecheck, workspace tests, and build).
+- Live/provider calls: 0; `CANVAS_CR005_LIVE=1` was never used.

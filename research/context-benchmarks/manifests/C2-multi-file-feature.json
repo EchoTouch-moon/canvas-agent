@@ -6,11 +6,11 @@
   "fixturePath": "corpus/C2-multi-file-feature/fixture",
   "referencePath": "corpus/C2-multi-file-feature/reference",
   "repositoryRevision": {
-    "baseCommit": "12e461d4166749df7716f104ec9b24e9fc6c7068",
-    "treeHash": "7173c55ec2a83cfa4616103c18fb3a31fec3100d",
+    "baseCommit": "f6fae2c899491d8c1f8ad343ae5738cb97e558fc",
+    "treeHash": "29ea520df7fd1f11c6a3ac8654d1ab2801927f7e",
     "workingTreePatchHash": null
   },
-  "initialStateHash": "fd46b5cadf4b186c798c10739d05f0b77ee60bd78b8baf735f5cee4eea92b5ee",
+  "initialStateHash": "58af62a05eb673468e1ab5e158c0ec299c1f146f14f45b64985c0b75931d207c",
   "prompt": "Add the formal greeting profile option. A profile with formal=true must produce `Hello, Ada!`; existing profiles must remain `Hello, Ada`. Thread the option through config, greeting, and the public index contract, run the oracle, and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
   "acceptanceCriteria": [
     "The default greeting remains `Hello, <name>`. ",
@@ -21,6 +21,12 @@
   "oracle": {
     "command": "node",
     "args": ["--test", "test/greeting.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 10000
+  },
+  "regressionOracle": {
+    "command": "node",
+    "args": ["--test", "test/regression.test.js"],
     "expectedExitCode": 0,
     "timeoutMs": 10000
   },
