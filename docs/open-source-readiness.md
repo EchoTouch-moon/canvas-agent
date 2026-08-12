@@ -13,10 +13,10 @@ This checklist covers repository publication and project governance. It does not
 ## GitHub settings
 
 - [x] Change repository visibility to **Public** (completed 2026-08-12; historical records intentionally retained).
-- [ ] Enable private vulnerability reporting when available.
-- [ ] Protect `main` with required review and the existing CI checks.
-- [ ] Confirm Actions uses standard `ubuntu-latest` and `macos-latest` labels, not larger runners.
-- [ ] Review Actions permissions and keep workflow tokens at the minimum required scope.
+- [x] Enable private vulnerability reporting (verified 2026-08-12).
+- [x] Protect `main` with strict `check` and `macos-electron` status checks, one approving review, stale-review dismissal and resolved-conversation enforcement (verified 2026-08-12).
+- [x] Confirm Actions uses standard `ubuntu-latest` and `macos-latest` labels, not larger runners.
+- [x] Review Actions permissions and keep the default workflow token read-only without pull-request approval permission.
 
 ## Validation
 
