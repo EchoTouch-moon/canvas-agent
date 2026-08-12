@@ -15,9 +15,9 @@ The design source of truth is [`canvas_agent_design_baseline_v1.1/00_README.md`]
 
 ## Open-source status
 
-Canvas Agent is being prepared for public development. It is an experimental local-first desktop application: the current MVP targets local, unsigned use, and signed/notarized external distribution is intentionally a separate release decision.
+Canvas Agent is publicly available for community development. It is an experimental local-first desktop application: the current MVP targets local, unsigned use, and signed/notarized external distribution is intentionally a separate release decision.
 
-Before changing repository visibility, maintainers should complete the [open-source readiness checklist](docs/open-source-readiness.md), including auditing the full Git history for sensitive data.
+The repository is public. Maintainers should use the [open-source readiness checklist](docs/open-source-readiness.md) for ongoing contributor hygiene, sensitive-data review and future release decisions.
 
 ## Development status
 
