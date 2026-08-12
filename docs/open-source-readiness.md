@@ -12,7 +12,7 @@ This checklist covers repository publication and project governance. It does not
 
 ## GitHub settings
 
-- [ ] Change repository visibility to **Public** only after the contents review is complete.
+- [x] Change repository visibility to **Public** (completed 2026-08-12; historical records intentionally retained).
 - [ ] Enable private vulnerability reporting when available.
 - [ ] Protect `main` with required review and the existing CI checks.
 - [ ] Confirm Actions uses standard `ubuntu-latest` and `macos-latest` labels, not larger runners.
@@ -25,10 +25,12 @@ This checklist covers repository publication and project governance. It does not
 - [ ] `pnpm e2e:rc` on macOS when changing the Electron RC gate or release surface
 - [ ] Verify the CI workflow remains credential-free by default; authenticated smoke stays opt-in.
 
-## Current preparation in this branch
+## Current public repository status
 
+- The repository is public as of 2026-08-12; historical planning records were intentionally retained.
+- Maintainer-only planning material is removed from the current tree and remains ignored locally.
 - README links to contribution, security and open-source readiness guidance.
 - Public contribution, issue and pull-request entry points are present.
 - Verification records are being normalized to avoid committing local absolute paths.
-- The public tree uses Apache-2.0; deleted internal planning files still require Git-history cleanup before visibility changes.
+- The public tree uses Apache-2.0 and the existing standard `ubuntu-latest` / `macos-latest` CI runners.
 - No product code, runtime contract or CI runner selection is changed by the publication-preparation work.
