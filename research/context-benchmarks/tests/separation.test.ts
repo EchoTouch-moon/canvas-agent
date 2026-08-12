@@ -1,11 +1,13 @@
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  buildRepresentationNeeds,
   EnrichedPiShadowObserver,
   PiContextShadowObserver,
   ShadowPlannerObserver,
   createShadowPlannerPiExtension
 } from '@canvas-agent/pi-context-integration'
+import { buildObservedShadowCandidatePaths } from '../src/live-runner'
 import type { ContextEvent, ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { benchmarkManifestSchema, loadManifests } from '../src/manifest'
 
@@ -30,6 +32,51 @@ describe('CR-005 Native/Shadow separation', () => {
     expect(() =>
       benchmarkManifestSchema.parse({ ...manifest, contextStrategies: ['ACTIVE', 'SHADOW'] })
     ).toThrow()
+  })
+
+  it('keeps evaluator annotations out of Shadow planner inputs', async () => {
+    const manifest = (await loadManifests(researchRoot)).find((entry) => entry.category === 'C5-unrelated-discovery')
+    if (manifest === undefined) throw new Error('missing C5 benchmark manifest')
+    const observedFilePaths = ['src/candidate-d.js', 'src/session-expiry.js']
+    const annotationVariants = [
+      {
+        knownCandidatePaths: manifest.knownCandidatePaths,
+        knownRelevantPaths: manifest.knownRelevantPaths,
+        knownIrrelevantPaths: manifest.knownIrrelevantPaths
+      },
+      {
+        knownCandidatePaths: ['src/evaluator-answer.js'],
+        knownRelevantPaths: ['src/evaluator-answer.js'],
+        knownIrrelevantPaths: ['src/candidate-d.js']
+      }
+    ]
+    const plannerInputs = annotationVariants.map(() =>
+      [...buildRepresentationNeeds(buildObservedShadowCandidatePaths(observedFilePaths)).entries()]
+    )
+
+    const createPlanner = () => {
+      const base = new PiContextShadowObserver({ runtimeSessionId: 'cr005-annotation-invariance' })
+      const enriched = new EnrichedPiShadowObserver({ base })
+      enriched.queueExternalSeeds([{
+        sourceKey: 'repository/file://src/session-expiry.js',
+        sourceKind: 'REPOSITORY_FILE',
+        provenance: 'REPOSITORY_OBSERVER',
+        contentHash: 'a'.repeat(64),
+        observedAt: '2026-01-01T00:00:00.000Z'
+      }])
+      return new ShadowPlannerObserver({
+        enriched,
+        filePathCandidates: buildObservedShadowCandidatePaths(observedFilePaths)
+      })
+    }
+    const first = await createPlanner().observeModelCall([])
+    const second = await createPlanner().observeModelCall([])
+
+    expect(plannerInputs[1]).toEqual(plannerInputs[0])
+    expect(JSON.stringify(plannerInputs[0])).not.toContain('evaluator-answer')
+    expect(second.planningRequest).toEqual(first.planningRequest)
+    expect(second.plannerResult.workingSet.logicalHash).toBe(first.plannerResult.workingSet.logicalHash)
+    expect(second.plannerResult.transition.logicalHash).toBe(first.plannerResult.transition.logicalHash)
   })
 
   it('runs the real Shadow extension and returns the exact original messages array', async () => {

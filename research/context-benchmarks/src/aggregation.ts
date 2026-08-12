@@ -30,6 +30,9 @@ function isValidRun(run: BenchmarkRunRecord): boolean {
     run.status === 'VALID' &&
     run.objectiveOracle.passed &&
     run.regressionOracle.passed &&
+    run.acceptanceCriteriaPassed &&
+    run.acceptanceCriteriaResults.length > 0 &&
+    run.acceptanceCriteriaResults.every((criterion) => criterion.passed) &&
     run.originalMessagesUnchanged &&
     run.writablePathsValid &&
     !run.rawProviderPayloadsCaptured
@@ -188,6 +191,7 @@ export function aggregateRuns(records: readonly BenchmarkRunRecord[]): Aggregate
   let lineRangeToFull = 0
   let sourceVersionAdvancedReplace = 0
   const materializationFailures: string[] = []
+  const observationFailures: string[] = []
   const runIdsExcludedFromValidity: string[] = []
   const validRuns = records.filter(isValidRun)
   const nativeByPair = new Map<string, number[]>()
@@ -195,6 +199,7 @@ export function aggregateRuns(records: readonly BenchmarkRunRecord[]): Aggregate
 
   for (const record of records) {
     if (!isValidRun(record)) runIdsExcludedFromValidity.push(record.runId)
+    observationFailures.push(...record.observationFailures.map((failure) => `${record.taskId}|${record.runId}|${failure}`))
   }
   for (const record of validRuns) {
     byCategory[record.category][record.strategy === 'NATIVE' ? 'native' : 'shadow'] += 1
@@ -279,6 +284,8 @@ export function aggregateRuns(records: readonly BenchmarkRunRecord[]): Aggregate
     representationTransitions: { fullToLineRange, lineRangeToFull, sourceVersionAdvancedReplace },
     materializationFailureCount: materializationFailures.length,
     materializationFailures: materializationFailures.sort(),
+    observationFailureCount: observationFailures.length,
+    observationFailures: observationFailures.sort(),
     providerSavings: null
   }
 }

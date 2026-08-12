@@ -14,3 +14,16 @@ test('returns the cached value without rerunning the factory', () => {
   assert.deepEqual(cache.getOrSet('status', factory), { value: 'ready' })
   assert.equal(calls, 1)
 })
+
+test('clear removes the stored value', () => {
+  const cache = createCache()
+  let calls = 0
+  const factory = () => {
+    calls += 1
+    return calls
+  }
+
+  assert.equal(cache.getOrSet('status', factory), 1)
+  cache.clear()
+  assert.equal(cache.getOrSet('status', factory), 2)
+})

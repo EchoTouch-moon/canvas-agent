@@ -24,13 +24,17 @@ pnpm --filter @canvas-agent/context-benchmarks benchmark:validate
 It materializes each fixture into a temporary Git repository, verifies its
 fixed revision and state hash, runs the focused objective oracle plus a
 distinct regression oracle, and checks deterministic Native/Shadow aggregation
-fixtures. It does not call a model provider.
+fixtures. Live records carry one machine-backed result per manifest acceptance
+criterion, and `VALID` requires all of them to pass. It does not call a model
+provider.
 
 When live mode is eventually authorized, Shadow repository/file candidates are
 populated only after an actual Agent `read` has been observed and verified by
 the RepositoryObserver. Manifest-known candidate/relevant paths remain
-evaluator metadata and are never passed to the Planner. Final validity also
-rejects tracked, staged, or untracked changes outside `expectedWritablePaths`.
+evaluator metadata and are never passed to the Planner. Final validity compares
+committed changes from the fixture's initial Git commit as well as staged,
+unstaged, and untracked changes, and rejects paths outside
+`expectedWritablePaths`.
 
 Live runs are explicit opt-in only:
 

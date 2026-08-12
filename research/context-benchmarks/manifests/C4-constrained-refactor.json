@@ -13,10 +13,26 @@
   "initialStateHash": "c47338e610585a750cad330c4b30c9915bc675076cd1f614ac8cea9f77e74159",
   "prompt": "Refactor display-name normalization while preserving behavior. Read ARCHITECTURE.md and move shared normalization behind a domain-owned module; the domain layer must not import from src/cli. A narrow test-only change that leaves the architectural dependency is not accepted. Run the oracle and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
   "acceptanceCriteria": [
-    "Display-name formatting behavior remains unchanged.",
-    "src/domain/user.js has no dependency on the CLI layer.",
-    "The explicit architecture rule remains satisfied by executable evidence.",
-    "The focused oracle passes."
+    {
+      "id": "C4-1",
+      "description": "Display-name formatting behavior remains unchanged.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C4-2",
+      "description": "src/domain/user.js has no dependency on the CLI layer.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C4-3",
+      "description": "The explicit architecture rule remains satisfied by executable evidence.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C4-4",
+      "description": "The focused oracle passes.",
+      "check": "OBJECTIVE_ORACLE"
+    }
   ],
   "oracle": {
     "command": "node",

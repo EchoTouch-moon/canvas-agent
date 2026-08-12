@@ -31,9 +31,12 @@ import type {
   ContextStrategy,
   FileAccessEvidence,
   NativeCallEvidence,
+  OracleResult,
   ShadowCallEvidence,
-  ShadowRepresentationEvidence
+  ShadowRepresentationEvidence,
+  RunStatus
 } from './types'
+import { acceptanceCriteriaPassed, evaluateAcceptanceCriteria } from './acceptance'
 import { computeInitialStateHash, materializeFixture, runOracle, runProcess } from './fixture-generator'
 
 const DEEPSEEK_PROVIDER = 'deepseek'
@@ -59,6 +62,30 @@ interface AccessCollector {
   toolResultCount: number
   fileReadCount: number
   searchCount: number
+}
+
+// Only paths observed from real Agent reads can enter the Shadow candidate
+// set. Evaluator annotations are intentionally not accepted by this helper.
+export function buildObservedShadowCandidatePaths(
+  observedFilePaths: readonly string[]
+): readonly string[] {
+  return [...new Set(observedFilePaths)].sort()
+}
+
+export function formatRepositoryObservationFailure(
+  path: string,
+  error: unknown,
+  fixturePath: string
+): string {
+  const rawReason = error instanceof Error ? error.message : String(error)
+  const reason = rawReason
+    .replaceAll(fixturePath, '<fixture>')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 240)
+  const safePath = path.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 160)
+  return `repository-observation:${safePath}:${reason || 'unknown_failure'}`
 }
 
 function readProperty(value: unknown, key: string): unknown {
@@ -199,7 +226,10 @@ function buildShadowCalls(observer: ShadowPlannerObserver, accesses: readonly Fi
   return records
 }
 
-async function readFinalFixtureIdentity(fixturePath: string): Promise<{
+export async function readFinalFixtureIdentity(
+  fixturePath: string,
+  initialBaseCommit: string
+): Promise<{
   readonly repositoryRevision: RepositoryRevisionContract
   readonly stateHash: string
   readonly changedPaths: readonly string[]
@@ -209,21 +239,23 @@ async function readFinalFixtureIdentity(fixturePath: string): Promise<{
     timeoutMs: 30000,
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
   }
-  const [commit, tree, diff, stagedDiff, changed, stagedChanged, untracked] = await Promise.all([
+  const [commit, tree, baseAncestor, committedChanged, diff, stagedDiff, changed, stagedChanged, untracked] = await Promise.all([
     runProcess('git', ['rev-parse', 'HEAD'], gitOptions),
     runProcess('git', ['rev-parse', 'HEAD^{tree}'], gitOptions),
-    runProcess('git', ['diff', '--binary', '--no-ext-diff'], gitOptions),
-    runProcess('git', ['diff', '--cached', '--binary', '--no-ext-diff'], gitOptions),
-    runProcess('git', ['diff', '--name-only', '--no-ext-diff'], gitOptions),
-    runProcess('git', ['diff', '--cached', '--name-only', '--no-ext-diff'], gitOptions),
+    runProcess('git', ['merge-base', '--is-ancestor', initialBaseCommit, 'HEAD'], gitOptions),
+    runProcess('git', ['diff', '--name-only', '--no-ext-diff', '--no-renames', initialBaseCommit, 'HEAD'], gitOptions),
+    runProcess('git', ['diff', '--binary', '--no-ext-diff', '--no-renames'], gitOptions),
+    runProcess('git', ['diff', '--cached', '--binary', '--no-ext-diff', '--no-renames'], gitOptions),
+    runProcess('git', ['diff', '--name-only', '--no-ext-diff', '--no-renames'], gitOptions),
+    runProcess('git', ['diff', '--cached', '--name-only', '--no-ext-diff', '--no-renames'], gitOptions),
     runProcess('git', ['ls-files', '--others', '--exclude-standard'], gitOptions)
   ])
-  const processResults = [commit, tree, diff, stagedDiff, changed, stagedChanged, untracked]
-  if (processResults.some((result) => result.exitCode !== 0 || result.timedOut)) {
+  const processResults = [commit, tree, baseAncestor, committedChanged, diff, stagedDiff, changed, stagedChanged, untracked]
+  if (processResults.some((result) => result.exitCode !== 0 || result.timedOut) || baseAncestor.exitCode !== 0) {
     return null
   }
   const changedPaths = [...new Set(
-    [changed.stdout, stagedChanged.stdout, untracked.stdout]
+    [committedChanged.stdout, changed.stdout, stagedChanged.stdout, untracked.stdout]
       .flatMap((output) => output.split('\n'))
       .map((path) => path.trim())
       .filter((path) => path.length > 0)
@@ -240,6 +272,34 @@ async function readFinalFixtureIdentity(fixturePath: string): Promise<{
     stateHash: await computeInitialStateHash(fixturePath),
     changedPaths
   }
+}
+
+export function evaluateWritablePaths(
+  changedPaths: readonly string[],
+  expectedWritablePaths: readonly string[]
+): { readonly outOfScopePaths: readonly string[]; readonly valid: boolean } {
+  const expected = new Set(expectedWritablePaths)
+  const outOfScopePaths = [...new Set(changedPaths)].filter((path) => !expected.has(path)).sort()
+  return { outOfScopePaths, valid: outOfScopePaths.length === 0 }
+}
+
+export function determineRunStatus(input: {
+  readonly budgetExceeded: boolean
+  readonly runError: string | null
+  readonly objectiveOracle: OracleResult
+  readonly regressionOracle: OracleResult
+  readonly acceptanceCriteriaPassed: boolean
+  readonly originalMessagesUnchanged: boolean
+  readonly writablePathsValid: boolean
+}): RunStatus {
+  if (input.budgetExceeded || input.runError !== null) return 'ABORTED'
+  return input.objectiveOracle.passed &&
+    input.regressionOracle.passed &&
+    input.acceptanceCriteriaPassed &&
+    input.originalMessagesUnchanged &&
+    input.writablePathsValid
+    ? 'VALID'
+    : 'INVALID'
 }
 
 async function runLiveTask(
@@ -269,6 +329,12 @@ async function runLiveTask(
   let repositoryObserver: RepositoryObserver | null = null
   let enrichedObserver: EnrichedPiShadowObserver | null = null
   let repositoryObservationQueue: Promise<void> = Promise.resolve()
+  const observationFailures: string[] = []
+
+  const recordObservationFailure = (path: string, error: unknown): void => {
+    if (observationFailures.length >= 32) return
+    observationFailures.push(formatRepositoryObservationFailure(path, error, fixture.path))
+  }
   let nativeObserver: PiContextShadowObserver | null = null
   let planner: ShadowPlannerObserver | null = null
 
@@ -283,7 +349,16 @@ async function runLiveTask(
           observedAt: FIXED_OBSERVATION_TIME
         })
         const entry = observed?.[0]
-        if (entry?.observation.status !== 'AVAILABLE') return
+        if (entry === undefined) {
+          recordObservationFailure(path, new Error('observer_returned_no_observation'))
+          return
+        }
+        if (entry.observation.status !== 'AVAILABLE') {
+          if (entry.observation.status === 'UNAVAILABLE') {
+            recordObservationFailure(path, new Error(`observer_unavailable:${entry.observation.reasonCode}`))
+          }
+          return
+        }
         if (!observedRepositoryPaths.includes(path)) observedRepositoryPaths.push(path)
         enrichedObserver?.queueExternalSeeds([{
           sourceKey: entry.sourceKey,
@@ -293,7 +368,9 @@ async function runLiveTask(
           observedAt: FIXED_OBSERVATION_TIME
         }])
       })
-      .catch(() => undefined)
+      .catch((error: unknown) => {
+        recordObservationFailure(path, error)
+      })
   }
 
   try {
@@ -412,24 +489,40 @@ async function runLiveTask(
     } finally {
       clearTimeout(wallClockTimer)
       await session.waitForIdle().catch(() => undefined)
+      await repositoryObservationQueue
     }
     const wallClockMs = Date.now() - startedAt
     unsubscribe()
     const objectiveOracle = await runOracle(manifest, fixture.path)
     const regressionOracle = await runOracle(manifest, fixture.path, manifest.regressionOracle)
-    const finalIdentity = await readFinalFixtureIdentity(fixture.path)
+    const finalIdentity = await readFinalFixtureIdentity(
+      fixture.path,
+      fixture.identity.repositoryRevision.baseCommit
+    )
     const changedPaths = finalIdentity?.changedPaths ?? []
-    const outOfScopePaths = finalIdentity === null
-      ? []
-      : changedPaths.filter((path) => !manifest.expectedWritablePaths.includes(path))
-    const writablePathsValid = finalIdentity !== null && outOfScopePaths.length === 0
+    const writablePathEvaluation = finalIdentity === null
+      ? { outOfScopePaths: [], valid: false }
+      : evaluateWritablePaths(changedPaths, manifest.expectedWritablePaths)
+    const outOfScopePaths = writablePathEvaluation.outOfScopePaths
+    const writablePathsValid = writablePathEvaluation.valid
     const agentDeclaredSuccess = declaredSuccess(lastAgentMessages)
-    const status =
-      budgetExceeded || runError !== null
-        ? 'ABORTED'
-        : objectiveOracle.passed && regressionOracle.passed && originalMessagesUnchanged && writablePathsValid
-          ? 'VALID'
-          : 'INVALID'
+    const acceptanceCriteriaResults = evaluateAcceptanceCriteria(manifest, {
+      objectiveOracle,
+      regressionOracle,
+      writablePathsValid,
+      originalMessagesUnchanged,
+      rawProviderPayloadsCaptured: false
+    })
+    const acceptanceCriteriaPassedResult = acceptanceCriteriaPassed(manifest, acceptanceCriteriaResults)
+    const status = determineRunStatus({
+      budgetExceeded,
+      runError,
+      objectiveOracle,
+      regressionOracle,
+      acceptanceCriteriaPassed: acceptanceCriteriaPassedResult,
+      originalMessagesUnchanged,
+      writablePathsValid
+    })
     const nativeCalls = nativeObserver === null ? [] : buildNativeCalls(nativeObserver, accesses.accesses)
     const shadowCalls = planner === null ? [] : buildShadowCalls(planner, accesses.accesses)
     return {
@@ -457,8 +550,11 @@ async function runLiveTask(
       agentDeclaredSuccess,
       objectiveOracle,
       regressionOracle,
+      acceptanceCriteriaResults,
+      acceptanceCriteriaPassed: acceptanceCriteriaPassedResult,
       nativeCalls,
       shadowCalls,
+      observationFailures: [...observationFailures],
       originalMessagesUnchanged,
       rawProviderPayloadsCaptured: false
     }
@@ -488,8 +584,11 @@ async function runLiveTask(
       agentDeclaredSuccess: declaredSuccess(lastAgentMessages),
       objectiveOracle: { passed: false, exitCode: null, timedOut: false, stdout: '', stderr: '', durationMs: 0 },
       regressionOracle: { passed: false, exitCode: null, timedOut: false, stdout: '', stderr: '', durationMs: 0 },
+      acceptanceCriteriaResults: [],
+      acceptanceCriteriaPassed: false,
       nativeCalls: nativeObserver === null ? [] : buildNativeCalls(nativeObserver, accesses.accesses),
       shadowCalls: planner === null ? [] : buildShadowCalls(planner, accesses.accesses),
+      observationFailures: [...observationFailures],
       originalMessagesUnchanged,
       rawProviderPayloadsCaptured: false
     }

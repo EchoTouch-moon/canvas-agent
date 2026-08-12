@@ -6,17 +6,33 @@
   "fixturePath": "corpus/C3-failing-test-diagnosis/fixture",
   "referencePath": "corpus/C3-failing-test-diagnosis/reference",
   "repositoryRevision": {
-    "baseCommit": "0b82bb4894076ec16ca058c6a8e9425988e1c4a3",
-    "treeHash": "b18b46768414bbf4f5fd91d84cce08ba912dd2d5",
+    "baseCommit": "4330f29e37309b349327b12c24d6064528c4bbd9",
+    "treeHash": "c90cda0e5faf1beb44abebbd012669921a3e6569",
     "workingTreePatchHash": null
   },
-  "initialStateHash": "6e2fdf66f3a6304be88dfed35b3b7a4a0e5e2727502d22e3139328592cfc22e3",
+  "initialStateHash": "09b2f1adb09efe1d04dd69c39b855b1708fd9b7b18403cd6750a359c6ba89cfd",
   "prompt": "Diagnose the failing cache test. Make a minimal fix so a cache hit returns the stored value without invoking the factory again; preserve clear(). Run the oracle and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
   "acceptanceCriteria": [
-    "A first getOrSet call evaluates and stores the factory value.",
-    "A cache hit returns the stored value and does not invoke the factory.",
-    "clear() removes the stored value.",
-    "The focused oracle passes."
+    {
+      "id": "C3-1",
+      "description": "A first getOrSet call evaluates and stores the factory value.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C3-2",
+      "description": "A cache hit returns the stored value and does not invoke the factory.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C3-3",
+      "description": "clear() removes the stored value.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C3-4",
+      "description": "The focused oracle passes.",
+      "check": "OBJECTIVE_ORACLE"
+    }
   ],
   "oracle": {
     "command": "node",

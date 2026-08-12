@@ -6,16 +6,28 @@
   "fixturePath": "corpus/C1-localized-bug-fix/fixture",
   "referencePath": "corpus/C1-localized-bug-fix/reference",
   "repositoryRevision": {
-    "baseCommit": "c7e08c35f608a1a9cfbca927f5a36a0ed0ea5e7c",
-    "treeHash": "3f0a45846714cb3a1623f31a3c4c3a7235fe659b",
+    "baseCommit": "ff3239541b98be14329281ea2cd11ef27f96f10b",
+    "treeHash": "4315df57ff701bcf56c7cff61c380ae99451ad9b",
     "workingTreePatchHash": null
   },
-  "initialStateHash": "d6e7864fffe3023a55985f3bdad822eb0820af84e9af42ae7df7ebe566933b40",
+  "initialStateHash": "60ada771a58af67e9275fde0eeba9064cb3412fcc71582208e041a38d29eab4f",
   "prompt": "Fix the percentage discount calculation in src/discount.js. Preserve the existing validation behavior, run the oracle, and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
   "acceptanceCriteria": [
-    "A finite amount and percentage produce amount * (1 - percentage / 100).",
-    "Existing finite-number validation remains intact.",
-    "The focused oracle passes."
+    {
+      "id": "C1-1",
+      "description": "A finite amount and percentage produce amount * (1 - percentage / 100).",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C1-2",
+      "description": "Existing finite-number validation remains intact.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C1-3",
+      "description": "The focused oracle passes.",
+      "check": "OBJECTIVE_ORACLE"
+    }
   ],
   "oracle": {
     "command": "node",

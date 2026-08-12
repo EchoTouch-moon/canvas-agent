@@ -1,7 +1,12 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { dirname, resolve, sep } from 'node:path'
 import { z } from 'zod'
-import { BENCHMARK_CATEGORIES, CONTEXT_STRATEGIES, type BenchmarkManifest } from './types'
+import {
+  ACCEPTANCE_CHECK_KINDS,
+  BENCHMARK_CATEGORIES,
+  CONTEXT_STRATEGIES,
+  type BenchmarkManifest
+} from './types'
 
 const gitHashSchema = z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i, 'expected a Git object hash')
 const contentHashSchema = z.string().regex(/^[a-f0-9]{64}$/i, 'expected a SHA-256 content hash')
@@ -23,7 +28,17 @@ export const benchmarkManifestSchema = z
       .strict(),
     initialStateHash: contentHashSchema,
     prompt: z.string().min(1),
-    acceptanceCriteria: z.array(z.string().min(1)).min(1),
+    acceptanceCriteria: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1).max(64).regex(/^[A-Za-z0-9._-]+$/),
+            description: z.string().min(1),
+            check: z.enum(ACCEPTANCE_CHECK_KINDS)
+          })
+          .strict()
+      )
+      .min(1),
     oracle: z
       .object({
         command: z.literal('node'),
@@ -123,6 +138,13 @@ export async function loadManifests(researchRoot: string): Promise<readonly Benc
     if (categories.has(manifest.category)) throw new Error(`duplicate benchmark category: ${manifest.category}`)
     taskIds.add(manifest.taskId)
     categories.add(manifest.category)
+    const acceptanceCriterionIds = new Set<string>()
+    for (const criterion of manifest.acceptanceCriteria) {
+      if (acceptanceCriterionIds.has(criterion.id)) {
+        throw new Error(`${manifest.taskId} duplicate acceptance criterion id: ${criterion.id}`)
+      }
+      acceptanceCriterionIds.add(criterion.id)
+    }
     validateManifestReferences(researchRoot, manifest)
   }
   const expectedCategories = new Set<string>(BENCHMARK_CATEGORIES)

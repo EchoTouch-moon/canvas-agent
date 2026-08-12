@@ -22,6 +22,14 @@ export const CONTEXT_STRATEGIES = ['NATIVE', 'SHADOW'] as const
 export type ContextStrategy = (typeof CONTEXT_STRATEGIES)[number]
 export const RUN_STATUSES = ['VALID', 'INVALID', 'SKIPPED', 'ABORTED'] as const
 export type RunStatus = (typeof RUN_STATUSES)[number]
+export const ACCEPTANCE_CHECK_KINDS = [
+  'OBJECTIVE_ORACLE',
+  'REGRESSION_ORACLE',
+  'WRITABLE_PATH_SCOPE',
+  'ORIGINAL_MESSAGES_UNCHANGED',
+  'RAW_PROVIDER_PAYLOADS_ABSENT'
+] as const
+export type AcceptanceCheckKind = (typeof ACCEPTANCE_CHECK_KINDS)[number]
 
 export interface BenchmarkModelProfile {
   readonly provider: string
@@ -42,6 +50,12 @@ export interface BenchmarkBudget {
   readonly wallClockMs: number
 }
 
+export interface BenchmarkAcceptanceCriterion {
+  readonly id: string
+  readonly description: string
+  readonly check: AcceptanceCheckKind
+}
+
 export interface BenchmarkManifest {
   readonly taskId: string
   readonly category: BenchmarkCategory
@@ -52,7 +66,7 @@ export interface BenchmarkManifest {
   readonly repositoryRevision: RepositoryRevisionContract
   readonly initialStateHash: string
   readonly prompt: string
-  readonly acceptanceCriteria: readonly string[]
+  readonly acceptanceCriteria: readonly BenchmarkAcceptanceCriterion[]
   readonly oracle: BenchmarkOracleSpec
   readonly regressionOracle: BenchmarkOracleSpec
   readonly allowedTools: readonly string[]
@@ -80,6 +94,11 @@ export interface OracleResult {
   readonly stdout: string
   readonly stderr: string
   readonly durationMs: number
+}
+
+export interface AcceptanceCriterionResult extends BenchmarkAcceptanceCriterion {
+  readonly passed: boolean
+  readonly evidence: string
 }
 
 export interface FileAccessEvidence {
@@ -166,8 +185,11 @@ export interface BenchmarkRunRecord {
   readonly agentDeclaredSuccess: boolean | null
   readonly objectiveOracle: OracleResult
   readonly regressionOracle: OracleResult
+  readonly acceptanceCriteriaResults: readonly AcceptanceCriterionResult[]
+  readonly acceptanceCriteriaPassed: boolean
   readonly nativeCalls: readonly NativeCallEvidence[]
   readonly shadowCalls: readonly ShadowCallEvidence[]
+  readonly observationFailures: readonly string[]
   readonly originalMessagesUnchanged: boolean
   readonly rawProviderPayloadsCaptured: false
 }
@@ -221,6 +243,8 @@ export interface AggregateResult {
   }
   readonly materializationFailureCount: number
   readonly materializationFailures: readonly string[]
+  readonly observationFailureCount: number
+  readonly observationFailures: readonly string[]
   readonly runIdsExcludedFromValidity: readonly string[]
   readonly nativeVsShadowEstimatePairs: readonly {
     readonly taskId: string

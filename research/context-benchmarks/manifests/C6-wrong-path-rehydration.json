@@ -13,10 +13,26 @@
   "initialStateHash": "13fdae63bbfc5cb5a053d83e66e7e06c5007cd0885d7026544223329447ddc13",
   "prompt": "Diagnose the arithmetic failure through the public API. Investigate the repository, follow evidence from the failing oracle to the responsible implementation, and make the smallest correct fix. Run the oracle and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
   "acceptanceCriteria": [
-    "calculate(2 * (3 + 4) + 5) returns 19.",
-    "The public API remains the entry point used by the oracle.",
-    "The focused oracle passes.",
-    "No raw provider payload or unrelated fixture output is retained."
+    {
+      "id": "C6-1",
+      "description": "calculate(2 * (3 + 4) + 5) returns 19.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C6-2",
+      "description": "The public API remains the entry point used by the oracle.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C6-3",
+      "description": "The focused oracle passes.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C6-4",
+      "description": "No raw provider payload or unrelated fixture output is retained.",
+      "check": "RAW_PROVIDER_PAYLOADS_ABSENT"
+    }
   ],
   "oracle": {
     "command": "node",

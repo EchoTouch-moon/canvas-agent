@@ -76,7 +76,9 @@ function run(strategy: 'NATIVE' | 'SHADOW', runId: string): BenchmarkRunRecord {
     shadowCall(1, [decision('REMOVE')], [
       { toolName: 'read', path: 'src/example.ts', kind: 'READ', sequence: 1 }
     ]),
-    shadowCall(2, [decision('ADD')]),
+    shadowCall(2, [decision('ADD')], [
+      { toolName: 'read', path: 'src/example.ts', kind: 'READ', sequence: 2 }
+    ]),
     shadowCall(3, [decision('REHYDRATE')])
   ]
   return {
@@ -107,8 +109,19 @@ function run(strategy: 'NATIVE' | 'SHADOW', runId: string): BenchmarkRunRecord {
     agentDeclaredSuccess: true,
     objectiveOracle: { passed: true, exitCode: 0, timedOut: false, stdout: '', stderr: '', durationMs: 2 },
     regressionOracle: { passed: true, exitCode: 0, timedOut: false, stdout: '', stderr: '', durationMs: 2 },
+    acceptanceCriteriaResults: [
+      {
+        id: 'C1-1',
+        description: 'synthetic acceptance criterion',
+        check: 'OBJECTIVE_ORACLE',
+        passed: true,
+        evidence: 'objectiveOracle:passed=true'
+      }
+    ],
+    acceptanceCriteriaPassed: true,
     nativeCalls: [{ sequence: 1, observedMessageTokenEstimate: 12, categoryCounts: { USER: 1 }, toolResultCount: 1, fileAccesses: [] }],
     shadowCalls: strategy === 'SHADOW' ? calls : [],
+    observationFailures: [],
     originalMessagesUnchanged: true,
     rawProviderPayloadsCaptured: false
   }
@@ -126,8 +139,10 @@ describe('CR-005 aggregation', () => {
     expect(forward.byCategory['C1-localized-bug-fix']).toEqual({ native: 1, shadow: 1 })
     expect(forward.rehydrations).toHaveLength(1)
     expect(forward.rehydrations[0]?.distance).toBe(2)
-    expect(forward.falseRemovalCandidates).toHaveLength(1)
-    expect(forward.falseRemovalCandidates[0]?.classification).toBe('INDETERMINATE')
+    expect(forward.falseRemovalCandidates).toHaveLength(2)
+    expect(forward.falseRemovalCandidates.map((candidate) => candidate.distance)).toEqual([0, 1])
+    expect(forward.falseRemovalCandidates.every((candidate) => candidate.classification === 'INDETERMINATE')).toBe(true)
+    expect(forward.readAfterRemoveCount).toBe(2)
     expect(forward.shadowDecisionCounts).toEqual({ REMOVE: 1, ADD: 1, REHYDRATE: 1 })
     expect(forward.providerSavings).toBeNull()
   })
@@ -149,5 +164,18 @@ describe('CR-005 aggregation', () => {
     const aggregate = aggregateRuns([outOfScope])
     expect(aggregate.validRuns).toBe(0)
     expect(aggregate.runIdsExcludedFromValidity).toEqual(['native-out-of-scope'])
+  })
+
+  it('retains bounded observation failures in aggregate evidence', () => {
+    const record = {
+      ...run('SHADOW', 'shadow-observation-failure'),
+      observationFailures: ['repository-observation:src/example.ts:DIRTY_REVISION_UNSUPPORTED']
+    }
+    const aggregate = aggregateRuns([record])
+
+    expect(aggregate.observationFailureCount).toBe(1)
+    expect(aggregate.observationFailures).toEqual([
+      'cr005-c1-localized-bug-fix|shadow-observation-failure|repository-observation:src/example.ts:DIRTY_REVISION_UNSUPPORTED'
+    ])
   })
 })

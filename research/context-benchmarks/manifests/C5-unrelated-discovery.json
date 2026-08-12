@@ -1,26 +1,42 @@
 {
   "taskId": "cr005-c5-unrelated-discovery",
   "category": "C5-unrelated-discovery",
-  "title": "Find the security session expiry boundary among unrelated candidates",
-  "fixtureVersion": "c5-v1",
+  "title": "Find the boundary behavior among unrelated candidates",
+  "fixtureVersion": "c5-v2",
   "fixturePath": "corpus/C5-unrelated-discovery/fixture",
   "referencePath": "corpus/C5-unrelated-discovery/reference",
   "repositoryRevision": {
-    "baseCommit": "a27eab2d457c37a8e24b2fb9599293d6650474f4",
-    "treeHash": "0079f79280ece50ad29415877cfdbe2cd5cf621c",
+    "baseCommit": "ea1ef1e328fcfd0fa72e64c67eae1ba9fb829ce8",
+    "treeHash": "893fde9b32b2bd4b3e052580c7d2d38a5fac893a",
     "workingTreePatchHash": null
   },
-  "initialStateHash": "db707f55f66682135138e38da1083b630bc0a5da44e4cefecfcbd3b8a0911aad",
+  "initialStateHash": "144d5e12693f52125c8e34a47a20739e7456a6824531e326e03386119af56f71",
   "prompt": "Fix the session-expiry boundary reported by the focused oracle. Investigate the repository and use test evidence to identify the responsible implementation; preserve unrelated behavior. Run the oracle and finish with CR-005_STATUS: SUCCESS only after the tests pass.",
   "acceptanceCriteria": [
-    "The security session is expired when now equals expiresAt.",
-    "The security session is not expired before expiresAt.",
-    "Unrelated candidate modules remain unchanged.",
-    "The focused oracle passes."
+    {
+      "id": "C5-1",
+      "description": "The session boundary behavior is correct when now equals expiresAt.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C5-2",
+      "description": "The session behavior is not expired before expiresAt.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "C5-3",
+      "description": "Unrelated candidate modules remain unchanged.",
+      "check": "WRITABLE_PATH_SCOPE"
+    },
+    {
+      "id": "C5-4",
+      "description": "The focused oracle passes.",
+      "check": "OBJECTIVE_ORACLE"
+    }
   ],
   "oracle": {
     "command": "node",
-    "args": ["--test", "test/security.test.js"],
+    "args": ["--test", "test/boundary.test.js"],
     "expectedExitCode": 0,
     "timeoutMs": 10000
   },
@@ -43,10 +59,10 @@
     "maxToolCalls": 70,
     "wallClockMs": 150000
   },
-  "expectedWritablePaths": ["src/security/session.js"],
+  "expectedWritablePaths": ["src/candidate-d.js"],
   "retentionPolicy": "metadata-only; raw provider payloads disabled; live output is gitignored",
-  "knownCandidatePaths": ["src/auth/session.js", "src/billing/session.js", "src/notifications/session.js", "src/security/session.js", "test/security.test.js"],
-  "knownRelevantPaths": ["src/security/session.js", "test/security.test.js"],
-  "knownIrrelevantPaths": ["src/auth/session.js", "src/billing/session.js", "src/notifications/session.js"],
+  "knownCandidatePaths": ["src/candidate-a.js", "src/candidate-b.js", "src/candidate-c.js", "src/candidate-d.js", "src/session-expiry.js", "test/boundary.test.js"],
+  "knownRelevantPaths": ["src/candidate-d.js", "src/session-expiry.js", "test/boundary.test.js"],
+  "knownIrrelevantPaths": ["src/candidate-a.js", "src/candidate-b.js", "src/candidate-c.js"],
   "expectedArchitecturalRules": []
 }

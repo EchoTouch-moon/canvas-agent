@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict')
 const test = require('node:test')
-const { isExpired } = require('../src/auth/session')
+const { isExpired } = require('../src/session-expiry')
 
-test('auth sessions remain expired after their deadline', () => {
-  assert.equal(isExpired({ expiresAt: 100 }, 101), true)
+test('an existing candidate remains expired after its deadline', () => {
+  assert.equal(isExpired({ kind: 'alpha', expiresAt: 100 }, 101), true)
 })

@@ -3,9 +3,8 @@
 ## 1. Branch and HEAD
 
 - Branch: `agent/luna-cr-005-native-shadow-corpus`
-- Review target: `4e575d2d3004d4933136f5d6775524acd295327b` (PR #26 exact HEAD)
-- Correction commit: `59666f6435e86990328e2a080892f04886b524a0`
-- Correction scope: five P1 and three P2 benchmark-validity fixes; no live provider execution.
+- Review target: PR #26 current correction round (live/provider execution remains disabled)
+- Correction scope: three P1 and two P2 benchmark-validity fixes; no live provider execution.
 
 ## 2. Corpus layout
 
@@ -40,23 +39,28 @@ All fixture repositories are created from committed templates with fixed Git aut
 
 | Task id | Base commit | Tree hash | Initial state hash |
 | --- | --- | --- | --- |
-| `cr005-c1-localized-bug-fix` | `c7e08c35f608a1a9cfbca927f5a36a0ed0ea5e7c` | `3f0a45846714cb3a1623f31a3c4c3a7235fe659b` | `d6e7864fffe3023a55985f3bdad822eb0820af84e9af42ae7df7ebe566933b40` |
+| `cr005-c1-localized-bug-fix` | `ff3239541b98be14329281ea2cd11ef27f96f10b` | `4315df57ff701bcf56c7cff61c380ae99451ad9b` | `60ada771a58af67e9275fde0eeba9064cb3412fcc71582208e041a38d29eab4f` |
 | `cr005-c2-multi-file-feature` | `f6fae2c899491d8c1f8ad343ae5738cb97e558fc` | `29ea520df7fd1f11c6a3ac8654d1ab2801927f7e` | `58af62a05eb673468e1ab5e158c0ec299c1f146f14f45b64985c0b75931d207c` |
-| `cr005-c3-failing-test-diagnosis` | `0b82bb4894076ec16ca058c6a8e9425988e1c4a3` | `b18b46768414bbf4f5fd91d84cce08ba912dd2d5` | `6e2fdf66f3a6304be88dfed35b3b7a4a0e5e2727502d22e3139328592cfc22e3` |
+| `cr005-c3-failing-test-diagnosis` | `4330f29e37309b349327b12c24d6064528c4bbd9` | `c90cda0e5faf1beb44abebbd012669921a3e6569` | `09b2f1adb09efe1d04dd69c39b855b1708fd9b7b18403cd6750a359c6ba89cfd` |
 | `cr005-c4-constrained-refactor` | `83187a56da63026fb161da3b828f10ed014f3e1f` | `758c13f8ba231579452404a9e6d3c3b6630b22cb` | `c47338e610585a750cad330c4b30c9915bc675076cd1f614ac8cea9f77e74159` |
-| `cr005-c5-unrelated-discovery` | `a27eab2d457c37a8e24b2fb9599293d6650474f4` | `0079f79280ece50ad29415877cfdbe2cd5cf621c` | `db707f55f66682135138e38da1083b630bc0a5da44e4cefecfcbd3b8a0911aad` |
+| `cr005-c5-unrelated-discovery` | `ea1ef1e328fcfd0fa72e64c67eae1ba9fb829ce8` | `893fde9b32b2bd4b3e052580c7d2d38a5fac893a` | `144d5e12693f52125c8e34a47a20739e7456a6824531e326e03386119af56f71` |
 | `cr005-c6-wrong-path-rehydration` | `ae22d0e616df8e27b664c612f80703d9e0e443a5` | `695020a1deef724d43efd85c0b74187020b0a3fe` | `13fdae63bbfc5cb5a053d83e66e7e06c5007cd0885d7026544223329447ddc13` |
 
-## 5. Acceptance oracles
+## 5. Acceptance criteria and oracles
 
-Each manifest uses `node --test` against a focused objective `test/` file and a separate `test/regression.test.js`. The initial fixture is deliberately known-bad for the objective oracle, while the independent regression oracle passes on both the fixture and paired reference tree. C4's architecture rule is executable via a source assertion, and C5/C6 keep unrelated/wrong candidates in the repository without putting evaluator answers in the Agent prompt.
+Each manifest declares structured acceptance criteria with an id and a machine-check kind. Each run records one bounded result and evidence string per criterion; `VALID` requires every declared criterion result to pass in addition to the objective/regression oracles, message pass-through, and writable-path checks. The criteria use deterministic oracle, path-scope, pass-through, and retention evidence rather than an unreviewed Agent claim.
+
+Each manifest uses `node --test` against a focused objective `test/` file and a separate `test/regression.test.js`. The initial fixture is deliberately known-bad for the objective oracle, while the independent regression oracle passes on both the fixture and paired reference tree. C4's architecture rule is executable via a source assertion. C5's oracle now enters through a domain-neutral `src/session-expiry.js` seam; it does not directly import the answer path, so the four candidate modules must be distinguished through repository evidence.
 
 ## 6a. Bounded validity corrections
 
 - Shadow starts with no manifest candidate/relevant paths. A real `read` event is observed against the fixed Git revision, then queued as a metadata-only repository seed for the next Shadow boundary.
 - C5/C6 prompt and README prose no longer prescribe the target file or wrong-path sequence.
-- Final status rejects any tracked, staged, or untracked path outside `expectedWritablePaths`.
+- Final status compares committed, staged, unstaged, and untracked paths against the fixture's initial `baseCommit`; an out-of-scope commit cannot make the working-tree diff appear clean.
+- Repository Observer `UNAVAILABLE`/`ABSENT` results and thrown observation errors are retained as bounded, sanitized `observationFailures` evidence rather than silently discarded.
 - Aggregation counts a matching read/search at the same semantic sequence as `REMOVE`.
+- Aggregation also covers the next semantic call after `REMOVE`; same-call evidence has distance `0` and next-call evidence has distance `1`.
+- Evaluator annotation variants cannot enter Shadow planner inputs; a credential-free regression test holds observed evidence constant while changing those annotations.
 - Each Shadow call retains Universe, PlanningRequest, previous Working Set, transition identity, and content-free representation identity inputs. Replay invokes `planWorkingSet` and rejects identity drift.
 - The real Shadow extension pass-through test asserts the original `ContextEvent.messages` array identity.
 - Objective and regression oracles are distinct commands; the task-board history now records DS-013 as PR #24 and CR-005 assignment as PR #25.
@@ -113,9 +117,9 @@ Live candidate count: `0`. The harness emits bounded candidates for a matching r
 
 No live representation transition was observed. The accepted file-aware planner seam is wired for `FULL`, `LINE_RANGE`, and `REFERENCE`; the metadata schema records target and previous representation kinds so `FULL → LINE_RANGE`, `LINE_RANGE → FULL`, and source-version-advance `REPLACE` can be derived without changing Planner V0.
 
-## 15. Materialization failure evidence
+## 15. Materialization and observation failure evidence
 
-Live materialization failure count: `0` (no live calls). Shadow metadata retains bounded failure reason strings from the existing fail-closed `FileRepresentationProvider`; failures never rewrite Native messages.
+Live materialization failure count: `0` (no live calls). Shadow metadata retains bounded failure reason strings from the existing fail-closed `FileRepresentationProvider`; runner-level Repository Observer failures are separately retained in `observationFailures`. Failures never rewrite Native messages and absolute temporary fixture roots are redacted from the bounded evidence.
 
 ## 16. Stochastic/provider variance
 

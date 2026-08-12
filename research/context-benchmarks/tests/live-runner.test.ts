@@ -1,0 +1,91 @@
+import { writeFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { loadManifests } from '../src/manifest'
+import {
+  determineRunStatus,
+  evaluateWritablePaths,
+  formatRepositoryObservationFailure,
+  readFinalFixtureIdentity
+} from '../src/live-runner'
+import { materializeFixture, runOracle, runProcess } from '../src/fixture-generator'
+
+const researchRoot = resolve(import.meta.dirname, '..')
+
+describe('CR-005 live-runner safety boundaries', () => {
+  it('retains bounded and sanitized Repository Observer failure evidence', () => {
+    const evidence = formatRepositoryObservationFailure(
+      'src/example.js',
+      new Error('/private/tmp/fixture-123 DIRTY_REVISION_UNSUPPORTED\nraw detail'),
+      '/private/tmp/fixture-123'
+    )
+
+    expect(evidence).toContain('<fixture>')
+    expect(evidence).toContain('DIRTY_REVISION_UNSUPPORTED raw detail')
+    expect(evidence).not.toContain('/private/tmp/fixture-123')
+    expect(evidence.length).toBeLessThanOrEqual(240 + 'repository-observation:src/example.js:'.length)
+  })
+
+  it('detects an out-of-scope file committed after a passing objective oracle', async () => {
+    const manifests = await loadManifests(researchRoot)
+    const manifest = manifests.find((entry) => entry.category === 'C1-localized-bug-fix')
+    if (manifest === undefined) throw new Error('missing C1 benchmark manifest')
+    const fixture = await materializeFixture(researchRoot, manifest)
+
+    try {
+      await writeFile(
+        join(fixture.path, 'src/discount.js'),
+        "function applyDiscount(amount, percent) {\n  if (!Number.isFinite(amount) || !Number.isFinite(percent)) {\n    throw new TypeError('amount and percent must be finite numbers')\n  }\n  return amount * (1 - percent / 100)\n}\n\nmodule.exports = { applyDiscount }\n",
+        'utf8'
+      )
+      await writeFile(join(fixture.path, 'src/unexpected.js'), 'module.exports = true\n', 'utf8')
+      const add = await runProcess('git', ['add', 'src/discount.js', 'src/unexpected.js'], {
+        cwd: fixture.path,
+        timeoutMs: 30_000,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+      })
+      expect(add.exitCode).toBe(0)
+      const commit = await runProcess('git', ['commit', '--quiet', '--message', 'fixture agent change'], {
+        cwd: fixture.path,
+        timeoutMs: 30_000,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+      })
+      expect(commit.exitCode).toBe(0)
+
+      const objectiveOracle = await runOracle(manifest, fixture.path)
+      const finalIdentity = await readFinalFixtureIdentity(
+        fixture.path,
+        fixture.identity.repositoryRevision.baseCommit
+      )
+      if (finalIdentity === null) throw new Error('missing final fixture identity')
+      const writablePathEvaluation = evaluateWritablePaths(
+        finalIdentity.changedPaths,
+        manifest.expectedWritablePaths
+      )
+      const status = determineRunStatus({
+        budgetExceeded: false,
+        runError: null,
+        objectiveOracle,
+        regressionOracle: {
+          passed: true,
+          exitCode: 0,
+          timedOut: false,
+          stdout: '',
+          stderr: '',
+          durationMs: 1
+        },
+        acceptanceCriteriaPassed: false,
+        originalMessagesUnchanged: true,
+        writablePathsValid: writablePathEvaluation.valid
+      })
+
+      expect(objectiveOracle.passed).toBe(true)
+      expect(finalIdentity.changedPaths).toContain('src/unexpected.js')
+      expect(writablePathEvaluation.outOfScopePaths).toEqual(['src/unexpected.js'])
+      expect(writablePathEvaluation.valid).toBe(false)
+      expect(status).toBe('INVALID')
+    } finally {
+      await fixture.cleanup()
+    }
+  }, 30000)
+})
