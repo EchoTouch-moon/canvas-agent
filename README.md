@@ -1,5 +1,7 @@
 # Canvas Agent
 
+[![CI](https://github.com/EchoTouch-moon/canvas-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/EchoTouch-moon/canvas-agent/actions/workflows/ci.yml)
+
 Canvas Agent is a local-first project control system for developers who build software with AI coding agents. It keeps project facts, task specifications, frozen execution context, code revisions and execution evidence traceable across repeated agent runs.
 
 The first engineering loop is deliberately narrow:
@@ -11,13 +13,19 @@ Project facts → Baseline → Task → ContextSnapshot → Run
 
 The design source of truth is [`canvas_agent_design_baseline_v1.1/00_README.md`](canvas_agent_design_baseline_v1.1/00_README.md). Generated UI reference images are visual direction only; they are not product facts.
 
+## Open-source status
+
+Canvas Agent is being prepared for public development. It is an experimental local-first desktop application: the current MVP targets local, unsigned use, and signed/notarized external distribution is intentionally a separate release decision.
+
+Before changing repository visibility, maintainers should complete the [open-source readiness checklist](docs/open-source-readiness.md), including auditing the full Git history for sensitive data.
+
 ## Development status
 
 The engineering core loop is implemented end to end: SQLite project state, immutable execution contracts, an isolated Utility Process Worker, durable Run/Artifact evidence, explicit acceptance and Task completion, recoverable Git adoption, candidate Baseline creation and explicit activation.
 
-**Product MVP v0.2 is complete for local/internal unsigned use.** Packaged migration reliability, native repository and Agent selection, immutable ExecutionRequest v2 context, the production Codex CLI adapter, resumable first-workspace onboarding, the Live-first shell and repeatable RC gates are merged. External signed/notarized distribution remains a separate release decision. See [`docs/PRODUCT_MVP_V0.2_PLAN.md`](docs/PRODUCT_MVP_V0.2_PLAN.md), the [operator guide](docs/operator/product-mvp-v0.2.md) and the [release checklist](docs/operator/product-mvp-v0.2-release-checklist.md).
+**Product MVP v0.2 is complete for local/internal unsigned use.** Packaged migration reliability, native repository and Agent selection, immutable ExecutionRequest v2 context, the production Codex CLI adapter, resumable first-workspace onboarding, the Live-first shell and repeatable RC gates are merged. External signed/notarized distribution remains a separate release decision. See the [operator guide](docs/operator/product-mvp-v0.2.md) and the [release checklist](docs/operator/product-mvp-v0.2-release-checklist.md).
 
-The proposed post-v0.2 direction is [Context Runtime v0.3 research](docs/architecture/context-runtime-v0.3-direction.md): first observe model-call context through Pi, then decide from evidence whether a provider-neutral Working Set Runtime is worth advancing. It is classified as a Future direction; the observation-only [DS-008 packet](docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md) remains blocked until the user explicitly selects v0.3 as the next milestone.
+The proposed post-v0.2 direction is [Context Runtime v0.3 research](docs/architecture/context-runtime-v0.3-direction.md): first observe model-call context through Pi, then decide from evidence whether a provider-neutral Working Set Runtime is worth advancing. It remains research-only and is not part of the default product path.
 
 Normal startup selects or reopens a repository through the Main-owned native picker; it does not require `CANVAS_AGENT_REPO`. Production execution uses the configured Codex CLI and never falls back to Fixture. `CANVAS_AGENT_REPO`, the deterministic fake Codex and picker seams are test/developer boundaries only.
 
@@ -56,6 +64,8 @@ CANVAS_AGENT_REAL_AGENT_SMOKE=1 pnpm --filter @canvas-agent/desktop e2e:agent
 
 The command always writes `apps/desktop/dist/reports/agent-smoke.json`; a disabled smoke is recorded as `skipped`, never as executed. For repository selection, Agent readiness/auth recovery, isolated user data and internal-versus-external distribution details, use the [operator guide](docs/operator/product-mvp-v0.2.md).
 
+The repository CI keeps the full source gate on the standard `ubuntu-latest` runner and the credential-free Electron RC gate on the standard `macos-latest` runner. No larger runner is configured.
+
 ## Workspace map
 
 ```text
@@ -65,11 +75,19 @@ packages/contracts           Runtime-validated IPC and Worker contracts
 packages/persistence         SQLite project-state implementation
 packages/worker-runtime      Isolated Worker and Agent adapter boundary
 docs/architecture            Accepted implementation decisions
-docs/tasks                   Cross-computer execution packets
+docs/operator                Local operator and release guidance
+docs/verification             Reproducible engineering evidence
+research/context-benchmarks  Native + Shadow benchmark fixtures and harness
 canvas_agent_design_baseline_v1.1
                              Product and UI design source of truth
 ```
 
 ## Collaboration
 
-Read [`AGENTS.md`](AGENTS.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), and the assigned task packet before editing. Each agent works on its own branch and must not modify another agent's owned files without an explicit architecture review.
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before editing. Keep changes focused, work on a branch, and do not modify another contributor's owned files without an explicit review.
+
+For public contributions, also read the [Code of Conduct](CODE_OF_CONDUCT.md) and [Security Policy](SECURITY.md). Please keep credentials, personal data and machine-specific paths out of commits, logs and issue reports.
+
+## License
+
+Canvas Agent is licensed under the [Apache License 2.0](LICENSE). Copyright 2026 The Canvas Agent contributors.
