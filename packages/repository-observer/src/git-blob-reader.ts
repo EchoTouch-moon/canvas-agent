@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { ISOLATED_GIT_ENV } from '@canvas-agent/worker-runtime'
+import { buildRepositoryGitChildEnvironment } from './git-child-environment'
 
 // Byte-safe git blob reader for the Repository Observer. The shared
 // worker-runtime git runner decodes stdout as UTF-8 strings with truncation
@@ -63,7 +63,8 @@ function execGit(repositoryPath: string, args: readonly string[]): Promise<ExecR
     const child = spawn('git', [...args], {
       cwd: repositoryPath,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, ...ISOLATED_GIT_ENV }
+      env: buildRepositoryGitChildEnvironment(),
+      shell: false
     })
     const chunks: Buffer[] = []
     let size = 0

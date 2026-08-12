@@ -44,10 +44,19 @@ export interface EnrichedPiShadowObserverOptions {
   readonly seeds?: readonly SnapshotLikeSeed[]
 }
 
+// Provider-neutral external observation: an authoritative adapter queues a
+// SourceObservation (AVAILABLE / ABSENT / UNAVAILABLE) with its explicit source
+// descriptor. Applied at the next model-call boundary through the normal
+// Source Reconciliation path.
+export interface ExternalObservation {
+  readonly observation: SourceObservation
+  readonly descriptor: ContextSourceDescriptor
+}
+
 export class EnrichedPiShadowObserver {
   private readonly base: PiContextShadowObserver
   private readonly seeds: readonly SnapshotLikeSeed[]
-  private readonly pendingExternalSeeds = new Map<string, SnapshotLikeSeed>()
+  private readonly pendingExternalObservations = new Map<string, ExternalObservation>()
   private universe: ContextUniverseRevision | null
   readonly callResults: readonly EnrichedShadowResult[]
 
@@ -71,20 +80,47 @@ export class EnrichedPiShadowObserver {
   }
 
   // An integration adapter may queue authoritative, metadata-only observations
-  // discovered outside the Pi message stream. They are consumed at the next
-  // model-call boundary, after the adapter has verified the source against its
-  // own authority. This additive seam is intentionally inert unless a caller
-  // supplies seeds; it never promotes Pi resource-hint paths by itself.
-  queueExternalSeeds(seeds: readonly SnapshotLikeSeed[]): void {
-    for (const seed of seeds) {
-      this.pendingExternalSeeds.set(seed.sourceKey, seed)
+  // discovered outside the Pi message stream. They are consumed exactly once at
+  // the next model-call boundary, after the adapter has verified the source
+  // against its own authority. AVAILABLE may admit/advance; UNAVAILABLE updates
+  // the observation status but retains the last admitted version; ABSENT
+  // follows existing absence semantics. This additive seam is intentionally
+  // inert unless a caller supplies observations; it never promotes Pi
+  // resource-hint paths by itself.
+  queueExternalObservations(observations: readonly ExternalObservation[]): void {
+    for (const item of observations) {
+      if (item.observation.sourceKey !== item.descriptor.sourceKey) {
+        throw new Error('external_observation_descriptor_source_key_mismatch')
+      }
+    }
+    for (const item of observations) {
+      this.pendingExternalObservations.set(item.observation.sourceKey, item)
     }
   }
 
-  private takeExternalSeeds(): readonly SnapshotLikeSeed[] {
-    const seeds = [...this.pendingExternalSeeds.values()]
-    this.pendingExternalSeeds.clear()
-    return seeds.sort((left, right) => left.sourceKey.localeCompare(right.sourceKey))
+  // Backward-compatible convenience: SnapshotLikeSeed is an AVAILABLE snapshot
+  // seed. Converts to an AVAILABLE observation + descriptor.
+  queueExternalSeeds(seeds: readonly SnapshotLikeSeed[]): void {
+    this.queueExternalObservations(
+      seeds.map((seed) => ({
+        observation: createAvailableObservation(seed.sourceKey, seed.contentHash, seed.observedAt),
+        descriptor: {
+          sourceKey: seed.sourceKey,
+          sourceKind: seed.sourceKind,
+          provenance: seed.provenance,
+          ...(seed.authority !== undefined ? { authority: seed.authority } : {}),
+          ...(seed.priority !== undefined ? { priority: seed.priority } : {})
+        }
+      }))
+    )
+  }
+
+  private takeExternalObservations(): readonly ExternalObservation[] {
+    const items = [...this.pendingExternalObservations.values()]
+    this.pendingExternalObservations.clear()
+    return items.sort((left, right) =>
+      left.observation.sourceKey.localeCompare(right.observation.sourceKey)
+    )
   }
 
   observeModelCall(messages: readonly PiMessageView[]): EnrichedShadowResult {
@@ -112,26 +148,20 @@ export class EnrichedPiShadowObserver {
       )
     })
     const piSources = collectSourceObservations(elements, observedAt)
-    const externalSeeds = this.takeExternalSeeds()
-    const externalObservations = externalSeeds.map((seed) =>
-      createAvailableObservation(seed.sourceKey, seed.contentHash, seed.observedAt)
-    )
-    const externalDescriptors = externalSeeds.map((seed) => ({
-      sourceKey: seed.sourceKey,
-      sourceKind: seed.sourceKind,
-      provenance: seed.provenance,
-      ...(seed.authority !== undefined ? { authority: seed.authority } : {}),
-      ...(seed.priority !== undefined ? { priority: seed.priority } : {})
-    }))
+    const externalItems = this.takeExternalObservations()
+    const externalObservations = externalItems.map((item) => item.observation)
+    const externalDescriptors = externalItems.map((item) => item.descriptor)
     const observations = [...externalObservations, ...piSources.observations]
     const descriptors = [...externalDescriptors, ...piSources.descriptors]
 
     // Seed Universe #0 on the first observed model call so the very first
-    // revision has a baseline.
+    // revision has a baseline. Only constructor-supplied snapshot seeds form
+    // the baseline; queued external observations (any status) are applied below
+    // through normal Source Reconciliation.
     if (this.universe === null) {
       this.universe = seedUniverse({
         runtimeSessionId: this.runtimeSessionId,
-        seeds: [...this.seeds, ...externalSeeds]
+        seeds: this.seeds
       })
     }
     this.universe = applySourceObservations({
@@ -144,11 +174,15 @@ export class EnrichedPiShadowObserver {
 
     // Adapter supplies the provider-neutral recent-evidence signal from the
     // Pi context seam: every EXACT run-event source just observed is recent
-    // trustworthy evidence.
+    // trustworthy evidence. Only AVAILABLE external observations count as
+    // recent trustworthy evidence; ABSENT/UNAVAILABLE do not.
+    const externalAvailableKeys = externalItems
+      .filter((item) => item.observation.status === 'AVAILABLE')
+      .map((item) => item.descriptor.sourceKey)
     const recentEvidenceSourceKeys = descriptors
       .filter((d) => d.provenance === PI_SOURCE_PROVENANCE.CONTEXT_EVENT)
       .map((d) => d.sourceKey)
-      .concat(externalDescriptors.map((d) => d.sourceKey))
+      .concat(externalAvailableKeys)
 
     const result: EnrichedShadowResult = {
       elements,

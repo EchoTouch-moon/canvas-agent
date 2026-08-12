@@ -5,28 +5,29 @@ import {
   type ContextRepresentationNeed
 } from '@canvas-agent/context-runtime'
 import type { RepositoryRevisionContract } from '@canvas-agent/contracts'
-import {
-  readRepositoryRevision,
-  type GitRunOptions
-} from '@canvas-agent/worker-runtime'
 import { readGitBlob, MAX_REPOSITORY_CONTENT_BYTES } from './git-blob-reader'
+import { readPinnedTreeHash, type PinnedTreeReadResult } from './pinned-tree'
 import { repositorySourceKey } from './repository-observer'
 import type { RepositoryUnavailableReason } from './types'
 
-// EXPERIMENTAL file representation provider (DS-012 / CR-003B). It materializes
-// an exact model-usable file representation from an ADMITTED Repository
-// SourceVersion, binding the representation to the exact SourceVersion and
-// repository revision. It never derives file truth from Pi tool results.
+// EXPERIMENTAL file representation provider (DS-012 / CR-003B + DS-014). It
+// materializes an exact model-usable file representation from an ADMITTED
+// Repository SourceVersion, binding the representation to the exact
+// SourceVersion and repository revision. It never derives file truth from Pi
+// tool results.
 //
-// Design (async integration phase, synchronous Planner):
-//   pre-verify exact revision
-//   → read bounded file
-//   → verify full-content hash == admitted SourceVersion contentHash
-//   → post-verify exact revision
+// DS-014 exact-historical materialization (design):
+//   verify pinned baseCommit object exists
+//   → verify baseCommit^{tree} == expectedRevision.treeHash
+//   → read baseCommit:path as bounded raw bytes (existing Git-blob boundary)
+//   → verify sha256(content) == admitted SourceVersion contentHash
+//   → post-verify pinned tree (race safety)
 //   → derive FULL / LINE_RANGE / REFERENCE
 //
-// The resulting FULL / LINE_RANGE representation carries the exact ephemeral
-// bounded content (model-usable), never persisted by default.
+// The immutable pinned blob is the source of truth for an admitted clean
+// SourceVersion. The current mutable worktree and HEAD are NEVER consulted, so
+// a later dirty worktree or moved HEAD does not block exact historical
+// materialization while the pinned object remains available and exact.
 
 export type RepresentationMaterializeFailureReason =
   | RepositoryUnavailableReason
@@ -53,40 +54,23 @@ export interface RepositoryRepresentationRequest {
   readonly need: ContextRepresentationNeed
 }
 
-// Injectable revision reader seam so deterministic tests can drive a
-// before/after revision sequence without a real concurrent mutation.
-export interface RevisionReader {
-  read(repositoryPath: string, options: GitRunOptions): Promise<RepositoryRevisionContract>
+// Injectable pinned-tree reader seam so deterministic tests can drive a
+// before/after pinned-tree sequence without a real concurrent mutation.
+export interface PinnedTreeReader {
+  readTreeHash(repositoryPath: string, baseCommit: string): Promise<PinnedTreeReadResult>
 }
 
-const realRevisionReader: RevisionReader = {
-  async read(repositoryPath, options): Promise<RepositoryRevisionContract> {
-    let actual: {
-      baseCommit: string | null
-      treeHash: string | null
-      workingTreePatchHash: string | null
-    }
-    try {
-      actual = await readRepositoryRevision(repositoryPath, options)
-    } catch {
-      return { baseCommit: '', treeHash: '', workingTreePatchHash: null }
-    }
-    if (actual.baseCommit === null || actual.treeHash === null) {
-      return { baseCommit: '', treeHash: '', workingTreePatchHash: null }
-    }
-    return {
-      baseCommit: actual.baseCommit,
-      treeHash: actual.treeHash,
-      workingTreePatchHash: actual.workingTreePatchHash
-    }
+const realPinnedTreeReader: PinnedTreeReader = {
+  readTreeHash(repositoryPath, baseCommit): Promise<PinnedTreeReadResult> {
+    return readPinnedTreeHash(repositoryPath, baseCommit)
   }
 }
 
 export class FileRepresentationProvider {
-  private readonly revisionReader: RevisionReader
+  private readonly pinnedTreeReader: PinnedTreeReader
 
-  constructor(options: { revisionReader?: RevisionReader } = {}) {
-    this.revisionReader = options.revisionReader ?? realRevisionReader
+  constructor(options: { pinnedTreeReader?: PinnedTreeReader } = {}) {
+    this.pinnedTreeReader = options.pinnedTreeReader ?? realPinnedTreeReader
   }
 
   async materialize(
@@ -121,8 +105,18 @@ export class FileRepresentationProvider {
       return { kind: 'failed', reason: 'UNSUPPORTED_KIND' }
     }
 
-    // Pre-verify exact revision.
-    if (!(await this.revisionMatches(request))) {
+    // Pre-verify the pinned tree. The pinned commit object must exist and
+    // `baseCommit^{tree}` must equal the admitted SourceVersion's expected
+    // treeHash. This reads ONLY the immutable pinned Git object, never the
+    // mutable working tree or current HEAD.
+    const preTree = await this.pinnedTreeReader.readTreeHash(
+      request.repositoryPath,
+      request.expectedRevision.baseCommit
+    )
+    if (preTree.kind !== 'tree-hash') {
+      return { kind: 'failed', reason: 'REPOSITORY_UNAVAILABLE' }
+    }
+    if (preTree.treeHash !== request.expectedRevision.treeHash) {
       return { kind: 'failed', reason: 'REVISION_MISMATCH' }
     }
 
@@ -149,8 +143,13 @@ export class FileRepresentationProvider {
       return { kind: 'failed', reason: 'CONTENT_HASH_MISMATCH' }
     }
 
-    // Post-verify exact revision (race safety).
-    if (!(await this.revisionMatches(request))) {
+    // Post-verify the pinned tree (race safety against destructive repository
+    // mutation during the read window). The worktree is still never consulted.
+    const postTree = await this.pinnedTreeReader.readTreeHash(
+      request.repositoryPath,
+      request.expectedRevision.baseCommit
+    )
+    if (postTree.kind !== 'tree-hash' || postTree.treeHash !== preTree.treeHash) {
       return { kind: 'failed', reason: 'REVISION_CHANGED_DURING_OBSERVATION' }
     }
 
@@ -205,23 +204,6 @@ export class FileRepresentationProvider {
     return { kind: 'representation', representation }
   }
 
-  private async revisionMatches(
-    request: RepositoryRepresentationRequest
-  ): Promise<boolean> {
-    const options: GitRunOptions = {
-      cwd: request.repositoryPath,
-      timeoutMs: 30_000,
-      maxOutputBytes: 2 * 1024 * 1024,
-      commandAllowlist: ['git'],
-      signal: undefined
-    }
-    const actual = await this.revisionReader.read(request.repositoryPath, options)
-    return (
-      actual.baseCommit === request.expectedRevision.baseCommit &&
-      actual.treeHash === request.expectedRevision.treeHash &&
-      actual.workingTreePatchHash === request.expectedRevision.workingTreePatchHash
-    )
-  }
 }
 
 // repository/file://<path> -> repository-relative path.

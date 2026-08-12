@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import {
   createAgentSession,
   createBashTool,
@@ -23,9 +23,10 @@ import {
 } from '@canvas-agent/pi-context-integration'
 import {
   FileRepresentationProvider,
-  RepositoryObserver
+  RepositoryObserver,
+  type RepositoryFileObservation
 } from '@canvas-agent/repository-observer'
-import type { RepositoryRevisionContract } from '@canvas-agent/contracts'
+import { isCanonicalRepositoryPath, type RepositoryRevisionContract } from '@canvas-agent/contracts'
 import type {
   BenchmarkManifest,
   BenchmarkRunRecord,
@@ -33,6 +34,7 @@ import type {
   FileAccessEvidence,
   NativeCallEvidence,
   OracleResult,
+  RepositoryObservationEvidence,
   ShadowCallEvidence,
   ShadowRepresentationEvidence,
   RunStatus
@@ -117,25 +119,139 @@ export function buildShadowFilePathCandidates(
   return buildObservedShadowCandidatePaths(input.observedFilePaths)
 }
 
+function collapseRetainedText(value: string): string {
+  return value
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normalizeMacTemporaryAlias(path: string): string {
+  for (const prefix of ['/private/tmp', '/private/var']) {
+    if (path === prefix || path.startsWith(`${prefix}/`)) {
+      return path.slice('/private'.length)
+    }
+  }
+  return path
+}
+
+function fixturePathAliases(fixturePath: string): readonly string[] {
+  const canonical = collapseRetainedText(fixturePath).replace(/\/$/, '')
+  const normalized = normalizeMacTemporaryAlias(canonical)
+  const aliases = new Set([canonical, normalized])
+  if (
+    normalized === '/tmp' ||
+    normalized.startsWith('/tmp/') ||
+    normalized === '/var' ||
+    normalized.startsWith('/var/')
+  ) {
+    aliases.add(`/private${normalized}`)
+  }
+  return [...aliases]
+    .filter((alias) => alias.length > 0)
+    .sort((left, right) => right.length - left.length)
+}
+
+function redactFixtureRoot(value: string, fixturePath: string): string {
+  let redacted = value
+  for (const alias of fixturePathAliases(fixturePath)) {
+    redacted = redacted.replaceAll(alias, '<fixture>')
+  }
+  return redacted
+}
+
+function isAbsoluteOnAnySupportedPlatform(path: string): boolean {
+  return path.startsWith('file://') || posix.isAbsolute(path) || isWindowsAbsolutePath(path)
+}
+
+function isWindowsAbsolutePath(path: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\')
+}
+
+// Convert an Agent-reported path to the canonical repository-relative input
+// accepted by RepositoryObserver. Absolute paths are accepted only when they
+// are inside this exact fixture (including macOS temp-path aliases); outside
+// paths never become Source keys or Planner candidates.
+export function normalizeRepositoryToolPath(path: string, fixturePath: string): string | null {
+  const collapsedPath = collapseRetainedText(path)
+  const collapsedFixture = collapseRetainedText(fixturePath)
+  if (collapsedPath.startsWith('file://')) return null
+  if (isWindowsAbsolutePath(collapsedPath)) {
+    if (!isWindowsAbsolutePath(collapsedFixture)) return null
+    const relativePath = win32.relative(collapsedFixture, collapsedPath).replaceAll('\\', '/')
+    return isCanonicalRepositoryPath(relativePath) ? relativePath : null
+  }
+  if (!posix.isAbsolute(collapsedPath)) {
+    return isCanonicalRepositoryPath(collapsedPath) ? collapsedPath : null
+  }
+  if (!posix.isAbsolute(collapsedFixture)) return null
+  const normalizedPath = normalizeMacTemporaryAlias(collapsedPath)
+  const normalizedFixture = normalizeMacTemporaryAlias(collapsedFixture)
+  const relativePath = posix.relative(normalizedFixture, normalizedPath)
+  return isCanonicalRepositoryPath(relativePath) ? relativePath : null
+}
+
+// Sanitize a retained path: normalize the macOS /var <-> /private/var and
+// /tmp <-> /private/tmp aliases before redaction, collapse control characters,
+// reject every other absolute path to an opaque marker, and bound the result.
+export function sanitizeRepositoryObservationPath(path: string, fixturePath: string): string {
+  const collapsed = collapseRetainedText(path)
+  const redacted = redactFixtureRoot(collapsed, fixturePath)
+  if (redacted !== collapsed) return redacted.slice(0, 160)
+  if (isAbsoluteOnAnySupportedPlatform(redacted)) return '<absolute-path>'
+  return redacted.slice(0, 160)
+}
+
+// Agent tool paths stay raw in memory for authoritative observation. Only the
+// durable call evidence is normalized here; in-fixture paths become relative.
+export function sanitizeFileAccessEvidence(
+  accesses: readonly FileAccessEvidence[],
+  fixturePath: string
+): readonly FileAccessEvidence[] {
+  return accesses.map((access) => {
+    const safePath = sanitizeRepositoryObservationPath(access.path, fixturePath)
+    const retainedPath = safePath === '<fixture>'
+      ? '.'
+      : safePath.startsWith('<fixture>/')
+        ? safePath.slice('<fixture>/'.length)
+        : safePath
+    return { ...access, path: retainedPath }
+  })
+}
+
+function sanitizeRepositoryObservationReason(reason: string, fixturePath: string): string {
+  return redactFixtureRoot(collapseRetainedText(reason), fixturePath)
+    .replace(/(^|[\s("'=:])\/[^\s"'<>]*/g, '$1<absolute-path>')
+    .replace(/(^|[\s("'=:])[A-Za-z]:[\\/][^\s"'<>]*/g, '$1<absolute-path>')
+    .slice(0, 240)
+}
+
 export function formatRepositoryObservationFailure(
   path: string,
   error: unknown,
   fixturePath: string
 ): string {
   const rawReason = error instanceof Error ? error.message : String(error)
-  const reason = rawReason
-    .replaceAll(fixturePath, '<fixture>')
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 240)
-  const safePath = path
-    .replaceAll(fixturePath, '<fixture>')
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 160)
+  const reason = sanitizeRepositoryObservationReason(rawReason, fixturePath)
+  const safePath = sanitizeRepositoryObservationPath(path, fixturePath)
   return `repository-observation:${safePath}:${reason || 'unknown_failure'}`
+}
+
+// Shared by the live runner and credential-free composed-world regression.
+// The returned boolean is the sole candidate-admission decision.
+export function queueRepositoryObservationForShadow(
+  observer: EnrichedPiShadowObserver,
+  entry: RepositoryFileObservation
+): boolean {
+  observer.queueExternalObservations([{
+    observation: entry.observation,
+    descriptor: {
+      sourceKey: entry.sourceKey,
+      sourceKind: entry.sourceKind,
+      provenance: entry.provenance
+    }
+  }])
+  return entry.observation.status === 'AVAILABLE'
 }
 
 function readProperty(value: unknown, key: string): unknown {
@@ -196,17 +312,27 @@ function collectToolAccess(
   return access
 }
 
-function buildNativeCalls(observer: PiContextShadowObserver, accesses: readonly FileAccessEvidence[]): readonly NativeCallEvidence[] {
+function buildNativeCalls(
+  observer: PiContextShadowObserver,
+  accesses: readonly FileAccessEvidence[],
+  fixturePath: string
+): readonly NativeCallEvidence[] {
+  const retainedAccesses = sanitizeFileAccessEvidence(accesses, fixturePath)
   return observer.inMemory.observations.map((observation) => ({
     sequence: observation.sequence,
     observedMessageTokenEstimate: observation.observedMessageTokenEstimate,
     categoryCounts: observation.categoryCounts,
     toolResultCount: observation.toolResultCount,
-    fileAccesses: accesses.filter((access) => access.sequence === observation.sequence)
+    fileAccesses: retainedAccesses.filter((access) => access.sequence === observation.sequence)
   }))
 }
 
-function buildShadowCalls(observer: ShadowPlannerObserver, accesses: readonly FileAccessEvidence[]): readonly ShadowCallEvidence[] {
+function buildShadowCalls(
+  observer: ShadowPlannerObserver,
+  accesses: readonly FileAccessEvidence[],
+  fixturePath: string
+): readonly ShadowCallEvidence[] {
+  const retainedAccesses = sanitizeFileAccessEvidence(accesses, fixturePath)
   const previousRepresentationBySource = new Map<string, string | null>()
   let previousWorkingSet = null as ShadowPlannerObserver['callResults'][number]['plannerResult']['workingSet'] | null
   const records: ShadowCallEvidence[] = []
@@ -264,7 +390,7 @@ function buildShadowCalls(observer: ShadowPlannerObserver, accesses: readonly Fi
       },
       reasonCodeCounts: call.metrics.reasonCodeCounts,
       materializationFailures: call.materializationFailures,
-      fileAccesses: accesses.filter((access) => access.sequence === call.metrics.modelCallSequence)
+      fileAccesses: retainedAccesses.filter((access) => access.sequence === call.metrics.modelCallSequence)
     })
     for (const item of call.plannerResult.workingSet.items) {
       for (const sourceKey of item.sourceKeys) {
@@ -386,10 +512,20 @@ async function runLiveTask(
   let enrichedObserver: EnrichedPiShadowObserver | null = null
   let repositoryObservationQueue: Promise<void> = Promise.resolve()
   const observationFailures: string[] = []
+  const repositoryObservations: RepositoryObservationEvidence[] = []
 
   const recordObservationFailure = (path: string, error: unknown): void => {
     if (observationFailures.length >= 32) return
     observationFailures.push(formatRepositoryObservationFailure(path, error, fixture.path))
+  }
+
+  const recordRepositoryObservation = (path: string, status: RepositoryObservationEvidence['status'], reasonCode: string | null): void => {
+    if (repositoryObservations.length >= 64) return
+    repositoryObservations.push({
+      path: sanitizeRepositoryObservationPath(path, fixture.path),
+      status,
+      reasonCode
+    })
   }
   const refreshShadowFilePathCandidates = (): void => {
     const nextCandidates = buildShadowFilePathCandidates({
@@ -407,39 +543,52 @@ async function runLiveTask(
 
   const queueRepositoryRead = (path: string): void => {
     if (strategy !== 'SHADOW' || repositoryObserver === null || enrichedObserver === null) return
+    const activeRepositoryObserver = repositoryObserver
+    const activeEnrichedObserver = enrichedObserver
+    const repositoryPath = normalizeRepositoryToolPath(path, fixture.path)
+    if (repositoryPath === null) {
+      recordObservationFailure(path, new Error('path_outside_repository'))
+      return
+    }
     repositoryObservationQueue = repositoryObservationQueue
       .then(async () => {
-        const observed = await repositoryObserver?.observe({
+        const observed = await activeRepositoryObserver.observe({
           repositoryPath: fixture.path,
           expectedRevision: fixture.identity.repositoryRevision,
-          paths: [path],
+          paths: [repositoryPath],
           observedAt: FIXED_OBSERVATION_TIME
         })
-        const entry = observed?.[0]
+        const entry = observed[0]
         if (entry === undefined) {
-          recordObservationFailure(path, new Error('observer_returned_no_observation'))
+          recordObservationFailure(repositoryPath, new Error('observer_returned_no_observation'))
           return
         }
-        if (entry.observation.status !== 'AVAILABLE') {
-          if (entry.observation.status === 'UNAVAILABLE') {
-            recordObservationFailure(path, new Error(`observer_unavailable:${entry.observation.reasonCode}`))
+        // Enqueue the exact SourceObservation + descriptor regardless of
+        // AVAILABLE/ABSENT/UNAVAILABLE so the Universe records the state
+        // transition explicitly (DS-014 C). The observation carries the
+        // contentHash for AVAILABLE and reasonCode for UNAVAILABLE.
+        const candidateAvailable = queueRepositoryObservationForShadow(activeEnrichedObserver, entry)
+        // Record the state (not only prose) for auditable evidence. Sanitize
+        // path and bound the retained list.
+        recordRepositoryObservation(
+          repositoryPath,
+          entry.observation.status,
+          entry.observation.status === 'UNAVAILABLE' ? entry.observation.reasonCode : null
+        )
+        // A path enters the Planner candidate set only after an authoritative
+        // AVAILABLE observation. UNAVAILABLE/ABSENT observations never promote
+        // a path to candidates.
+        if (candidateAvailable) {
+          if (!observedRepositoryPaths.includes(repositoryPath)) {
+            observedRepositoryPaths.push(repositoryPath)
+            refreshShadowFilePathCandidates()
           }
-          return
+        } else if (entry.observation.status === 'UNAVAILABLE') {
+          recordObservationFailure(repositoryPath, new Error(`observer_unavailable:${entry.observation.reasonCode}`))
         }
-        if (!observedRepositoryPaths.includes(path)) {
-          observedRepositoryPaths.push(path)
-          refreshShadowFilePathCandidates()
-        }
-        enrichedObserver?.queueExternalSeeds([{
-          sourceKey: entry.sourceKey,
-          sourceKind: entry.sourceKind,
-          contentHash: entry.observation.contentHash,
-          provenance: entry.provenance,
-          observedAt: FIXED_OBSERVATION_TIME
-        }])
       })
       .catch((error: unknown) => {
-        recordObservationFailure(path, error)
+        recordObservationFailure(repositoryPath, error)
       })
   }
 
@@ -600,8 +749,8 @@ async function runLiveTask(
       originalMessagesUnchanged,
       writablePathsValid
     })
-    const nativeCalls = nativeObserver === null ? [] : buildNativeCalls(nativeObserver, accesses.accesses)
-    const shadowCalls = planner === null ? [] : buildShadowCalls(planner, accesses.accesses)
+    const nativeCalls = nativeObserver === null ? [] : buildNativeCalls(nativeObserver, accesses.accesses, fixture.path)
+    const shadowCalls = planner === null ? [] : buildShadowCalls(planner, accesses.accesses, fixture.path)
     return {
       runId,
       taskId: manifest.taskId,
@@ -632,6 +781,7 @@ async function runLiveTask(
       nativeCalls,
       shadowCalls,
       observationFailures: [...observationFailures],
+      repositoryObservations: [...repositoryObservations],
       originalMessagesUnchanged,
       rawProviderPayloadsCaptured: false
     }
@@ -663,9 +813,10 @@ async function runLiveTask(
       regressionOracle: { passed: false, exitCode: null, timedOut: false, stdout: '', stderr: '', durationMs: 0 },
       acceptanceCriteriaResults: [],
       acceptanceCriteriaPassed: false,
-      nativeCalls: nativeObserver === null ? [] : buildNativeCalls(nativeObserver, accesses.accesses),
-      shadowCalls: planner === null ? [] : buildShadowCalls(planner, accesses.accesses),
+      nativeCalls: nativeObserver === null ? [] : buildNativeCalls(nativeObserver, accesses.accesses, fixture.path),
+      shadowCalls: planner === null ? [] : buildShadowCalls(planner, accesses.accesses, fixture.path),
       observationFailures: [...observationFailures],
+      repositoryObservations: [...repositoryObservations],
       originalMessagesUnchanged,
       rawProviderPayloadsCaptured: false
     }

@@ -1,5 +1,9 @@
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { FileRepresentationProvider, repositorySourceKey } from '../src'
+import { FileRepresentationProvider, readGitBlob, repositorySourceKey } from '../src'
+import { readPinnedTreeHash } from '../src/pinned-tree'
 import { createTempRepo, type TempRepo } from './helpers'
 import { createAvailableObservation, sha256Hex } from '@canvas-agent/context-runtime'
 import { createSourceVersionId, applySourceObservations, seedUniverse } from '@canvas-agent/context-runtime'
@@ -88,7 +92,7 @@ describe('A. representation materialization', () => {
     }
   })
 
-  it('5) revision mismatch before materialization fails closed', async () => {
+  it('5) missing pinned commit fails closed (REPOSITORY_UNAVAILABLE)', async () => {
     const r = await repo({ 'a.ts': FILE_CONTENT })
     const { sourceKey, contentHash, versionId } = await admitVersion(r, 'a.ts', FILE_CONTENT)
     const provider = new FileRepresentationProvider()
@@ -102,7 +106,72 @@ describe('A. representation materialization', () => {
     })
     expect(result.kind).toBe('failed')
     if (result.kind === 'failed') {
+      expect(result.reason).toBe('REPOSITORY_UNAVAILABLE')
+    }
+  })
+
+  it('5b) wrong expected tree hash for an existing pinned commit fails closed (REVISION_MISMATCH)', async () => {
+    const r = await repo({ 'a.ts': FILE_CONTENT })
+    const { revision, sourceKey, contentHash, versionId } = await admitVersion(r, 'a.ts', FILE_CONTENT)
+    const provider = new FileRepresentationProvider()
+    const result = await provider.materialize({
+      repositoryPath: r.directory,
+      expectedRevision: { ...revision, treeHash: 'f'.repeat(40) },
+      sourceKey,
+      sourceVersionId: versionId,
+      sourceVersionContentHash: contentHash,
+      need: fullNeed(sourceKey)
+    })
+    expect(result.kind).toBe('failed')
+    if (result.kind === 'failed') {
       expect(result.reason).toBe('REVISION_MISMATCH')
+    }
+  })
+
+  it('5c) clean source admitted then worktree edited -> old FULL still materializes exact old bytes (DS-014)', async () => {
+    const r = await repo({ 'a.ts': FILE_CONTENT })
+    const { revision, sourceKey, contentHash, versionId } = await admitVersion(r, 'a.ts', FILE_CONTENT)
+    // The Agent later edits the worktree without committing. The pinned commit
+    // object and admitted SourceVersion remain immutable and exact.
+    const { writeFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    await writeFile(join(r.directory, 'a.ts'), 'edited new content\n', 'utf8')
+    const provider = new FileRepresentationProvider()
+    const result = await provider.materialize({
+      repositoryPath: r.directory,
+      expectedRevision: revision,
+      sourceKey,
+      sourceVersionId: versionId,
+      sourceVersionContentHash: contentHash,
+      need: fullNeed(sourceKey)
+    })
+    expect(result.kind).toBe('representation')
+    if (result.kind === 'representation') {
+      expect(result.representation.kind).toBe('FULL')
+      // Exact OLD bytes from the pinned blob, NOT the edited worktree file.
+      expect(result.representation.content).toBe(FILE_CONTENT)
+    }
+  })
+
+  it('5d) untracked file elsewhere does not block exact old blob materialization (DS-014)', async () => {
+    const r = await repo({ 'a.ts': FILE_CONTENT })
+    const { revision, sourceKey, contentHash, versionId } = await admitVersion(r, 'a.ts', FILE_CONTENT)
+    // An unrelated untracked file appears in the worktree (never committed).
+    const { writeFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    await writeFile(join(r.directory, 'untracked.js'), 'module.exports = 1\n', 'utf8')
+    const provider = new FileRepresentationProvider()
+    const result = await provider.materialize({
+      repositoryPath: r.directory,
+      expectedRevision: revision,
+      sourceKey,
+      sourceVersionId: versionId,
+      sourceVersionContentHash: contentHash,
+      need: fullNeed(sourceKey)
+    })
+    expect(result.kind).toBe('representation')
+    if (result.kind === 'representation') {
+      expect(result.representation.content).toBe(FILE_CONTENT)
     }
   })
 
@@ -172,17 +241,18 @@ describe('A. representation materialization', () => {
     }
   })
 
-  it('6b) post-materialization revision change fails closed via revision-reader seam', async () => {
+  it('6b) post-materialization pinned-tree change fails closed via pinned-tree-reader seam', async () => {
     const r = await repo({ 'a.ts': FILE_CONTENT })
     const { revision, sourceKey, contentHash, versionId } = await admitVersion(r, 'a.ts', FILE_CONTENT)
-    // Seam: pre-read returns expected; post-read returns a different revision.
+    // Seam: pre-read returns the expected tree; post-read returns a different
+    // pinned tree (destructive repository mutation during the read window).
     let calls = 0
     const provider = new FileRepresentationProvider({
-      revisionReader: {
-        async read(): Promise<RepositoryRevisionContract> {
+      pinnedTreeReader: {
+        async readTreeHash(): Promise<{ readonly kind: 'tree-hash'; readonly treeHash: string }> {
           calls += 1
-          if (calls === 1) return revision
-          return { ...revision, baseCommit: 'f'.repeat(40) }
+          if (calls === 1) return { kind: 'tree-hash', treeHash: revision.treeHash }
+          return { kind: 'tree-hash', treeHash: 'f'.repeat(40) }
         }
       }
     })
@@ -300,6 +370,59 @@ describe('B. LINE_RANGE semantics', () => {
     expect(result.kind).toBe('representation')
     if (result.kind === 'representation') {
       expect(result.representation.sourceVersionIds).toEqual([versionId])
+    }
+  })
+})
+
+describe('C. repository Git child environment', () => {
+  it('does not expose provider credentials to pinned-tree or blob Git children', async () => {
+    const fakeBin = await mkdtemp(join(tmpdir(), 'canvas-repository-git-canary-'))
+    const fakeGit = join(fakeBin, 'git')
+    const previousPath = process.env['PATH']
+    const previousCredential = process.env['DEEPSEEK_API_KEY']
+    await writeFile(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "rev-parse" ]; then
+  if [ -n "\${DEEPSEEK_API_KEY-}" ]; then
+    printf '%s\\n' '${'f'.repeat(40)}'
+  else
+    printf '%s\\n' '${'a'.repeat(40)}'
+  fi
+  exit 0
+fi
+if [ "$1" = "cat-file" ] && [ "$2" = "-e" ]; then
+  exit 0
+fi
+if [ "$1" = "cat-file" ] && [ "$2" = "blob" ]; then
+  if [ -n "\${DEEPSEEK_API_KEY-}" ]; then
+    printf '%s' 'credential-visible'
+  else
+    printf '%s' 'credential-isolated'
+  fi
+  exit 0
+fi
+exit 1
+`,
+      'utf8'
+    )
+    await chmod(fakeGit, 0o755)
+    process.env['PATH'] = fakeBin
+    process.env['DEEPSEEK_API_KEY'] = 'repository-observer-credential-canary'
+
+    try {
+      const tree = await readPinnedTreeHash(fakeBin, 'b'.repeat(40))
+      const blob = await readGitBlob(fakeBin, 'b'.repeat(40), 'a.ts')
+
+      expect(tree).toEqual({ kind: 'tree-hash', treeHash: 'a'.repeat(40) })
+      expect(blob).toEqual({ kind: 'content', content: 'credential-isolated' })
+      expect(JSON.stringify({ tree, blob })).not.toContain('credential-canary')
+    } finally {
+      if (previousPath === undefined) delete process.env['PATH']
+      else process.env['PATH'] = previousPath
+      if (previousCredential === undefined) delete process.env['DEEPSEEK_API_KEY']
+      else process.env['DEEPSEEK_API_KEY'] = previousCredential
+      await rm(fakeBin, { recursive: true, force: true })
     }
   })
 })

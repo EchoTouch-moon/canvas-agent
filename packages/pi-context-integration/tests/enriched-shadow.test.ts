@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { SnapshotLikeSeed } from '@canvas-agent/context-runtime'
+import {
+  createAbsentObservation,
+  createAvailableObservation,
+  createUnavailableObservation,
+  type ContextSourceDescriptor,
+  type SnapshotLikeSeed,
+  type SourceObservation
+} from '@canvas-agent/context-runtime'
 import {
   EnrichedPiShadowObserver,
   PiContextShadowObserver,
@@ -326,5 +333,170 @@ describe('enriched shadow observer', () => {
     expect(run?.source.sourceKind).toMatch(/^RUN_TOOL_/)
     // Distinguishable by explicit metadata, not URI-prefix parsing.
     expect(run?.source.provenance).not.toBe(seeded?.source.provenance)
+  })
+})
+
+describe('DS-014 external observation seam', () => {
+  const FILE_KEY = 'repository/file://src/auth.ts'
+  const FILE_DESCRIPTOR: ContextSourceDescriptor = {
+    sourceKey: FILE_KEY,
+    sourceKind: 'REPOSITORY_FILE',
+    provenance: 'REPOSITORY_OBSERVER'
+  }
+
+  function queuedObserver() {
+    const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
+    return new EnrichedPiShadowObserver({ base })
+  }
+
+  function findEntry(revision: { entries: readonly { source: { sourceKey: string }; state: unknown; admittedVersion: unknown }[] }, key: string) {
+    return revision.entries.find((entry) => entry.source.sourceKey === key)
+  }
+
+  it('AVAILABLE external observation admits a version through normal reconciliation', () => {
+    const observer = queuedObserver()
+    observer.queueExternalObservations([
+      {
+        observation: createAvailableObservation(FILE_KEY, 'hash-a', FIXED_NOW),
+        descriptor: FILE_DESCRIPTOR
+      }
+    ])
+    const call = observer.observeModelCall([userMessage('task')])
+    const entry = findEntry(call.universeRevision, FILE_KEY)
+    expect(entry?.state).toMatchObject({ observationStatus: 'AVAILABLE', admittedVersionId: expect.any(String) })
+    expect(entry?.admittedVersion).toMatchObject({ sourceKey: FILE_KEY, contentHash: 'hash-a' })
+  })
+
+  it('UNAVAILABLE after AVAILABLE retains the last admitted version (RETAIN_LAST_KNOWN)', () => {
+    const observer = queuedObserver()
+    observer.queueExternalObservations([
+      { observation: createAvailableObservation(FILE_KEY, 'hash-a', FIXED_NOW), descriptor: FILE_DESCRIPTOR }
+    ])
+    const first = observer.observeModelCall([userMessage('first')])
+    const admittedBefore = findEntry(first.universeRevision, FILE_KEY)?.admittedVersion
+    expect(admittedBefore).not.toBeNull()
+
+    // Dirty-world UNAVAILABLE observation at the next boundary.
+    observer.queueExternalObservations([
+      { observation: createUnavailableObservation(FILE_KEY, 'REVISION_MISMATCH', FIXED_NOW), descriptor: FILE_DESCRIPTOR }
+    ])
+    const second = observer.observeModelCall([userMessage('second')])
+    const entry = findEntry(second.universeRevision, FILE_KEY)
+    expect(entry?.state).toMatchObject({
+      observationStatus: 'UNAVAILABLE',
+      admittedVersionId: (admittedBefore as { versionId: string }).versionId,
+      lastAvailableVersionId: (admittedBefore as { versionId: string }).versionId
+    })
+    // Last-known version remains addressable, not replaced/deleted.
+    expect(entry?.admittedVersion).toMatchObject({ sourceKey: FILE_KEY, contentHash: 'hash-a' })
+  })
+
+  it('UNAVAILABLE is distinct from ABSENT and never clears the last available version', () => {
+    const observer = queuedObserver()
+    observer.queueExternalObservations([
+      { observation: createAvailableObservation(FILE_KEY, 'hash-a', FIXED_NOW), descriptor: FILE_DESCRIPTOR }
+    ])
+    observer.observeModelCall([userMessage('first')])
+
+    observer.queueExternalObservations([
+      { observation: createUnavailableObservation(FILE_KEY, 'FILE_TOO_LARGE', FIXED_NOW), descriptor: FILE_DESCRIPTOR }
+    ])
+    const unavailable = observer.observeModelCall([userMessage('second')])
+    const unavailableEntry = findEntry(unavailable.universeRevision, FILE_KEY)
+    expect(unavailableEntry?.state).toMatchObject({
+      observationStatus: 'UNAVAILABLE',
+      lastAvailableVersionId: expect.any(String)
+    })
+
+    observer.queueExternalObservations([
+      { observation: createAbsentObservation(FILE_KEY, FIXED_NOW), descriptor: FILE_DESCRIPTOR }
+    ])
+    const absent = observer.observeModelCall([userMessage('third')])
+    const absentEntry = findEntry(absent.universeRevision, FILE_KEY)
+    expect(absentEntry?.state).toMatchObject({ observationStatus: 'ABSENT', admittedVersionId: null })
+    expect(absentEntry?.admittedVersion).toBeNull()
+  })
+
+  it('deduplicates queued observations per sourceKey and consumes them exactly once', () => {
+    const observer = queuedObserver()
+    // Same sourceKey queued twice: the later observation wins (deterministic).
+    observer.queueExternalObservations([
+      { observation: createAvailableObservation(FILE_KEY, 'hash-a', FIXED_NOW), descriptor: FILE_DESCRIPTOR }
+    ])
+    observer.queueExternalObservations([
+      { observation: createUnavailableObservation(FILE_KEY, 'READ_FAILED', FIXED_NOW), descriptor: FILE_DESCRIPTOR }
+    ])
+    const call = observer.observeModelCall([userMessage('task')])
+    const entry = findEntry(call.universeRevision, FILE_KEY)
+    expect(entry?.state).toMatchObject({ observationStatus: 'UNAVAILABLE', admittedVersionId: null })
+
+    // Queue was drained: a second call with no new observation does not replay it.
+    const second = observer.observeModelCall([userMessage('task')])
+    const reconciliationActions = second.universeRevision.reconciliationEvents.map((event) => event.action)
+    expect(reconciliationActions).not.toContain('INITIALIZE')
+  })
+
+  it('does not promote UNAVAILABLE/ABSENT external observations to recent evidence', () => {
+    const observer = queuedObserver()
+    observer.queueExternalObservations([
+      { observation: createUnavailableObservation(FILE_KEY, 'REVISION_MISMATCH', FIXED_NOW), descriptor: FILE_DESCRIPTOR }
+    ])
+    const call = observer.observeModelCall([userMessage('task')])
+    expect(call.recentEvidenceSourceKeys).not.toContain(FILE_KEY)
+  })
+
+  it('AVAILABLE external observation is reflected as recent evidence', () => {
+    const observer = queuedObserver()
+    observer.queueExternalObservations([
+      { observation: createAvailableObservation(FILE_KEY, 'hash-a', FIXED_NOW), descriptor: FILE_DESCRIPTOR }
+    ])
+    const call = observer.observeModelCall([userMessage('task')])
+    expect(call.recentEvidenceSourceKeys).toContain(FILE_KEY)
+  })
+
+  it('queued external observation is surfaced in sourceObservations/descriptors verbatim', () => {
+    const observer = queuedObserver()
+    const observation: SourceObservation = createUnavailableObservation(FILE_KEY, 'REVISION_MISMATCH', FIXED_NOW)
+    observer.queueExternalObservations([{ observation, descriptor: FILE_DESCRIPTOR }])
+    const call = observer.observeModelCall([userMessage('task')])
+    expect(call.sourceObservations).toContainEqual(observation)
+    expect(call.sourceDescriptors).toContainEqual(FILE_DESCRIPTOR)
+  })
+
+  it('rejects a mismatched observation/descriptor batch before queueing any item', () => {
+    const observer = queuedObserver()
+    expect(() =>
+      observer.queueExternalObservations([
+        {
+          observation: createAvailableObservation(FILE_KEY, 'hash-a', FIXED_NOW),
+          descriptor: FILE_DESCRIPTOR
+        },
+        {
+          observation: createUnavailableObservation(
+            'repository/file://src/mismatched.ts',
+            'REVISION_MISMATCH',
+            FIXED_NOW
+          ),
+          descriptor: { ...FILE_DESCRIPTOR, sourceKey: 'repository/file://src/other.ts' }
+        }
+      ])
+    ).toThrow('external_observation_descriptor_source_key_mismatch')
+
+    const call = observer.observeModelCall([userMessage('task')])
+    expect(findEntry(call.universeRevision, FILE_KEY)).toBeUndefined()
+    expect(findEntry(call.universeRevision, 'repository/file://src/other.ts')).toBeUndefined()
+  })
+
+  it('Pi messages remain identity-equal and unchanged across queued observations', () => {
+    const base = new PiContextShadowObserver({ runtimeSessionId: 'sess', now: () => FIXED_NOW })
+    const observer = new EnrichedPiShadowObserver({ base })
+    observer.queueExternalObservations([
+      { observation: createUnavailableObservation(FILE_KEY, 'REVISION_MISMATCH', FIXED_NOW), descriptor: FILE_DESCRIPTOR }
+    ])
+    const messages = Object.freeze([Object.freeze({ role: 'user' as const, content: [{ type: 'text' as const, text: 'x' }] })])
+    const passThrough = base.handleContextEvent(messages as unknown as PiMessageView[])
+    expect(passThrough.messages).toBe(messages)
+    void observer.observeModelCall(messages as unknown as PiMessageView[])
+    expect(passThrough.messages).toBe(messages)
   })
 })
