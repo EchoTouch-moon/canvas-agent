@@ -46,7 +46,7 @@ Build a research-only, reproducible six-category Native + Shadow benchmark corpu
 
 ## Status
 
-**Correction implementation complete locally; handoff pending commit/push** — credential-free validation and the full repository `pnpm check` are green. Live provider execution remains opt-in and was not used; the verification verdict remains `HARNESS_ONLY`.
+**Correction implementation complete and pushed** — commit `59666f6435e86990328e2a080892f04886b524a0` is on the Luna branch backing PR #26. Credential-free validation and the full repository `pnpm check` are green. Live provider execution remains opt-in and was not used; the verification verdict remains `HARNESS_ONLY`.
 
 ---
 

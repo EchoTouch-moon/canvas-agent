@@ -4,6 +4,7 @@
 
 - Branch: `agent/luna-cr-005-native-shadow-corpus`
 - Review target: `4e575d2d3004d4933136f5d6775524acd295327b` (PR #26 exact HEAD)
+- Correction commit: `59666f6435e86990328e2a080892f04886b524a0`
 - Correction scope: five P1 and three P2 benchmark-validity fixes; no live provider execution.
 
 ## 2. Corpus layout

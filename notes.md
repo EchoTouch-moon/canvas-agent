@@ -180,3 +180,4 @@
 - Credential-free validator: all six objective known-bad, regression, reference and reproducibility checks PASS.
 - Root `CI=1 pnpm check`: PASS (format, lint, workspace typecheck, workspace tests, and build).
 - Live/provider calls: 0; `CANVAS_CR005_LIVE=1` was never used.
+- Correction commit pushed: `59666f6435e86990328e2a080892f04886b524a0`.
