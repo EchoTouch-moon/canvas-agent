@@ -36,7 +36,7 @@ No Checkpoint/Resume, Canvas, second Agent adapter or external signed-distributi
 
 ## Current milestone — Context Runtime v0.3 research
 
-Context Runtime v0.3 is now the active research milestone. PR #12 established the bounded research architecture. CR-001 / DS-008 merged (PR #14), CR-002 / DS-009 merged (PR #16), CR-003A / DS-010 merged (PR #18), DS-011 Repository Observer merged (PR #20), and DS-012 / CR-003B merged (PR #22). DS-013 / CR-003 Shadow Go-No-Go review is complete (branch `agent/deepseek-ds-013-shadow-go-no-go-review`, 643 tests green); it recommends NO_GO for the first Active experiment pending a representative Native corpus, and CONDITIONAL_GO for a bounded CR-004 implementation packet.
+Context Runtime v0.3 is now the active research milestone. PR #12 established the bounded research architecture. CR-001 / DS-008 merged (PR #14), CR-002 / DS-009 merged (PR #16), CR-003A / DS-010 merged (PR #18), DS-011 Repository Observer merged (PR #20), and DS-012 / CR-003B merged (PR #22). PR #23 merged the DS-013 packet and CR-003B acceptance record at `38d096b318860262e5ddafd7d9fd32add98a2689`, closing the artifact lag. DS-013 / CR-003 Shadow Go-No-Go review is complete (branch `agent/deepseek-ds-013-shadow-go-no-go-review`, 643 tests green); both recommendations are NO_GO until the representative Native/Shadow corpus is reviewed.
 
 | Order | Owner             | Packet                                                                                         | Branch                                               | Status                         | Start gate                                  |
 | ----: | ----------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------ | ------------------------------------------- |
@@ -47,7 +47,7 @@ Context Runtime v0.3 is now the active research milestone. PR #12 established th
 |     3 | DeepSeek V4 Flash | [DS-010 Shadow Working Set Planner](deepseek/DS-010-shadow-working-set-planner.md)               | `agent/deepseek-ds-010-shadow-working-set-planner`   | ✅ ACCEPTED / MERGED — PR #18 | CR-002 accepted + packet merged + user authorized |
 |     4 | DeepSeek V4 Flash | [DS-011 Repository Observer](deepseek/DS-011-repository-observer.md)                             | `agent/deepseek-ds-011-repository-observer`          | ✅ ACCEPTED / MERGED — PR #20 | CR-003A accepted + packet merged + user authorized |
 |     5 | DeepSeek V4 Flash | [DS-012 File-aware Shadow Planner](deepseek/DS-012-file-aware-shadow-planner.md)                 | `agent/deepseek-ds-012-file-aware-shadow-planner`    | ✅ ACCEPTED / MERGED — PR #22 | DS-011 accepted + packet merged + user authorized |
-|     6 | DeepSeek V4 Flash | [DS-013 Shadow Go/No-Go Review](deepseek/DS-013-shadow-evidence-go-no-go-review.md)                 | `agent/deepseek-ds-013-shadow-go-no-go-review`       | REVIEW COMPLETE — awaiting lead decision | CR-003B accepted + packet authorized |
+|     6 | DeepSeek V4 Flash | [DS-013 Shadow Go/No-Go Review](deepseek/DS-013-shadow-evidence-go-no-go-review.md)                 | `agent/deepseek-ds-013-shadow-go-no-go-review`       | CHANGES REQUESTED — bounded doc correction / final re-review | CR-003B accepted; representative corpus first |
 
 CR-001 accepted evidence: `docs/verification/context-runtime-cr-001-pi-shadow.md`. CR-002 acceptance is recorded in `docs/verification/context-runtime-cr-002-acceptance.md`. CR-003A acceptance is recorded in `docs/verification/context-runtime-cr-003a-acceptance.md`. DS-011 acceptance is recorded in `docs/verification/context-runtime-ds-011-acceptance.md`.
 
@@ -75,9 +75,14 @@ DS-012 / CR-003B File-aware Shadow Planner ✅ ACCEPTED / MERGED
                  |
                  v
 DS-013 / CR-003 Shadow Go-No-Go Review  REVIEW COMPLETE
-   Recommendation A: CONDITIONAL_GO (bounded CR-004 packet)
-   Recommendation B: NO_GO (representative Native corpus first)
+   Recommendation A: NO_GO (CR-004 not authorized yet)
+   Recommendation B: NO_GO (first real Active experiment)
    next move: BUILD_NATIVE_SHADOW_CORPUS_FIRST
+              → RE-RUN_LEAD_GO_NO_GO
+              → if passed, AUTHORIZE_CR004_PACKET
+              → packet stage 1: capability / kill switch / mandatory re-assertion
+                (still no rewritten provider call)
+              → safety gate → first real Active experiment
                  |
                  +--> CR-004 Active Rewrite remains NOT AUTHORIZED
 ```

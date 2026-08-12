@@ -13,7 +13,7 @@
 
 - Architecture/plans: `context-runtime-v0.3-direction.md`, `PROPOSAL-030`, `PROPOSAL-031`, `context-runtime-v0.3-experiment-plan.md`
 - Acceptance docs: `context-runtime-cr-001-pi-shadow.md`, `context-runtime-cr-002-acceptance.md`, `context-runtime-cr-003a-acceptance.md`, `context-runtime-ds-011-acceptance.md`, `context-runtime-cr-003b-file-aware-shadow-planner.md`
-- CR-003B acceptance record (`context-runtime-cr-003b-acceptance.md`): present on the DS-013 packet branch (`27434bb`, Decision ACCEPTED, HEAD `5ea61eb`, merge `32001f8`) — **not yet merged into `origin/main`** (evidence artifact lag; code + merge + CI are on main).
+- CR-003B acceptance record (`context-runtime-cr-003b-acceptance.md`): Decision ACCEPTED at HEAD `5ea61eb`, now present on `main` through PR #23 merge `38d096b318860262e5ddafd7d9fd32add98a2689`; the evidence artifact lag is closed.
 - Packets DS-008 through DS-012.
 - Actual implementation inspected (code, not prose):
   - `packages/context-runtime/src/planning/{policy-v0,planning-request}.ts`, `working-set/*`, `representation/*`, `metrics/*`
@@ -43,7 +43,7 @@ Live Pi + DeepSeek smoke not rerun this review (credential-optional, supporting 
 | 4 | Rehydration paths implemented in research tooling | **PARTIAL** | Unit tests + observer history tracking prove REHYDRATE mechanics end-to-end (`planner.test.ts` #11; `shadow-planner.test.ts` observer end-to-end). **No corpus-level false-removal/rehydration rate** (no corpus exists). No active renderer restoration path (N/A pre-active, but must be built before Active). |
 | 5 | Mandatory / pinned protections test-locked | **PASS** | `policy-v0.ts`: MANDATORY (P0) cannot be evicted (eviction filters NORMAL only); MANDATORY+exclude → `PlanningConflictError` (explicit, not silent); PINNED survives normal eviction. Tests #4/#5/#7. |
 | 6 | Representation staleness detectable | **PASS** | `isRepresentationFresh` + `SOURCE_VERSION_ADVANCED` REPLACE: changed SourceVersion → old representation stale, fresh v2 representation replaces it (planner #14/#27-28; provider CONTENT_HASH_MISMATCH fail-closed). |
-| 7 | Tool-call / protocol continuity outside semantic Planner | **PASS (boundary) / NOT_EVIDENCED (Active continuity)** | The boundary is clean: no renderer/protocol code exists; both Pi extension factories return `event.messages` unchanged; Planner consumes only normalized semantic state. **However, Shadow returning native messages unchanged does NOT prove an Active renderer preserves tool-call/tool-result pairs, message roles/order, system instructions, opaque provider state, retries/semantic-call identity.** That renderer does not exist. |
+| 7 | Tool-call / protocol continuity outside semantic Planner | **PASS** | The architectural boundary is clean: no renderer/protocol code exists; both Pi extension factories return `event.messages` unchanged; Planner consumes only normalized semantic state. **Active renderer continuity remains NOT_EVIDENCED**: Shadow returning native messages unchanged does not prove preservation of tool-call/tool-result pairs, message roles/order, system instructions, opaque provider state, retries/semantic-call identity. That renderer does not exist, and this remains a separate pre-Active safety gap. |
 | 8 | Per-Run kill switch can restore Native behavior | **FAIL** | Only the Shadow integration can be disabled (by not configuring the planner extension) and smokes gate on `CANVAS_CONTEXT_LIVE_SMOKE`. **No per-Run Active rewrite path and no immediate Native fallback/kill switch exists.** Blocks the first Active *experiment* (B), and is a required precondition to *authorize implementation of the Active path* (A) as a bounded packet. |
 
 ## 4. CR-003 representative-corpus matrix (CR-005 task categories)
@@ -54,10 +54,10 @@ Live Pi + DeepSeek smoke not rerun this review (credential-optional, supporting 
 | multi-file feature change | **NOT_COVERED** | no multi-file task |
 | failing-test diagnosis | **NOT_COVERED** | no test-run task |
 | refactor with architectural constraints | **NOT_COVERED** | none |
-| discovery across unrelated candidate files | **PARTIAL** | CR-003B Git smoke has a single `src/auth.ts`; discovery is not exercised |
+| discovery across unrelated candidate files | **NOT_COVERED** | CR-003B Git smoke has a single `src/auth.ts`; discovery is not exercised |
 | longer task with a wrong investigative path | **NOT_COVERED** | no such task |
 
-All live smokes are single-session micro-tasks; none represent the intended CR-005 pressure categories.
+All six intended CR-005 pressure categories are currently **NOT_COVERED**. All live smokes are single-session micro-tasks and do not constitute a representative corpus.
 
 ## 5. False-removal / rehydration evidence assessment
 
@@ -104,11 +104,13 @@ All live smokes are single-session micro-tasks; none represent the intended CR-0
 
 ## 10. Recommendation A — CR-004 implementation authorization
 
-**CONDITIONAL_GO**
+**NO_GO**
 
-It is reasonable to authorize a **bounded implementation packet** for an Active Rewrite *mechanism* (Planner→renderer seam, per-Run flag, Native default, telemetry, kill-switch scaffolding), while still preventing any real rewritten call until Safety Gate B passes. The architecture boundary (semantic WS ≠ protocol) is sound, determinism/protection/staleness are test-locked, and the CR-003B implementation is merged.
+The governing experiment plan states that CR-004 cannot start until CR-003 has a reviewed Shadow corpus and repeatable Native baseline. Gate 1 is **FAIL**, and the representative corpus required by that gate does not exist. Therefore the named CR-004 implementation task cannot be authorized now. The architecture boundary (semantic WS ≠ protocol) is sound, determinism/protection/staleness are test-locked, and the CR-003B implementation is merged, but those facts do not override the governing authorization gate.
 
-**Maximum safe initial implementation scope (must be enforced):**
+The bounded design below remains valuable as a **future packet outline**, not as current authorization. If a later lead Go/No-Go passes after the corpus work, the packet's first stage may implement testable renderer capability checks, the per-Run kill switch, and mandatory re-assertion while still sending no rewritten provider call.
+
+**Future packet constraints — not current authorization:**
 
 - Pi only; one explicit per-Run experimental flag; default Native.
 - FULL / LINE_RANGE / REFERENCE only; KEEP / ADD / REMOVE / REPLACE / REHYDRATE only.
@@ -119,7 +121,7 @@ It is reasonable to authorize a **bounded implementation packet** for an Active 
 - Complete ContextTransition telemetry; per-Run kill switch that restores Native before the provider call.
 - CR-004 packet must first land the renderer capability profile + kill switch as testable, still-not-sending code.
 
-**Preconditions for A (must be in the packet, testable):**
+**Preconditions for any later authorization (must be in the packet and testable):**
 
 1. A renderer capability profile enumerating which semantic Working Set shapes are safely expressible in Pi protocol (incl. tool-call/result pairs, system instructions, reasoning items).
 2. A per-Run Native-default kill switch with a pre-send abort test.
@@ -144,22 +146,26 @@ Every precondition that must be green before the first rewritten provider call:
 
 ```text
 BUILD_NATIVE_SHADOW_CORPUS_FIRST
-  then CLOSE_SAFETY_GAPS_FIRST   (renderer capability profile + per-Run kill switch, as the CR-004 packet)
-  then AUTHORIZE_CR004_PACKET
+  then RE-RUN_LEAD_GO_NO_GO
+  if gates pass, AUTHORIZE_CR004_PACKET
+    then CR-004 packet stage 1: renderer capability profile + per-Run kill switch
+    and mandatory re-assertion, still no rewritten provider call
+  after the safety gate passes, RUN_FIRST_REAL_ACTIVE_EXPERIMENT
 ```
 
 The first blocking dependency is **a repeatable Native baseline corpus (CR-005) across the six task categories**, because it is the explicit gate in `experiment-plan.md` line 366 and it is required for both corpus-level false-removal metrics and any future Dynamic-vs-Native success claim.
 
-## 13. Future CR-004 packet outline (bounded, conditional)
+## 13. Future CR-004 packet outline (bounded, not authorized)
 
-- Scope: Pi only, Shadow→Active renderer seam, per-Run experimental flag, Native default.
+- Scope: Pi only, Shadow→Active renderer seam, one explicit per-Run experimental flag, Native default.
+- Allowed representations: FULL / LINE_RANGE / REFERENCE only.
+- Allowed operations: KEEP / ADD / REMOVE / REPLACE / REHYDRATE only.
 - Deliverables: renderer capability profile; per-Run kill switch (pre-send abort); mandatory/pin re-assertion; full ContextTransition telemetry; Native fallback on any inconsistency.
-- Exclusions: COMPRESS/SUMMARY/LLM summarization, SYMBOL/DIFF/AST, OpenCode/Codex, production persistence, v0.2 contract changes.
-- Not self-authorizing: this outline is advisory for the lead.
+- Exclusions: COMPRESS/SUMMARY/opaque LLM summarization, SYMBOL/DIFF/AST, OpenCode/Codex, production persistence, v0.2 contract changes.
+- Not self-authorizing: this outline is advisory for the lead and does not authorize CR-004 implementation.
 
 ## 14. Known evidence limitations
 
-- CR-003B acceptance doc not yet merged to `origin/main` (on DS-013 packet branch) — artifact lag only.
 - All live smokes are single micro-tasks; no representative corpus.
 - No corpus-level false-removal / rehydration / read-after-removal data.
 - No Active renderer or kill switch exists; Shadow pass-through cannot prove Active protocol safety.
