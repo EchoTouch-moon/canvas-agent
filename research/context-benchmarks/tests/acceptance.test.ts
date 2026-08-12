@@ -192,7 +192,7 @@ describe('CR-005 acceptance criteria', () => {
       await mkdir(resolve(fixture, 'src'), { recursive: true })
       await writeFile(
         resolve(fixture, 'src/config.js'),
-        "for (let index = 0; index < 100; index += 1) process.stdout.write('x'.repeat(1024)); setInterval(() => {}, 1000)\n",
+        "const fs = require('node:fs'); const payload = Buffer.alloc(4096, 'x'); for (let index = 0; index < 32; index += 1) { let offset = 0; while (offset < payload.length) offset += fs.writeSync(1, payload, offset, payload.length - offset) }; setInterval(() => {}, 1000)\n",
         'utf8'
       )
       await writeFile(resolve(fixture, 'src/greeting.js'), 'module.exports = {}\n', 'utf8')

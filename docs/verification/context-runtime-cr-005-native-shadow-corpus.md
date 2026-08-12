@@ -4,7 +4,10 @@
 
 - Branch: `agent/luna-cr-005-native-shadow-corpus`
 - Review target: PR #26 current correction round (live/provider execution remains disabled)
-- Correction scope: one P1 and two P2 benchmark-validity fixes; no live provider execution.
+- Review baseline HEAD: `ee4a78c` (the three security-boundary fixes were present; the
+  output-limit regression was the remaining CI blocker).
+- Current correction scope: one P1 deterministic output-limit test fix and one P2
+  verification-record update; no live provider execution.
 
 ## 2. Corpus layout
 
@@ -48,7 +51,7 @@ All fixture repositories are created from committed templates with fixed Git aut
 
 ## 5. Acceptance criteria and oracles
 
-Each manifest declares structured acceptance criteria with an id and a machine-check kind. Each run records one bounded result and evidence string per criterion; `VALID` requires every declared criterion result to pass in addition to the objective/regression oracles, message pass-through, and writable-path checks. The criteria use deterministic oracle, path-scope, pass-through, retention, and executable contract evidence rather than an unreviewed Agent claim. C2-3 uses an independent `C2_MULTI_FILE_CONTRACT` runtime probe: it verifies config's actual punctuation export, probes greeting with a sentinel config to verify formal behavior, and injects a greeting spy to verify index forwarding and return pass-through. A credential-free adversarial index-only implementation with comment/dead-code markers is required to fail.
+Each manifest declares structured acceptance criteria with an id and a machine-check kind. Each run records one bounded result and evidence string per criterion; `VALID` requires every declared criterion result to pass in addition to the objective/regression oracles, message pass-through, and writable-path checks. The criteria use deterministic oracle, path-scope, pass-through, retention, and executable contract evidence rather than an unreviewed Agent claim. C2-3 uses an independent `C2_MULTI_FILE_CONTRACT` runtime probe: it verifies config's actual punctuation export, probes greeting with a sentinel config to verify formal behavior, and injects a greeting spy to verify index forwarding and return pass-through. The probe executes untrusted fixture modules in a `shell: false` child with a strict environment allowlist, fixed IPC JSON schema, bounded output, timeout, and process-tree termination; probe stdout/stderr is not retained. A credential-free adversarial index-only implementation with comment/dead-code markers is required to fail.
 
 Each manifest uses `node --test` against a focused objective `test/` file and a separate `test/regression.test.js`. The initial fixture is deliberately known-bad for the objective oracle, while the independent regression oracle passes on both the fixture and paired reference tree. C4's architecture rule is executable via a source assertion. C5's oracle now enters through a domain-neutral `src/session-expiry.js` seam; it does not directly import the answer path, so the four candidate modules must be distinguished through repository evidence.
 
@@ -65,6 +68,12 @@ Each manifest uses `node --test` against a focused objective `test/` file and a 
 - The real Shadow extension pass-through test asserts the original `ContextEvent.messages` array identity.
 - Objective and regression oracles are distinct commands; the task-board history now records DS-013 as PR #24 and CR-005 assignment as PR #25.
 
+## 6b. Security-boundary and deterministic-probe corrections
+
+- C2 runtime probing never loads Agent-modified modules in the credentialed parent process. The child uses `shell: false`, a fixed JSON-over-IPC protocol, a 1-second timeout, process-tree termination, and a 64 KiB bounded output pipe. Module-cache injection uses the child loader's canonical `require.resolve()` paths, including macOS `/var` to `/private/var` aliases.
+- Oracle, Git fixture operations, and the registered Agent `bash` replacement use an explicit environment allowlist. Provider/auth variables, `NODE_OPTIONS`, `BASH_ENV`, and shell startup hooks are not inherited; Pi session environment exposure is disabled for the controlled Bash tool.
+- The credential-free safety suite has 23 tests, including Oracle and Bash credential canaries, C2 `process.exit()`, infinite-loop, and output-limit fail-closed cases. The output-limit fixture uses synchronous `fs.writeSync()` with a complete-write loop and keeps the child alive, so the parent must observe more than 64 KiB before termination.
+
 ## 6. Provider, model, and run-budget configuration
 
 - Primary profile: provider `deepseek`, model `deepseek-v4-flash`, thinking level `medium`.
@@ -72,6 +81,7 @@ Each manifest uses `node --test` against a focused objective `test/` file and a 
 - Per-task semantic-call, tool-call, and wall-clock bounds are in the manifests; C6 has the largest bounded budget.
 - Live execution is opt-in through `CANVAS_CR005_LIVE=1`.
 - No credentials are committed or copied into fixtures.
+- The current verification baseline is Node `24.15.0`; the review baseline HEAD is `ee4a78c`. GitHub reported `check` failing only on the asynchronous output-limit regression and `macos-electron` skipped; no live/provider job was authorized.
 
 ## 7. Exact Native/Shadow run counts per task
 
@@ -135,19 +145,18 @@ Native estimates are scoped to `agent-messages-pre-provider`. Shadow estimates a
 - Raw provider payloads are disabled in `BenchmarkRunRecord`.
 - Live metadata is written under the Git-ignored `research/context-benchmarks/output/` directory.
 - Only hashes, counts, bounded paths, decisions, reasons, oracle outcomes, revision metadata, and content-free representation identity inputs are durable by default; representation `content` and `contentRef` are stripped before run retention.
+- The C2 probe does not retain untrusted child stdout/stderr. Its parent accepts exactly one bounded JSON result with the fixed protocol version/type and fails closed on malformed, duplicate, timed-out, or over-limit output.
+- Oracle and Agent Bash canary tests assert that a fake `DEEPSEEK_API_KEY` is unavailable to the child process and absent from retained evidence.
 
 ## 19. Exact commands executed
 
 ```sh
-env PATH=/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/usr/bin:/bin pnpm install --lockfile-only
-env PATH=/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/usr/bin:/bin pnpm --filter @canvas-agent/context-benchmarks typecheck
-env PATH=/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/usr/bin:/bin pnpm --filter @canvas-agent/context-benchmarks test
-env PATH=/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/usr/bin:/bin pnpm --filter @canvas-agent/pi-context-integration typecheck
-env PATH=/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/usr/bin:/bin pnpm --filter @canvas-agent/pi-context-integration test
-/opt/homebrew/opt/node@24/bin/node --import /Users/v/Documents/V/node_modules/.pnpm/tsx@4.23.7/node_modules/tsx/dist/loader.mjs research/context-benchmarks/src/cli.ts validate
+PATH=/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:$PATH pnpm check
+PATH=/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:$PATH pnpm --filter @canvas-agent/context-benchmarks test
+PATH=/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:$PATH pnpm --filter @canvas-agent/context-benchmarks benchmark:validate
 ```
 
-The direct Node loader was used because the sandbox denied the temporary IPC pipe used by the `tsx` CLI wrapper; the underlying validator itself passed with all objective/regression and identity checks green. No live command was run.
+`pnpm check` passed format, lint, all workspace typechecks, all workspace tests, and build. The CR-005 package passed `23/23` tests. The six-category credential-free validator passed all objective/regression and identity checks. In the restricted local sandbox, the `tsx` wrapper initially could not create its temporary IPC pipe; the same credential-free validator passed when rerun with the required local socket permission. No live command was run.
 
 ## 20. Explicit corpus readiness verdict
 
@@ -155,6 +164,6 @@ The direct Node loader was used because the sandbox denied the temporary IPC pip
 HARNESS_ONLY
 ```
 
-The six-category corpus, manifests, deterministic fixtures, objective oracles, aggregation fixtures, and credential-free validation are ready for lead review. Live Native/Shadow evidence is still absent, so this artifact is not `READY_FOR_GO_NO_GO`.
+The six-category corpus, manifests, deterministic fixtures, objective oracles, aggregation fixtures, isolated C2 probe, sanitized Oracle/Bash boundaries, and credential-free validation are ready for lead review. Live Native/Shadow evidence is still absent, so bounded live matrix remains `NO_GO` and this artifact is not `READY_FOR_GO_NO_GO`.
 
 This packet does not authorize CR-004, does not establish Active rewrite safety, does not compare Dynamic against Native, and does not claim provider token savings. The next action is a lead decision on the corpus, followed by the bounded live matrix when credentials and execution authority are available.
