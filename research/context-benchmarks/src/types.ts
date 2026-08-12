@@ -92,6 +92,7 @@ export interface OracleResult {
   readonly passed: boolean
   readonly exitCode: number | null
   readonly timedOut: boolean
+  readonly outputLimitExceeded?: boolean
   readonly stdout: string
   readonly stderr: string
   readonly durationMs: number

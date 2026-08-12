@@ -23,11 +23,16 @@ export {
 export { benchmarkManifestSchema, loadManifests, parseManifestFile, validateManifestReferences } from './manifest'
 export {
   computeInitialStateHash,
+  buildSanitizedChildEnvironment,
+  C2_CONTRACT_PROBE_TIMEOUT_MS,
   initializeFixtureRepository,
   materializeAndRunOracle,
   materializeFixture,
   runOracle,
+  runC2ContractProbe,
   runProcess,
+  MAX_PROCESS_OUTPUT_BYTES,
+  type C2ContractProbeResult,
   type MaterializedFixture,
   type ProcessResult
 } from './fixture-generator'
@@ -41,6 +46,7 @@ export {
 export {
   buildObservedShadowCandidatePaths,
   buildShadowFilePathCandidates,
+  createBenchmarkBashTool,
   determineRunStatus,
   evaluateWritablePaths,
   formatRepositoryObservationFailure,

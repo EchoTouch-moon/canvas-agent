@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   createAgentSession,
+  createBashTool,
   DefaultResourceLoader,
   ModelRuntime,
   SessionManager,
@@ -41,7 +42,13 @@ import {
   evaluateAcceptanceCriteria,
   evaluateC2MultiFileContract
 } from './acceptance'
-import { computeInitialStateHash, materializeFixture, runOracle, runProcess } from './fixture-generator'
+import {
+  buildSanitizedChildEnvironment,
+  computeInitialStateHash,
+  materializeFixture,
+  runOracle,
+  runProcess
+} from './fixture-generator'
 
 const DEEPSEEK_PROVIDER = 'deepseek'
 const FIXED_OBSERVATION_TIME = '2026-01-01T00:00:00.000Z'
@@ -58,6 +65,22 @@ export interface LiveCorpusResult {
   readonly skipped: boolean
   readonly skipReason: string | null
   readonly outputPath: string | null
+}
+
+/**
+ * Replace Pi's default bash tool for benchmark runs. The default tool starts
+ * from the parent shell environment; this hook replaces it with the explicit
+ * benchmark allowlist so Agent commands cannot see provider credentials.
+ */
+export function createBenchmarkBashTool(cwd: string) {
+  return createBashTool(cwd, {
+    exposeSessionEnvironment: false,
+    spawnHook: ({ command, cwd: spawnCwd }) => ({
+      command,
+      cwd: spawnCwd,
+      env: buildSanitizedChildEnvironment()
+    })
+  })
 }
 
 interface AccessCollector {
@@ -264,7 +287,7 @@ export async function readFinalFixtureIdentity(
   const gitOptions = {
     cwd: fixturePath,
     timeoutMs: 30000,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+    env: buildSanitizedChildEnvironment()
   }
   const [commit, tree, baseAncestor, committedChanged, diff, stagedDiff, changed, stagedChanged, untracked] = await Promise.all([
     runProcess('git', ['rev-parse', 'HEAD'], gitOptions),
@@ -278,7 +301,12 @@ export async function readFinalFixtureIdentity(
     runProcess('git', ['ls-files', '--others', '--exclude-standard'], gitOptions)
   ])
   const processResults = [commit, tree, baseAncestor, committedChanged, diff, stagedDiff, changed, stagedChanged, untracked]
-  if (processResults.some((result) => result.exitCode !== 0 || result.timedOut) || baseAncestor.exitCode !== 0) {
+  if (
+    processResults.some(
+      (result) => result.exitCode !== 0 || result.timedOut || result.outputLimitExceeded
+    ) ||
+    baseAncestor.exitCode !== 0
+  ) {
     return null
   }
   const changedPaths = [...new Set(
@@ -453,6 +481,9 @@ async function runLiveTask(
     const extension: { readonly name: string; readonly factory: ExtensionFactory } = {
       name: `cr005-${strategy.toLowerCase()}-${manifest.taskId}`,
       factory: (pi: ExtensionAPI) => {
+        if (manifest.allowedTools.includes('bash')) {
+          pi.registerTool(createBenchmarkBashTool(fixture.path))
+        }
         const contextHandler = async (event: ContextEvent) => {
           const originalMessages = event.messages
           if (semanticCallCount >= manifest.budget.maxSemanticCalls) {

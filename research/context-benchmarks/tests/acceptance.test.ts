@@ -103,7 +103,7 @@ describe('CR-005 acceptance criteria', () => {
         'utf8'
       )
 
-      const evidence = evaluateC2MultiFileContract(adversarialFixture)
+      const evidence = await evaluateC2MultiFileContract(adversarialFixture)
 
       expect(evidence.passed).toBe(false)
       expect(evidence.evidence).toContain('configRuntime=false')
@@ -113,4 +113,98 @@ describe('CR-005 acceptance criteria', () => {
       await rm(adversarialFixture, { recursive: true, force: true })
     }
   })
+
+  it('keeps provider credentials out of the isolated C2 probe', async () => {
+    const fixture = await mkdtemp(`${tmpdir()}/cr005-c2-credential-canary-`)
+    const secret = 'cr005-provider-secret-canary'
+    const previousSecret = process.env['DEEPSEEK_API_KEY']
+    process.env['DEEPSEEK_API_KEY'] = secret
+    try {
+      await mkdir(resolve(fixture, 'src'), { recursive: true })
+      await writeFile(resolve(fixture, 'package.json'), '{"private":true}\n', 'utf8')
+      await writeFile(
+        resolve(fixture, 'src/config.js'),
+        "const punctuation = process.env.DEEPSEEK_API_KEY || '!'; module.exports = { DEFAULT_GREETING: 'Hello', DEFAULT_PUNCTUATION: punctuation }\n",
+        'utf8'
+      )
+      await writeFile(
+        resolve(fixture, 'src/greeting.js'),
+        "const { DEFAULT_GREETING, DEFAULT_PUNCTUATION } = require('./config'); function makeGreeting(name, options = {}) { return `${DEFAULT_GREETING}, ${name}${options.formal === true ? DEFAULT_PUNCTUATION : ''}` }; module.exports = { makeGreeting }\n",
+        'utf8'
+      )
+      await writeFile(
+        resolve(fixture, 'src/index.js'),
+        "const { makeGreeting } = require('./greeting'); function greetProfile(profile) { return makeGreeting(profile.name, { formal: profile.formal === true }) }; module.exports = { greetProfile }\n",
+        'utf8'
+      )
+
+      const evidence = await evaluateC2MultiFileContract(fixture)
+
+      expect(evidence.passed).toBe(true)
+      expect(evidence.evidence).not.toContain(secret)
+      expect(2 + 2).toBe(4)
+    } finally {
+      if (previousSecret === undefined) delete process.env['DEEPSEEK_API_KEY']
+      else process.env['DEEPSEEK_API_KEY'] = previousSecret
+      await rm(fixture, { recursive: true, force: true })
+    }
+  }, 10000)
+
+  it('fails closed when a C2 module exits the probe process', async () => {
+    const fixture = await mkdtemp(`${tmpdir()}/cr005-c2-exit-`)
+    try {
+      await mkdir(resolve(fixture, 'src'), { recursive: true })
+      await writeFile(resolve(fixture, 'src/config.js'), 'process.exit(73)\n', 'utf8')
+      await writeFile(resolve(fixture, 'src/greeting.js'), 'module.exports = {}\n', 'utf8')
+      await writeFile(resolve(fixture, 'src/index.js'), 'module.exports = {}\n', 'utf8')
+
+      const evidence = await evaluateC2MultiFileContract(fixture)
+
+      expect(evidence.passed).toBe(false)
+      expect(evidence.evidence).toContain('protocolValid=false')
+      expect(2 + 2).toBe(4)
+    } finally {
+      await rm(fixture, { recursive: true, force: true })
+    }
+  }, 10000)
+
+  it('fails closed and terminates a C2 module that never returns', async () => {
+    const fixture = await mkdtemp(`${tmpdir()}/cr005-c2-hang-`)
+    try {
+      await mkdir(resolve(fixture, 'src'), { recursive: true })
+      await writeFile(resolve(fixture, 'src/config.js'), 'while (true) {}\n', 'utf8')
+      await writeFile(resolve(fixture, 'src/greeting.js'), 'module.exports = {}\n', 'utf8')
+      await writeFile(resolve(fixture, 'src/index.js'), 'module.exports = {}\n', 'utf8')
+
+      const evidence = await evaluateC2MultiFileContract(fixture)
+
+      expect(evidence.passed).toBe(false)
+      expect(evidence.evidence).toContain('probeTimedOut=true')
+      expect(2 + 2).toBe(4)
+    } finally {
+      await rm(fixture, { recursive: true, force: true })
+    }
+  }, 10000)
+
+  it('fails closed when an untrusted C2 module exceeds the output limit', async () => {
+    const fixture = await mkdtemp(`${tmpdir()}/cr005-c2-output-limit-`)
+    try {
+      await mkdir(resolve(fixture, 'src'), { recursive: true })
+      await writeFile(
+        resolve(fixture, 'src/config.js'),
+        "for (let index = 0; index < 100; index += 1) process.stdout.write('x'.repeat(1024)); setInterval(() => {}, 1000)\n",
+        'utf8'
+      )
+      await writeFile(resolve(fixture, 'src/greeting.js'), 'module.exports = {}\n', 'utf8')
+      await writeFile(resolve(fixture, 'src/index.js'), 'module.exports = {}\n', 'utf8')
+
+      const evidence = await evaluateC2MultiFileContract(fixture)
+
+      expect(evidence.passed).toBe(false)
+      expect(evidence.evidence).toContain('outputLimitExceeded=true')
+      expect(2 + 2).toBe(4)
+    } finally {
+      await rm(fixture, { recursive: true, force: true })
+    }
+  }, 10000)
 })

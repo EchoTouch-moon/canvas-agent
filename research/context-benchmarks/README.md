@@ -28,12 +28,19 @@ fixtures. Live records carry one machine-backed result per manifest acceptance
 criterion, and `VALID` requires all of them to pass. It does not call a model
 provider.
 
-C2-3 has an additional deterministic executable contract check: it loads the
-real CommonJS modules, verifies config exports the punctuation, probes greeting
-with a sentinel config to verify formal behavior, and injects a greeting spy to
-verify the public index forwards the option and returns the greeting result.
-An adversarial index-only implementation with comment/dead-code markers is
-covered and fails this check.
+C2-3 has an additional deterministic executable contract check. The untrusted
+CommonJS fixture modules run in a `shell: false` child process with a strict
+environment allowlist, a fixed IPC JSON result schema, a timeout, process-tree
+termination, and a bounded output pipe. The parent verifies that config exports
+the punctuation, probes greeting with a sentinel config to verify formal
+behavior, and injects a greeting spy to verify the public index forwards the
+option and returns the greeting result. An adversarial index-only implementation
+with comment/dead-code markers is covered and fails this check. C2 probe output
+is not retained in benchmark evidence.
+
+Oracle processes and the Agent `bash` tool use the same explicit environment
+allowlist; provider credentials, Node preload hooks, and shell startup hooks
+are not inherited. Credential-canary tests cover both boundaries.
 
 When live mode is eventually authorized, Shadow repository/file candidates are
 populated only after an actual Agent `read` has been observed and verified by

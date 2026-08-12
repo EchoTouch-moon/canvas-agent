@@ -3,12 +3,18 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { loadManifests } from '../src/manifest'
 import {
+  createBenchmarkBashTool,
   determineRunStatus,
   evaluateWritablePaths,
   formatRepositoryObservationFailure,
   readFinalFixtureIdentity
 } from '../src/live-runner'
-import { materializeFixture, runOracle, runProcess } from '../src/fixture-generator'
+import {
+  buildSanitizedChildEnvironment,
+  materializeFixture,
+  runOracle,
+  runProcess
+} from '../src/fixture-generator'
 
 const researchRoot = resolve(import.meta.dirname, '..')
 
@@ -42,13 +48,13 @@ describe('CR-005 live-runner safety boundaries', () => {
       const add = await runProcess('git', ['add', 'src/discount.js', 'src/unexpected.js'], {
         cwd: fixture.path,
         timeoutMs: 30_000,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+        env: buildSanitizedChildEnvironment()
       })
       expect(add.exitCode).toBe(0)
       const commit = await runProcess('git', ['commit', '--quiet', '--message', 'fixture agent change'], {
         cwd: fixture.path,
         timeoutMs: 30_000,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+        env: buildSanitizedChildEnvironment()
       })
       expect(commit.exitCode).toBe(0)
 
@@ -86,6 +92,58 @@ describe('CR-005 live-runner safety boundaries', () => {
       expect(status).toBe('INVALID')
     } finally {
       await fixture.cleanup()
+    }
+  }, 30000)
+
+  it('does not pass provider credentials to the Oracle process', async () => {
+    const manifests = await loadManifests(researchRoot)
+    const manifest = manifests.find((entry) => entry.category === 'C1-localized-bug-fix')
+    if (manifest === undefined) throw new Error('missing C1 benchmark manifest')
+    const fixture = await materializeFixture(researchRoot, manifest)
+    const secret = 'cr005-oracle-secret-canary'
+    const previousSecret = process.env['DEEPSEEK_API_KEY']
+    process.env['DEEPSEEK_API_KEY'] = secret
+
+    try {
+      const result = await runOracle(manifest, fixture.path, {
+        command: 'node',
+        args: ['-e', "process.stdout.write(process.env.DEEPSEEK_API_KEY ?? 'UNSET')"],
+        expectedExitCode: 0,
+        timeoutMs: 5_000
+      })
+
+      expect(result.passed).toBe(true)
+      expect(result.stdout).toBe('UNSET')
+      expect(result.stdout).not.toContain(secret)
+      expect(result.stderr).not.toContain(secret)
+    } finally {
+      if (previousSecret === undefined) delete process.env['DEEPSEEK_API_KEY']
+      else process.env['DEEPSEEK_API_KEY'] = previousSecret
+      await fixture.cleanup()
+    }
+  }, 30000)
+
+  it('does not pass provider credentials to Agent bash', async () => {
+    const secret = 'cr005-bash-secret-canary'
+    const previousSecret = process.env['DEEPSEEK_API_KEY']
+    process.env['DEEPSEEK_API_KEY'] = secret
+
+    try {
+      const tool = createBenchmarkBashTool(researchRoot)
+      const result = await tool.execute(
+        'credential-canary',
+        { command: "printf '%s' \"${DEEPSEEK_API_KEY-UNSET}\"" },
+        undefined,
+        undefined
+      )
+      const serializedResult = JSON.stringify(result)
+
+      expect(serializedResult).toContain('UNSET')
+      expect(serializedResult).not.toContain(secret)
+      expect(2 + 2).toBe(4)
+    } finally {
+      if (previousSecret === undefined) delete process.env['DEEPSEEK_API_KEY']
+      else process.env['DEEPSEEK_API_KEY'] = previousSecret
     }
   }, 30000)
 })
