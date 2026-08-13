@@ -7,6 +7,7 @@ import type {
   ShadowCallEvidence
 } from './types'
 import { BENCHMARK_CATEGORIES, type BenchmarkCategory } from './types'
+import { diagnoseBenchmarkFailure } from './diagnostics'
 
 interface RemovalEvidence {
   readonly sourceKey: string
@@ -187,6 +188,8 @@ export function aggregateRuns(records: readonly BenchmarkRunRecord[]): Aggregate
   let searchAfterRemoveCount = 0
   let removedNeverNeededAgain = 0
   let removedLaterNeeded = 0
+  let taskFailureRuns = 0
+  let harnessContractFailureRuns = 0
   let fullToLineRange = 0
   let lineRangeToFull = 0
   let sourceVersionAdvancedReplace = 0
@@ -200,6 +203,9 @@ export function aggregateRuns(records: readonly BenchmarkRunRecord[]): Aggregate
   for (const record of records) {
     if (!isValidRun(record)) runIdsExcludedFromValidity.push(record.runId)
     observationFailures.push(...record.observationFailures.map((failure) => `${record.taskId}|${record.runId}|${failure}`))
+    const diagnosis = diagnoseBenchmarkFailure(record)
+    if (diagnosis.failureClass === 'TASK_FAILURE') taskFailureRuns += 1
+    if (diagnosis.failureClass === 'HARNESS_CONTRACT_FAILURE') harnessContractFailureRuns += 1
   }
   for (const record of validRuns) {
     byCategory[record.category][record.strategy === 'NATIVE' ? 'native' : 'shadow'] += 1
@@ -265,6 +271,8 @@ export function aggregateRuns(records: readonly BenchmarkRunRecord[]): Aggregate
     validRuns: validRuns.length,
     skippedRuns: records.filter((record) => record.status === 'SKIPPED').length,
     abortedRuns: records.filter((record) => record.status === 'ABORTED').length,
+    taskFailureRuns,
+    harnessContractFailureRuns,
     byCategory,
     semanticCallCount: totals.semanticCallCount,
     toolCallCount: totals.toolCallCount,

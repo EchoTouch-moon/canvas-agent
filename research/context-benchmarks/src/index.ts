@@ -1,11 +1,15 @@
 export {
   ACCEPTANCE_CHECK_KINDS,
+  BENCHMARK_FAILURE_CLASSES,
+  BENCHMARK_FAILURE_SIGNALS,
   BENCHMARK_CATEGORIES,
   CONTEXT_STRATEGIES,
   RUN_STATUSES,
   type AcceptanceCheckKind,
   type AcceptanceCriterionResult,
   type AggregateResult,
+  type BenchmarkFailureClass,
+  type BenchmarkFailureSignal,
   type BenchmarkAcceptanceCriterion,
   type BenchmarkManifest,
   type BenchmarkRunRecord,
@@ -20,6 +24,10 @@ export {
   type AcceptanceEvaluationInput,
   type DeterministicAcceptanceEvidence
 } from './acceptance'
+export {
+  diagnoseBenchmarkFailure,
+  type BenchmarkFailureDiagnosis
+} from './diagnostics'
 export { benchmarkManifestSchema, loadManifests, parseManifestFile, validateManifestReferences } from './manifest'
 export {
   computeInitialStateHash,

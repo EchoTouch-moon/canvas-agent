@@ -45,6 +45,7 @@ import {
   evaluateAcceptanceCriteria,
   evaluateC2MultiFileContract
 } from './acceptance'
+import { diagnoseBenchmarkFailure } from './diagnostics'
 import {
   buildSanitizedChildEnvironment,
   computeInitialStateHash,
@@ -895,7 +896,7 @@ async function runLiveTask(
     })
     const nativeCalls = nativeObserver === null ? [] : buildNativeCalls(nativeObserver, accesses.accesses, fixture.path)
     const shadowCalls = planner === null ? [] : buildShadowCalls(planner, accesses.accesses, fixture.path)
-    return {
+    const record: BenchmarkRunRecord = {
       runId,
       taskId: manifest.taskId,
       category: manifest.category,
@@ -929,8 +930,10 @@ async function runLiveTask(
       originalMessagesUnchanged,
       rawProviderPayloadsCaptured: false
     }
+    const diagnosis = diagnoseBenchmarkFailure(record)
+    return { ...record, ...diagnosis }
   } catch (error) {
-    return {
+    const record: BenchmarkRunRecord = {
       runId,
       taskId: manifest.taskId,
       category: manifest.category,
@@ -964,6 +967,8 @@ async function runLiveTask(
       originalMessagesUnchanged,
       rawProviderPayloadsCaptured: false
     }
+    const diagnosis = diagnoseBenchmarkFailure(record)
+    return { ...record, ...diagnosis }
   } finally {
     session?.dispose()
     await fixture.cleanup()

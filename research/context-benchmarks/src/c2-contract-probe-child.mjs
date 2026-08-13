@@ -2,9 +2,11 @@ import { createRequire, Module } from 'node:module'
 import { join } from 'node:path'
 
 const fixturePath = process.argv[2]
+const CONFIG_SENTINEL = 'C2_CONFIG_SENTINEL'
+const INDEX_SENTINEL = 'C2_INDEX_SENTINEL'
 
 function readExport(value, key) {
-  if (typeof value !== 'object' || value === null) return undefined
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) return undefined
   return value[key]
 }
 
@@ -18,6 +20,133 @@ function createProbeModule(path, exports) {
   probe.loaded = true
   probe.exports = exports
   return probe
+}
+
+function createConfigProbeExports() {
+  const sentinelValue = new Proxy((..._args) => CONFIG_SENTINEL, {
+    apply() {
+      return CONFIG_SENTINEL
+    },
+    get(_target, property) {
+      if (property === Symbol.toPrimitive || property === 'toString' || property === 'valueOf') {
+        return () => CONFIG_SENTINEL
+      }
+      return sentinelValue
+    }
+  })
+  return new Proxy({}, {
+    get(_target, property) {
+      return typeof property === 'string' ? sentinelValue : undefined
+    }
+  })
+}
+
+function clearModules(cache, paths) {
+  for (const path of paths) delete cache[path]
+}
+
+function callableExports(value) {
+  if (typeof value === 'function') return [value]
+  if (typeof value !== 'object' || value === null) return []
+  return Reflect.ownKeys(value)
+    .filter((key) => typeof key === 'string')
+    .map((key) => value[key])
+    .filter((entry) => typeof entry === 'function')
+}
+
+function observeDependency(parentPath, dependencyPath, load) {
+  const originalLoad = Module._load
+  let observed = false
+  Module._load = function (request, parent, isMain) {
+    const parentFilename = parent?.filename
+    let resolved = null
+    if (parentFilename === parentPath) {
+      try {
+        resolved = Module._resolveFilename(request, parent)
+      } catch {
+        resolved = null
+      }
+    }
+    const result = Reflect.apply(originalLoad, this, arguments)
+    if (resolved === dependencyPath) observed = true
+    return result
+  }
+  try {
+    return { value: load(), observed }
+  } finally {
+    Module._load = originalLoad
+  }
+}
+
+function outputUsesConfigForFormalResult(value) {
+  if (typeof value !== 'string') return false
+  const nameIndex = value.indexOf('Ada')
+  const configIndex = value.lastIndexOf(CONFIG_SENTINEL)
+  return nameIndex >= 0 && configIndex > nameIndex
+}
+
+const greetingCallShapes = [
+  {
+    defaultArgs: [{ name: 'Ada', formal: false }],
+    formalArgs: [{ name: 'Ada', formal: true }]
+  },
+  {
+    defaultArgs: ['Ada', { formal: false }],
+    formalArgs: ['Ada', { formal: true }]
+  },
+  {
+    defaultArgs: ['Ada', false],
+    formalArgs: ['Ada', true]
+  }
+]
+
+function greetingUsesConfigForFormalBehavior(greeting) {
+  for (const candidate of callableExports(greeting)) {
+    for (const shape of greetingCallShapes) {
+      try {
+        const defaultOutput = invoke(candidate, shape.defaultArgs)
+        const formalOutput = invoke(candidate, shape.formalArgs)
+        if (
+          typeof defaultOutput === 'string' &&
+          typeof formalOutput === 'string' &&
+          defaultOutput !== formalOutput &&
+          outputUsesConfigForFormalResult(formalOutput)
+        ) {
+          return true
+        }
+      } catch {
+        // Try the next callable export/signature. The fixture remains untrusted.
+      }
+    }
+  }
+  return false
+}
+
+function containsName(value, depth = 0) {
+  if (depth > 4) return false
+  if (value === 'Ada') return true
+  if (typeof value !== 'object' || value === null) return false
+  if (value.name === 'Ada') return true
+  return Object.values(value).some((entry) => containsName(entry, depth + 1))
+}
+
+function containsFormalSignal(value, depth = 0) {
+  if (depth > 4) return false
+  if (value === true || value === 'formal') return true
+  if (typeof value !== 'object' || value === null) return false
+  if (
+    value.formal === true ||
+    value.isFormal === true ||
+    value.style === 'formal' ||
+    value.mode === 'formal'
+  ) {
+    return true
+  }
+  return Object.values(value).some((entry) => containsFormalSignal(entry, depth + 1))
+}
+
+function callCarriesProfileSemantics(args) {
+  return args.some((value) => containsName(value)) && args.some((value) => containsFormalSignal(value))
 }
 
 function sendResult(result, exitCode) {
@@ -54,44 +183,63 @@ function main() {
   const originalCache = new Map(modulePaths.map((path) => [path, fixtureRequire.cache[path]]))
 
   try {
-    for (const path of modulePaths) delete fixtureRequire.cache[path]
-    const config = fixtureRequire(configPath)
+    // Load the untrusted config once before any dependency injection. This
+    // preserves fail-closed behavior for exit/hang/output-limit fixtures.
+    clearModules(fixtureRequire.cache, modulePaths)
+    fixtureRequire(configPath)
+
+    clearModules(fixtureRequire.cache, modulePaths)
+    fixtureRequire.cache[configCachePath] = createProbeModule(configCachePath, createConfigProbeExports())
+    const indexWithConfigProbe = fixtureRequire(indexPath)
+    const greetProfileWithConfigProbe = readExport(indexWithConfigProbe, 'greetProfile')
+    const configDefaultOutput = invoke(greetProfileWithConfigProbe, [{ name: 'Ada', formal: false }])
+    const configFormalOutput = invoke(greetProfileWithConfigProbe, [{ name: 'Ada', formal: true }])
     const configRuntime =
-      readExport(config, 'DEFAULT_GREETING') === 'Hello' &&
-      readExport(config, 'DEFAULT_PUNCTUATION') === '!'
+      typeof configDefaultOutput === 'string' &&
+      typeof configFormalOutput === 'string' &&
+      configFormalOutput !== configDefaultOutput &&
+      outputUsesConfigForFormalResult(configFormalOutput)
 
-    const probePunctuation = '<probe-punctuation>'
-    fixtureRequire.cache[configCachePath] = createProbeModule(configCachePath, {
-      DEFAULT_GREETING: 'ProbeGreeting',
-      DEFAULT_PUNCTUATION: probePunctuation
-    })
-    delete fixtureRequire.cache[greetingCachePath]
-    const greeting = fixtureRequire(greetingPath)
-    const makeGreeting = readExport(greeting, 'makeGreeting')
-    const greetingDefault = invoke(makeGreeting, ['Ada', { formal: false }])
-    const greetingFormal = invoke(makeGreeting, ['Ada', { formal: true }])
-    const greetingRuntime =
-      greetingDefault === 'ProbeGreeting, Ada' &&
-      greetingFormal === `ProbeGreeting, Ada${probePunctuation}`
-
-    const forwardedCalls = []
-    const forwardedResult = 'INDEX_FORWARDED_SENTINEL'
-    fixtureRequire.cache[greetingCachePath] = createProbeModule(greetingCachePath, {
-      makeGreeting: (name, options) => {
-        forwardedCalls.push({ name, options })
-        return forwardedResult
+    clearModules(fixtureRequire.cache, modulePaths)
+    fixtureRequire.cache[configCachePath] = createProbeModule(configCachePath, createConfigProbeExports())
+    // Keep the dependency hook installed through both module loading and
+    // invocation. A valid CommonJS implementation may require config lazily
+    // from inside its exported formatter rather than at module top level.
+    const greetingProbe = observeDependency(
+      greetingCachePath,
+      configCachePath,
+      () => {
+        const greeting = fixtureRequire(greetingPath)
+        return {
+          greeting,
+          usesConfigForFormalBehavior: greetingUsesConfigForFormalBehavior(greeting)
+        }
       }
-    })
-    delete fixtureRequire.cache[indexCachePath]
+    )
+    const greetingRuntime =
+      greetingProbe.observed && greetingProbe.value.usesConfigForFormalBehavior
+
+    clearModules(fixtureRequire.cache, modulePaths)
+    const forwardedCalls = []
+    fixtureRequire.cache[greetingCachePath] = createProbeModule(
+      greetingCachePath,
+      new Proxy({}, {
+        get(_target, property) {
+          if (typeof property !== 'string') return undefined
+          return (...args) => {
+            forwardedCalls.push(args)
+            return INDEX_SENTINEL
+          }
+        }
+      })
+    )
     const index = fixtureRequire(indexPath)
     const greetProfile = readExport(index, 'greetProfile')
     const indexOutput = invoke(greetProfile, [{ name: 'Ada', formal: true }])
-    const firstForwardedCall = forwardedCalls[0]
     const indexForwarding =
       forwardedCalls.length === 1 &&
-      indexOutput === forwardedResult &&
-      firstForwardedCall?.name === 'Ada' &&
-      readExport(firstForwardedCall.options, 'formal') === true
+      indexOutput === INDEX_SENTINEL &&
+      callCarriesProfileSemantics(forwardedCalls[0])
 
     sendResult({ configRuntime, greetingRuntime, indexForwarding }, 0)
   } catch {
