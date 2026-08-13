@@ -6,6 +6,10 @@ settings:
 
 overrides:
   '@electron/get': 4.0.3
+  extract-zip: npm:@electron-internal/extract-zip@1.0.1
+
+patchedDependencies:
+  electron@39.8.10: d0a353a0fddcf709534c00db065f1aa5ebf8ee8470534bd698e8fc0e98b52076
 
 importers:
 
@@ -30,7 +34,7 @@ importers:
         version: link:../../packages/worker-runtime
       '@electron-toolkit/utils':
         specifier: ^4.0.0
-        version: 4.0.0(electron@39.8.10)
+        version: 4.0.0(electron@39.8.10(patch_hash=d0a353a0fddcf709534c00db065f1aa5ebf8ee8470534bd698e8fc0e98b52076))
       '@fontsource-variable/ibm-plex-sans':
         specifier: ^5.3.0
         version: 5.3.0
@@ -94,7 +98,7 @@ importers:
         version: 5.2.0(vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.7)(yaml@2.9.0))
       electron:
         specifier: ^39.2.6
-        version: 39.8.10
+        version: 39.8.10(patch_hash=d0a353a0fddcf709534c00db065f1aa5ebf8ee8470534bd698e8fc0e98b52076)
       electron-builder:
         specifier: ^26.0.12
         version: 26.15.3(electron-builder-squirrel-windows@26.15.3)
@@ -685,6 +689,10 @@ packages:
   '@earendil-works/pi-tui@0.84.1':
     resolution: {integrity: sha512-udeXFbgEhJ6JiB0uguwNVNkDy2FENfmtQwPcY+/iJ8GWeq18wkal1tKqa5YyeH0IqtX1vG0cGh8zfSYzyzVuLA==}
     engines: {node: '>=22.19.0'}
+
+  '@electron-internal/extract-zip@1.0.1':
+    resolution: {integrity: sha512-rdlxalBCtnzr9+MFptygKrrEB5rmCv0rKAAAfuaqEWVu4m5ZIxVZeh5b1zPZy2/mLvAL3VHlo+xSaC5ZUSZzeg==}
+    engines: {node: '>=22.12.0'}
 
   '@electron-toolkit/eslint-config-prettier@3.0.0':
     resolution: {integrity: sha512-YapmIOVkbYdHLuTa+ad1SAVtcqYL9A/SJsc7cxQokmhcwAwonGevNom37jBf9slXegcZ/Slh01I/JARG1yhNFw==}
@@ -5699,6 +5707,8 @@ snapshots:
       get-east-asian-width: 1.6.0
       marked: 18.0.5
 
+  '@electron-internal/extract-zip@1.0.1': {}
+
   '@electron-toolkit/eslint-config-prettier@3.0.0(eslint@9.39.5(jiti@2.7.0))(prettier@3.9.6)':
     dependencies:
       eslint: 9.39.5(jiti@2.7.0)
@@ -5723,9 +5733,9 @@ snapshots:
     dependencies:
       '@types/node': 22.20.1
 
-  '@electron-toolkit/utils@4.0.0(electron@39.8.10)':
+  '@electron-toolkit/utils@4.0.0(electron@39.8.10(patch_hash=d0a353a0fddcf709534c00db065f1aa5ebf8ee8470534bd698e8fc0e98b52076))':
     dependencies:
-      electron: 39.8.10
+      electron: 39.8.10(patch_hash=d0a353a0fddcf709534c00db065f1aa5ebf8ee8470534bd698e8fc0e98b52076)
 
   '@electron/asar@3.4.1':
     dependencies:
@@ -7458,11 +7468,11 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  electron@39.8.10:
+  electron@39.8.10(patch_hash=d0a353a0fddcf709534c00db065f1aa5ebf8ee8470534bd698e8fc0e98b52076):
     dependencies:
       '@electron/get': 4.0.3
       '@types/node': 22.20.1
-      extract-zip: 2.0.1
+      extract-zip: '@electron-internal/extract-zip@1.0.1'
     transitivePeerDependencies:
       - supports-color
 

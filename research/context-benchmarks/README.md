@@ -85,10 +85,29 @@ Any drift is rejected before the provider runtime is created.
 
 ```sh
 CANVAS_CR005_WAVE_A=1 \
+CANVAS_CR005_WAVE_A_BASELINE_SHA="$(git rev-parse HEAD)" \
   pnpm --filter @canvas-agent/context-benchmarks benchmark:wave-a
 ```
 
-`CANVAS_CR005_LIVE=1` cannot enable Wave A. The dedicated command remains a real
-provider operation and requires a new, explicit data/cost authorization. Its
-existence does not authorize the ten records, the twelve records left for a
-possible second wave, or CR-004 Active context rewriting.
+The command is progressive and executes only `C2 Native → C2 Shadow`, then the
+next category. Each record is written and re-read before the next boundary; a
+failed pair or checkpoint stops the command before the next category. The
+checkpoint is metadata-only and lives under:
+
+```text
+.live-output/wave-a/<run-id>/
+  manifest.json
+  records.jsonl
+  progress.json
+  aggregate.json       # only after PASS or STOPPED
+```
+
+`CANVAS_CR005_LIVE=1` and the replacement-canary flag cannot be combined with
+the Wave A flag. The command also requires Node 24, a clean worktree, and an
+exact current HEAD baseline. To resume a still-running checkpoint, provide the same baseline,
+`CANVAS_CR005_WAVE_A_RUN_ID=<run-id>`, and
+`CANVAS_CR005_WAVE_A_RESUME=1` under the same explicit Wave A authorization.
+A terminal checkpoint cannot be resumed; use a new authorization and run
+identity. This implementation does not authorize the ten provider records,
+the twelve records left for a possible second wave, or CR-004 Active context
+rewriting.

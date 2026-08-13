@@ -4,6 +4,7 @@ import { loadManifests } from '../src/manifest'
 import type { BenchmarkManifest, BenchmarkRunRecord } from '../src/types'
 import {
   evaluateWaveAGate,
+  evaluateWaveAPairGate,
   isWaveAExecutionAuthorized,
   selectWaveAManifests,
   WAVE_A_RECORD_COUNT,
@@ -154,6 +155,18 @@ describe('CR-005 Wave A execution gate', () => {
       false
     )
     expect(isWaveAExecutionAuthorized({ CANVAS_CR005_WAVE_A: '1' })).toBe(true)
+    expect(
+      isWaveAExecutionAuthorized({
+        CANVAS_CR005_WAVE_A: '1',
+        CANVAS_CR005_LIVE: '1'
+      })
+    ).toBe(false)
+    expect(
+      isWaveAExecutionAuthorized({
+        CANVAS_CR005_WAVE_A: '1',
+        CANVAS_CR005_REPLACEMENT_CANARY: '1'
+      })
+    ).toBe(false)
   })
 
   it('passes only the exact ten-record C2-C6 repetition-one matrix', () => {
@@ -316,5 +329,27 @@ describe('CR-005 Wave A execution gate', () => {
     expect(evaluateWaveAGate(secretPattern).checks.secretPatternsAbsent).toBe(
       false
     )
+  })
+
+  it('pair gate rejects materialization failures and Shadow replay mismatches', () => {
+    const records = validWaveARecords()
+    const c2Shadow = records.find(
+      (record) =>
+        record.taskId === WAVE_A_TARGETS[0]?.taskId && record.strategy === 'SHADOW'
+    )
+    if (c2Shadow === undefined) throw new Error('missing C2 Shadow record')
+    const forgedShadow = {
+      ...c2Shadow,
+      shadowCalls: [
+        { materializationFailures: ['REVISION_MISMATCH'] } as unknown as BenchmarkRunRecord['shadowCalls'][number]
+      ]
+    }
+    const pair = records.map((record) =>
+      record.runId === c2Shadow.runId ? forgedShadow : record
+    ).slice(0, 2)
+    const gate = evaluateWaveAPairGate(pair)
+    expect(gate.status).toBe('FAIL')
+    expect(gate.checks.materializationFailuresAbsent).toBe(false)
+    expect(gate.checks.shadowReplayValid).toBe(false)
   })
 })
