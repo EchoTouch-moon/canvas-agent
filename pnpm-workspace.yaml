@@ -25,3 +25,7 @@ minimumReleaseAgeExclude:
 
 overrides:
   "@electron/get": 4.0.3
+  extract-zip: "npm:@electron-internal/extract-zip@1.0.1"
+
+patchedDependencies:
+  electron@39.8.10: patches/electron@39.8.10.patch
