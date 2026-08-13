@@ -73,6 +73,14 @@ The total is only a compact description of three different tasks, with C1
 from a separate baseline. It must not be interpreted as a controlled
 corpus-level effect or a cost result.
 
+Because the current CR-005 Shadow mode is observational only and preserves the
+model-facing Pi messages identity-equal and unchanged, these pair deltas must
+not be interpreted as causal overhead from Shadow context selection. The
+semantic-call and tool-call differences may reflect ordinary run-to-run
+model/provider variance at repetition 1. Wall-clock differences may
+additionally include Shadow instrumentation overhead, but this experiment does
+not isolate that component from model/provider latency.
+
 ## 4. Functional validity and scope adherence
 
 The C1, C2, and C3 Native/Shadow records all passed objective, regression,
@@ -143,9 +151,10 @@ The evidence supports four bounded conclusions:
 1. The progressive gate is operationally effective: it preserved C2/C3
    evidence, captured the C4 scope failure, and prevented C4 Shadow/C5/C6
    execution after the failed Native record.
-2. In the three available pairs, Shadow completed the task gates but used
-   more observed semantic/tool interactions and more wall-clock time than
-   Native. This is descriptive evidence only.
+2. In the three available pairs, the Shadow-designated runs recorded more
+   semantic/tool interactions and higher wall-clock time than their paired
+   Native runs. This is descriptive evidence only and is not a causal claim
+   about Shadow context selection.
 3. The Shadow traces exercised last-known-version retention and mostly
    `REFERENCE` representations, but did not exercise removal or rehydration.
 4. C4 shows that rule/scope adherence is an independent benchmark outcome;
