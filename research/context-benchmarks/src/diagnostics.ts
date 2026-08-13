@@ -69,8 +69,6 @@ export function diagnoseBenchmarkFailure(record: BenchmarkRunRecord): BenchmarkF
   let failureClass: BenchmarkFailureClass | null = null
   if (record.status === 'INVALID') {
     failureClass = isOnlyUntrustworthyC2Failure ? 'HARNESS_CONTRACT_FAILURE' : 'TASK_FAILURE'
-  } else if (record.status === 'ABORTED') {
-    failureClass = 'TASK_FAILURE'
   }
 
   if (record.status === 'INVALID' && signals.length === 0) signals.push('ACCEPTANCE_CRITERION_FAILED')

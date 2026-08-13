@@ -196,8 +196,8 @@ export interface BenchmarkRunRecord {
   readonly status: RunStatus
   // Diagnostic attribution only; this never overrides the progressive gate.
   // HARNESS_CONTRACT_FAILURE is reserved for an INVALID record whose only
-  // failed acceptance condition is the C2 contract probe. Optional fields keep
-  // older metadata-only records readable.
+  // failed acceptance condition is an untrustworthy C2 contract probe.
+  // Optional fields keep older metadata-only records readable.
   readonly failureClass?: BenchmarkFailureClass | null
   readonly failureSignals?: readonly BenchmarkFailureSignal[]
   readonly fixtureIdentity: FixtureIdentity

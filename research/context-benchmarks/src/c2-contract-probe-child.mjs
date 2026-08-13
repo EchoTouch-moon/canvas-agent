@@ -202,13 +202,22 @@ function main() {
 
     clearModules(fixtureRequire.cache, modulePaths)
     fixtureRequire.cache[configCachePath] = createProbeModule(configCachePath, createConfigProbeExports())
-    const greetingLoad = observeDependency(
+    // Keep the dependency hook installed through both module loading and
+    // invocation. A valid CommonJS implementation may require config lazily
+    // from inside its exported formatter rather than at module top level.
+    const greetingProbe = observeDependency(
       greetingCachePath,
       configCachePath,
-      () => fixtureRequire(greetingPath)
+      () => {
+        const greeting = fixtureRequire(greetingPath)
+        return {
+          greeting,
+          usesConfigForFormalBehavior: greetingUsesConfigForFormalBehavior(greeting)
+        }
+      }
     )
     const greetingRuntime =
-      greetingLoad.observed && greetingUsesConfigForFormalBehavior(greetingLoad.value)
+      greetingProbe.observed && greetingProbe.value.usesConfigForFormalBehavior
 
     clearModules(fixtureRequire.cache, modulePaths)
     const forwardedCalls = []

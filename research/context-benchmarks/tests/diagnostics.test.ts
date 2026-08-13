@@ -102,6 +102,18 @@ describe('CR-005 failure diagnosis', () => {
     ])
   })
 
+  it('retains an aborted run as incomplete without task attribution', () => {
+    const diagnosis = diagnoseBenchmarkFailure(record({
+      status: 'ABORTED',
+      abortReason: 'provider_runtime_error'
+    }))
+
+    expect(diagnosis).toEqual({
+      failureClass: null,
+      failureSignals: ['RUN_NOT_COMPLETED', 'C2_MULTI_FILE_CONTRACT_FAILED']
+    })
+  })
+
   it('exposes the split in aggregate metadata without changing validity counts', () => {
     const harnessRecord = record({
       runId: 'harness-contract-record',
@@ -119,8 +131,13 @@ describe('CR-005 failure diagnosis', () => {
       outOfScopePaths: ['package.json'],
       writablePathsValid: false
     })
+    const abortedRecord = record({
+      runId: 'aborted-record',
+      status: 'ABORTED',
+      abortReason: 'provider_runtime_error'
+    })
 
-    const aggregate = aggregateRuns([harnessRecord, taskRecord])
+    const aggregate = aggregateRuns([harnessRecord, taskRecord, abortedRecord])
 
     expect(aggregate.validRuns).toBe(0)
     expect(aggregate.taskFailureRuns).toBe(1)

@@ -33,10 +33,12 @@ checkpoint were retained; neither was deleted, overwritten, or resumed.
 
 The progressive runner stopped at the record gate with
 `stopReason=record_gate_failed`. The durable checkpoint reports one record,
-zero completed pairs, and the next category still at C2:
+zero completed pairs, and the next category still at C2. The local execution
+root is intentionally omitted; the durable checkpoint is identified by this
+run-relative directory:
 
 ```text
-checkpoint: /private/tmp/canvas-cr005a-main-635a72bb9/research/context-benchmarks/.live-output/wave-a/wave-a-1786604041457-98cb9e49-797b-48a5-8797-cb79b47b1143/
+.live-output/wave-a/wave-a-1786604041457-98cb9e49-797b-48a5-8797-cb79b47b1143/
 record hash: 9d72876f5d118f8866e4da9acc6a8033f6d5783486a0a9242900c0e9c50a99b4
 checkpoint output sha256: fc1a19d57892ed538f2f3158bef6d4ba9dd5c5a2fa3c3332a83ad819551b9817
 ```
