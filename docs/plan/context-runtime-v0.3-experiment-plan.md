@@ -1,6 +1,6 @@
 # Context Runtime v0.3 Experiment Plan
 
-- **Status:** ACTIVE — CR-001 shadow evidence ready for architecture review (PROPOSED scope gates passed: v0.2 closeout + PR #12 merged + user selected v0.3)
+- **Status:** REBASELINED — Phase 1 (CR-001 through CR-005) closed for this phase; Phase 2 policy validation is the next gated research line
 - **Depends on:** `docs/architecture/context-runtime-v0.3-direction.md`
 - **Domain proposals:** `PROPOSAL-030-context-source-universe-model.md`, `PROPOSAL-031-context-working-set-planner.md`
 - **Primary harness:** Pi
@@ -8,6 +8,30 @@
 - **Second harness:** OpenCode
 - **Later compatibility target:** Codex
 - **CR-001 assigned packet:** `docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md`
+
+## Current status overlay — 2026-08-13
+
+The original sections in this plan preserve the historical definitions and
+acceptance intent of CR-001 through CR-008. Their earlier `ACTIVE`, `awaiting
+review` and sequencing labels must not be read as current execution authority.
+The current research truth is maintained in the [Context Runtime v0.3 Research
+Rebaseline](../research/context-runtime-v0.3-research-rebaseline-2026-08-13.md).
+
+```text
+Phase 1 — Observability & Shadow Infrastructure
+CR-001 through CR-005: CLOSED FOR THIS PHASE
+
+Phase 2 — Context Selection Policy Validation
+REMOVE / false-removal / REHYDRATE: NEXT
+
+CR-004 Active Rewrite: NO_GO until Phase 2 readiness review
+CR-006+ cross-model / second-harness / Codex work: LATER
+Provider execution: NO_GO
+```
+
+The Phase 2 documentation package is [`PROPOSAL-032`](../architecture/decisions/PROPOSAL-032-context-eviction-rehydration-policy-experiment.md)
+and its [deterministic transition-suite task specification](../research/context-selection-policy-validation-deterministic-transition-suite.md).
+Neither document authorizes a provider run or changes the Planner.
 
 ## 1. Purpose
 
@@ -135,7 +159,10 @@ This is the first portability gate.
 
 DeepSeek must create the DS-008 implementation branch from reviewed `main` after both gates are satisfied; the architecture PR branch is not an implementation base.
 
-**Status (2026-08-11):** EVIDENCE READY — awaiting architecture review. Full evidence in `docs/verification/context-runtime-cr-001-pi-shadow.md`. The opt-in Pi + DeepSeek live smoke was EXECUTED with 4 real semantic model-call observations; `pnpm check` is green (502 tests). DS-008 does not self-accept; CR-002/CR-003 remain blocked until the lead architect reviews the Pi evidence.
+**Historical status (2026-08-11):** EVIDENCE READY — awaiting architecture review. Full evidence in `docs/verification/context-runtime-cr-001-pi-shadow.md`. The opt-in Pi + DeepSeek live smoke was EXECUTED with 4 real semantic model-call observations; `pnpm check` is green (502 tests).
+
+**Current phase status (2026-08-13):** CLOSED FOR THIS PHASE; evidence is
+preserved and no new CR-001 execution is authorized.
 
 ### Objective
 
@@ -177,7 +204,10 @@ If Pi cannot expose a stable enough model-call boundary without a deep fork, sto
 
 ## CR-002 — ModelCallObservation, Source Reconciliation and Context Universe research model
 
-**Status (2026-08-11):** EVIDENCE READY — awaiting architecture review. Implemented by DS-009 on `agent/deepseek-ds-009-context-source-universe-shadow`; full evidence in `docs/verification/context-runtime-cr-002-source-universe-shadow.md`. Enriched Pi + DeepSeek live smoke EXECUTED (5 semantic calls; EXACT=8, UNATTRIBUTED=4, resourceHints=4; Universe revision 5 / 9 sources). 565 tests green. DS-009 does not self-accept; CR-003 remains blocked until lead review.
+**Historical status (2026-08-11):** EVIDENCE READY — awaiting architecture review. Implemented by DS-009 on `agent/deepseek-ds-009-context-source-universe-shadow`; full evidence in `docs/verification/context-runtime-cr-002-source-universe-shadow.md`. Enriched Pi + DeepSeek live smoke EXECUTED (5 semantic calls; EXACT=8, UNATTRIBUTED=4, resourceHints=4; Universe revision 5 / 9 sources). 565 tests green.
+
+**Current phase status (2026-08-13):** CLOSED FOR THIS PHASE; evidence is
+preserved and no new CR-002 execution is authorized.
 
 ### Objective
 
@@ -243,7 +273,11 @@ The exact shapes must be derived from CR-001 evidence.
 
 ## CR-003 — Shadow Working Set Planner
 
-**Status (2026-08-11):** CR-003A bounded kernel evidence ready — awaiting architecture review. Implemented by DS-010 on `agent/deepseek-ds-010-shadow-working-set-planner`; full evidence in `docs/verification/context-runtime-cr-003-shadow-planner.md`. Policy V0 deterministic (ADD/KEEP/REMOVE/REHYDRATE; REPLACE/COMPRESS contract-only), Universe-bound, credential-free tests green, opt-in Pi + DeepSeek Shadow smoke EXECUTED (5 model calls, 5 Shadow plans). `pnpm check` green (582 tests). DS-010 does not self-accept; CR-004 and file-aware CR-003B remain blocked (Repository Observer dependency recorded).
+**Historical status (2026-08-11):** CR-003A bounded kernel evidence ready — awaiting architecture review. Implemented by DS-010 on `agent/deepseek-ds-010-shadow-working-set-planner`; full evidence in `docs/verification/context-runtime-cr-003-shadow-planner.md`. Policy V0 deterministic (ADD/KEEP/REMOVE/REHYDRATE; REPLACE/COMPRESS contract-only), Universe-bound, credential-free tests green, opt-in Pi + DeepSeek Shadow smoke EXECUTED (5 model calls, 5 Shadow plans). `pnpm check` green (582 tests).
+
+**Current phase status (2026-08-13):** CLOSED FOR THIS PHASE; the next
+REMOVE/REHYDRATE validation is separately scoped by PROPOSAL-032. No new
+CR-003 execution or Planner change is authorized by this overlay.
 
 ### Objective
 
@@ -357,13 +391,25 @@ REHYDRATE
 
 ## CR-004 — Dynamic Working Set Rewrite
 
+**Current phase status (2026-08-13):** `NO_GO`. The original gate and safety
+rules below remain design constraints; they are not an implementation
+authorization. Reconsideration requires the Phase 2 readiness review.
+
 ### Objective
 
 Enable real context rewrite in controlled Pi runs.
 
 ### Gate
 
-CR-004 cannot start until CR-003 has a reviewed Shadow corpus and repeatable Native baseline.
+CR-004 cannot start until all of the following have been separately reviewed:
+
+- the Phase 2 REMOVE/REHYDRATE policy specification;
+- deterministic transition evidence with replay, provenance and protection
+  gates passing;
+- representative Shadow lifecycle evidence and a repeatable Native baseline;
+- the Active protocol-continuity, capability and kill-switch safety seam.
+
+Passing any one of these gates does not authorize an Active provider run.
 
 ### Rewrite operations
 
@@ -402,9 +448,20 @@ REHYDRATE
 
 ## CR-005 — Pi Benchmark and Failure Analysis
 
+**Current phase status (2026-08-13):** `CLOSED FOR THIS PHASE` as
+`COMPLETE_AS_STOPPED_EXPERIMENT`. Run 1 and Run 2 are terminal/preserved; C5/C6
+have no live evidence and must not be resumed as Wave A Run 3. See the current
+research rebaseline for the accepted evidence and next gate.
+
 ### Objective
 
 Determine whether Dynamic Context Working Set management has measurable value.
+
+**Current phase note (2026-08-13):** This is the historical CR-005 objective.
+The accepted CR-005 Wave A evidence phase is closed as a stopped experiment and
+did not establish Dynamic policy value. A future REMOVE/REHYDRATE canary must
+use the separate Phase 2 policy design rather than silently resuming this
+matrix.
 
 ### Minimum task corpus
 
@@ -465,6 +522,9 @@ A smaller Working Set with worse task success is a failed policy.
 ---
 
 ## CR-006 — Cross-Model Validation
+
+**Current phase status (2026-08-13):** `LATER / NO_GO`. CR-006 requires a
+reviewed Dynamic policy and is not the immediate next numbered work package.
 
 ### Objective
 
