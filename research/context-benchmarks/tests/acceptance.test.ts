@@ -83,6 +83,37 @@ describe('CR-005 acceptance criteria', () => {
     expect(acceptanceCriteriaPassed(c2, results)).toBe(true)
   })
 
+  it('accepts an implementation-diverse runtime contract without reference export names', async () => {
+    const alternativeFixture = await mkdtemp(`${tmpdir()}/cr005-c2-alternative-`)
+    try {
+      await mkdir(resolve(alternativeFixture, 'src'), { recursive: true })
+      await writeFile(
+        resolve(alternativeFixture, 'src/config.js'),
+        "module.exports = { greetingText: 'Hello', formalSuffix: '!' }\n",
+        'utf8'
+      )
+      await writeFile(
+        resolve(alternativeFixture, 'src/greeting.js'),
+        "const config = require('./config')\nfunction renderProfile(profile) { return `${config.greetingText}, ${profile.name}${profile.formal === true ? config.formalSuffix : ''}` }\nmodule.exports = { renderProfile }\n",
+        'utf8'
+      )
+      await writeFile(
+        resolve(alternativeFixture, 'src/index.js'),
+        "const greeting = require('./greeting')\nfunction greetProfile(profile) { return greeting.renderProfile(profile) }\nmodule.exports = { greetProfile }\n",
+        'utf8'
+      )
+
+      const evidence = await evaluateC2MultiFileContract(alternativeFixture)
+
+      expect(evidence.passed).toBe(true)
+      expect(evidence.evidence).toContain('configRuntime=true')
+      expect(evidence.evidence).toContain('greetingRuntime=true')
+      expect(evidence.evidence).toContain('indexForwarding=true')
+    } finally {
+      await rm(alternativeFixture, { recursive: true, force: true })
+    }
+  })
+
   it('rejects an index-only special case with pseudomarkers in the other modules', async () => {
     const adversarialFixture = await mkdtemp(`${tmpdir()}/cr005-c2-adversarial-`)
     try {

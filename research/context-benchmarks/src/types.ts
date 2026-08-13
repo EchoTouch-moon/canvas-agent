@@ -22,6 +22,21 @@ export const CONTEXT_STRATEGIES = ['NATIVE', 'SHADOW'] as const
 export type ContextStrategy = (typeof CONTEXT_STRATEGIES)[number]
 export const RUN_STATUSES = ['VALID', 'INVALID', 'SKIPPED', 'ABORTED'] as const
 export type RunStatus = (typeof RUN_STATUSES)[number]
+export const BENCHMARK_FAILURE_CLASSES = ['TASK_FAILURE', 'HARNESS_CONTRACT_FAILURE'] as const
+export type BenchmarkFailureClass = (typeof BENCHMARK_FAILURE_CLASSES)[number]
+export const BENCHMARK_FAILURE_SIGNALS = [
+  'RUN_NOT_COMPLETED',
+  'OBJECTIVE_ORACLE_FAILED',
+  'REGRESSION_ORACLE_FAILED',
+  'C2_MULTI_FILE_CONTRACT_FAILED',
+  'C2_PROBE_UNTRUSTWORTHY',
+  'ACCEPTANCE_CRITERION_FAILED',
+  'WRITABLE_PATH_SCOPE_FAILED',
+  'ORIGINAL_MESSAGES_CHANGED',
+  'RAW_PROVIDER_PAYLOADS_CAPTURED',
+  'OBSERVATION_FAILURE'
+] as const
+export type BenchmarkFailureSignal = (typeof BENCHMARK_FAILURE_SIGNALS)[number]
 export const ACCEPTANCE_CHECK_KINDS = [
   'OBJECTIVE_ORACLE',
   'C2_MULTI_FILE_CONTRACT',
@@ -179,6 +194,12 @@ export interface BenchmarkRunRecord {
   readonly strategy: ContextStrategy
   readonly repetition: number
   readonly status: RunStatus
+  // Diagnostic attribution only; this never overrides the progressive gate.
+  // HARNESS_CONTRACT_FAILURE is reserved for an INVALID record whose only
+  // failed acceptance condition is the C2 contract probe. Optional fields keep
+  // older metadata-only records readable.
+  readonly failureClass?: BenchmarkFailureClass | null
+  readonly failureSignals?: readonly BenchmarkFailureSignal[]
   readonly fixtureIdentity: FixtureIdentity
   readonly finalRepositoryRevision: RepositoryRevisionContract | null
   readonly finalStateHash: string | null
@@ -237,6 +258,8 @@ export interface AggregateResult {
   readonly validRuns: number
   readonly skippedRuns: number
   readonly abortedRuns: number
+  readonly taskFailureRuns: number
+  readonly harnessContractFailureRuns: number
   readonly byCategory: Readonly<Record<BenchmarkCategory, { native: number; shadow: number }>>
   readonly semanticCallCount: number
   readonly toolCallCount: number
