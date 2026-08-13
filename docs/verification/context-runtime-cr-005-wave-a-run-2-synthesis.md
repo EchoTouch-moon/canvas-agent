@@ -145,14 +145,17 @@ test, variance estimate, or model-generalization claim is warranted.
 ## 7. Decision and next step
 
 ```text
-Wave A Run 2: STOPPED / BLOCKED at C4 Native
-Run 1 checkpoint: TERMINAL / NEVER RESUME
-Wave B: NO_GO
-CR-004: NO_GO
+Wave A Run 2:        STOPPED / TERMINAL / NEVER RESUME
+Shadow adjudication: ACCEPTED
+C2/C3 Shadow:        USABLE_WITH_CAVEAT
+C4 Native:           genuine TASK_FAILURE
+Wave A:              COMPLETE_AS_STOPPED_EXPERIMENT
+Run 3:               NO_GO
+Wave B:              NO_GO
+CR-004:              NO_GO
 ```
 
-No new provider authorization is implied by this synthesis. The next bounded
-decision is a Lead review of the C4 scope failure and the Shadow
-`REVISION_MISMATCH` data-quality policy. Any evaluator/policy change must be
-made before a new run identity is authorized; this Run 2 checkpoint must not
-be resumed.
+No evaluator repair is required from the Run 2 evidence. No new provider
+execution is authorized, and the Run 2 checkpoint must not be resumed. The
+next step is the separate credential-free CR-005 interim evidence analysis;
+it does not authorize another run.
