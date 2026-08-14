@@ -221,6 +221,22 @@ For `UNAVAILABLE` / `REVISION_MISMATCH`:
 - only cool a low-value reference under an explicit policy decision;
 - never relabel the observation as confirmed absence.
 
+The policy must never infer `SOURCE_ABSENT` from any of the following:
+
+```text
+materialization failure
+temporary repository unavailability
+REVISION_MISMATCH
+content hash mismatch
+missing representation
+unavailable historical SourceVersion
+```
+
+`SOURCE_ABSENT` is valid only when source reconciliation provides explicit
+`ABSENT` evidence in the current Universe revision. A failed observation,
+failed materialization or unavailable historical version remains a distinct
+observation, materialization or version-safety failure.
+
 This preserves the accepted C2/C3 dirty-world semantics and prevents an
 observer failure from becoming an eviction signal.
 
@@ -441,14 +457,11 @@ existing v0.2 and CR-005 contracts and remain on a separate branch/PR.
 
 ## 13. Open questions for Lead review
 
-1. Should `SOURCE_ABSENT` be limited to source identities with an explicit
-   reconciliation proof, or may a policy use it for a source whose current
-   representation is no longer materializable?
-2. What exact horizon should classify a later need as a high-priority
+1. What exact horizon should classify a later need as a high-priority
    false-removal candidate: model-call distance, transition count, or both?
-3. Which deterministic evidence types should satisfy `READ_AFTER_REMOVE` in
+2. Which deterministic evidence types should satisfy `READ_AFTER_REMOVE` in
    Shadow mode when the model-facing context was never actually rewritten?
-4. Should E3 phase changes be supplied by a synthetic `phaseHint`, a trace
+3. Should E3 phase changes be supplied by a synthetic `phaseHint`, a trace
    event, or both?
 
 Until these questions are answered, this proposal remains a research design,

@@ -230,11 +230,13 @@ order. A minimal sequence is:
 
 ```text
 T0 INITIALIZE_UNIVERSE
-T1 PLANNING_BOUNDARY                 → ADD task/spec, target, candidates
+T1 PLANNING_BOUNDARY                 → ADD task/spec, target, reopen-a, distractors
 T2 PLANNING_BOUNDARY                 → KEEP protected/current items
-T3 SOURCE_RULED_OUT distractor-a     → REMOVE distractor-a
-T4 FAILURE_OBSERVED reopen-a         → later-needed evidence
+T3 SOURCE_RULED_OUT reopen-a         → REMOVE reopen-a / RULED_OUT
+   SOURCE_RULED_OUT distractor-a     → REMOVE distractor-a / RULED_OUT
+T4 FAILURE_OBSERVED reopen-a         → later-needed evidence for removed reopen-a
 T5 DETAIL_REQUESTED reopen-a         → REHYDRATE reopen-a:v3
+                                      originating REMOVE: T3
 T6 SOURCE_REFRESH_UNAVAILABLE         → conservative KEEP for unavailable
 T7 FAILURE_OBSERVED failure-new       → REMOVE superseded old failure
 T8 BUDGET_PRESSURE                    → protected item remains active

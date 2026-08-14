@@ -15,13 +15,25 @@ authorize a new provider run.
 
 ## 1. Decision summary
 
-The first v0.3 phase is closed for this phase:
+The first v0.3 evidence phase is closed for this phase:
 
 ```text
-Phase 1 — Observability & Shadow Infrastructure
-CR-001 through CR-005
-CLOSED FOR THIS PHASE
+Phase 1 — Observability, Shadow Infrastructure & Benchmark Evidence
+
+CR-001–CR-003:
+  CLOSED FOR THIS PHASE
+
+CR-005 Shadow evidence line:
+  COMPLETE_AS_STOPPED_EXPERIMENT
+
+CR-004 Active Rewrite:
+  NOT EXECUTED / NO_GO
 ```
+
+The historical order matters: CR-001 through CR-003 established the
+observability and Shadow infrastructure, the project then deliberately
+bypassed CR-004 Active Rewrite, and CR-005 produced the bounded Shadow
+benchmark evidence. CR-004 was never executed or validated.
 
 The next phase is not “finish the missing Wave A categories” and is not an
 automatic move to the next numbered CR. It is a separately scoped research

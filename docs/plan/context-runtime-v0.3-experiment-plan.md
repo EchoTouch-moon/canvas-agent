@@ -1,6 +1,6 @@
 # Context Runtime v0.3 Experiment Plan
 
-- **Status:** REBASELINED — Phase 1 (CR-001 through CR-005) closed for this phase; Phase 2 policy validation is the next gated research line
+- **Status:** REBASELINED — CR-001–CR-003 closed; the CR-005 Shadow evidence line is complete as a stopped experiment; CR-004 was not executed and remains `NO_GO`; Phase 2 policy validation is the next gated research line
 - **Depends on:** `docs/architecture/context-runtime-v0.3-direction.md`
 - **Domain proposals:** `PROPOSAL-030-context-source-universe-model.md`, `PROPOSAL-031-context-working-set-planner.md`
 - **Primary harness:** Pi
@@ -18,8 +18,10 @@ The current research truth is maintained in the [Context Runtime v0.3 Research
 Rebaseline](../research/context-runtime-v0.3-research-rebaseline-2026-08-13.md).
 
 ```text
-Phase 1 — Observability & Shadow Infrastructure
-CR-001 through CR-005: CLOSED FOR THIS PHASE
+Phase 1 — Observability, Shadow Infrastructure & Benchmark Evidence
+CR-001–CR-003: CLOSED FOR THIS PHASE
+CR-005 Shadow evidence line: COMPLETE_AS_STOPPED_EXPERIMENT
+CR-004 Active Rewrite: NOT EXECUTED / NO_GO
 
 Phase 2 — Context Selection Policy Validation
 REMOVE / false-removal / REHYDRATE: NEXT
