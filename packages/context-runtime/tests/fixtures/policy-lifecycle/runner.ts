@@ -123,7 +123,7 @@ function expectedReasonsMatch(
   );
 }
 
-function evaluateScenarioOracle(
+export function validateScenarioOracle(
   fixture: LifecycleScenarioFixture,
   records: readonly LifecycleTransitionRecord[],
   finalWorkingSet: ContextWorkingSet | null,
@@ -450,7 +450,7 @@ function runScenarioInternal(
     unavailableSourceKeys: fixture.oracle.unavailableSourceKeys ?? [],
   });
   const policyFailures = [
-    ...evaluateScenarioOracle(fixture, records, previousWorkingSet),
+    ...validateScenarioOracle(fixture, records, previousWorkingSet),
     ...evidenceFailures,
   ];
   const classification: B0Classification =
