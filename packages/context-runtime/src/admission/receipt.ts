@@ -13,11 +13,19 @@ export const ADMISSION_REJECTION_REASONS = [
 ] as const
 export type AdmissionRejectionReason = (typeof ADMISSION_REJECTION_REASONS)[number]
 
+export const ADMISSION_FRESHNESS = ['FRESH', 'LAST_GOOD'] as const
+export type AdmissionFreshness = (typeof ADMISSION_FRESHNESS)[number]
+
+export const ADMISSION_BASES = ['OBSERVED_CURRENT', 'LAST_GOOD_FALLBACK'] as const
+export type AdmissionBasis = (typeof ADMISSION_BASES)[number]
+
 export type AdmissionOutcome =
   | {
       readonly status: 'ADMITTED'
       readonly sourceId: ContextSourceId
       readonly sourceVersionId: ContextVersionId
+      readonly freshness: AdmissionFreshness
+      readonly admissionBasis: AdmissionBasis
       readonly representation: ContextRepresentation
       readonly renderedHash: string
     }
@@ -52,6 +60,8 @@ function canonicalOutcome(outcome: AdmissionOutcome): string {
       outcome.status,
       outcome.sourceId,
       outcome.sourceVersionId,
+      outcome.freshness,
+      outcome.admissionBasis,
       representationFingerprint(outcome.representation),
       outcome.renderedHash
     ].join('|')
@@ -96,13 +106,41 @@ export function createAdmissionReceipt(input: {
     throw new Error('AdmissionReceipt.createdAt must be a finite number')
   }
   const proposalSourceIds = new Set(input.proposal.entries.map((entry) => entry.sourceId))
+  const proposalVersions = new Map(
+    input.proposal.entries.map((entry) => [entry.sourceId, entry.sourceVersionId] as const)
+  )
   const seen = new Set<string>()
   for (const outcome of input.outcomes) {
-    if (!proposalSourceIds.has(outcome.sourceId)) {
+    const proposalVersionId = proposalVersions.get(outcome.sourceId)
+    if (!proposalSourceIds.has(outcome.sourceId) || proposalVersionId === undefined) {
       throw new Error(`AdmissionReceipt contains unknown proposal source ${outcome.sourceId}`)
+    }
+    if (outcome.sourceVersionId !== proposalVersionId) {
+      throw new Error(
+        `AdmissionReceipt sourceVersionId does not match proposal for ${outcome.sourceId}`
+      )
     }
     if (seen.has(outcome.sourceId)) {
       throw new Error(`AdmissionReceipt contains duplicate source ${outcome.sourceId}`)
+    }
+    if (outcome.status === 'ADMITTED') {
+      if (!ADMISSION_FRESHNESS.includes(outcome.freshness)) {
+        throw new Error(`AdmissionReceipt contains invalid freshness for ${outcome.sourceId}`)
+      }
+      if (!ADMISSION_BASES.includes(outcome.admissionBasis)) {
+        throw new Error(`AdmissionReceipt contains invalid admission basis for ${outcome.sourceId}`)
+      }
+      if (outcome.freshness === 'FRESH' && outcome.admissionBasis !== 'OBSERVED_CURRENT') {
+        throw new Error(`AdmissionReceipt freshness/basis mismatch for ${outcome.sourceId}`)
+      }
+      if (outcome.freshness === 'LAST_GOOD' && outcome.admissionBasis !== 'LAST_GOOD_FALLBACK') {
+        throw new Error(`AdmissionReceipt freshness/basis mismatch for ${outcome.sourceId}`)
+      }
+      if (!outcome.representation.sourceVersionIds.includes(outcome.sourceVersionId)) {
+        throw new Error(
+          `AdmissionReceipt representation does not contain outcome sourceVersionId for ${outcome.sourceId}`
+        )
+      }
     }
     seen.add(outcome.sourceId)
   }
@@ -117,6 +155,8 @@ export function createAdmissionReceipt(input: {
           status: outcome.status,
           sourceId: outcome.sourceId,
           sourceVersionId: outcome.sourceVersionId,
+          freshness: outcome.freshness,
+          admissionBasis: outcome.admissionBasis,
           representation: Object.freeze({
             ...outcome.representation,
             sourceVersionIds: Object.freeze([...outcome.representation.sourceVersionIds])
@@ -136,7 +176,11 @@ export function createAdmissionReceipt(input: {
     adapterVersion: input.adapterVersion,
     createdAt: input.createdAt
   })
-  const id = input.id ?? `admission-receipt:${logicalHash.slice(0, 24)}`
+  const expectedId = `admission-receipt:${logicalHash.slice(0, 24)}`
+  if (input.id !== undefined && input.id !== expectedId) {
+    throw new Error(`AdmissionReceipt.id must equal ${expectedId}`)
+  }
+  const id = expectedId
   return Object.freeze({
     id,
     proposedWorkingSetId: input.proposal.id,

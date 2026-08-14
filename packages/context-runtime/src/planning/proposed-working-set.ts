@@ -131,7 +131,11 @@ export function createProposedWorkingSet(input: {
     plannerVersion: input.plannerVersion,
     createdAt: input.createdAt
   })
-  const id = input.id ?? `proposed-working-set:${logicalHash.slice(0, 24)}`
+  const expectedId = `proposed-working-set:${logicalHash.slice(0, 24)}`
+  if (input.id !== undefined && input.id !== expectedId) {
+    throw new Error(`ProposedWorkingSet.id must equal ${expectedId}`)
+  }
+  const id = expectedId
   return Object.freeze({
     id,
     universeRevisionId: input.universeRevision.revisionId,

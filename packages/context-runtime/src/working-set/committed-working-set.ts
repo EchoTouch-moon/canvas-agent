@@ -185,7 +185,11 @@ export function commitAdmission(input: {
     adapterVersion: input.receipt.adapterVersion,
     createdAt: input.receipt.createdAt
   })
-  const id = input.id ?? `committed-working-set:${logicalHash.slice(0, 24)}`
+  const expectedId = `committed-working-set:${logicalHash.slice(0, 24)}`
+  if (input.id !== undefined && input.id !== expectedId) {
+    throw new Error(`CommittedWorkingSet.id must equal ${expectedId}`)
+  }
+  const id = expectedId
   return Object.freeze({
     id,
     universeRevisionId: input.receipt.universeRevisionId,

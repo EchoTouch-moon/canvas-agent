@@ -1,7 +1,9 @@
-# Context Runtime golden corpus
+# Context Runtime executable core corpus v0
 
 This directory defines the first eight zero-provider-call cases for the v0.3
-core state machine. The executable assertions live in
+core state machine. It is the v0 executable core corpus and metadata registry;
+it is not yet a strict golden fixture set with serialized inputs and expected
+outputs. The executable assertions live in
 `../tests/context-runtime-core.test.ts`; the manifest in `cases.ts` keeps the
 case IDs stable for later snapshot/report tooling.
 

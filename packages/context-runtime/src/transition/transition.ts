@@ -270,6 +270,10 @@ export function deserializeWorkingSetTransition(
   if (logicalHash !== value.logicalHash) {
     throw new Error('WorkingSetTransition logicalHash mismatch during deserialization')
   }
+  const expectedTransitionId = `working-set-transition:${logicalHash.slice(0, 24)}`
+  if (value.transitionId !== expectedTransitionId) {
+    throw new Error(`WorkingSetTransition.transitionId must equal ${expectedTransitionId}`)
+  }
   return Object.freeze({
     transitionId: value.transitionId,
     fromWorkingSetId: value.fromWorkingSetId,

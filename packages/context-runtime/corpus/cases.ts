@@ -5,7 +5,7 @@ export interface ContextRuntimeCorpusCase {
   readonly providerCalls: 0
 }
 
-/** The first zero-provider golden corpus for the four-boundary state machine. */
+/** The first zero-provider executable core corpus manifest for the state machine. */
 export const CONTEXT_RUNTIME_CORPUS: readonly ContextRuntimeCorpusCase[] = [
   {
     id: 'C1',

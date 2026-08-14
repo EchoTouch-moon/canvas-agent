@@ -56,9 +56,26 @@ function renderedRepresentationHash(representation: ContextRepresentation): stri
   )
 }
 
-function currentVersionId(entry: UniverseEntry): string | null {
-  if (entry.observationState === 'PRESENT') return entry.observedVersionId
-  return entry.admittedVersionId
+function admissionEvidence(entry: UniverseEntry): {
+  readonly versionId: string | null
+  readonly freshness: 'FRESH' | 'LAST_GOOD' | null
+  readonly admissionBasis: 'OBSERVED_CURRENT' | 'LAST_GOOD_FALLBACK' | null
+} {
+  if (entry.observationState === 'PRESENT') {
+    return {
+      versionId: entry.observedVersionId,
+      freshness: 'FRESH',
+      admissionBasis: 'OBSERVED_CURRENT'
+    }
+  }
+  if (entry.observationState === 'UNAVAILABLE') {
+    return {
+      versionId: entry.lastGoodVersionId,
+      freshness: 'LAST_GOOD',
+      admissionBasis: 'LAST_GOOD_FALLBACK'
+    }
+  }
+  return { versionId: null, freshness: null, admissionBasis: null }
 }
 
 function rejected(
@@ -88,7 +105,8 @@ export function admitWorkingSet(input: AdmitWorkingSetInput): AdmissionReceipt {
       outcomes.push(rejected(proposalEntry.sourceId, proposalEntry.sourceVersionId, 'STALE'))
       continue
     }
-    const versionId = currentVersionId(universeEntry)
+    const evidence = admissionEvidence(universeEntry)
+    const versionId = evidence.versionId
     if (
       universeEntry.observationState === 'ABSENT' ||
       versionId === null ||
@@ -96,6 +114,9 @@ export function admitWorkingSet(input: AdmitWorkingSetInput): AdmissionReceipt {
     ) {
       outcomes.push(rejected(proposalEntry.sourceId, proposalEntry.sourceVersionId, 'STALE'))
       continue
+    }
+    if (evidence.freshness === null || evidence.admissionBasis === null) {
+      throw new Error(`missing admission evidence for ${proposalEntry.sourceId}`)
     }
     const version = input.universe.versions.get(proposalEntry.sourceVersionId)
     if (version === undefined || version.sourceId !== proposalEntry.sourceId) {
@@ -139,6 +160,8 @@ export function admitWorkingSet(input: AdmitWorkingSetInput): AdmissionReceipt {
       status: 'ADMITTED',
       sourceId: proposalEntry.sourceId,
       sourceVersionId: proposalEntry.sourceVersionId,
+      freshness: evidence.freshness,
+      admissionBasis: evidence.admissionBasis,
       representation: materialized,
       renderedHash: renderedRepresentationHash(materialized)
     })

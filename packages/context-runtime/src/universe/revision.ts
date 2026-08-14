@@ -298,7 +298,11 @@ export function createUniverseRevision(input: {
     ...reconciliationEvents.map(canonicalEvent)
   ].join('\u241F')
   const logicalHash = sha256Hex(canonical)
-  const revisionId = input.revisionId ?? `universe-revision:${logicalHash.slice(0, 24)}`
+  const expectedRevisionId = `universe-revision:${logicalHash.slice(0, 24)}`
+  if (input.revisionId !== undefined && input.revisionId !== expectedRevisionId) {
+    throw new Error(`UniverseRevision.revisionId must equal ${expectedRevisionId}`)
+  }
+  const revisionId = expectedRevisionId
 
   return Object.freeze({
     revisionId,

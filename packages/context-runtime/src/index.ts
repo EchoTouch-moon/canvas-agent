@@ -147,12 +147,16 @@ export {
   type PlannerTaskHints
 } from './planning/planner'
 export {
+  ADMISSION_BASES,
+  ADMISSION_FRESHNESS,
   ADMISSION_REJECTION_REASONS,
   computeAdmissionReceiptLogicalHash,
   createAdmissionReceipt,
   deserializeAdmissionReceipt,
   serializeAdmissionReceipt,
   type AdmissionOutcome,
+  type AdmissionBasis,
+  type AdmissionFreshness,
   type AdmissionReceipt,
   type AdmissionRejectionReason
 } from './admission/receipt'

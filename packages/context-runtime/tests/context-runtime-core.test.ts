@@ -277,6 +277,53 @@ describe('deterministic Proposal -> Admission -> Commit', () => {
     expect(committedRoundTrip.logicalHash).toBe(committed.logicalHash)
   })
 
+  it('records last-good provenance when admitting through UNAVAILABLE', () => {
+    const presentUniverse = fixtureUniverse(['A'])
+    const unavailableUniverse = reconcileUniverseRevision(presentUniverse, [unavailable('A', 2)])
+    const proposal = fixtureProposal(unavailableUniverse)
+    const receipt = admitWorkingSet({
+      universe: unavailableUniverse,
+      proposal,
+      budget: { maxSemanticTokens: 100 },
+      adapter: fullAdapter(),
+      createdAt: 3
+    })
+
+    expect(receipt.outcomes[0]).toMatchObject({
+      status: 'ADMITTED',
+      freshness: 'LAST_GOOD',
+      admissionBasis: 'LAST_GOOD_FALLBACK'
+    })
+  })
+
+  it('rejects Receipt serialization tampering across proposal and representation versions', () => {
+    const universe = fixtureUniverse(['A'])
+    const proposal = fixtureProposal(universe)
+    const receipt = admitWorkingSet({
+      universe,
+      proposal,
+      budget: { maxSemanticTokens: 100 },
+      adapter: fullAdapter(),
+      createdAt: 13
+    })
+
+    const tamperedVersion = JSON.parse(serializeAdmissionReceipt(receipt)) as {
+      outcomes: Array<{ sourceVersionId: string }>
+    }
+    tamperedVersion.outcomes[0]!.sourceVersionId = 'tampered-version'
+    expect(() => deserializeAdmissionReceipt(JSON.stringify(tamperedVersion), proposal)).toThrow(
+      'sourceVersionId does not match proposal'
+    )
+
+    const tamperedRepresentation = JSON.parse(serializeAdmissionReceipt(receipt)) as {
+      outcomes: Array<{ representation: { sourceVersionIds: string[] } }>
+    }
+    tamperedRepresentation.outcomes[0]!.representation.sourceVersionIds = []
+    expect(() =>
+      deserializeAdmissionReceipt(JSON.stringify(tamperedRepresentation), proposal)
+    ).toThrow('representation does not contain outcome sourceVersionId')
+  })
+
   it('returns STALE when a proposal is admitted against a newer UniverseRevision', () => {
     const universeV1 = fixtureUniverse(['A'])
     const proposal = fixtureProposal(universeV1)
