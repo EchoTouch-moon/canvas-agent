@@ -1,6 +1,6 @@
 import { sha256Hex } from '../util/hash'
 import type { ContextRepresentation } from '../representation/context-representation'
-import type { ContextSourceId, ContextVersionId } from '../universe/revision'
+import type { ContextSourceId, ContextVersionId, UniverseRevision } from '../universe/revision'
 import type { ProposedWorkingSet } from '../planning/proposed-working-set'
 import { representationFingerprint } from '../planning/proposed-working-set'
 
@@ -225,7 +225,8 @@ export function serializeAdmissionReceipt(receipt: AdmissionReceipt): string {
 
 export function deserializeAdmissionReceipt(
   serialized: string | SerializedAdmissionReceipt,
-  proposal: ProposedWorkingSet
+  proposal: ProposedWorkingSet,
+  admissionUniverse: UniverseRevision
 ): AdmissionReceipt {
   const value = typeof serialized === 'string'
     ? (JSON.parse(serialized) as SerializedAdmissionReceipt)
@@ -233,8 +234,8 @@ export function deserializeAdmissionReceipt(
   if (value.schemaVersion !== 1) {
     throw new Error(`unsupported AdmissionReceipt schema: ${String(value.schemaVersion)}`)
   }
-  if (value.proposedWorkingSetId !== proposal.id || value.universeRevisionId !== proposal.universeRevisionId) {
-    throw new Error('AdmissionReceipt is bound to a different proposal or UniverseRevision')
+  if (value.proposedWorkingSetId !== proposal.id || value.universeRevisionId !== admissionUniverse.revisionId) {
+    throw new Error('AdmissionReceipt is bound to a different proposal or admission UniverseRevision')
   }
   const receipt = createAdmissionReceipt({
     proposal,

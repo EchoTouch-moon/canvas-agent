@@ -266,7 +266,8 @@ describe('deterministic Proposal -> Admission -> Commit', () => {
     )
     const receiptRoundTrip = deserializeAdmissionReceipt(
       serializeAdmissionReceipt(receipt),
-      proposalRoundTrip
+      proposalRoundTrip,
+      universe
     )
     const committedRoundTrip = deserializeCommittedWorkingSet(
       serializeCommittedWorkingSet(committed),
@@ -311,16 +312,16 @@ describe('deterministic Proposal -> Admission -> Commit', () => {
       outcomes: Array<{ sourceVersionId: string }>
     }
     tamperedVersion.outcomes[0]!.sourceVersionId = 'tampered-version'
-    expect(() => deserializeAdmissionReceipt(JSON.stringify(tamperedVersion), proposal)).toThrow(
-      'sourceVersionId does not match proposal'
-    )
+    expect(() =>
+      deserializeAdmissionReceipt(JSON.stringify(tamperedVersion), proposal, universe)
+    ).toThrow('sourceVersionId does not match proposal')
 
     const tamperedRepresentation = JSON.parse(serializeAdmissionReceipt(receipt)) as {
       outcomes: Array<{ representation: { sourceVersionIds: string[] } }>
     }
     tamperedRepresentation.outcomes[0]!.representation.sourceVersionIds = []
     expect(() =>
-      deserializeAdmissionReceipt(JSON.stringify(tamperedRepresentation), proposal)
+      deserializeAdmissionReceipt(JSON.stringify(tamperedRepresentation), proposal, universe)
     ).toThrow('representation does not contain outcome sourceVersionId')
   })
 
@@ -340,6 +341,12 @@ describe('deterministic Proposal -> Admission -> Commit', () => {
     })
     expect(receipt.universeRevisionId).toBe(universeV2.revisionId)
     expect(receipt.outcomes[0]).toMatchObject({ status: 'REJECTED', reason: 'STALE' })
+    const restoredReceipt = deserializeAdmissionReceipt(
+      serializeAdmissionReceipt(receipt),
+      proposal,
+      universeV2
+    )
+    expect(restoredReceipt).toEqual(receipt)
     const committed = commitAdmission({
       universe: universeV2,
       proposal,
@@ -347,6 +354,48 @@ describe('deterministic Proposal -> Admission -> Commit', () => {
       previousCommittedWorkingSet: null
     })
     expect(committed.entries).toHaveLength(0)
+  })
+
+  it('rejects forged content-addressed IDs across core artifacts', () => {
+    const universe = fixtureUniverse(['A'])
+    const proposal = fixtureProposal(universe)
+    const receipt = admitWorkingSet({
+      universe,
+      proposal,
+      budget: { maxSemanticTokens: 100 },
+      adapter: fullAdapter(),
+      createdAt: 14
+    })
+    const committed = commitAdmission({
+      universe,
+      proposal,
+      receipt,
+      previousCommittedWorkingSet: null
+    })
+    const transition = computeWorkingSetTransition(null, committed)
+
+    const tamper = (serialized: string, field: string): string => {
+      const value = JSON.parse(serialized) as Record<string, unknown>
+      value[field] = 'forged-id'
+      return JSON.stringify(value)
+    }
+    const forgedArtifacts = [
+      () => deserializeUniverseRevision(tamper(serializeUniverseRevision(universe), 'revisionId')),
+      () => deserializeProposedWorkingSet(tamper(serializeProposedWorkingSet(proposal), 'id'), universe),
+      () => deserializeAdmissionReceipt(tamper(serializeAdmissionReceipt(receipt), 'id'), proposal, universe),
+      () =>
+        deserializeCommittedWorkingSet(
+          tamper(serializeCommittedWorkingSet(committed), 'id'),
+          universe,
+          proposal,
+          receipt
+        ),
+      () => deserializeWorkingSetTransition(tamper(serializeWorkingSetTransition(transition), 'transitionId'))
+    ]
+
+    for (const deserialize of forgedArtifacts) {
+      expect(deserialize).toThrow()
+    }
   })
 })
 

@@ -34,6 +34,7 @@ UniverseRevision
   - 在 Admission 层执行 token budget；
   - 记录 `ADMITTED / REJECTED / DEFERRED`、实际 representation、rendered hash 与 adapter identity。
   - Receipt 构造时校验 proposal version 与 representation source-version binding；
+  - Receipt 反序列化显式接收 admission-time UniverseRevision，支持旧 Proposal 在新 Universe 上 admission 后的跨 revision round-trip；
 - `packages/context-runtime/src/working-set/committed-working-set.ts`
   - 只从 `ADMITTED` outcome 建立 committed state；
   - rejected/deferred 内容不会进入 Committed；
@@ -48,7 +49,7 @@ UniverseRevision
 
 本轮 hardening 还为 UniverseRevision、ProposedWorkingSet、AdmissionReceipt、
 CommittedWorkingSet 和 WorkingSetTransition 收紧了 content-addressed ID：
-反序列化时伪造 ID 会被拒绝。
+反序列化时伪造 ID 会被拒绝，并由 table-driven regression 覆盖五类 artifact。
 
 ## 需求分类与本轮边界
 
@@ -78,7 +79,7 @@ env PATH="/opt/homebrew/opt/node@24/bin:$PATH" pnpm check
 
 Node 24 clean evidence（`v24.15.0`）已通过：
 
-- Context Runtime typecheck；5 个 test files、97 个 tests；
+- Context Runtime typecheck；5 个 test files、98 个 tests；
 - Pi context integration typecheck；3 个 test files、62 个 tests；
 - root `pnpm check`：format、lint、typecheck、全仓 tests、build 全部通过；其中 persistence 68 tests 通过。
 
@@ -86,4 +87,4 @@ Node 24 clean evidence（`v24.15.0`）已通过：
 
 ## 下一步建议
 
-先审阅并冻结本报告所述四边界 API，再单独开一个 P1 adapter 任务，把 `CommittedWorkingSet` 翻译到 Pi/DeepSeek 的 pre-step seam，并增加 request reconstruction evidence。该任务不应反向修改 Planner 或 Universe 的核心语义。
+跨 revision Receipt round-trip 已补齐；本地验证满足 Core Contract freeze 条件，待远端 review checks 完成后进入下一阶段。下一阶段唯一主线是开一个 P1 adapter 任务，把 `CommittedWorkingSet` 翻译到 Pi/DeepSeek 的 pre-step seam，并增加 request reconstruction evidence；该任务不应反向修改 Planner 或 Universe 的核心语义。

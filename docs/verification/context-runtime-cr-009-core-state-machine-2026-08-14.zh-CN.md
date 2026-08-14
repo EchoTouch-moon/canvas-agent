@@ -25,6 +25,7 @@ UniverseRevision → ProposedWorkingSet → AdmissionReceipt
 | P0/P1/P2/P3 deterministic selection | pass |
 | Proposal 绑定 UniverseRevision | pass |
 | newer Universe 对旧 proposal 的 Admission | pass；返回 `STALE` |
+| stale Receipt cross-revision round-trip | pass；Proposal=V1、admission Universe=V2 可序列化重建 |
 | PRESENT admission evidence | pass；记录 `FRESH / OBSERVED_CURRENT` |
 | UNAVAILABLE + last-good admission evidence | pass；记录 `LAST_GOOD / LAST_GOOD_FALLBACK` |
 | AdmissionReceipt proposal/representation version binding | pass；篡改序列化会被拒绝 |
@@ -34,7 +35,7 @@ UniverseRevision → ProposedWorkingSet → AdmissionReceipt
 | same-version representation change | pass；Transition=`REPLACE` |
 | ADD/KEEP/REMOVE/REPLACE replay | pass |
 | Universe/Proposal/Receipt/Committed/Transition serialization | pass |
-| content-addressed ID integrity | pass；伪造核心对象 ID 会被拒绝 |
+| content-addressed ID integrity | pass；Universe/Proposal/Receipt/Committed/Transition 五类 forged-ID regression 均拒绝 |
 | provider calls | `0` |
 
 ## Commands
@@ -47,7 +48,7 @@ env PATH="/opt/homebrew/opt/node@24/bin:$PATH" pnpm --filter @canvas-agent/pi-co
 env PATH="/opt/homebrew/opt/node@24/bin:$PATH" pnpm check
 ```
 
-Node `v24.15.0` clean evidence：Context Runtime 5 个 test files、97 个 tests；Pi context integration 3 个 test files、62 个 tests；root `pnpm check` 的 format/lint/typecheck、全仓 tests 和 build 全部通过。此前 Node 23 下的 persistence/Drizzle 错误未在 Node 24 重现。远端 CI / review checks 仍待 push 后由 GitHub 执行。
+Node `v24.15.0` clean evidence：Context Runtime 5 个 test files、98 个 tests；Pi context integration 3 个 test files、62 个 tests；root `pnpm check` 的 format/lint/typecheck、全仓 tests 和 build 全部通过。此前 Node 23 下的 persistence/Drizzle 错误未在 Node 24 重现。远端 CI / review checks 仍待 push 后由 GitHub 执行。
 
 ## Deferred boundary
 
