@@ -1,6 +1,6 @@
 # Context Runtime CR-011 — Real-provider Parity Smoke
 
-Status: real-provider parity PASS; formal Node 24 live-runtime rerun remains pending.
+Status: real-provider parity PASS on the formal Node 24 live run.
 
 ## Scope
 
@@ -78,7 +78,7 @@ real-provider result.
 | G1 Translation | Reuses CR-010 deterministic committed-to-Pi adapter | PASS from CR-010 |
 | G2 Identity | `before_provider_request` sidecar carries source/version/representation/rendered hashes | PASS from CR-010; exercised by live runner |
 | G3 Reconstruction | Reconstructs from captured OpenAI-compatible payload | PASS from CR-010; exercised by live runner |
-| G4 Parity | Compares canonical intended and observed context after the real request is built | PASS on the recorded live run; Node 24 rerun pending |
+| G4 Parity | Compares canonical intended and observed context after the real request is built | PASS on the formal Node 24 live run |
 
 ## Real smoke result
 
@@ -101,18 +101,17 @@ The intended and observed hashes are identical. This proves that the
 committed fixture survived Pi request construction and was captured at the
 pre-provider boundary in the real request path.
 
-The command was run from a Node `v23.11.0` shell and emitted the repository's
-Node 24 engine warning. The request itself passed, but this run is recorded as
-Node 23 evidence. For formal release evidence, rerun the same command with
-Node 24:
+The formal rerun was executed with the repository's Node 24 runtime and
+completed without an engine warning. This is the release evidence for the
+real-provider parity gate.
 
 ```bash
 PATH=/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/usr/bin:/bin \
 pnpm --filter @canvas-agent/pi-context-integration smoke:deepseek:cr011
 ```
 
-with the two variables above set. It will make one additional real request.
-Do not paste the key, payload, or provider response into the repository.
+with the two variables above set. The run made one real request. Do not paste
+the key, payload, or provider response into the repository.
 
 ## Core Contract changes
 
@@ -144,8 +143,6 @@ WorkingSetTransition
 
 ## Deferred next step
 
-After the Node 24 rerun is recorded, decide whether a small CR-011 follow-up
-is warranted for additional DeepSeek model/API shapes. The recorded live
-run already reports `SMOKE_STATUS=EXECUTED`, `providerCalls=1`,
-`capturedRequests=1`, and `parity=PASS`; Node 24 remains the only evidence
-gap.
+The CR-011 real-provider parity gate is complete. Any additional DeepSeek
+model/API shapes should be proposed as a later follow-up rather than folded
+into this frozen evidence.
