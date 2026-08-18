@@ -2,13 +2,23 @@ import {
   sha256Hex,
   type CommittedWorkingSet
 } from '@canvas-agent/context-runtime'
+import {
+  PARITY_MISMATCH_KINDS as SHARED_PARITY_MISMATCH_KINDS,
+  canonicalizeIntendedContext as canonicalizeSharedIntendedContext,
+  canonicalizeObservedContext as canonicalizeSharedObservedContext,
+  compareContextParity as compareSharedContextParity,
+  type CanonicalContext as SharedCanonicalContext,
+  type CanonicalContextEntry as SharedCanonicalContextEntry,
+  type ContextParityResult as SharedContextParityResult,
+  type ParityMismatch as SharedParityMismatch,
+  type ParityMismatchKind as SharedParityMismatchKind
+} from '@canvas-agent/context-conformance'
 import type {
   BeforeProviderRequestEvent,
   ContextEvent,
   ExtensionFactory
 } from '@earendil-works/pi-coding-agent'
 import {
-  materializedRepresentationContent,
   PiCommittedContextAdapter,
   PiContextTranslationError,
   type ContextRenderTrace,
@@ -24,15 +34,8 @@ export const PARITY_FAILURE_CATEGORIES = [
 ] as const
 export type ParityFailureCategory = (typeof PARITY_FAILURE_CATEGORIES)[number]
 
-export const PARITY_MISMATCH_KINDS = [
-  'MISSING',
-  'EXTRA',
-  'VERSION_MISMATCH',
-  'REPRESENTATION_MISMATCH',
-  'ORDER_MISMATCH',
-  'CONTENT_HASH_MISMATCH'
-] as const
-export type ParityMismatchKind = (typeof PARITY_MISMATCH_KINDS)[number]
+export const PARITY_MISMATCH_KINDS = SHARED_PARITY_MISMATCH_KINDS
+export type ParityMismatchKind = SharedParityMismatchKind
 
 export class ParityPipelineError extends Error {
   readonly category: ParityFailureCategory
@@ -239,225 +242,43 @@ export function reconstructModelVisibleContext(
   }
 }
 
-export interface CanonicalContextEntry {
-  readonly position: number
-  readonly sourceId: string
-  readonly sourceVersionId: string
-  readonly representationId: string
-  readonly representationKind: ContextRenderTrace['representationKind']
-  readonly renderedHash: string
-  readonly renderedContentHash: string
-  readonly role: string
-}
-
-export interface CanonicalContext {
-  readonly entries: readonly CanonicalContextEntry[]
-  readonly logicalHash: string
-  readonly payloadMessageCount?: number
-  readonly expectedPayloadMessageCount?: number
-}
-
-function canonicalEntry(entry: CanonicalContextEntry): string {
-  return [
-    String(entry.position),
-    entry.sourceId,
-    entry.sourceVersionId,
-    entry.representationId,
-    entry.representationKind,
-    entry.renderedHash,
-    entry.renderedContentHash,
-    entry.role
-  ].join('|')
-}
-
-function canonicalContextHash(entries: readonly CanonicalContextEntry[]): string {
-  return sha256Hex(
-    ['canonical-model-visible-context-v1', ...entries.map(canonicalEntry)].join('\u241F')
-  )
-}
-
-function sortCanonicalEntries(
-  entries: readonly CanonicalContextEntry[]
-): readonly CanonicalContextEntry[] {
-  return [...entries].sort((left, right) => left.position - right.position)
-}
+export type CanonicalContextEntry = SharedCanonicalContextEntry
+export type CanonicalContext = SharedCanonicalContext
+export type ParityMismatch = SharedParityMismatch
+export type ContextParityResult = SharedContextParityResult
 
 export function canonicalizeIntendedContext(
   committed: CommittedWorkingSet
 ): CanonicalContext {
-  const entries = committed.entries.map((entry) => {
-    const content = materializedRepresentationContent(entry)
-    return {
-      position: entry.position,
-      sourceId: entry.sourceId,
-      sourceVersionId: entry.sourceVersionId,
-      representationId: entry.representation.id,
-      representationKind: entry.representation.kind,
-      renderedHash: entry.renderedHash,
-      renderedContentHash: sha256Hex(`rendered-content-v1|${content}`),
-      role: 'user'
-    }
-  })
-  const sorted = sortCanonicalEntries(entries)
-  return {
-    entries: Object.freeze(sorted),
-    logicalHash: canonicalContextHash(sorted)
-  }
+  return canonicalizeSharedIntendedContext(committed)
 }
 
 export function canonicalizeObservedContext(
   reconstructed: ReconstructedModelVisibleContext
 ): CanonicalContext {
-  const entries = reconstructed.entries.map((entry) => ({
-    position: entry.trace.position,
-    sourceId: entry.trace.sourceId,
-    sourceVersionId: entry.trace.sourceVersionId,
-    representationId: entry.trace.representationId,
-    representationKind: entry.trace.representationKind,
-    renderedHash: entry.trace.renderedHash,
-    renderedContentHash: sha256Hex(`rendered-content-v1|${entry.content}`),
-    role: entry.role
-  }))
-  const sorted = sortCanonicalEntries(entries)
-  return {
-    entries: Object.freeze(sorted),
-    logicalHash: canonicalContextHash(sorted),
-    payloadMessageCount: reconstructed.payloadMessageCount,
-    expectedPayloadMessageCount: reconstructed.expectedPayloadMessageCount
-  }
-}
-
-export interface ParityMismatch {
-  readonly kind: ParityMismatchKind
-  readonly position: number | null
-  readonly expected?: string
-  readonly observed?: string
-}
-
-export interface ContextParityResult {
-  readonly status: 'PASS' | 'FAIL'
-  readonly mismatches: readonly ParityMismatch[]
-  readonly errorCategory: 'PARITY_FAILURE' | null
-}
-
-function identity(entry: CanonicalContextEntry): string {
-  return [
-    entry.sourceId,
-    entry.sourceVersionId,
-    entry.representationId,
-    entry.representationKind
-  ].join('|')
-}
-
-function mismatch(
-  kind: ParityMismatchKind,
-  position: number | null,
-  expected?: string,
-  observed?: string
-): ParityMismatch {
-  return {
-    kind,
-    position,
-    ...(expected !== undefined ? { expected } : {}),
-    ...(observed !== undefined ? { observed } : {})
-  }
+  return canonicalizeSharedObservedContext(
+    reconstructed.entries.map((entry) => ({
+      position: entry.trace.position,
+      sourceId: entry.trace.sourceId,
+      sourceVersionId: entry.trace.sourceVersionId,
+      representationId: entry.trace.representationId,
+      representationKind: entry.trace.representationKind,
+      renderedHash: entry.trace.renderedHash,
+      role: entry.role,
+      content: entry.content
+    })),
+    {
+      payloadMessageCount: reconstructed.payloadMessageCount,
+      expectedPayloadMessageCount: reconstructed.expectedPayloadMessageCount
+    }
+  )
 }
 
 export function compareContextParity(
   intended: CanonicalContext,
   observed: CanonicalContext
 ): ContextParityResult {
-  const mismatches: ParityMismatch[] = []
-
-  if (
-    observed.expectedPayloadMessageCount !== undefined &&
-    observed.payloadMessageCount !== undefined &&
-    observed.payloadMessageCount !== observed.expectedPayloadMessageCount
-  ) {
-    mismatches.push(
-      mismatch(
-        observed.payloadMessageCount > observed.expectedPayloadMessageCount ? 'EXTRA' : 'MISSING',
-        null,
-        String(observed.expectedPayloadMessageCount),
-        String(observed.payloadMessageCount)
-      )
-    )
-  }
-
-  if (observed.entries.length < intended.entries.length) {
-    mismatches.push(
-      mismatch('MISSING', null, String(intended.entries.length), String(observed.entries.length))
-    )
-  } else if (observed.entries.length > intended.entries.length) {
-    mismatches.push(
-      mismatch('EXTRA', null, String(intended.entries.length), String(observed.entries.length))
-    )
-  }
-
-  const intendedIdentities = intended.entries.map(identity)
-  const observedIdentities = observed.entries.map(identity)
-  if (
-    intendedIdentities.length === observedIdentities.length &&
-    [...intendedIdentities].sort().join('\u241F') === [...observedIdentities].sort().join('\u241F') &&
-    intendedIdentities.join('\u241F') !== observedIdentities.join('\u241F')
-  ) {
-    mismatches.push(mismatch('ORDER_MISMATCH', null, intendedIdentities.join(','), observedIdentities.join(',')))
-  }
-
-  const comparableLength = Math.min(intended.entries.length, observed.entries.length)
-  for (let index = 0; index < comparableLength; index += 1) {
-    const expected = intended.entries[index]
-    const actual = observed.entries[index]
-    if (expected === undefined || actual === undefined) continue
-    if (
-      expected.sourceId !== actual.sourceId ||
-      expected.sourceVersionId !== actual.sourceVersionId
-    ) {
-      mismatches.push(
-        mismatch(
-          'VERSION_MISMATCH',
-          expected.position,
-          `${expected.sourceId}@${expected.sourceVersionId}`,
-          `${actual.sourceId}@${actual.sourceVersionId}`
-        )
-      )
-      continue
-    }
-    if (
-      expected.representationId !== actual.representationId ||
-      expected.representationKind !== actual.representationKind
-    ) {
-      mismatches.push(
-        mismatch(
-          'REPRESENTATION_MISMATCH',
-          expected.position,
-          `${expected.representationId}:${expected.representationKind}`,
-          `${actual.representationId}:${actual.representationKind}`
-        )
-      )
-    }
-    if (
-      expected.position !== actual.position ||
-      expected.renderedHash !== actual.renderedHash ||
-      expected.renderedContentHash !== actual.renderedContentHash ||
-      expected.role !== actual.role
-    ) {
-      mismatches.push(
-        mismatch(
-          expected.position !== actual.position ? 'ORDER_MISMATCH' : 'CONTENT_HASH_MISMATCH',
-          expected.position,
-          canonicalEntry(expected),
-          canonicalEntry(actual)
-        )
-      )
-    }
-  }
-
-  return {
-    status: mismatches.length === 0 ? 'PASS' : 'FAIL',
-    mismatches: Object.freeze(mismatches),
-    errorCategory: mismatches.length === 0 ? null : 'PARITY_FAILURE'
-  }
+  return compareSharedContextParity(intended, observed)
 }
 
 function toParityPipelineError(error: unknown): ParityPipelineError {

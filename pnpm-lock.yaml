@@ -139,6 +139,59 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@22.20.1)(jsdom@30.0.1(@noble/hashes@2.2.0))(vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.7)(yaml@2.9.0))
 
+  packages/codex-context-integration:
+    dependencies:
+      '@canvas-agent/context-conformance':
+        specifier: workspace:*
+        version: link:../context-conformance
+      '@canvas-agent/context-runtime':
+        specifier: workspace:*
+        version: link:../context-runtime
+      '@canvas-agent/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@canvas-agent/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@canvas-agent/worker-runtime':
+        specifier: workspace:*
+        version: link:../worker-runtime
+    devDependencies:
+      '@canvas-agent/pi-context-integration':
+        specifier: workspace:*
+        version: link:../pi-context-integration
+      '@earendil-works/pi-coding-agent':
+        specifier: 0.84.1
+        version: 0.84.1(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
+      '@types/node':
+        specifier: ^24.10.1
+        version: 24.13.3
+      tsx:
+        specifier: ^4.23.7
+        version: 4.23.7
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(jsdom@30.0.1(@noble/hashes@2.2.0))(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.7)(yaml@2.9.0))
+
+  packages/context-conformance:
+    dependencies:
+      '@canvas-agent/context-runtime':
+        specifier: workspace:*
+        version: link:../context-runtime
+    devDependencies:
+      '@types/node':
+        specifier: ^24.10.1
+        version: 24.13.3
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(jsdom@30.0.1(@noble/hashes@2.2.0))(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.7)(yaml@2.9.0))
+
   packages/context-runtime:
     devDependencies:
       '@types/node':
@@ -203,6 +256,9 @@ importers:
 
   packages/pi-context-integration:
     dependencies:
+      '@canvas-agent/context-conformance':
+        specifier: workspace:*
+        version: link:../context-conformance
       '@canvas-agent/context-runtime':
         specifier: workspace:*
         version: link:../context-runtime

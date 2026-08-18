@@ -18,6 +18,7 @@
     "smoke:deepseek:cr011": "tsx src/smoke/real-provider-parity-smoke.ts"
   },
   "dependencies": {
+    "@canvas-agent/context-conformance": "workspace:*",
     "@canvas-agent/context-runtime": "workspace:*",
     "@canvas-agent/repository-observer": "workspace:*",
     "@earendil-works/pi-coding-agent": "0.84.1"
