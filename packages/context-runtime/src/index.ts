@@ -128,3 +128,84 @@ export {
   computeShadowMetrics,
   type ShadowPlanningMetrics
 } from './metrics/shadow-metrics'
+export {
+  CONTEXT_PRIORITIES,
+  computeProposedWorkingSetLogicalHash,
+  createProposedWorkingSet,
+  deserializeProposedWorkingSet,
+  serializeProposedWorkingSet,
+  type ContextPriority,
+  type PlanningReason,
+  type ProposedWorkingSet,
+  type ProposedWorkingSetEntry
+} from './planning/proposed-working-set'
+export {
+  planProposedWorkingSet,
+  type DeterministicPlannerPolicy,
+  type PlanProposedWorkingSetInput,
+  type PlannerBudget,
+  type PlannerTaskHints
+} from './planning/planner'
+export {
+  ADMISSION_BASES,
+  ADMISSION_FRESHNESS,
+  ADMISSION_REJECTION_REASONS,
+  computeAdmissionReceiptLogicalHash,
+  createAdmissionReceipt,
+  deserializeAdmissionReceipt,
+  serializeAdmissionReceipt,
+  type AdmissionOutcome,
+  type AdmissionBasis,
+  type AdmissionFreshness,
+  type AdmissionReceipt,
+  type AdmissionRejectionReason
+} from './admission/receipt'
+export {
+  admitWorkingSet,
+  type AdmissionAdapter,
+  type AdmissionMaterializationInput,
+  type AdmitWorkingSetInput,
+  type MaterializationResult
+} from './admission/admission'
+export {
+  commitAdmission,
+  computeCommittedWorkingSetLogicalHash,
+  deserializeCommittedWorkingSet,
+  rebuildCommittedWorkingSet,
+  serializeCommittedWorkingSet,
+  type CommittedWorkingSet,
+  type CommittedWorkingSetEntry,
+  type SerializedCommittedWorkingSet
+} from './working-set/committed-working-set'
+export {
+  WORKING_SET_TRANSITION_ACTIONS,
+  applyWorkingSetTransition,
+  computeWorkingSetTransition,
+  computeWorkingSetTransitionLogicalHash,
+  deserializeWorkingSetTransition,
+  serializeWorkingSetTransition,
+  type SerializedWorkingSetTransition,
+  type WorkingSetTransition,
+  type WorkingSetTransitionAction,
+  type WorkingSetTransitionRecord
+} from './transition/transition'
+export {
+  UNIVERSE_OBSERVATION_STATES,
+  UNIVERSE_RECONCILIATION_ACTIONS,
+  createContextVersionId,
+  createEmptyUniverseRevision,
+  createUniverseRevision as createContractUniverseRevision,
+  deserializeUniverseRevision,
+  reconcileUniverseRevision,
+  serializeUniverseRevision,
+  type ContextSourceId,
+  type ContextVersionId,
+  type SerializedUniverseRevision,
+  type UniverseEntry,
+  type UniverseObservation,
+  type UniverseObservationState,
+  type UniverseReconciliationAction,
+  type UniverseReconciliationEvent,
+  type UniverseRevision,
+  type UniverseVersionRecord
+} from './universe/revision'

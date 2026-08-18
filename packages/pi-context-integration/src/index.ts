@@ -33,3 +33,36 @@ export {
   type ShadowPlannerCallResult,
   type ShadowPlannerObserverOptions
 } from './extension/shadow-planner-extension'
+export {
+  PI_COMMITTED_CONTEXT_CUSTOM_TYPE,
+  PiCommittedContextAdapter,
+  PiContextTranslationError,
+  materializedRepresentationContent,
+  renderedContentHash,
+  type ContextRenderTrace,
+  type PiCommittedContextMessage,
+  type PiContextRenderOptions,
+  type PiContextRenderPlan,
+  type TranslationFailureCode
+} from './active/pi-committed-context-adapter'
+export {
+  PARITY_FAILURE_CATEGORIES,
+  PARITY_MISMATCH_KINDS,
+  InMemoryModelRequestCapture,
+  ParityPipelineError,
+  canonicalizeIntendedContext,
+  canonicalizeObservedContext,
+  compareContextParity,
+  createPiRequestParityExtension,
+  reconstructModelVisibleContext,
+  type CanonicalContext,
+  type CanonicalContextEntry,
+  type CapturedModelRequest,
+  type ContextParityResult,
+  type ParityFailureCategory,
+  type ParityMismatch,
+  type ParityMismatchKind,
+  type PiRequestParityExtensionOptions,
+  type ReconstructedContextEntry,
+  type ReconstructedModelVisibleContext
+} from './active/request-parity'
