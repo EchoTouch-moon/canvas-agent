@@ -35,10 +35,11 @@ call merely because it was one smoke session.
 
 The live smoke executed against the strict-binding implementation at commit
 `b9f44266`. That implementation was later rebased equivalently onto the
-post-PR-45/PR-46 `main`, producing `f64d5a1`; the current PR #47 head
+post-PR-45/PR-46 `main`, producing `f64d5a1`; the strict implementation head
 `f94a753` adds only a credential-independent `providerConfigHash` test
-follow-up. The provider implementation used by the smoke is therefore
-preserved by provenance; no live rerun is required.
+follow-up. The current PR #47 head `ebee088` adds documentation-only binding
+ownership clarification. The provider implementation used by the smoke is
+therefore preserved by provenance; no live rerun is required.
 
 ## Boundary
 
