@@ -15,7 +15,8 @@
     "smoke:deepseek:cr002": "tsx src/smoke/enriched-deepseek-smoke.ts",
     "smoke:deepseek:cr003": "tsx src/smoke/shadow-planner-smoke.ts",
     "smoke:deepseek:cr003b": "tsx src/smoke/file-aware-pi-smoke.ts",
-    "smoke:deepseek:cr011": "tsx src/smoke/real-provider-parity-smoke.ts"
+    "smoke:deepseek:cr011": "tsx src/smoke/real-provider-parity-smoke.ts",
+    "smoke:model-provider": "tsx src/smoke/model-provider-smoke.ts"
   },
   "dependencies": {
     "@canvas-agent/context-runtime": "workspace:*",
