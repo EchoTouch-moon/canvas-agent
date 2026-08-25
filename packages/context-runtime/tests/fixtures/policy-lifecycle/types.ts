@@ -9,10 +9,12 @@ import type {
   ContextWorkingSet,
   DecisionKind,
   SourceObservation,
+  SourceLifecycleSignal,
   TaskPhase,
 } from "../../../src";
 
 export const POLICY_VERSION = "policy-v0-gate-b0";
+export const B1_POLICY_VERSION = "policy-v0-gate-b1-source-lifecycle-signals";
 export const TRACE_TIMESTAMP = "2026-08-14T00:00:00.000Z";
 
 export type TraceEventKind =
@@ -39,6 +41,7 @@ export interface RequestPatch {
   readonly latestVerificationSourceKeys?: readonly string[];
   readonly recentEvidenceSourceKeys?: readonly string[];
   readonly representationNeeds?: readonly ContextRepresentationNeed[];
+  readonly sourceLifecycleSignals?: readonly SourceLifecycleSignal[];
 }
 
 export interface LifecycleTraceEvent {
@@ -151,6 +154,7 @@ export interface MutablePlanningState {
   latestVerificationSourceKeys: readonly string[];
   recentEvidenceSourceKeys: readonly string[];
   representationNeeds: readonly ContextRepresentationNeed[];
+  sourceLifecycleSignals: readonly SourceLifecycleSignal[];
 }
 
 export type DecisionLookup = (
