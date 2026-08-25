@@ -75,6 +75,16 @@ function isRecentEvidence(request: ContextPlanningRequest, sourceKey: string): b
   return request.recentEvidenceSourceKeys.includes(sourceKey)
 }
 
+function lifecycleReasonCodesFor(
+  request: ContextPlanningRequest,
+  sourceKey: string
+): readonly ReasonCode[] {
+  const signals = (request.sourceLifecycleSignals ?? [])
+    .filter((signal) => signal.sourceKey === sourceKey)
+    .map((signal) => signal.kind as ReasonCode)
+  return [...new Set(signals)]
+}
+
 function removalRecordFor(
   request: ContextPlanningRequest,
   sourceKey: string
@@ -192,6 +202,7 @@ export function planWorkingSet(input: {
     if (representation === null) continue
 
     const protection = protectionByKey.get(sourceKey) ?? 'NORMAL'
+    const lifecycleReasonCodes = lifecycleReasonCodesFor(request, sourceKey)
 
     // Membership determination (deterministic, structured evidence only).
     let active = false
@@ -204,9 +215,9 @@ export function planWorkingSet(input: {
       active = true
       reasonCodes.push('USER_PINNED')
     } else if (isExcluded(request, sourceKey)) {
-      // Explicit exclude: the source leaves the Working Set. When it was
-      // previously active, emit a real REMOVE(EXPLICIT_EXCLUDE) so the
-      // observer can record removal history (enabling later REHYDRATE).
+      // Generic exclusion is not enough to infer why a source was removed.
+      // When structured lifecycle evidence is present, preserve that reason;
+      // otherwise retain the historical EXPLICIT_EXCLUDE behavior.
       active = false
       const previousItem = previousByKey.get(sourceKey)
       if (previousItem !== undefined) {
@@ -219,7 +230,10 @@ export function planWorkingSet(input: {
             representationId: previousItem.representationId,
             fromWorkingSetId: previousWorkingSet?.workingSetId ?? null,
             toWorkingSetId: workingSetId,
-            reasonCodes: ['EXPLICIT_EXCLUDE'],
+            reasonCodes:
+              lifecycleReasonCodes.length > 0
+                ? lifecycleReasonCodes
+                : ['EXPLICIT_EXCLUDE'],
             policyVersion,
             tokenDelta: -previousItem.tokenEstimate,
             previousToken: previousItem.tokenEstimate
@@ -242,6 +256,8 @@ export function planWorkingSet(input: {
       active = true
       reasonCodes.push('RECENT_RUN_EVIDENCE')
     }
+
+    reasonCodes.push(...lifecycleReasonCodes)
 
     if (!active) continue
 
@@ -337,7 +353,13 @@ export function planWorkingSet(input: {
           representationId: representation.id,
           fromWorkingSetId: record.removedFromWorkingSetId,
           toWorkingSetId: workingSetId,
-          reasonCodes: ['REHYDRATION_TRIGGERED', ...record.originalRemovalReasonCodes],
+          reasonCodes: [
+            ...new Set([
+              'REHYDRATION_TRIGGERED' as const,
+              ...record.originalRemovalReasonCodes,
+              ...lifecycleReasonCodes
+            ])
+          ],
           policyVersion,
           tokenDelta: representation.tokenEstimate,
           previousToken: 0
@@ -381,6 +403,16 @@ export function planWorkingSet(input: {
       if (removed.has(key)) continue
       removed.add(key)
       excess -= candidate.tokenEstimate
+      // A source must have one coherent decision for this transition. The
+      // initial membership pass may have emitted KEEP/ADD/REPLACE before
+      // budget arbitration selected the same source for eviction; replace
+      // that provisional decision with the authoritative REMOVE.
+      for (let index = decisions.length - 1; index >= 0; index -= 1) {
+        const decision = decisions[index]
+        if (decision?.sourceKey === key && decision.kind !== 'REMOVE') {
+          decisions.splice(index, 1)
+        }
+      }
       decisions.push(
         makeDecision({
           sequence,
@@ -506,6 +538,12 @@ export function planningRequestHashForPlanner(request: ContextPlanningRequest): 
       request.currentTargetSourceKeys.join('|'),
       request.latestVerificationSourceKeys.join('|'),
       request.recentEvidenceSourceKeys.join('|'),
+      (request.sourceLifecycleSignals ?? [])
+        .map(
+          (signal) =>
+            `${signal.sourceKey}:${signal.kind}:${signal.evidenceRef ?? '-'}`
+        )
+        .join(';'),
       request.previousWorkingSetId ?? '-'
     ].join('\u241F')
   )

@@ -18,12 +18,15 @@ export {
 export { boundary, traceEvent } from "./events";
 export {
   runGateB0Suite,
+  runGateB1Suite,
   runScenario,
+  runScenarioB1,
   validateEvidenceContract,
 } from "./runner";
 export { runOracleMutationTests } from "./oracle";
 export {
   POLICY_VERSION,
+  B1_POLICY_VERSION,
   TRACE_TIMESTAMP,
   type B0Classification,
   type EvidenceSnapshot,

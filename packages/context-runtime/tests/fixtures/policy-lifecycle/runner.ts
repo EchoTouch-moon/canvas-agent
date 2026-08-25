@@ -10,6 +10,7 @@ import {
 import { entryFor, representationFor, seedLifecycleUniverse } from "./common";
 import {
   POLICY_VERSION,
+  B1_POLICY_VERSION,
   type B0Classification,
   type EvidenceSnapshot,
   type FrozenDecisionExpectation,
@@ -21,6 +22,7 @@ import {
   type MutablePlanningState,
   type ScenarioResult,
 } from "./types";
+import type { SourceLifecycleSignal } from "../../../src";
 
 const NEED_EVIDENCE_EVENTS = new Set<LifecycleTraceEvent["kind"]>([
   "DEPENDENCY_DISCOVERED",
@@ -40,6 +42,7 @@ function initialPlanningState(): MutablePlanningState {
     latestVerificationSourceKeys: [],
     recentEvidenceSourceKeys: [],
     representationNeeds: [],
+    sourceLifecycleSignals: [],
   };
 }
 
@@ -60,6 +63,34 @@ function applyRequestPatch(
     recentEvidenceSourceKeys:
       patch.recentEvidenceSourceKeys ?? state.recentEvidenceSourceKeys,
     representationNeeds: patch.representationNeeds ?? state.representationNeeds,
+    sourceLifecycleSignals:
+      patch.sourceLifecycleSignals ?? state.sourceLifecycleSignals,
+  };
+}
+
+function lifecycleSignalForEvent(
+  event: LifecycleTraceEvent,
+): SourceLifecycleSignal | undefined {
+  if (event.sourceKey === undefined) return undefined;
+  const kind =
+    event.kind === "SOURCE_RULED_OUT"
+      ? "RULED_OUT"
+      : event.kind === "SOURCE_SUPERSEDED"
+        ? "SUPERSEDED"
+        : event.kind === "FAILURE_OBSERVED"
+          ? "NEW_FAILURE_EVIDENCE"
+          : event.kind === "PHASE_CHANGED"
+            ? "PHASE_IRRELEVANT"
+            : event.kind === "DETAIL_REQUESTED"
+              ? "DETAIL_REQUIRED"
+              : undefined;
+  if (kind === undefined) return undefined;
+  return {
+    sourceKey: event.sourceKey,
+    kind,
+    ...(event.evidenceRef !== undefined
+      ? { evidenceRef: event.evidenceRef }
+      : {}),
   };
 }
 
@@ -80,6 +111,7 @@ function makePlanningRequest(
     currentTargetSourceKeys: state.currentTargetSourceKeys,
     latestVerificationSourceKeys: state.latestVerificationSourceKeys,
     recentEvidenceSourceKeys: state.recentEvidenceSourceKeys,
+    sourceLifecycleSignals: state.sourceLifecycleSignals,
     removalHistory,
     representationNeeds: state.representationNeeds,
     previousWorkingSetId: previousWorkingSet?.workingSetId ?? null,
@@ -294,6 +326,7 @@ export function validateEvidenceContract(
 function runScenarioInternal(
   fixture: LifecycleScenarioFixture,
   runtimeSessionId: string,
+  includeLifecycleSignals: boolean,
 ): ScenarioResult {
   let universe = seedLifecycleUniverse(runtimeSessionId);
   let state = initialPlanningState();
@@ -323,6 +356,20 @@ function runScenarioInternal(
 
   for (const event of fixture.events) {
     state = applyRequestPatch(state, event.request);
+    if (includeLifecycleSignals) {
+      const lifecycleSignal = lifecycleSignalForEvent(event);
+      if (lifecycleSignal !== undefined) {
+        state = {
+          ...state,
+          sourceLifecycleSignals: [
+            ...state.sourceLifecycleSignals.filter(
+              (signal) => signal.sourceKey !== lifecycleSignal.sourceKey,
+            ),
+            lifecycleSignal,
+          ],
+        };
+      }
+    }
     if (event.observation !== undefined) {
       universe = applySourceObservations({
         previous: universe,
@@ -364,7 +411,9 @@ function runScenarioInternal(
       removalHistory,
     );
     const options = {
-      policyVersion: POLICY_VERSION,
+      policyVersion: includeLifecycleSignals
+        ? B1_POLICY_VERSION
+        : POLICY_VERSION,
       createdAt: "2026-08-14T00:00:00.000Z",
       represent: (entry: Parameters<typeof representationFor>[0]) => {
         const need = state.representationNeeds.find(
@@ -480,7 +529,21 @@ function runScenarioInternal(
 }
 
 export function runScenario(fixture: LifecycleScenarioFixture): ScenarioResult {
-  return runScenarioInternal(fixture, `cspv-b0:${fixture.id.toLowerCase()}`);
+  return runScenarioInternal(
+    fixture,
+    `cspv-b0:${fixture.id.toLowerCase()}`,
+    false,
+  );
+}
+
+export function runScenarioB1(
+  fixture: LifecycleScenarioFixture,
+): ScenarioResult {
+  return runScenarioInternal(
+    fixture,
+    `cspv-b1:${fixture.id.toLowerCase()}`,
+    true,
+  );
 }
 
 function scenarioDigest(result: ScenarioResult): string {
@@ -492,24 +555,39 @@ function scenarioDigest(result: ScenarioResult): string {
   });
 }
 
-function replayMismatches(fixture: LifecycleScenarioFixture): number {
+function replayMismatches(
+  fixture: LifecycleScenarioFixture,
+  includeLifecycleSignals: boolean,
+  runPrefix: string,
+): number {
   const first = runScenarioInternal(
     fixture,
-    `cspv-b0:${fixture.id.toLowerCase()}`,
+    `${runPrefix}:${fixture.id.toLowerCase()}`,
+    includeLifecycleSignals,
   );
   const second = runScenarioInternal(
     fixture,
-    `cspv-b0:${fixture.id.toLowerCase()}`,
+    `${runPrefix}:${fixture.id.toLowerCase()}`,
+    includeLifecycleSignals,
   );
   return scenarioDigest(first) === scenarioDigest(second) ? 0 : 1;
 }
 
-export function runGateB0Suite(
+function runGateSuite(
   fixtures: readonly LifecycleScenarioFixture[],
+  includeLifecycleSignals: boolean,
+  runPrefix: string,
 ): GateB0Result {
-  const scenarioResults = fixtures.map((fixture) => runScenario(fixture));
+  const scenarioResults = fixtures.map((fixture) =>
+    runScenarioInternal(
+      fixture,
+      `${runPrefix}:${fixture.id.toLowerCase()}`,
+      includeLifecycleSignals,
+    ),
+  );
   const replayMismatchCount = fixtures.reduce(
-    (count, fixture) => count + replayMismatches(fixture),
+    (count, fixture) =>
+      count + replayMismatches(fixture, includeLifecycleSignals, runPrefix),
     0,
   );
   const mutationChecks = [
@@ -552,4 +630,16 @@ export function runGateB0Suite(
     mutationChecks,
     providerCalls: 0,
   };
+}
+
+export function runGateB0Suite(
+  fixtures: readonly LifecycleScenarioFixture[],
+): GateB0Result {
+  return runGateSuite(fixtures, false, "cspv-b0");
+}
+
+export function runGateB1Suite(
+  fixtures: readonly LifecycleScenarioFixture[],
+): GateB0Result {
+  return runGateSuite(fixtures, true, "cspv-b1");
 }

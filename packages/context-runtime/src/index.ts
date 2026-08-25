@@ -94,6 +94,7 @@ export {
 } from './representation/context-representation'
 export {
   REASON_CODES,
+  SOURCE_LIFECYCLE_SIGNAL_KINDS,
   TASK_PHASES,
   normalizePlanningRequest,
   planningRequestHash,
@@ -102,6 +103,8 @@ export {
   type ContextRepresentationNeed,
   type ReasonCode,
   type RemovalRecord,
+  type SourceLifecycleSignal,
+  type SourceLifecycleSignalKind,
   type TaskPhase
 } from './planning/planning-request'
 export {
