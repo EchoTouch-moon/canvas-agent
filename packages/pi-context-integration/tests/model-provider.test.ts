@@ -101,6 +101,20 @@ describe('model provider layer', () => {
     })
   })
 
+  it('keeps the provider config hash independent from credentials', () => {
+    const first = safeProviderSelection(
+      resolveProviderSelection({
+        env: env({ STEP_PLAN_API_KEY: 'first-secret' })
+      })
+    )
+    const second = safeProviderSelection(
+      resolveProviderSelection({
+        env: env({ STEP_PLAN_API_KEY: 'second-secret' })
+      })
+    )
+    expect(first.providerConfigHash).toBe(second.providerConfigHash)
+  })
+
   it('binds a strict experiment to Step Plan without fallback', async () => {
     const runtime = await ModelRuntime.create({
       modelsPath: null,
