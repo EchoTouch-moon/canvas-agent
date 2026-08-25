@@ -49,19 +49,24 @@ than relying on a caller to remember `allowFallback: false`:
 
 ```text
 executionMode = experiment-strict
-runIdentity = <new run identity>
+runIdentity = <run identity supplied by the C0 runner>
 
 requestedProvider === actualProvider
 requestedModel === actualModel
 fallbackUsed === false
-provider identity is immutable after the first call
+binding metadata is immutable after preparation
 ```
 
 Strict preparation fails with `PROVIDER_BINDING_FAILURE` when the requested
-provider or model is unavailable. It does not continue with DeepSeek. The safe
-binding metadata also includes a `providerConfigHash`, derived from the
-provider endpoint, model and compatibility configuration without credentials.
-This distinguishes two runs that use the same provider/model labels but have
+provider or model is unavailable. It does not continue with DeepSeek. The
+provider layer validates that a run identity was supplied and returns one
+binding record for the selected provider; it does not itself prove run-identity
+freshness/uniqueness or prevent an upper-level caller from preparing again.
+Those run-level invariants belong to the C0 runner, which must enforce one
+binding per run and no rebinding after execution starts. The safe binding
+metadata also includes a `providerConfigHash`, derived from the provider
+endpoint, model and compatibility configuration without credentials. This
+distinguishes two runs that use the same provider/model labels but have
 different endpoint or runtime profiles.
 
 Development smoke commands may continue to use the permissive pre-call
