@@ -66,3 +66,24 @@ export {
   type ReconstructedContextEntry,
   type ReconstructedModelVisibleContext
 } from './active/request-parity'
+export {
+  DEEPSEEK_PROVIDER_PROFILE,
+  STEP_PLAN_PROVIDER_PROFILE,
+  ModelProviderConfigurationError,
+  ModelProviderUnavailableError,
+  prepareModelProvider,
+  registerModelProvider,
+  resolveProviderSelection,
+  safeProviderSelection,
+  type ModelProviderCompatibility,
+  type ModelProviderProfile,
+  type PreparedModelProvider,
+  type PrepareProviderOptions,
+  type ProviderApi,
+  type ProviderEnvironment,
+  type ProviderInput,
+  type ProviderSelection,
+  type ProviderSelectionSource,
+  type ResolveProviderOptions,
+  type SafeProviderSelection
+} from './model-provider'
