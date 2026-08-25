@@ -31,6 +31,15 @@ provider calls:     2
 This count is recorded explicitly. It must not be reported as one provider
 call merely because it was one smoke session.
 
+## Provenance
+
+The live smoke executed against the strict-binding implementation at commit
+`b9f44266`. That implementation was later rebased equivalently onto the
+post-PR-45/PR-46 `main`, producing `f64d5a1`; the current PR #47 head
+`f94a753` adds only a credential-independent `providerConfigHash` test
+follow-up. The provider implementation used by the smoke is therefore
+preserved by provenance; no live rerun is required.
+
 ## Boundary
 
 This is provider compatibility and strict-binding evidence only. It does not
@@ -42,6 +51,8 @@ only redacted metadata and no credential or model transcript.
 
 ## Next step
 
-PR #47 remains a stacked strict-binding PR pending normal review and PR #45
-merge. The observed two-call behavior must be reflected in the future C0
-manifest by separating `scenarioRunLimit` from `providerCallBudget`.
+PR #47 is now based on `main` after PR #45 and PR #46 and remains pending
+normal review. After #47 merges, this evidence PR should retarget/rebase onto
+the resulting `main`; the observed two-call behavior must be reflected in the
+future C0 manifest by separating `scenarioRunLimit` from
+`providerCallBudget`.
