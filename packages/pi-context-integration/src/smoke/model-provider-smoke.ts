@@ -19,6 +19,8 @@ import {
 // Opt-in generic provider smoke. Requires:
 //   CANVAS_CONTEXT_LIVE_SMOKE=1
 //   STEP_PLAN_API_KEY=<key> (preferred) or DEEPSEEK_API_KEY=<key> (fallback)
+//   CANVAS_PROVIDER_EXECUTION_MODE=experiment-strict
+//   CANVAS_PROVIDER_RUN_ID=<new run identity>
 //
 // Provider selection is completed before the first model call. A provider
 // failure after session.prompt() starts is terminal; this smoke never switches
@@ -33,8 +35,18 @@ async function run(): Promise<void> {
     return
   }
 
-  const runtime = await ModelRuntime.create({ refreshOnCreate: false, allowModelNetwork: false })
-  const prepared = await prepareModelProvider(runtime)
+  const runtime = await ModelRuntime.create({
+    refreshOnCreate: false,
+    allowModelNetwork: false
+  })
+  const executionMode =
+    process.env['CANVAS_PROVIDER_EXECUTION_MODE'] === 'experiment-strict' ? 'experiment-strict' : 'development'
+  const prepared = await prepareModelProvider(runtime, {
+    executionMode,
+    ...(process.env['CANVAS_PROVIDER_RUN_ID'] !== undefined
+      ? { runIdentity: process.env['CANVAS_PROVIDER_RUN_ID'] }
+      : {})
+  })
   const safeSelection = safeProviderSelection(prepared.selection)
   const model = prepared.model
   const fixtureDir = await mkdtemp(join(tmpdir(), 'canvas-pi-provider-smoke-'))
@@ -45,8 +57,13 @@ async function run(): Promise<void> {
       'utf8'
     )
     const sessionId = `smoke-provider-${new Date().toISOString().replace(/[:.]/g, '-')}`
-    const jsonlSink = new JsonlObservationSink({ directory: RESEARCH_DIR, sessionId })
-    const observer = new PiContextShadowObserver({ runtimeSessionId: sessionId })
+    const jsonlSink = new JsonlObservationSink({
+      directory: RESEARCH_DIR,
+      sessionId
+    })
+    const observer = new PiContextShadowObserver({
+      runtimeSessionId: sessionId
+    })
     const settingsManager = SettingsManager.inMemory({
       compaction: { enabled: false },
       retry: { enabled: false, maxRetries: 0 }
@@ -77,9 +94,10 @@ async function run(): Promise<void> {
     await jsonlSink.flush()
     console.log(`[smoke:provider] runtimeSessionId=${sessionId}`)
     console.log(`[smoke:provider] selection=${JSON.stringify(safeSelection)}`)
-    console.log(
-      `[smoke:provider] observed model-call count=${observer.inMemory.observations.length}`
-    )
+    if (prepared.experimentBinding !== undefined) {
+      console.log(`[smoke:provider] experimentBinding=${JSON.stringify(prepared.experimentBinding)}`)
+    }
+    console.log(`[smoke:provider] observed model-call count=${observer.inMemory.observations.length}`)
     console.log(`[smoke:provider] jsonl=${jsonlSink.path}`)
     console.log('SMOKE_STATUS=EXECUTED')
   } finally {
