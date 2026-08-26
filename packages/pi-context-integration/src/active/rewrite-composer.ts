@@ -18,6 +18,15 @@ import { analyzeNativeMessages } from './native-message-analysis'
 // and must be byte-identical. Opaque/reasoning blocks are always preserved
 // verbatim.
 //
+// Amendment (2026-08-27, pre-Stage-1): pair-consistent tool-block removal.
+// Real-task assistant messages usually MIX text/thinking blocks with toolCall
+// blocks; whole-message-only removal would make every real rewrite fall back
+// (MESSAGE_MIXED_REMOVAL). When a transition REMOVEs the source of a toolCall
+// block inside such a mixed assistant message, the composer now drops ONLY
+// that toolCall block (text/thinking blocks stay byte-identical) AND the
+// paired toolResult message, so the tool-call/result pair leaves the context
+// together or not at all.
+//
 // Fail closed: ANY unsupported or inconsistent item returns FALLBACK_NATIVE —
 // never a partial rewrite. This module sends nothing: no provider client, no
 // ModelRuntime, no session, no network, no fs, no clock. Deterministic: the
@@ -37,6 +46,7 @@ export const ACTIVE_FALLBACK_REASONS = [
   'BUDGET_INVARIANT_VIOLATED',
   'UNEXPLAINED_MEMBERSHIP',
   'MESSAGE_MIXED_REMOVAL',
+  'EMPTY_REMAINDER_AFTER_BLOCK_REMOVAL',
   'TOOL_PAIR_SPLIT',
   'OPAQUE_CONTENT_DROPPED',
   'MANDATORY_ITEM_MISSING',
@@ -66,6 +76,12 @@ export interface ActiveRewriteContinuity {
   readonly opaqueBlockCount: number
   readonly mandatoryPinnedReasserted: boolean
   readonly removedSourceCount: number
+  /**
+   * toolCall blocks dropped from MIXED assistant messages (amendment
+   * 2026-08-27): each dropped block's paired toolResult message was dropped
+   * too, and every other block of the message survived byte-identical.
+   */
+  readonly toolBlocksRemoved: number
 }
 
 export interface ActiveRewriteFallback {
@@ -78,7 +94,11 @@ export interface ActiveRewriteReady {
   readonly kind: 'REWRITE_READY'
   /** Single leading system instruction, byte-identical to the input. */
   readonly systemInstruction: string
-  /** Composed message list: original order, REMOVEd sources dropped whole. */
+  /**
+   * Composed message list: original order, REMOVEd sources dropped whole;
+   * MIXED assistant messages that lost REMOVEd toolCall blocks appear as new
+   * message objects with those blocks removed (all other blocks byte-identical).
+   */
   readonly messages: readonly PiMessageView[]
   readonly binding: ActiveRewriteBinding
   readonly continuity: ActiveRewriteContinuity
@@ -232,7 +252,94 @@ export function composeActiveRewrite(input: ComposeActiveRewriteInput): ActiveRe
     modelCallSequence: input.workingSet.sequence
   })
 
+  // Amendment (2026-08-27): per-message removal plan. WHOLE keeps the Stage 0
+  // whole-message-drop semantics; BLOCKS drops only the REMOVEd toolCall
+  // blocks of a MIXED assistant message (text/thinking stay byte-identical,
+  // the paired toolResult message is dropped alongside by the pair check).
+  interface BlockRemovalPlan {
+    readonly droppedToolCallIds: readonly string[]
+    readonly droppedBlockIndexes: readonly number[]
+  }
+  type AssistantRemovalPlan =
+    | { readonly kind: 'BLOCKS'; readonly ids: readonly string[]; readonly indexes: readonly number[] }
+    | { readonly kind: 'WHOLE' }
+    | {
+        readonly kind: 'REFUSE'
+        readonly reason: ActiveFallbackReason
+        readonly detail: string
+      }
+
+  const isToolCallBlock = (block: unknown): block is { type: string; id?: unknown } =>
+    typeof block === 'object' &&
+    block !== null &&
+    (block as { type?: unknown }).type === 'toolCall'
+
+  // Plan removal for an assistant message carrying REMOVEd tool-call sources.
+  // Returns undefined when the message needs the legacy whole-message path.
+  const planAssistantRemoval = (
+    message: (typeof analysis.messages)[number],
+    original: PiMessageView
+  ): AssistantRemovalPlan | undefined => {
+    if (message.role !== 'assistant') return undefined
+    // Removed assistant sources are always run/tool-call:// identities (the
+    // shadow decomposition attributes only toolCall blocks EXACTly); refuse
+    // defensively if any other shape ever appears.
+    for (const key of message.sourceKeys) {
+      if (removedKeys.has(key) && !key.startsWith('run/tool-call://')) {
+        return {
+          kind: 'REFUSE',
+          reason: 'MESSAGE_MIXED_REMOVAL',
+          detail: `message ${String(message.index)} carries REMOVEd source '${key}' that is not a tool-call identity`
+        }
+      }
+    }
+    const content = original.content
+    if (!Array.isArray(content)) return undefined // no blocks to drop; legacy path decides
+    const ids: string[] = []
+    const indexes: number[] = []
+    let textBlockPresent = false
+    let meaningfulRemainder = false
+    for (let blockIndex = 0; blockIndex < content.length; blockIndex += 1) {
+      const block = content[blockIndex]
+      if (isToolCallBlock(block)) {
+        const id = block.id
+        if (typeof id === 'string' && id !== '' && removedKeys.has(`run/tool-call://${id}`)) {
+          ids.push(id)
+          indexes.push(blockIndex)
+          continue
+        }
+        meaningfulRemainder = true // retained (or unattributed) toolCall block stays
+        continue
+      }
+      if (
+        typeof block === 'object' &&
+        block !== null &&
+        (block as { type?: unknown }).type === 'text'
+      ) {
+        textBlockPresent = true
+        const text = (block as { text?: unknown }).text
+        if (typeof text === 'string' && text.length > 0) meaningfulRemainder = true
+        continue
+      }
+      // thinking / image / structured / unrecognized entries are kept verbatim
+      // and keep the message alive; only text blocks may be empty.
+      meaningfulRemainder = true
+    }
+    if (indexes.length === 0) return undefined // no removable call block here
+    if (meaningfulRemainder) return { kind: 'BLOCKS', ids, indexes }
+    if (!textBlockPresent && message.opaqueBlockCount === 0) return { kind: 'WHOLE' }
+    return {
+      kind: 'REFUSE',
+      reason: 'EMPTY_REMAINDER_AFTER_BLOCK_REMOVAL',
+      detail: `dropping toolCall block(s) ${ids.join(', ')} would leave message ${String(
+        message.index
+      )} with no meaningful content${textBlockPresent ? ' (text block present but empty)' : ''}`
+    }
+  }
+
   const dropped = new Set<number>()
+  const blockRemovals = new Map<number, BlockRemovalPlan>()
+  let toolBlocksRemoved = 0
   for (const message of analysis.messages) {
     const removedSources: string[] = []
     let retainedSource = false
@@ -247,6 +354,23 @@ export function composeActiveRewrite(input: ComposeActiveRewriteInput): ActiveRe
       }
     }
     if (removedSources.length === 0) continue
+
+    const plan = planAssistantRemoval(message, input.messages[message.index]!)
+    if (plan !== undefined) {
+      if (plan.kind === 'REFUSE') return fallback(plan.reason, plan.detail)
+      if (plan.kind === 'BLOCKS') {
+        blockRemovals.set(message.index, {
+          droppedToolCallIds: plan.ids,
+          droppedBlockIndexes: plan.indexes
+        })
+        toolBlocksRemoved += plan.ids.length
+        continue
+      }
+      // WHOLE: a pure toolCall message whose calls are all REMOVEd falls
+      // through to the legacy whole-drop checks below (it cannot carry a
+      // retained source — a retained call block would be a meaningful
+      // remainder — but the check below stays as a belt-and-suspenders guard).
+    }
     if (retainedSource) {
       return fallback(
         'MESSAGE_MIXED_REMOVAL',
@@ -268,13 +392,29 @@ export function composeActiveRewrite(input: ComposeActiveRewriteInput): ActiveRe
     dropped.add(message.index)
   }
 
-  // 5. Tool-call/result pair continuity: all-or-nothing.
-  const fateOf = (index: number | undefined): 'kept' | 'dropped' | 'absent' =>
-    index === undefined ? 'absent' : dropped.has(index) ? 'dropped' : 'kept'
+  // 5. Tool-call/result pair continuity: all-or-nothing, now at block
+  // granularity — a toolCall dropped as a BLOCK counts as dropped.
+  const callFateOf = (pair: (typeof analysis.toolPairs)[number]): 'kept' | 'dropped' | 'absent' => {
+    const index = pair.callMessageIndex
+    if (index === undefined) return 'absent'
+    if (dropped.has(index)) return 'dropped'
+    const plan = blockRemovals.get(index)
+    if (plan !== undefined && plan.droppedToolCallIds.includes(pair.toolCallId)) {
+      return 'dropped'
+    }
+    return 'kept'
+  }
+  const resultFateOf = (
+    pair: (typeof analysis.toolPairs)[number]
+  ): 'kept' | 'dropped' | 'absent' => {
+    const index = pair.resultMessageIndex
+    if (index === undefined) return 'absent'
+    return dropped.has(index) ? 'dropped' : 'kept'
+  }
   for (const pair of analysis.toolPairs) {
     if (pair.callMessageIndex === undefined || pair.resultMessageIndex === undefined) continue
-    const callFate = fateOf(pair.callMessageIndex)
-    const resultFate = fateOf(pair.resultMessageIndex)
+    const callFate = callFateOf(pair)
+    const resultFate = resultFateOf(pair)
     if (callFate !== resultFate) {
       return fallback(
         'TOOL_PAIR_SPLIT',
@@ -283,11 +423,14 @@ export function composeActiveRewrite(input: ComposeActiveRewriteInput): ActiveRe
     }
   }
 
-  // 6. Mandatory/pinned re-assertion against the composed output.
+  // 6. Mandatory/pinned re-assertion against the composed output. A message
+  // that only lost REMOVEd toolCall blocks still carries its retained sources.
   const keptKeys = new Set<string>()
   for (const message of analysis.messages) {
     if (dropped.has(message.index)) continue
-    for (const key of message.sourceKeys) keptKeys.add(key)
+    for (const key of message.sourceKeys) {
+      if (!removedKeys.has(key)) keptKeys.add(key)
+    }
   }
   for (const item of input.workingSet.items) {
     if (item.protection !== 'MANDATORY' && item.protection !== 'PINNED') continue
@@ -311,7 +454,24 @@ export function composeActiveRewrite(input: ComposeActiveRewriteInput): ActiveRe
     )
   }
 
-  const composed = input.messages.filter((_, index) => !dropped.has(index))
+  // Amendment output rule: BLOCKS messages are rebuilt as new message objects
+  // whose content array drops exactly the planned toolCall blocks; every other
+  // block travels by reference (byte-identical) and the original input array
+  // is never mutated.
+  const composed: PiMessageView[] = []
+  for (let index = 0; index < input.messages.length; index += 1) {
+    if (dropped.has(index)) continue
+    const plan = blockRemovals.get(index)
+    const original = input.messages[index]!
+    if (plan === undefined || !Array.isArray(original.content)) {
+      composed.push(original)
+      continue
+    }
+    const content = original.content.filter(
+      (_, blockIndex) => !plan.droppedBlockIndexes.includes(blockIndex)
+    )
+    composed.push({ ...original, content })
+  }
   const systemInstructionHash = activeSystemInstructionHash(systemInstruction)
   const messagesHash = activeMessagesHash(composed)
   const compositionHash = sha256Hex(
@@ -339,7 +499,8 @@ export function composeActiveRewrite(input: ComposeActiveRewriteInput): ActiveRe
       opaqueItemsPreservedVerbatim: true,
       opaqueBlockCount: analysis.opaqueBlockCount,
       mandatoryPinnedReasserted: true,
-      removedSourceCount: removedKeys.size
+      removedSourceCount: removedKeys.size,
+      toolBlocksRemoved
     },
     removedSourceKeys: [...removedKeys].sort(),
     systemInstructionHash,

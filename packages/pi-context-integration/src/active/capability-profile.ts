@@ -35,8 +35,10 @@ export const PI_ACTIVE_CAPABILITY = {
   // blocks) are ALWAYS preserved verbatim and are never rewritten or dropped.
   opaquePolicy: 'PRESERVED_VERBATIM_NEVER_REWRITTEN',
   // Stage 0 composes rewrites by dropping WHOLE messages whose sources were
-  // REMOVEd; it never edits content inside a kept message.
-  rewriteMode: 'WHOLE_MESSAGE_DROP_ONLY',
+  // REMOVEd, plus (amendment 2026-08-27) dropping individual REMOVEd toolCall
+  // blocks from MIXED assistant messages — always together with the paired
+  // toolResult message; it never edits content inside a kept block.
+  rewriteMode: 'WHOLE_MESSAGE_DROP_PLUS_PAIRED_TOOL_CALL_BLOCK_DROP',
   // Hard Stage 0 boundary: nothing in this module tree sends provider requests.
   sendsProviderRequests: false
 } as const

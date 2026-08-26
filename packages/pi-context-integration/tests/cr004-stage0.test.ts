@@ -442,7 +442,207 @@ describe('CR-004 Stage 0: capability profile facts', () => {
     expect(PI_ACTIVE_CAPABILITY.harness).toBe('PI')
     expect(PI_ACTIVE_CAPABILITY.sendsProviderRequests).toBe(false)
     expect(PI_ACTIVE_CAPABILITY.opaquePolicy).toBe('PRESERVED_VERBATIM_NEVER_REWRITTEN')
-    expect(PI_ACTIVE_CAPABILITY.rewriteMode).toBe('WHOLE_MESSAGE_DROP_ONLY')
+    expect(PI_ACTIVE_CAPABILITY.rewriteMode).toBe('WHOLE_MESSAGE_DROP_PLUS_PAIRED_TOOL_CALL_BLOCK_DROP')
     expect(checkCapability({ harness: 'PI', messages: CONVERSATION }).supported).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Amendment (2026-08-27, pre-Stage-1): pair-consistent tool-block removal.
+// Real-task assistant messages MIX text/thinking with toolCall blocks, so the
+// composer drops only the REMOVEd toolCall block (text byte-identical) plus
+// the paired toolResult message instead of refusing the whole rewrite.
+// ---------------------------------------------------------------------------
+
+function assistantMixedToolCallMessage(
+  blocks: readonly unknown[],
+  id: string,
+  name: string,
+  args: unknown
+): PiMessageView {
+  return {
+    role: 'assistant',
+    content: [...blocks, { type: 'toolCall', id, name, arguments: args }]
+  }
+}
+
+const MIXED_TEXT = 'I will read a.ts first.'
+// CONVERSATION with the call-1 message replaced by a MIXED (text + toolCall).
+const MIXED_CONVERSATION: readonly PiMessageView[] = [
+  CONVERSATION[0]!,
+  assistantMixedToolCallMessage([{ type: 'text', text: MIXED_TEXT }], 'call-1', 'read', { path: 'a.ts' }),
+  ...CONVERSATION.slice(2)
+]
+const MIXED_CALL_MESSAGE = MIXED_CONVERSATION[1]!
+
+// Shared REAL plans over the mixed conversation: boundary 1 retains everything;
+// boundary 2 REMOVEs the call-1 pair (both sides excluded).
+const mixedPlans = await (async () => {
+  const control: PlannerControl = { pinned: [], excluded: [] }
+  const planner = createPlanner(control)
+  await planner.observeModelCall([...MIXED_CONVERSATION])
+  const boundary1 = planner.callResults[0]!.plannerResult
+  control.excluded.push(CALL_1, RESULT_1)
+  await planner.observeModelCall([...MIXED_CONVERSATION])
+  const boundary2 = planner.callResults[1]!.plannerResult
+  return { boundary1, boundary2 }
+})()
+
+describe('CR-004 Stage 0 amendment: pair-consistent tool-block removal', () => {
+  it('A-1: mixed assistant (text+toolCall) + result removed => REWRITE_READY, text byte-identical, pair gone', () => {
+    const result = composeActiveRewrite(
+      baseInput({
+        messages: MIXED_CONVERSATION,
+        workingSet: mixedPlans.boundary2.workingSet,
+        transition: mixedPlans.boundary2.transition
+      })
+    )
+    expect(result.kind).toBe('REWRITE_READY')
+    if (result.kind !== 'REWRITE_READY') return
+    // Seven messages remain: the mixed call message SURVIVES without its
+    // toolCall block (its text is kept), and only the paired toolResult
+    // message is gone entirely (8 - 1 whole-drop).
+    expect(result.messages).toHaveLength(7)
+    const rewrittenCall = result.messages[1]!
+    expect(rewrittenCall).not.toBe(MIXED_CALL_MESSAGE) // rebuilt message object
+    expect(rewrittenCall.role).toBe('assistant')
+    const blocks = rewrittenCall.content as readonly { type: string; text?: string }[]
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]!.type).toBe('text')
+    expect(blocks[0]).toBe((MIXED_CALL_MESSAGE.content as readonly unknown[])[0]) // same reference => byte-identical
+    expect(blocks[0]!.text).toBe(MIXED_TEXT)
+    expect(result.messages.includes(RESULT_1_MESSAGE)).toBe(false)
+    // Continuity counts: one toolCall block removed, both sources removed,
+    // both tool pairs still known to the analysis.
+    expect(result.continuity.toolBlocksRemoved).toBe(1)
+    expect(result.continuity.removedSourceCount).toBe(2)
+    expect(result.continuity.toolPairCount).toBe(2)
+    expect([...result.removedSourceKeys]).toEqual([CALL_1, RESULT_1])
+    // The ORIGINAL input was never mutated: the mixed message keeps both blocks.
+    expect(MIXED_CALL_MESSAGE.content).toHaveLength(2)
+    expect(MIXED_CONVERSATION).toHaveLength(8)
+    // Determinism: identical inputs compose deep-equal outputs.
+    const again = composeActiveRewrite(
+      baseInput({
+        messages: MIXED_CONVERSATION,
+        workingSet: mixedPlans.boundary2.workingSet,
+        transition: mixedPlans.boundary2.transition
+      })
+    )
+    expect(again).toEqual(result)
+    // The pre-send guard passes the block-level composition.
+    const verdict = assertRewriteSafe(
+      result,
+      createRunKillSwitch(RUN_ID, { now: () => FIXED_NOW })
+    )
+    expect(verdict.ok).toBe(true)
+  })
+
+  it('A-2: mixed assistant (thinking+toolCall) removed => thinking block preserved verbatim', async () => {
+    const thinkingText = 'The discount is applied as a percentage.'
+    const conversation: readonly PiMessageView[] = [
+      CONVERSATION[0]!,
+      assistantMixedToolCallMessage([{ type: 'thinking', thinking: thinkingText }], 'call-1', 'read', {
+        path: 'a.ts'
+      }),
+      ...CONVERSATION.slice(2)
+    ]
+    const control: PlannerControl = { pinned: [], excluded: [] }
+    const planner = createPlanner(control)
+    await planner.observeModelCall([...conversation])
+    control.excluded.push(CALL_1, RESULT_1)
+    await planner.observeModelCall([...conversation])
+    const plan = planner.callResults[1]!.plannerResult
+    const result = composeActiveRewrite(
+      baseInput({ messages: conversation, workingSet: plan.workingSet, transition: plan.transition })
+    )
+    expect(result.kind).toBe('REWRITE_READY')
+    if (result.kind !== 'REWRITE_READY') return
+    const blocks = result.messages[1]!.content as readonly { type: string; thinking?: string }[]
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]!.type).toBe('thinking')
+    expect(blocks[0]!.thinking).toBe(thinkingText)
+    expect(result.continuity.toolBlocksRemoved).toBe(1)
+    expect(result.continuity.opaqueBlockCount).toBe(1)
+  })
+
+  it('A-3: block removal leaving no meaningful remainder with text present => fallback EMPTY_REMAINDER_AFTER_BLOCK_REMOVAL', async () => {
+    // An empty text block is text (the message "had text") but carries no
+    // meaningful content once the toolCall block is gone: refuse, never send
+    // an emptied assistant message.
+    const conversation: readonly PiMessageView[] = [
+      CONVERSATION[0]!,
+      assistantMixedToolCallMessage([{ type: 'text', text: '' }], 'call-1', 'read', { path: 'a.ts' }),
+      ...CONVERSATION.slice(2)
+    ]
+    const control: PlannerControl = { pinned: [], excluded: [] }
+    const planner = createPlanner(control)
+    await planner.observeModelCall([...conversation])
+    control.excluded.push(CALL_1, RESULT_1)
+    await planner.observeModelCall([...conversation])
+    const plan = planner.callResults[1]!.plannerResult
+    expectFallback(
+      composeActiveRewrite(
+        baseInput({ messages: conversation, workingSet: plan.workingSet, transition: plan.transition })
+      ),
+      'EMPTY_REMAINDER_AFTER_BLOCK_REMOVAL'
+    )
+  })
+
+  it('A-4: removing only the call side of a mixed pair => fallback TOOL_PAIR_SPLIT', async () => {
+    const control: PlannerControl = { pinned: [], excluded: [] }
+    const planner = createPlanner(control)
+    await planner.observeModelCall([...MIXED_CONVERSATION])
+    control.excluded.push(CALL_1) // result side retained => split
+    await planner.observeModelCall([...MIXED_CONVERSATION])
+    const split = planner.callResults[1]!.plannerResult
+    expectFallback(
+      composeActiveRewrite(
+        baseInput({
+          messages: MIXED_CONVERSATION,
+          workingSet: split.workingSet,
+          transition: split.transition
+        })
+      ),
+      'TOOL_PAIR_SPLIT'
+    )
+  })
+
+  it('A-5: partial pair removal inside one mixed message keeps the retained call block', async () => {
+    // [text, toolCall(call-1 REMOVEd), toolCall(call-2 retained)]: only the
+    // call-1 block drops; text and the call-2 block survive byte-identical.
+    const partial: readonly PiMessageView[] = [
+      CONVERSATION[0]!,
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: MIXED_TEXT },
+          { type: 'toolCall', id: 'call-1', name: 'read', arguments: { path: 'a.ts' } },
+          { type: 'toolCall', id: 'call-2', name: 'read', arguments: { path: 'b.ts' } }
+        ]
+      },
+      CONVERSATION[2]!,
+      CONVERSATION[4]!,
+      CONVERSATION[5]!,
+      CONVERSATION[7]!
+    ]
+    const control: PlannerControl = { pinned: [], excluded: [] }
+    const planner = createPlanner(control)
+    await planner.observeModelCall([...partial])
+    control.excluded.push(CALL_1, RESULT_1)
+    await planner.observeModelCall([...partial])
+    const plan = planner.callResults[1]!.plannerResult
+    const result = composeActiveRewrite(
+      baseInput({ messages: partial, workingSet: plan.workingSet, transition: plan.transition })
+    )
+    expect(result.kind).toBe('REWRITE_READY')
+    if (result.kind !== 'REWRITE_READY') return
+    const rewritten = result.messages[1]!
+    const originalBlocks = partial[1]!.content as readonly unknown[]
+    const blocks = rewritten.content as readonly unknown[]
+    expect(blocks).toHaveLength(2)
+    expect(blocks[0]).toBe(originalBlocks[0]) // text reference kept
+    expect(blocks[1]).toBe(originalBlocks[2]) // retained call-2 block reference kept
+    expect(result.continuity.toolBlocksRemoved).toBe(1)
   })
 })
