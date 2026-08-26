@@ -1,12 +1,16 @@
 # Context Runtime v0.3 — Final Synthesis
 
-- **Decision:** `CLOSE AS STOPPED EXPERIMENT`
+- **Decision:** `CLOSE AS STOPPED EXPERIMENT — SUPERSEDED same-day: program extended for Gate C preparation (see closure-decisions supersession section)`
 - **Synthesis date:** 2026-08-27
 - **Integration baseline:** `branch glm/project-review-2026-08-27 @ 8b7d1c6b31ae6bb174afb2567dca4c5c603b6034`
 - **Provider calls consumed by this synthesis:** `0`
 - **Gate A adjudication:** [`context-selection-policy-gate-a-adjudication-2026-08-27.md`](./context-selection-policy-gate-a-adjudication-2026-08-27.md) — `PASS`
 - **Gate B adjudication:** [`context-selection-policy-gate-b-adjudication.md`](./context-selection-policy-gate-b-adjudication.md) — `PASS`
 - **Closure decisions:** [`context-runtime-v0.3-closure-decisions-2026-08-27.md`](./context-runtime-v0.3-closure-decisions-2026-08-27.md)
+
+Same-day supersession: CSPV-C0 is revived for Gate C preparation; the
+preparation line is recorded in the
+[C0 run contract](../plan/cspv-c0-run-contract-2026-08-27.md).
 
 This document closes the Context Runtime v0.3 research program. It audits the
 v0.3 milestone gate and the twelve direction questions against the verified

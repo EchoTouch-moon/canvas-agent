@@ -4,7 +4,7 @@
 - **Adjudication:** Lead review completed
 - **Current integration baseline:** `glm/project-review-2026-08-27 @ 8b7d1c6b31ae6bb174afb2567dca4c5c603b6034`
 - **Provider calls:** `0`
-- **CSPV-C0:** `DEFERRED`
+- **CSPV-C0:** `DEFERRED → SUPERSEDED: REVIVED FOR GATE C PREPARATION`
 - **CR-012B:** `DEFERRED`
 - **CR-013:** `CANCELLED / FOLDED`
 - **Milestone item 5:** `WAIVED FOR V0.3 CLOSURE`
@@ -31,7 +31,7 @@ Citation keys used below:
 ## Decision 1 — CSPV-C0 bounded Shadow lifecycle canary
 
 ```text
-Verdict: CSPV-C0 DEFERRED — not authorized in v0.3; full revival path preserved
+Verdict: CSPV-C0 DEFERRED → SUPERSEDED: REVIVED FOR GATE C PREPARATION (second Lead direction, 2026-08-27)
 ```
 
 Reasons:
@@ -190,3 +190,35 @@ Scope of the waiver:
   `TERMINAL / PRESERVED / NEVER RESUME` (rebaseline:64-65, 226).
 - No plan-text amendment: experiment-plan §8 stands unchanged
   (experiment-plan:695-711).
+
+## Supersession — CSPV-C0 revived (2026-08-27, second Lead direction)
+
+After reviewing this closure package, the Lead directed that the experiment
+continue. This supersedes the Decision 1 verdict for CSPV-C0 only. The
+original verdict — `CSPV-C0 DEFERRED — not authorized in v0.3; full revival
+path preserved` — and the reasons and revival-path text above remain as the
+historical record. Decisions 2–4 (CR-012B `DEFERRED`, CR-013
+`CANCELLED / FOLDED`, milestone item 5 waiver) stand unchanged, and the
+closure ledgers in the
+[final synthesis](./context-runtime-v0.3-final-synthesis-2026-08-27.md)
+remain valid as the evidence snapshot.
+
+- **Revived state:** CSPV-C0 is `REVIVED FOR GATE C PREPARATION` — an active
+  preparation line. The value hypothesis remains `NOT ESTABLISHED`; this
+  revival is the path to test it, not evidence for it.
+- **Deferral reasons (a) and (b) addressed by preparation:** the
+  authorization-envelope concern (reason a) and the marginal-value concern
+  (reason b) are addressed by preparing a reviewed C0 run contract
+  ([cspv-c0-run-contract-2026-08-27.md](../plan/cspv-c0-run-contract-2026-08-27.md))
+  and the Gate C evidence evaluator. Both are preparation artifacts and make
+  no provider calls.
+- **Reason (c) stands:** C0 alone still cannot close experiment-plan
+  milestone item 5. Gate D and CR-004 remain separate decisions beyond C0.
+- **All revival-path requirements remain binding** ("Revival path (preserved
+  in full)" above): new run identity, Step Plan only with no fallback,
+  separate scenario-run and provider-call budgets, and fail closed at every
+  gate.
+- **No live authorization granted:** live execution still requires explicit
+  provider/cost authorization, which this supersession does NOT grant. The
+  Boundary section above remains accurate and in force: no provider
+  execution is authorized by this document.

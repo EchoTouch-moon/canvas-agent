@@ -9,6 +9,28 @@
 - **Later compatibility target:** Codex
 - **CR-001 assigned packet:** `docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md`
 
+## Current status overlay — 2026-08-27 (second entry: Gate C preparation)
+
+This entry records a same-day Lead direction reversal of the CSPV-C0
+decision in the first 2026-08-27 entry below: after reviewing the closure
+package, the Lead directed that the experiment continue. Only CSPV-C0 is
+revived; the other closure decisions stand, and the closure ledgers remain
+the evidence snapshot:
+
+```text
+Gate C preparation (second Lead direction)
+v0.3 program state: EXTENDED_FOR_GATE_C_PREPARATION
+value hypothesis: NOT_ESTABLISHED (closure ledgers remain the evidence snapshot)
+CSPV-C0: REVIVED_FOR_PREPARATION
+live execution: NOT_AUTHORIZED (pending provider/cost authorization)
+Gate D / CR-004: UNCHANGED (separate decisions)
+```
+
+- CSPV-C0 revival recorded in the closure decisions supersession section — [context-runtime-v0.3-closure-decisions-2026-08-27.md § Supersession](../verification/context-runtime-v0.3-closure-decisions-2026-08-27.md#supersession--cspv-c0-revived-2026-08-27-second-lead-direction)
+- C0 run contract (reviewed preparation artifact) — [cspv-c0-run-contract-2026-08-27.md](cspv-c0-run-contract-2026-08-27.md)
+- New executable artifact: Gate C evidence evaluator — provider calls `0`
+- Live execution `NOT_AUTHORIZED`: this entry grants no provider/cost authorization, and every C0 revival-path requirement (new run identity, Step Plan only with no fallback, separate scenario-run and provider-call budgets, fail closed at every gate) remains binding
+
 ## Current status overlay — 2026-08-27
 
 This entry supersedes the plan header status line above and the 2026-08-13

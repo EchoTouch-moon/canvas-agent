@@ -6,7 +6,7 @@
 - **Proposal:** [PROPOSAL-032 — Context Eviction / Rehydration Policy Experiment](../architecture/decisions/PROPOSAL-032-context-eviction-rehydration-policy-experiment.md)
 - **Deterministic evidence:** [CSPV-B1 Run 1](./context-selection-policy-gate-b1-run-1.md), [Gate B adjudication](./context-selection-policy-gate-b-adjudication.md)
 - **Provider calls during this review:** `0`
-- **CSPV-C0:** `DEFERRED` (not authorized in v0.3; see [closure decisions](./context-runtime-v0.3-closure-decisions-2026-08-27.md))
+- **CSPV-C0:** `DEFERRED` → superseded same-day: `REVIVED FOR GATE C PREPARATION` (see [closure decisions supersession](./context-runtime-v0.3-closure-decisions-2026-08-27.md)); live execution still not authorized
 - **CR-004 Active Rewrite:** `NO_GO`
 - **PROPOSAL-032 status:** `PROPOSED` → `ACCEPTED-WITH-PROVISIONAL-ANSWERS`
 
