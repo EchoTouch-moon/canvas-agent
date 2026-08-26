@@ -44,6 +44,34 @@ one selected provider so a run cannot silently mix model behavior, latency, or
 cost attribution. The selected provider and model may be recorded through
 `safeProviderSelection`; the API key must not be recorded.
 
+Benchmark and lifecycle experiments must use the strict preparation mode rather
+than relying on a caller to remember `allowFallback: false`:
+
+```text
+executionMode = experiment-strict
+runIdentity = <run identity supplied by the C0 runner>
+
+requestedProvider === actualProvider
+requestedModel === actualModel
+fallbackUsed === false
+binding metadata is immutable after preparation
+```
+
+Strict preparation fails with `PROVIDER_BINDING_FAILURE` when the requested
+provider or model is unavailable. It does not continue with DeepSeek. The
+provider layer validates that a run identity was supplied and returns one
+binding record for the selected provider; it does not itself prove run-identity
+freshness/uniqueness or prevent an upper-level caller from preparing again.
+Those run-level invariants belong to the C0 runner, which must enforce one
+binding per run and no rebinding after execution starts. The safe binding
+metadata also includes a `providerConfigHash`, derived from the provider
+endpoint, model and compatibility configuration without credentials. This
+distinguishes two runs that use the same provider/model labels but have
+different endpoint or runtime profiles.
+
+Development smoke commands may continue to use the permissive pre-call
+fallback. That mode must not be used to create strict benchmark evidence.
+
 ## Environment configuration
 
 The default selection uses `step-plan` as primary and `deepseek` as fallback.
@@ -76,7 +104,10 @@ variable; putting a literal key in provider metadata or a URL is rejected.
 This layer does not change the frozen CR-005 manifests, Wave A identity gate,
 historical DeepSeek records, or existing `smoke:deepseek` commands. The new
 `smoke:model-provider` entry point is opt-in and still requires
-`CANVAS_CONTEXT_LIVE_SMOKE=1`.
+`CANVAS_CONTEXT_LIVE_SMOKE=1`. A bounded strict smoke additionally requires
+`CANVAS_PROVIDER_EXECUTION_MODE=experiment-strict` and a fresh
+`CANVAS_PROVIDER_RUN_ID`; its output is metadata-only and is not benchmark
+evidence without a separate run record.
 
 It also does not implement request retry routing, cost optimization, provider
 ranking, or a UI registry. Those remain future multi-provider routing work and

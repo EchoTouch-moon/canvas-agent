@@ -1,13 +1,11 @@
-import {
-  ModelRuntime,
-  type ProviderConfig,
-  type ProviderModelConfig
-} from '@earendil-works/pi-coding-agent'
+import { ModelRuntime, type ProviderConfig, type ProviderModelConfig } from '@earendil-works/pi-coding-agent'
+import { createHash } from 'node:crypto'
 
 export type ProviderEnvironment = Readonly<Record<string, string | undefined>>
 export type ProviderInput = 'text' | 'image'
 export type ProviderApi = 'openai-completions'
 export type ProviderSelectionSource = 'primary' | 'fallback'
+export type ProviderExecutionMode = 'development' | 'experiment-strict'
 
 export interface ModelProviderCompatibility {
   readonly supportsDeveloperRole?: boolean
@@ -43,7 +41,18 @@ export interface SafeProviderSelection {
   readonly modelName: string
   readonly source: ProviderSelectionSource
   readonly credentialEnv: string
+  readonly providerConfigHash: string
   readonly fallbackReason?: ProviderSelection['fallbackReason']
+}
+
+export interface ProviderExperimentBinding {
+  readonly runIdentity: string
+  readonly requestedProviderId: string
+  readonly actualProviderId: string
+  readonly requestedModelId: string
+  readonly actualModelId: string
+  readonly fallbackUsed: false
+  readonly providerConfigHash: string
 }
 
 export interface ResolveProviderOptions {
@@ -55,11 +64,22 @@ export interface ResolveProviderOptions {
 export interface PrepareProviderOptions extends ResolveProviderOptions {
   /** Set only after credentials and model availability are checked before a call. */
   readonly allowFallback?: boolean
+  /**
+   * Strict mode is the only supported entry point for benchmark experiments.
+   * It binds the actual provider to the requested provider before the first
+   * model call and never permits fallback.
+   */
+  readonly executionMode?: ProviderExecutionMode
+  /** Required by strict mode so the provider binding is attached to a run. */
+  readonly runIdentity?: string
+  /** Optional explicit model binding for strict experiments. */
+  readonly requestedModelId?: string
 }
 
 export interface PreparedModelProvider {
   readonly selection: ProviderSelection
   readonly model: NonNullable<ReturnType<ModelRuntime['getModel']>>
+  readonly experimentBinding?: ProviderExperimentBinding
 }
 
 export class ModelProviderConfigurationError extends Error {
@@ -86,6 +106,24 @@ export class ModelProviderUnavailableError extends Error {
   constructor(code: ModelProviderUnavailableError['code'], providerId: string, modelId: string) {
     super(`${code}:${providerId}/${modelId}`)
     this.name = 'ModelProviderUnavailableError'
+    this.code = code
+  }
+}
+
+export class ProviderBindingError extends Error {
+  readonly code:
+    'run_identity_required' | 'fallback_forbidden' | 'provider_unavailable' | 'provider_mismatch' | 'model_mismatch'
+
+  constructor(
+    code: ProviderBindingError['code'],
+    details?: { readonly providerId?: string; readonly modelId?: string }
+  ) {
+    const suffix =
+      details?.providerId === undefined
+        ? ''
+        : `:${details.providerId}${details.modelId === undefined ? '' : `/${details.modelId}`}`
+    super(`PROVIDER_BINDING_FAILURE:${code}${suffix}`)
+    this.name = 'ProviderBindingError'
     this.code = code
   }
 }
@@ -130,6 +168,22 @@ const BUILTIN_PROFILES: Readonly<Record<string, ModelProviderProfile>> = {
   'step-plan': STEP_PLAN_PROVIDER_PROFILE
 }
 
+export function computeProviderConfigHash(profile: ModelProviderProfile): string {
+  const canonicalProfile = JSON.stringify({
+    providerId: profile.providerId,
+    baseUrl: profile.baseUrl,
+    modelId: profile.modelId,
+    modelName: profile.modelName,
+    api: profile.api,
+    reasoning: profile.reasoning,
+    input: [...profile.input],
+    contextWindow: profile.contextWindow,
+    maxTokens: profile.maxTokens,
+    compat: profile.compat ?? null
+  })
+  return createHash('sha256').update(canonicalProfile).digest('hex')
+}
+
 function readEnv(env: ProviderEnvironment, name: string): string | undefined {
   const value = env[name]
   return value !== undefined && value.length > 0 ? value : undefined
@@ -169,17 +223,11 @@ function validateBaseUrl(baseUrl: string): string {
   } catch {
     throw new ModelProviderConfigurationError('base_url_invalid')
   }
-  const localHttpAllowed =
-    url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1'
+  const localHttpAllowed = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1'
   if (!['https:', ...(localHttpAllowed ? ['http:'] : [])].includes(url.protocol)) {
     throw new ModelProviderConfigurationError('base_url_invalid')
   }
-  if (
-    url.username.length > 0 ||
-    url.password.length > 0 ||
-    url.search.length > 0 ||
-    url.hash.length > 0
-  ) {
+  if (url.username.length > 0 || url.password.length > 0 || url.search.length > 0 || url.hash.length > 0) {
     throw new ModelProviderConfigurationError('base_url_invalid')
   }
   return url.toString().replace(/\/$/, '')
@@ -191,11 +239,8 @@ function customProfile(providerId: string, env: ProviderEnvironment): ModelProvi
   const credentialEnv = readEnv(env, 'CANVAS_MODEL_API_KEY_ENV')
   if (baseUrl === undefined) throw new ModelProviderConfigurationError('base_url_missing')
   if (modelId === undefined) throw new ModelProviderConfigurationError('model_id_missing')
-  if (credentialEnv === undefined)
-    throw new ModelProviderConfigurationError('credential_env_missing')
-  const normalizedProviderId = requireProviderId(
-    readEnv(env, 'CANVAS_MODEL_PROVIDER_ID') ?? providerId
-  )
+  if (credentialEnv === undefined) throw new ModelProviderConfigurationError('credential_env_missing')
+  const normalizedProviderId = requireProviderId(readEnv(env, 'CANVAS_MODEL_PROVIDER_ID') ?? providerId)
   return {
     providerId: normalizedProviderId,
     displayName: readEnv(env, 'CANVAS_MODEL_NAME') ?? modelId,
@@ -236,9 +281,7 @@ function selectionFor(
 ): ProviderSelection | undefined {
   const apiKey = readEnv(env, profile.credentialEnv)
   if (apiKey === undefined) return undefined
-  return fallbackReason === undefined
-    ? { profile, apiKey, source }
-    : { profile, apiKey, source, fallbackReason }
+  return fallbackReason === undefined ? { profile, apiKey, source } : { profile, apiKey, source, fallbackReason }
 }
 
 export function resolveProviderSelection(options: ResolveProviderOptions = {}): ProviderSelection {
@@ -249,8 +292,7 @@ export function resolveProviderSelection(options: ResolveProviderOptions = {}): 
   const primary = selectionFor(profileFor(primaryProviderId, env), env, 'primary')
   if (primary !== undefined) return primary
 
-  const fallbackProviderId =
-    options.fallbackProviderId ?? readEnv(env, 'CANVAS_MODEL_FALLBACK_PROVIDER') ?? 'deepseek'
+  const fallbackProviderId = options.fallbackProviderId ?? readEnv(env, 'CANVAS_MODEL_FALLBACK_PROVIDER') ?? 'deepseek'
   if (fallbackProviderId !== 'none' && fallbackProviderId !== primaryProviderId) {
     const fallback = selectionFor(
       profileFor(requireProviderId(fallbackProviderId), env),
@@ -296,12 +338,21 @@ export async function prepareModelProvider(
   options: PrepareProviderOptions = {}
 ): Promise<PreparedModelProvider> {
   const env = options.env ?? process.env
+  const executionMode = options.executionMode ?? 'development'
   const primaryProviderId = requireProviderId(
     options.primaryProviderId ?? readEnv(env, 'CANVAS_MODEL_PROVIDER') ?? 'step-plan'
   )
-  const fallbackProviderId =
-    options.fallbackProviderId ?? readEnv(env, 'CANVAS_MODEL_FALLBACK_PROVIDER') ?? 'deepseek'
-  const allowFallback = options.allowFallback ?? true
+  const fallbackProviderId = options.fallbackProviderId ?? readEnv(env, 'CANVAS_MODEL_FALLBACK_PROVIDER') ?? 'deepseek'
+  if (executionMode === 'experiment-strict' && options.allowFallback === true) {
+    throw new ProviderBindingError('fallback_forbidden')
+  }
+  if (executionMode === 'experiment-strict' && options.runIdentity?.trim() === '') {
+    throw new ProviderBindingError('run_identity_required')
+  }
+  if (executionMode === 'experiment-strict' && options.runIdentity === undefined) {
+    throw new ProviderBindingError('run_identity_required')
+  }
+  const allowFallback = executionMode === 'experiment-strict' ? false : (options.allowFallback ?? true)
   const candidates: Array<{
     profile: ModelProviderProfile
     source: ProviderSelectionSource
@@ -309,26 +360,26 @@ export async function prepareModelProvider(
   }> = []
 
   const primaryProfile = profileFor(primaryProviderId, env)
+  const requestedModelId = options.requestedModelId ?? primaryProfile.modelId
+  if (executionMode === 'experiment-strict' && requestedModelId !== primaryProfile.modelId) {
+    throw new ProviderBindingError('model_mismatch', {
+      providerId: primaryProfile.providerId,
+      modelId: requestedModelId
+    })
+  }
   const primaryCredentialAvailable = selectionFor(primaryProfile, env, 'primary') !== undefined
   candidates.push({ profile: primaryProfile, source: 'primary' })
   if (allowFallback && fallbackProviderId !== 'none' && fallbackProviderId !== primaryProviderId) {
     candidates.push({
       profile: profileFor(requireProviderId(fallbackProviderId), env),
       source: 'fallback',
-      fallbackReason: primaryCredentialAvailable
-        ? 'primary_model_unavailable'
-        : 'primary_credentials_unavailable'
+      fallbackReason: primaryCredentialAvailable ? 'primary_model_unavailable' : 'primary_credentials_unavailable'
     })
   }
 
   let lastUnavailable: ModelProviderUnavailableError | undefined
   for (const candidate of candidates) {
-    const selection = selectionFor(
-      candidate.profile,
-      env,
-      candidate.source,
-      candidate.fallbackReason
-    )
+    const selection = selectionFor(candidate.profile, env, candidate.source, candidate.fallbackReason)
     if (selection === undefined) {
       lastUnavailable = new ModelProviderUnavailableError(
         'credentials_unavailable',
@@ -358,15 +409,39 @@ export async function prepareModelProvider(
       runtime.unregisterProvider(candidate.profile.providerId)
       continue
     }
+    if (executionMode === 'experiment-strict') {
+      if (selection.source !== 'primary' || selection.profile.providerId !== primaryProviderId) {
+        runtime.unregisterProvider(candidate.profile.providerId)
+        throw new ProviderBindingError('provider_mismatch', {
+          providerId: primaryProviderId,
+          modelId: primaryProfile.modelId
+        })
+      }
+      return {
+        selection,
+        model,
+        experimentBinding: {
+          runIdentity: options.runIdentity!,
+          requestedProviderId: primaryProviderId,
+          actualProviderId: selection.profile.providerId,
+          requestedModelId,
+          actualModelId: model.id,
+          fallbackUsed: false,
+          providerConfigHash: computeProviderConfigHash(selection.profile)
+        }
+      }
+    }
     return { selection, model }
+  }
+  if (executionMode === 'experiment-strict') {
+    throw new ProviderBindingError('provider_unavailable', {
+      providerId: primaryProviderId,
+      modelId: primaryProfile.modelId
+    })
   }
   throw (
     lastUnavailable ??
-    new ModelProviderUnavailableError(
-      'credentials_unavailable',
-      primaryProviderId,
-      primaryProfile.modelId
-    )
+    new ModelProviderUnavailableError('credentials_unavailable', primaryProviderId, primaryProfile.modelId)
   )
 }
 
@@ -376,9 +451,8 @@ export function safeProviderSelection(selection: ProviderSelection): SafeProvide
     modelId: selection.profile.modelId,
     modelName: selection.profile.modelName,
     source: selection.source,
-    credentialEnv: selection.profile.credentialEnv
+    credentialEnv: selection.profile.credentialEnv,
+    providerConfigHash: computeProviderConfigHash(selection.profile)
   }
-  return selection.fallbackReason === undefined
-    ? safe
-    : { ...safe, fallbackReason: selection.fallbackReason }
+  return selection.fallbackReason === undefined ? safe : { ...safe, fallbackReason: selection.fallbackReason }
 }

@@ -8,16 +8,17 @@ import {
   safeProviderSelection
 } from '../src'
 
-function env(
-  values: Record<string, string | undefined>
-): Readonly<Record<string, string | undefined>> {
+function env(values: Record<string, string | undefined>): Readonly<Record<string, string | undefined>> {
   return values
 }
 
 describe('model provider layer', () => {
   it('selects Step Plan as the new primary when its credential is present', () => {
     const selection = resolveProviderSelection({
-      env: env({ STEP_PLAN_API_KEY: 'step-secret', DEEPSEEK_API_KEY: 'deepseek-secret' })
+      env: env({
+        STEP_PLAN_API_KEY: 'step-secret',
+        DEEPSEEK_API_KEY: 'deepseek-secret'
+      })
     })
     expect(selection.profile.providerId).toBe('step-plan')
     expect(selection.profile.modelId).toBe('step-3.7-flash')
@@ -95,8 +96,88 @@ describe('model provider layer', () => {
       modelId: 'step-3.7-flash',
       modelName: 'Step 3.7 Flash',
       source: 'primary',
-      credentialEnv: 'STEP_PLAN_API_KEY'
+      credentialEnv: 'STEP_PLAN_API_KEY',
+      providerConfigHash: expect.stringMatching(/^[a-f0-9]{64}$/)
     })
+  })
+
+  it('keeps the provider config hash independent from credentials', () => {
+    const first = safeProviderSelection(
+      resolveProviderSelection({
+        env: env({ STEP_PLAN_API_KEY: 'first-secret' })
+      })
+    )
+    const second = safeProviderSelection(
+      resolveProviderSelection({
+        env: env({ STEP_PLAN_API_KEY: 'second-secret' })
+      })
+    )
+    expect(first.providerConfigHash).toBe(second.providerConfigHash)
+  })
+
+  it('binds a strict experiment to Step Plan without fallback', async () => {
+    const runtime = await ModelRuntime.create({
+      modelsPath: null,
+      refreshOnCreate: false,
+      allowModelNetwork: false
+    })
+    const prepared = await prepareModelProvider(runtime, {
+      executionMode: 'experiment-strict',
+      runIdentity: 'cspv-c0-smoke-001',
+      env: env({
+        STEP_PLAN_API_KEY: 'placeholder-key',
+        DEEPSEEK_API_KEY: 'deepseek-secret'
+      })
+    })
+    expect(prepared.experimentBinding).toMatchObject({
+      runIdentity: 'cspv-c0-smoke-001',
+      requestedProviderId: 'step-plan',
+      actualProviderId: 'step-plan',
+      requestedModelId: 'step-3.7-flash',
+      actualModelId: 'step-3.7-flash',
+      fallbackUsed: false,
+      providerConfigHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+    })
+  })
+
+  it('fails closed when strict Step Plan binding is unavailable despite DeepSeek credentials', async () => {
+    const runtime = await ModelRuntime.create({
+      modelsPath: null,
+      refreshOnCreate: false,
+      allowModelNetwork: false
+    })
+    await expect(
+      prepareModelProvider(runtime, {
+        executionMode: 'experiment-strict',
+        runIdentity: 'cspv-c0-missing-step-001',
+        env: env({ DEEPSEEK_API_KEY: 'deepseek-secret' })
+      })
+    ).rejects.toMatchObject({
+      name: 'ProviderBindingError',
+      code: 'provider_unavailable'
+    })
+  })
+
+  it('rejects explicit fallback and missing run identity in strict mode', async () => {
+    const runtime = await ModelRuntime.create({
+      modelsPath: null,
+      refreshOnCreate: false,
+      allowModelNetwork: false
+    })
+    await expect(
+      prepareModelProvider(runtime, {
+        executionMode: 'experiment-strict',
+        allowFallback: true,
+        runIdentity: 'cspv-c0-invalid-fallback-001',
+        env: env({ STEP_PLAN_API_KEY: 'placeholder-key' })
+      })
+    ).rejects.toMatchObject({ code: 'fallback_forbidden' })
+    await expect(
+      prepareModelProvider(runtime, {
+        executionMode: 'experiment-strict',
+        env: env({ STEP_PLAN_API_KEY: 'placeholder-key' })
+      })
+    ).rejects.toMatchObject({ code: 'run_identity_required' })
   })
 
   it('registers a provider in memory without model catalog network access', async () => {
