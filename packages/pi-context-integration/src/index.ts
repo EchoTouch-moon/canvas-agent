@@ -110,17 +110,23 @@ export {
   type PreSendGuardResult
 } from './active/pre-send-guard'
 export {
+  ACTIVE_DEFAULT_MAX_ATTEMPTS,
+  ACTIVE_DEFAULT_MAX_INTERVENTIONS,
   ACTIVE_EDIT_TOOLS,
   ACTIVE_READ_TOOLS,
   InMemoryActiveRewriteEvidenceCollector,
+  applyCarriedRemovals,
   createActiveRewriteExtension,
+  detectInterventionBoundaries,
   detectInterventionBoundary,
   idleInterventionSummary,
+  readTargetHashOf,
   type ActiveRewriteEventEvidence,
   type ActiveRewriteEvidenceCollector,
   type ActiveRewriteExtensionOptions,
   type ActiveRewriteInterventionSummary,
-  type InterventionBoundary
+  type InterventionBoundary,
+  type ReadTargetRecord
 } from './extension/active-rewrite-extension'
 export {
   DEEPSEEK_PROVIDER_PROFILE,

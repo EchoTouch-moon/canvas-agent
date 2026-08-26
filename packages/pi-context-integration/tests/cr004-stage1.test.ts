@@ -482,14 +482,25 @@ describe('CR-004 Stage 1: Active intervention extension (real planner, offline)'
     expect(last.composedMessageCount).toBe(4)
   })
 
-  it('latches after the intervention: later events observe only and return originals', async () => {
+  it('latches after the intervention: later events observe only and the removal carries', async () => {
     const harness = createHarness({})
     await harness.dispatch(EVENT_1)
     await harness.dispatch(EVENT_2)
     const third = await harness.dispatch(EVENT_3)
     expect((third!.messages as readonly PiMessageView[]).length).toBe(4)
     const fourth = await harness.dispatch(EVENT_4)
-    expect(fourth?.messages).toBe(EVENT_4 as unknown as unknown[])
+    // Matrix upgrade (carried rewrite): after the SENT rewrite, later events
+    // make no NEW decision (no attempt) but keep the removed read pair out of
+    // the model-visible basis: the EVENT_3 composition + the new message.
+    const fourthMessages = fourth!.messages as readonly PiMessageView[]
+    expect(fourthMessages).toHaveLength(5)
+    const sentThird = third!.messages as readonly PiMessageView[]
+    for (let index = 0; index < 4; index += 1) {
+      // Untouched messages pass through by reference; the trimmed mixed read
+      // message is rebuilt with identical content.
+      expect(fourthMessages[index]).toStrictEqual(sentThird[index])
+    }
+    expect(fourthMessages[4]).toBe(EVENT_4[5]) // the newly appended message
     const fourthEvidence = harness.collector.events[3]!
     expect(fourthEvidence.boundaryReached).toBe(false)
     expect(fourthEvidence.interventionAttempted).toBe(false)

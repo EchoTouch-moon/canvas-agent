@@ -227,7 +227,13 @@ function activeInterventionExtension(
     executor,
     killSwitch,
     ...(killSwitchFilePath !== undefined ? { killSwitchFilePath } : {}),
-    evidence
+    evidence,
+    // The Stage 1 contract pins the once-only latch: exactly one intervention
+    // attempt (one send at most) per Active leg. The matrix contract lifts
+    // this to bounded repeated intervention; the defaults live in the
+    // extension module.
+    maxInterventions: 1,
+    maxAttempts: 1
   })
   // One wrapper factory, two handlers (registration order = run order; Pi
   // applies each handler's returned messages sequentially and ignores
