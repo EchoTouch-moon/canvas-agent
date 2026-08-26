@@ -1,4 +1,4 @@
-import { asc, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq } from 'drizzle-orm'
 import {
   assertTaskTransition as assertDomainTaskTransition,
   DomainInvariantError,
@@ -129,12 +129,12 @@ export function upsertTaskDraft(p: Persistence, input: UpsertTaskDraftInput): Ta
       revision: existing.revision + 1,
       updatedAt: p.services.now()
     })
-    .where(eq(taskDraftTable.id, existing.id))
+    .where(and(eq(taskDraftTable.id, existing.id), eq(taskDraftTable.revision, expected)))
     .returning()
     .all()[0]
 
   if (updated === undefined) {
-    throw new Error(`task_draft update returned no row for ${existing.id}`)
+    throw new ConcurrencyError('TaskDraft', existing.id, expected, expected + 1)
   }
 
   touchTask(p, input.taskId)
@@ -323,6 +323,10 @@ export function createTaskDependency(p: Persistence, input: CreateTaskDependency
   const dependsOn = p.drizzle.select().from(taskTable).where(eq(taskTable.id, input.dependsOnTaskId)).get()
   if (dependsOn === undefined) {
     throw new NotFoundError('Task', input.dependsOnTaskId)
+  }
+
+  if (task.projectId !== input.projectId || dependsOn.projectId !== input.projectId) {
+    throw new ValidationError('Task dependency tasks must belong to the same project')
   }
 
   if (input.taskId === input.dependsOnTaskId) {

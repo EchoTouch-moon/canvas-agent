@@ -109,4 +109,20 @@ describe('task draft and task spec commands', () => {
       })
     ).toThrow(CycleError)
   })
+
+  it('rejects a task dependency across projects', () => {
+    const { p } = seed()
+    createProject(p, { id: 'proj_2', name: 'Project B' })
+    createTask(p, { id: 'task_1', projectId: 'proj_1', type: 'IMPLEMENT_CHANGE', title: 'In A' })
+    createTask(p, { id: 'task_2', projectId: 'proj_2', type: 'IMPLEMENT_CHANGE', title: 'In B' })
+    expect(() =>
+      createTaskDependency(p, {
+        id: 'dep_cross',
+        projectId: 'proj_1',
+        taskId: 'task_1',
+        dependsOnTaskId: 'task_2',
+        type: 'HARD_BLOCK'
+      })
+    ).toThrow(ValidationError)
+  })
 })
