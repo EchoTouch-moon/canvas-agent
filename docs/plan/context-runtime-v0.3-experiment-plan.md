@@ -9,6 +9,23 @@
 - **Later compatibility target:** Codex
 - **CR-001 assigned packet:** `docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md`
 
+## Current status overlay — 2026-08-27 (sixth entry: CR-004 Stage 1 first contact EXECUTED)
+
+The Lead authorized Stage 1; run `cr004-s1-20260826-38bd266f` executed the
+first Active rewrite pair on the frozen C1 task under strict Step Plan
+binding: Native control PASS, Active leg **received a dynamically rewritten
+context** (superseded read-evidence removed, pair-consistent, hash-bound,
+guard-passed) and completed the task — both oracles PASS, 11 provider-call
+records total, zero stop conditions.
+
+```text
+CR-004 Stage 1:  RUN 1 EXECUTED — FIRST CONTACT COMPLETE (rewrite sent, task passed)
+value hypothesis: STILL OPEN — one pair supports no statistical/causal claim
+next evidence:   small pair matrix (new authorization + run identity required)
+```
+
+Record: [Stage 1 run 1](../verification/context-runtime-cr004-stage1-run-1-2026-08-27.md).
+
 ## Current status overlay — 2026-08-27 (fifth entry: CR-004 Stage 0 verified)
 
 Stage 0 — the offline Active-rewrite safety seam — is implemented and tested
