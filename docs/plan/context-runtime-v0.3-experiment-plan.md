@@ -9,6 +9,22 @@
 - **Later compatibility target:** Codex
 - **CR-001 assigned packet:** `docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md`
 
+## Current status overlay — 2026-08-27 (fourth entry: Gate D adjudicated PASS)
+
+Lead review of the C0 evidence against the eight Gate D readiness criteria:
+seven positively evidenced on live traces, one (`no unexplained
+materialization failure`) structurally `NOT_OBSERVED-IN-SHADOW` and carried
+forward as a mandatory Stage 1 fail-closed stop condition.
+
+```text
+Gate D:    PASS (7/8 positive, 1 carried forward)
+CR-004:    NO_GO -> STAGE_0_PREPARATION_ALLOWED (offline safety seam, no rewrite)
+Stage 1:   STILL REQUIRES SEPARATE AUTHORIZATION + its own run contract
+value hypothesis: STILL NOT_ESTABLISHED
+```
+
+Adjudication: [Gate D record](../verification/context-runtime-cr004-gate-d-adjudication-2026-08-27.md). Stage 0 scope is enumerated there (Pi-only capability profile, Native default with per-Run opt-in, mandatory/pinned re-assertion, Working Set/Transition hash binding, continuity checks, pre-send Native fallback, kill-switch tests, zero rewritten requests).
+
 ## Current status overlay — 2026-08-27 (third entry: C0 canary executed)
 
 The Lead authorized live execution and the bounded Shadow lifecycle canary ran
