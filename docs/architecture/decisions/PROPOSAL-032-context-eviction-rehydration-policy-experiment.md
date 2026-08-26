@@ -1,6 +1,6 @@
 # PROPOSAL-032 — Context Eviction / Rehydration Policy Experiment
 
-- **Status:** PROPOSED — research policy design, not an implementation authorization
+- **Status:** ACCEPTED-WITH-PROVISIONAL-ANSWERS — Gate A adjudicated `PASS` 2026-08-27 ([adjudication](../../verification/context-selection-policy-gate-a-adjudication-2026-08-27.md)); the false-removal horizon remains deferred to a future CSPV-C0 run contract. Still a research policy design, not an implementation authorization.
 - **Target:** Context Runtime v0.3, Phase 2 — Context Selection Policy Validation
 - **Date:** 2026-08-13
 - **Depends on:** [`PROPOSAL-030`](PROPOSAL-030-context-source-universe-model.md), [`PROPOSAL-031`](PROPOSAL-031-context-working-set-planner.md), [`Context Runtime v0.3 Research Rebaseline`](../../research/context-runtime-v0.3-research-rebaseline-2026-08-13.md)
