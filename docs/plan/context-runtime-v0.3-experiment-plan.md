@@ -9,6 +9,36 @@
 - **Later compatibility target:** Codex
 - **CR-001 assigned packet:** `docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md`
 
+## Current status overlay — 2026-08-27
+
+This entry supersedes the plan header status line above and the 2026-08-13
+overlay below. The Phase 2 policy validation line ran to gate adjudication,
+the follow-on CR-009–CR-012A verification chain completed, and the v0.3
+program is closed as a stopped experiment:
+
+```text
+Phase 2 — Context Selection Policy Validation
+CSPV-B0: EXECUTED / historical POLICY_CAPABILITY_GAP
+CSPV-B1: EXECUTED / PASS
+Gate B: ADJUDICATED PASS
+Gate A: ADJUDICATED PASS
+
+Program closure
+v0.3: CLOSED_AS_STOPPED_EXPERIMENT
+value hypothesis: NOT_ESTABLISHED
+v0.4 runtime advancement: NOT AUTHORIZED
+```
+
+- CR-009 core state machine VERIFIED — [context-runtime-cr-009-core-state-machine-2026-08-14.zh-CN.md](../verification/context-runtime-cr-009-core-state-machine-2026-08-14.zh-CN.md)
+- CR-010 model-visible request parity PASS — [context-runtime-cr-010-model-visible-request-parity.md](../verification/context-runtime-cr-010-model-visible-request-parity.md)
+- CR-011 real-provider parity smoke PASS (1 provider call) — [context-runtime-cr-011-real-provider-parity-smoke.md](../verification/context-runtime-cr-011-real-provider-parity-smoke.md)
+- CR-012A Codex cross-harness conformance PASS — [context-runtime-cr-012a-codex-context-conformance.md](../verification/context-runtime-cr-012a-codex-context-conformance.md)
+- CSPV-B1 EXECUTED / PASS — [context-selection-policy-gate-b1-run-1.md](../verification/context-selection-policy-gate-b1-run-1.md)
+- Gate B adjudicated PASS — [context-selection-policy-gate-b-adjudication.md](../verification/context-selection-policy-gate-b-adjudication.md)
+- Gate A adjudicated PASS — [context-selection-policy-gate-a-adjudication-2026-08-27.md](../verification/context-selection-policy-gate-a-adjudication-2026-08-27.md)
+- Closure decisions recorded: C0 DEFERRED, CR-012B DEFERRED, CR-013 CANCELLED/FOLDED, milestone item 5 waived — [context-runtime-v0.3-closure-decisions-2026-08-27.md](../verification/context-runtime-v0.3-closure-decisions-2026-08-27.md)
+- Final synthesis: v0.3 CLOSED AS STOPPED EXPERIMENT, value hypothesis NOT ESTABLISHED, no v0.4 runtime advancement — [context-runtime-v0.3-final-synthesis-2026-08-27.md](../verification/context-runtime-v0.3-final-synthesis-2026-08-27.md)
+
 ## Current status overlay — 2026-08-13
 
 The original sections in this plan preserve the historical definitions and

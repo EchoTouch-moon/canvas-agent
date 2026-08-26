@@ -1,18 +1,22 @@
 # Context Selection Policy Validation — Deterministic Transition Suite
 
-- **Status:** PLANNED — implementation-ready task specification, not yet executed
+- **Status:** EXECUTED — specification preserved; outcome chain: CSPV-B0 EXECUTED (historical `POLICY_CAPABILITY_GAP`) → CSPV-B1 EXECUTED (`PASS`) → Gate B adjudicated `PASS` → Gate A adjudicated `PASS`
 - **Gate:** Phase 2 / Gate B
+- **CSPV-B0 run (historical):** [`context-selection-policy-gate-b-run-1.md`](../verification/context-selection-policy-gate-b-run-1.md)
+- **CSPV-B1 run:** [`context-selection-policy-gate-b1-run-1.md`](../verification/context-selection-policy-gate-b1-run-1.md)
+- **Gate B adjudication:** [`context-selection-policy-gate-b-adjudication.md`](../verification/context-selection-policy-gate-b-adjudication.md)
+- **Gate A adjudication (2026-08-27):** [`context-selection-policy-gate-a-adjudication-2026-08-27.md`](../verification/context-selection-policy-gate-a-adjudication-2026-08-27.md)
 - **Provider calls:** `0`
 - **Runtime mode:** credential-free synthetic traces only
 - **Model-facing context:** unchanged; no Pi, OpenCode or Codex live run
 - **Depends on:** [`PROPOSAL-032`](../architecture/decisions/PROPOSAL-032-context-eviction-rehydration-policy-experiment.md)
-- **Current baseline:** `main@45664c0969af085c4643cd79c203b6dcdc6e6afe`
+- **Current baseline:** `branch glm/project-review-2026-08-27 @ 8b7d1c6b31ae6bb174afb2567dca4c5c603b6034` (B0/B1 executed at earlier main baselines recorded in their run documents; the Gate A adjudication and program closure were recorded at this baseline)
 
 This task package specifies the deterministic evidence needed before a bounded
 Shadow lifecycle canary is considered. It does not change Planner code in the
-current documentation task. A later implementation PR may materialize these
-synthetic fixtures and oracles, but must remain provider-free and receive its
-own bounded review.
+current documentation task. The synthetic fixtures and oracles were later
+materialized and executed provider-free as CSPV-B0/B1; see the execution links
+in the status block above.
 
 ## 1. Objective
 
@@ -313,6 +317,6 @@ Wave A Run 3 or Wave B
 manifest/fixture/evaluator changes for a provider run
 ```
 
-The next action is a bounded Lead review of PROPOSAL-032 and this suite
-specification. Only after that review may a separate provider-free
-implementation task be considered.
+The bounded Lead review of PROPOSAL-032 and this suite specification, and the
+separate provider-free implementation task, have since been completed; the
+executed runs and gate adjudications are linked in the status block above.
