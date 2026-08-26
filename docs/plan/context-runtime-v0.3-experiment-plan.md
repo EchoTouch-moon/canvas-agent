@@ -9,6 +9,24 @@
 - **Later compatibility target:** Codex
 - **CR-001 assigned packet:** `docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md`
 
+## Current status overlay — 2026-08-27 (seventh entry: matrix run analyzed)
+
+Overnight Lead-authorized matrix on three larger L-series tasks (14–16 files
+each) × NATIVE/ACTIVE × 3 reps, 18/18 legs, 302 provider-call records, one
+strict binding. 31 guarded Active rewrites sent; **zero task failures either
+arm (9/9 vs 9/9)**; but only 8/31 interventions produced a net context drop
+at the next call and removals induced 11 re-reads, so total context mass rose
+~28% on ACTIVE (L2 +75%; L1 −2.5%; L3 par).
+
+```text
+reliability of dynamic rewrite:  SUPPORTED at this scale (31 rewrites, 0 failures)
+efficiency:                     NOT YET BENEFICIAL (removal too fine-grained; re-read overhead)
+policy levers:                  coarser removal · edited-file retention · size-proportional budget
+value hypothesis:               FIRST DATA — mixed; mechanism safe, economics unproven
+```
+
+Analysis: [matrix run analysis](../verification/cr004-matrix-run-analysis-2026-08-27.md). An earlier identity (`cr004-m1-20260826-609ef8a9`) was aborted for operator kill-switch contamination and is excluded.
+
 ## Current status overlay — 2026-08-27 (sixth entry: CR-004 Stage 1 first contact EXECUTED)
 
 The Lead authorized Stage 1; run `cr004-s1-20260826-38bd266f` executed the
