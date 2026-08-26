@@ -74,9 +74,16 @@ packages/domain              Framework-free domain language and invariants
 packages/contracts           Runtime-validated IPC and Worker contracts
 packages/persistence         SQLite project-state implementation
 packages/worker-runtime      Isolated Worker and Agent adapter boundary
+packages/context-runtime     Provider-neutral context selection research runtime
+packages/repository-observer Authoritative repository content observer
+packages/pi-context-integration
+                             Pi agent shadow-observation integration
 docs/architecture            Accepted implementation decisions
 docs/operator                Local operator and release guidance
 docs/verification             Reproducible engineering evidence
+docs/product                 Product scope register and decisions
+docs/plan                    Execution plans for scoped work items
+docs/research                Context runtime research overlays and analysis
 research/context-benchmarks  Native + Shadow benchmark fixtures and harness
 canvas_agent_design_baseline_v1.1
                              Product and UI design source of truth
