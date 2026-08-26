@@ -1,0 +1,106 @@
+{
+  "taskId": "cr004-l1-multi-file-refactor",
+  "category": "L1-multi-file-refactor",
+  "title": "Migrate formatPrice and every call site to the options-based contract",
+  "fixtureVersion": "l1-v1",
+  "fixturePath": "corpus/L1-multi-file-refactor/fixture",
+  "referencePath": "corpus/L1-multi-file-refactor/reference",
+  "repositoryRevision": {
+    "baseCommit": null,
+    "treeHash": null,
+    "workingTreePatchHash": null
+  },
+  "prompt": "Refactor formatPrice in utils/format.js to the new contract used by test/. Migrate every call site. Make the tests pass.",
+  "acceptanceCriteria": [
+    {
+      "id": "L1-1",
+      "description": "formatPrice(amount, currency, options) implements the options-based contract exercised by the primary test: options is required, locale is validated, omitDecimals and JPY zero-minor-unit rules hold.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "L1-2",
+      "description": "Every call site across models/, services/, and index.js is migrated; the primary test exercises eight migrated call sites, so partial refactors fail.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "L1-3",
+      "description": "Unrelated formatting, money, cart, and inventory behavior is preserved.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "L1-4",
+      "description": "The combined oracle (primary plus regression) passes.",
+      "check": "OBJECTIVE_ORACLE"
+    }
+  ],
+  "oracle": {
+    "command": "node",
+    "args": ["--test", "test/format-price.test.js", "test/regression.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 30000
+  },
+  "regressionOracle": {
+    "command": "node",
+    "args": ["--test", "test/regression.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 30000
+  },
+  "allowedTools": ["read", "ls", "grep", "find", "bash", "edit", "write"],
+  "expectedTools": ["read", "grep", "edit", "bash"],
+  "modelProfile": {
+    "provider": "step-plan",
+    "model": "step-3.7-flash",
+    "thinkingLevel": "medium"
+  },
+  "contextStrategies": ["NATIVE", "ACTIVE"],
+  "budget": {
+    "maxSemanticCalls": 40,
+    "maxToolCalls": 120,
+    "wallClockMs": 600000
+  },
+  "expectedWritablePaths": [
+    "utils/format.js",
+    "models/product.js",
+    "models/order.js",
+    "models/shipment.js",
+    "services/cart.js",
+    "services/pricing.js",
+    "services/inventory.js",
+    "services/billing.js",
+    "index.js"
+  ],
+  "retentionPolicy": "metadata-only; raw provider payloads disabled; live output is gitignored",
+  "knownCandidatePaths": [
+    "utils/format.js",
+    "utils/money.js",
+    "models/product.js",
+    "models/order.js",
+    "models/shipment.js",
+    "services/cart.js",
+    "services/pricing.js",
+    "services/inventory.js",
+    "services/billing.js",
+    "index.js",
+    "test/format-price.test.js"
+  ],
+  "knownRelevantPaths": [
+    "utils/format.js",
+    "models/product.js",
+    "models/order.js",
+    "models/shipment.js",
+    "services/cart.js",
+    "services/pricing.js",
+    "services/inventory.js",
+    "services/billing.js",
+    "index.js",
+    "test/format-price.test.js",
+    "test/regression.test.js"
+  ],
+  "knownIrrelevantPaths": [
+    "reports/legacy-csv-export.js",
+    "reports/audit-trail-writer.js",
+    "utils/deprecated-tax-table.js",
+    "services/xml-adapter.js"
+  ],
+  "expectedArchitecturalRules": []
+}

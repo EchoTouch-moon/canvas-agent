@@ -1,0 +1,101 @@
+{
+  "taskId": "cr004-l2-cache-feature",
+  "category": "L2-cache-feature",
+  "title": "Add the TTL read cache across the three repositories",
+  "fixtureVersion": "l2-v1",
+  "fixturePath": "corpus/L2-cache-feature/fixture",
+  "referencePath": "corpus/L2-cache-feature/reference",
+  "repositoryRevision": {
+    "baseCommit": null,
+    "treeHash": null,
+    "workingTreePatchHash": null
+  },
+  "prompt": "Add the TTL read cache described by test/: repeated reads within the TTL must not re-enter the store, writes must invalidate. Keep existing behavior.",
+  "acceptanceCriteria": [
+    {
+      "id": "L2-1",
+      "description": "Repeated findById/list reads within the TTL reach the instrumented store exactly once; entries expire after the TTL and re-enter the store.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "L2-2",
+      "description": "create/update/remove invalidate cached entries so writes stay visible through the repositories and the router.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "L2-3",
+      "description": "All three repositories (users, products, orders) are wired through the shared cache module and cache independently over one store.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "L2-4",
+      "description": "Existing client, serializer, and routing behavior is unchanged.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "L2-5",
+      "description": "The combined oracle (primary plus regression) passes.",
+      "check": "OBJECTIVE_ORACLE"
+    }
+  ],
+  "oracle": {
+    "command": "node",
+    "args": ["--test", "test/cache.test.js", "test/regression.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 30000
+  },
+  "regressionOracle": {
+    "command": "node",
+    "args": ["--test", "test/regression.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 30000
+  },
+  "allowedTools": ["read", "ls", "grep", "find", "bash", "edit", "write"],
+  "expectedTools": ["read", "write", "edit", "bash"],
+  "modelProfile": {
+    "provider": "step-plan",
+    "model": "step-3.7-flash",
+    "thinkingLevel": "medium"
+  },
+  "contextStrategies": ["NATIVE", "ACTIVE"],
+  "budget": {
+    "maxSemanticCalls": 40,
+    "maxToolCalls": 120,
+    "wallClockMs": 600000
+  },
+  "expectedWritablePaths": [
+    "src/cache.js",
+    "src/repositories/user-repository.js",
+    "src/repositories/product-repository.js",
+    "src/repositories/order-repository.js",
+    "src/app.js"
+  ],
+  "retentionPolicy": "metadata-only; raw provider payloads disabled; live output is gitignored",
+  "knownCandidatePaths": [
+    "src/app.js",
+    "src/store.js",
+    "src/cache.js",
+    "src/router.js",
+    "src/repositories/user-repository.js",
+    "src/repositories/product-repository.js",
+    "src/repositories/order-repository.js",
+    "test/cache.test.js"
+  ],
+  "knownRelevantPaths": [
+    "src/app.js",
+    "src/store.js",
+    "src/cache.js",
+    "src/repositories/user-repository.js",
+    "src/repositories/product-repository.js",
+    "src/repositories/order-repository.js",
+    "test/cache.test.js",
+    "test/regression.test.js"
+  ],
+  "knownIrrelevantPaths": [
+    "src/loggers/console-logger.js",
+    "src/loggers/json-file-logger.js",
+    "src/adapters/rest-adapter.js",
+    "src/adapters/graphql-adapter.js"
+  ],
+  "expectedArchitecturalRules": []
+}

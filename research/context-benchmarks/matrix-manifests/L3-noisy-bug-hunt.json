@@ -1,0 +1,83 @@
+{
+  "taskId": "cr004-l3-noisy-bug-hunt",
+  "category": "L3-noisy-bug-hunt",
+  "title": "Find the single real defect in the noisy scheduler repository",
+  "fixtureVersion": "l3-v1",
+  "fixturePath": "corpus/L3-noisy-bug-hunt/fixture",
+  "referencePath": "corpus/L3-noisy-bug-hunt/reference",
+  "repositoryRevision": {
+    "baseCommit": null,
+    "treeHash": null,
+    "workingTreePatchHash": null
+  },
+  "prompt": "Exactly one real defect causes the primary test failure. Find it and fix it. Do not change unrelated behavior.",
+  "acceptanceCriteria": [
+    {
+      "id": "L3-1",
+      "description": "The single real defect in the pagination window bound is fixed so paginator windows and scheduler batches behave as pinned by the primary test.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "L3-2",
+      "description": "No decoy module changes: backoff, priority queue, sliding window, recurrence, hash bucketing, dead-letter queue, and legacy scheduler keep their pinned behavior.",
+      "check": "OBJECTIVE_ORACLE"
+    },
+    {
+      "id": "L3-3",
+      "description": "The combined oracle (primary plus regression) passes.",
+      "check": "OBJECTIVE_ORACLE"
+    }
+  ],
+  "oracle": {
+    "command": "node",
+    "args": ["--test", "test/pagination.test.js", "test/regression.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 30000
+  },
+  "regressionOracle": {
+    "command": "node",
+    "args": ["--test", "test/regression.test.js"],
+    "expectedExitCode": 0,
+    "timeoutMs": 30000
+  },
+  "allowedTools": ["read", "ls", "grep", "find", "bash", "edit", "write"],
+  "expectedTools": ["read", "grep", "edit", "bash"],
+  "modelProfile": {
+    "provider": "step-plan",
+    "model": "step-3.7-flash",
+    "thinkingLevel": "medium"
+  },
+  "contextStrategies": ["NATIVE", "ACTIVE"],
+  "budget": {
+    "maxSemanticCalls": 40,
+    "maxToolCalls": 120,
+    "wallClockMs": 600000
+  },
+  "expectedWritablePaths": ["src/scheduler/paginator.js"],
+  "retentionPolicy": "metadata-only; raw provider payloads disabled; live output is gitignored",
+  "knownCandidatePaths": [
+    "src/scheduler/paginator.js",
+    "src/scheduler/scheduler.js",
+    "src/scheduler/registry.js",
+    "src/scheduler/runner.js",
+    "src/scheduler/job.js",
+    "src/clock.js",
+    "test/pagination.test.js"
+  ],
+  "knownRelevantPaths": [
+    "src/scheduler/paginator.js",
+    "src/scheduler/scheduler.js",
+    "test/pagination.test.js",
+    "test/regression.test.js"
+  ],
+  "knownIrrelevantPaths": [
+    "src/scheduler/priority-queue.js",
+    "src/scheduler/sliding-window.js",
+    "src/scheduler/backoff.js",
+    "src/utils/recurrence.js",
+    "src/utils/hash-bucket.js",
+    "src/queue/dead-letter.js",
+    "src/legacy/old-scheduler.js"
+  ],
+  "expectedArchitecturalRules": []
+}
