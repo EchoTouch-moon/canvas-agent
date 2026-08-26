@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
@@ -698,6 +699,25 @@ async function run(): Promise<void> {
 
     if (!machine.isTerminal && prepared !== null && runtime !== null) {
       for (const plan of mxLegOrder()) {
+        // Operator kill switch between legs: a trip is MATRIX-TERMINAL (S-8).
+        // Without this check an operator trip recorded by one Active leg's
+        // extension would leave every later Active leg running rewrite-free
+        // under the ACTIVE label, silently contaminating the matrix.
+        if (
+          killSwitchFilePath !== undefined &&
+          existsSync(killSwitchFilePath) &&
+          !killSwitch.isTripped
+        ) {
+          killSwitch.trip(`operator kill-switch file present: ${killSwitchFilePath}`)
+        }
+        if (killSwitch.isTripped) {
+          const trip = killSwitch.tripRecord
+          machine.fireMatrixStop(
+            'S-8',
+            `operator kill switch tripped: ${trip?.reason ?? 'unknown reason'} at ${trip?.trippedAt ?? 'unknown time'} — no further legs launched`
+          )
+          break
+        }
         const begin = machine.beginLeg(plan)
         if (!begin.ok) {
           log(`leg=${mxLegDirName(plan)} NOT LAUNCHED: ${begin.stop.condition} ${begin.stop.reason}`)

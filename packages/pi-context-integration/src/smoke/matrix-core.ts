@@ -132,7 +132,7 @@ export interface MxLegStop {
 }
 
 export interface MxMatrixStop {
-  readonly condition: 'S-1' | 'S-7'
+  readonly condition: 'S-1' | 'S-7' | 'S-8'
   readonly reason: string
   readonly atIso: string
 }
@@ -258,7 +258,7 @@ export class MatrixStateMachine {
   }
 
   /** Fire a matrix-terminal stop (S-1 binding failure / S-7 totals). */
-  fireMatrixStop(condition: 'S-1' | 'S-7', reason: string): MxMatrixStop {
+  fireMatrixStop(condition: 'S-1' | 'S-7' | 'S-8', reason: string): MxMatrixStop {
     this.matrixTerminal = true
     const stop: MxMatrixStop = { condition, reason, atIso: this.nowIso() }
     const duplicate = this.firedStops.some(
