@@ -19,6 +19,7 @@ import {
   evaluateC0StopConditions,
   finalizeScenarioRun,
   isValidC0RunId,
+  parseC0ScenarioSubset,
   providerCallBudgetExhausted,
   runScriptedTurns,
   suggestC0RunId,
@@ -294,7 +295,12 @@ async function run(): Promise<void> {
   let terminal = false
   const fireStop = (condition: C0StopConditionId, reason: string): void => {
     terminal = true
-    firedStops.push({ condition, reason })
+    const duplicate = firedStops.some(
+      (fired) => fired.condition === condition && fired.reason === reason
+    )
+    if (!duplicate) {
+      firedStops.push({ condition, reason })
+    }
     console.error(`C0_STOP_CONDITION=${condition}`)
     console.error(`[c0] terminal stop: ${condition} ${reason}`)
   }
@@ -334,7 +340,22 @@ async function run(): Promise<void> {
     }
   }
 
-  for (const scenario of C0_SCENARIOS) {
+  const subset = parseC0ScenarioSubset(process.env['CANVAS_C0_ONLY'])
+  if (subset.error !== undefined) {
+    console.error(`[c0] REFUSED: ${subset.error}`)
+    console.error('C0_STATUS=FAILED')
+    process.exit(1)
+  }
+  const scenarios = subset.scenarios
+  if (scenarios.length < C0_SCENARIOS.length) {
+    log(
+      `scenario subset requested via CANVAS_C0_ONLY: ${scenarios
+        .map((scenario) => scenario.id)
+        .join(',')}`
+    )
+  }
+
+  for (const scenario of scenarios) {
     if (shouldStop()) break
     if (state.scenarioRunsCompleted >= C0_BUDGETS.maxScenarioRuns) {
       fireStop(
@@ -482,6 +503,7 @@ async function run(): Promise<void> {
               sourceDerivation: 'scripted-messages'
             },
       stopConditionsFired: firedStops,
+      scenariosRequested: scenarios.map((scenario) => scenario.id),
       scenarioVerdicts: Object.fromEntries(
         C0_SCENARIOS.map((scenario) => [scenario.id, verdictOf(scenario.id)])
       )

@@ -67,7 +67,11 @@ export function suggestC0RunId(now: Date = new Date()): string {
 
 export const C0_BUDGETS = {
   maxScenarioRuns: 4,
-  maxProviderCalls: 12,
+  // Amendment 1 (2026-08-27): 12 -> 24 after live run c0-20260827-8cdb65c4
+  // measured 4 (E1) and 6 (E2) records per scenario. Amendment 2 (same day):
+  // 24 -> 48 for subset-targeted runs after c0-20260827-9faf18ac saw a single
+  // E3 turn burst to 14 records (27 > 24, terminal S-7). See contract section 7.
+  maxProviderCalls: 48,
   maxWallClockMs: 60 * 60 * 1000
 } as const
 
@@ -631,6 +635,40 @@ export const C0_SCENARIOS: readonly C0ScenarioDefinition[] = [
   C0_E3_PHASE_SHIFT,
   C0_E4_SUPERSEDED_EVIDENCE
 ]
+
+// Contract amendment 2 (2026-08-27, pre-execution): a run may target a subset
+// of scenarios when earlier runs already banked terminal evidence for the
+// others (e.g. run c0-20260827-8cdb65c4 and c0-20260827-9faf18ac both
+// recorded E1/E2 PASS). The subset is explicit, validated, recorded in the
+// manifest, and never changes the per-scenario semantics.
+export function parseC0ScenarioSubset(
+  value: string | undefined
+): { readonly scenarios: readonly C0ScenarioDefinition[]; readonly error?: undefined } | { readonly scenarios?: undefined; readonly error: string } {
+  if (value === undefined) {
+    return { scenarios: C0_SCENARIOS }
+  }
+  const requested = value
+    .split(',')
+    .map((token) => token.trim().toUpperCase())
+    .filter((token) => token !== '')
+  if (requested.length === 0) {
+    return { error: 'CANVAS_C0_ONLY was set but contained no scenario ids' }
+  }
+  const known = new Set(C0_SCENARIOS.map((scenario) => scenario.id))
+  const seen = new Set<string>()
+  for (const id of requested) {
+    if (!known.has(id as C0ScenarioId)) {
+      return { error: `unknown scenario id "${id}" (expected a subset of E1,E2,E3,E4)` }
+    }
+    if (seen.has(id)) {
+      return { error: `duplicate scenario id "${id}"` }
+    }
+    seen.add(id)
+  }
+  return {
+    scenarios: C0_SCENARIOS.filter((scenario) => seen.has(scenario.id))
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Executor: observation seam -> universe -> scripted patch -> REAL planner

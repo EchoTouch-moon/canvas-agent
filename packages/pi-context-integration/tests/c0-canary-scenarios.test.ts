@@ -12,6 +12,7 @@ import {
   evaluateC0StopConditions,
   finalizeScenarioRun,
   isValidC0RunId,
+  parseC0ScenarioSubset,
   runScenarioOnScriptedMessages,
   runScriptedTurns,
   suggestC0RunId,
@@ -55,10 +56,16 @@ describe('run identity (contract section 2)', () => {
 })
 
 describe('budget stop logic (contract sections 7-8)', () => {
-  it('trips S-7 when the provider-call ledger passes 12 records', () => {
-    const at = evaluateC0StopConditions({ ...ZERO_LEDGERS, providerCallRecords: 12 })
+  it('trips S-7 when the provider-call ledger passes the budget', () => {
+    const at = evaluateC0StopConditions({
+      ...ZERO_LEDGERS,
+      providerCallRecords: C0_BUDGETS.maxProviderCalls
+    })
     expect(at.stop).toBe(false)
-    const past = evaluateC0StopConditions({ ...ZERO_LEDGERS, providerCallRecords: 13 })
+    const past = evaluateC0StopConditions({
+      ...ZERO_LEDGERS,
+      providerCallRecords: C0_BUDGETS.maxProviderCalls + 1
+    })
     expect(past.stop).toBe(true)
     if (past.stop) {
       expect(past.condition).toBe('S-7')
@@ -316,5 +323,25 @@ describe('determinism and executor wiring', () => {
       expect(result.records.length).toBeGreaterThan(0)
       expect(result.scenarioVerdict).toBe('PASS')
     }
+  })
+})
+
+describe('scenario subset parsing (contract amendment 2)', () => {
+  it('defaults to all four scenarios when CANVAS_C0_ONLY is absent', () => {
+    const result = parseC0ScenarioSubset(undefined)
+    expect(result.error).toBeUndefined()
+    expect(result.scenarios?.map((scenario) => scenario.id)).toEqual(['E1', 'E2', 'E3', 'E4'])
+  })
+
+  it('returns the requested subset in canonical order', () => {
+    const result = parseC0ScenarioSubset('e4, e3')
+    expect(result.error).toBeUndefined()
+    expect(result.scenarios?.map((scenario) => scenario.id)).toEqual(['E3', 'E4'])
+  })
+
+  it('rejects unknown ids, duplicates and empty values', () => {
+    expect(parseC0ScenarioSubset('E5').error).toBeDefined()
+    expect(parseC0ScenarioSubset('E1,E1').error).toBeDefined()
+    expect(parseC0ScenarioSubset('   ').error).toBeDefined()
   })
 })
