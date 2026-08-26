@@ -269,17 +269,17 @@ describe('worker dispatch against a temporary git repository', () => {
       gitTimeoutMs: 30_000
     })
     const controller = new AbortController()
-    const dispatchPromise = worker.dispatch({
-      request: requestForRepo(repo, {
-        resourceBudget: { maxDurationMs: 30_000, maxToolCalls: 5, maxDiskBytes: 100_000_000 }
-      }),
-      signal: controller.signal
+    const request = requestForRepo(repo, {
+      resourceBudget: { maxDurationMs: 30_000, maxToolCalls: 5, maxDiskBytes: 100_000_000 }
     })
+    const dispatchPromise = worker.dispatch({ request, signal: controller.signal })
     setTimeout(() => controller.abort(), 300)
 
     const result = await dispatchPromise
     expect(result.outcome).toBe('CANCELLED')
     expect(result.artifacts?.some((artifact) => artifact.kind === 'AGENT_PARTIAL')).toBe(true)
+    expect(result.recovery?.cleanupSucceeded).toBe(true)
+    expect(await pathExists(join(runtime, 'worktrees', request.executionRequestId))).toBe(false)
   })
 
   it('converges a preflight cancellation to CANCELLED regardless of phase', async () => {

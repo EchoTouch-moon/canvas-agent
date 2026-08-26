@@ -392,8 +392,11 @@ export function createWorker(config: WorkerConfig): Worker {
 
     let cleanupSucceeded = false
     try {
+      // The dispatch signal may already be aborted here (cancel path); passing
+      // it would abort the cleanup git calls themselves and leak the worktree,
+      // so cleanup always runs detached from the dispatch signal.
       cleanupSucceeded = await removeWorktree({
-        ...gitOptions(config.sourceRepositoryPath, signal),
+        ...gitOptions(config.sourceRepositoryPath, undefined),
         sourceRepoPath: config.sourceRepositoryPath,
         worktreePath
       })
