@@ -17,7 +17,8 @@
     "smoke:deepseek:cr003b": "tsx src/smoke/file-aware-pi-smoke.ts",
     "smoke:deepseek:cr011": "tsx src/smoke/real-provider-parity-smoke.ts",
     "smoke:model-provider": "tsx src/smoke/model-provider-smoke.ts",
-    "smoke:c0": "tsx src/smoke/c0-canary-smoke.ts"
+    "smoke:c0": "tsx src/smoke/c0-canary-smoke.ts",
+    "smoke:cr004s1": "tsx src/smoke/cr004-stage1-smoke.ts"
   },
   "dependencies": {
     "@canvas-agent/context-conformance": "workspace:*",

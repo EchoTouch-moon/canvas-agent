@@ -10,6 +10,7 @@ import {
   type ContextPlanningRequest,
   type ContextRepresentation,
   type ContextRepresentationNeed,
+  type ContextTransition,
   type ContextUniverseEntry,
   type ContextUniverseRevision,
   type ContextWorkingSet,
@@ -758,6 +759,7 @@ export class C0ScenarioExecutor {
   private readonly maxSemanticTokens: number
   private state: MutableC0PlanningState = initialC0PlanningState()
   private previousWorkingSet: ContextWorkingSet | null = null
+  private latestTransition: ContextTransition | null = null
   private removalHistory: RemovalRecord[] = []
   private planningSequence = 0
   private turnLabel = 'unstarted'
@@ -792,6 +794,20 @@ export class C0ScenarioExecutor {
 
   finalActiveSourceKeys(): readonly string[] {
     return (this.previousWorkingSet?.items ?? []).flatMap((item) => item.sourceKeys)
+  }
+
+  /**
+   * Latest planned Working Set (null before the first boundary). Read-only
+   * accessor for the CR-004 Stage 1 Active seam, which composes its rewrite
+   * from the SAME planner output that produced the observed chain.
+   */
+  get latestWorkingSet(): ContextWorkingSet | null {
+    return this.previousWorkingSet
+  }
+
+  /** Latest planned Transition (null before the first boundary). Read-only Stage 1 accessor. */
+  get latestTransitionResult(): ContextTransition | null {
+    return this.latestTransition
   }
 
   /** Applies a turn's scripted events + request patch before its boundaries. */
@@ -936,6 +952,7 @@ export class C0ScenarioExecutor {
     }
     this.boundaries.push(boundary)
     this.previousWorkingSet = first.workingSet
+    this.latestTransition = first.transition
     return boundary
   }
 

@@ -110,6 +110,19 @@ export {
   type PreSendGuardResult
 } from './active/pre-send-guard'
 export {
+  ACTIVE_EDIT_TOOLS,
+  ACTIVE_READ_TOOLS,
+  InMemoryActiveRewriteEvidenceCollector,
+  createActiveRewriteExtension,
+  detectInterventionBoundary,
+  idleInterventionSummary,
+  type ActiveRewriteEventEvidence,
+  type ActiveRewriteEvidenceCollector,
+  type ActiveRewriteExtensionOptions,
+  type ActiveRewriteInterventionSummary,
+  type InterventionBoundary
+} from './extension/active-rewrite-extension'
+export {
   DEEPSEEK_PROVIDER_PROFILE,
   STEP_PLAN_PROVIDER_PROFILE,
   ModelProviderConfigurationError,
