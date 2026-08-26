@@ -9,6 +9,29 @@
 - **Later compatibility target:** Codex
 - **CR-001 assigned packet:** `docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md`
 
+## Current status overlay — 2026-08-27 (third entry: C0 canary executed)
+
+The Lead authorized live execution and the bounded Shadow lifecycle canary ran
+under the [C0 run contract](cspv-c0-run-contract-2026-08-27.md) (Amendments
+1–2, both pre-execution): three single-use run identities against
+strictly-bound Step Plan (`step-3.7-flash`, `fallbackUsed=false`), 51
+provider-call records total. The second entry's `NOT_AUTHORIZED` state is
+superseded by that authorization; every other revival-path requirement held.
+
+```text
+E1 Distractor Elimination   PASS (live, twice-consistent)
+E2 Wrong Path Recovery      PASS (REMOVE->REHYDRATE, live, twice-consistent)
+E3 Phase Shift              PASS (REMOVE->REHYDRATE, live)
+E4 Superseded Evidence      PASS (live)
+mandatory/pinned evictions  0 across every boundary
+replay mismatches           0
+reason-code coverage        100%
+value hypothesis            STILL NOT_ESTABLISHED (Shadow is observational-only)
+Gate D / CR-004             PENDING LEAD DECISION (evidence input complete)
+```
+
+Run records: [C0 canary runs 1–3](../verification/cspv-c0-canary-runs-2026-08-27.md).
+
 ## Current status overlay — 2026-08-27 (second entry: Gate C preparation)
 
 This entry records a same-day Lead direction reversal of the CSPV-C0

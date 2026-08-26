@@ -364,15 +364,15 @@ the same run identity.
 | Budget | Limit | Notes |
 | --- | --- | --- |
 | Scenario runs | max `4` completed scenario runs — one per E-scenario (E1–E4) | no repeats, no extra scenarios |
-| Provider calls | max `12` model calls total (~`3` per scenario) | counted at the outbound transport seam, wrapping `globalThis.fetch` only after explicit opt-in (CR-011 precedent, `cr-011:58-60`) |
+| Provider calls | max `48` model calls total for a subset-targeted run | counted at the outbound transport seam, wrapping `globalThis.fetch` only after explicit opt-in (CR-011 precedent, `cr-011:58-60`). **Amendment 1 (2026-08-27, pre-execution):** raised from `12` after live run `c0-20260827-8cdb65c4` observed record yields of 4 (E1) and 6 (E2) against the ~3-per-scenario assumption — the one-prompt-multiple-records behavior the 2026-08-25 Step Plan parity smoke flagged. That run stays terminal at S-7 with evidence preserved; the amendment authorizes only a fresh run identity. **Amendment 2 (2026-08-27, pre-execution, before any third run):** after run `c0-20260827-9faf18ac` (27 > 24, terminal S-7; a single E3 turn burst to 14 records) the ceiling rises to `48` and a run may target an explicit scenario subset via `CANVAS_C0_ONLY` when prior terminal runs already banked evidence for the excluded scenarios — E1/E2 are banked PASS by both prior runs. Subsets are validated, recorded in the manifest (`scenariosRequested`), and never alter per-scenario semantics or the scenario-run ledger. |
 | Token / cost | `<= 2.00 USD equivalent` — `PLACEHOLDER, REQUIRES LEAD CONFIRMATION` | internal token estimates are not provider token/cost measurements (`p032:403`); ceiling applies to provider-reported usage |
 | Wall clock | `60` minutes | measured from strict preparation (binding) to final scenario completion |
 
 Separation requirement (`gate-b:76-77`): the scenario-run budget and the
 provider-call budget are independent ledgers. Completing fewer than 4
-scenarios within 12 calls is a budget-constrained outcome, not permission to
-overspend calls; exhausting calls before scenario completion trips the
-provider-call budget terminally.
+scenarios within the call budget is a budget-constrained outcome, not
+permission to overspend calls; exhausting calls before scenario completion
+trips the provider-call budget terminally.
 
 ## 8. Stop policy — fail closed at every gate
 
