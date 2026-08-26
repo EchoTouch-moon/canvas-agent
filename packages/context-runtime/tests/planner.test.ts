@@ -122,6 +122,19 @@ describe('deterministic identity and normalization', () => {
     const b = planningRequest({ pinnedSourceKeys: ['y', 'x'] })
     expect(planningRequestHash(a)).toBe(planningRequestHash(b))
   })
+
+  it('createRepresentation rejects an empty source version list', () => {
+    expect(() =>
+      createRepresentation({
+        kind: 'REFERENCE',
+        sourceVersionIds: [],
+        contentHash: 'hash-A',
+        tokenEstimate: 1,
+        lossiness: 'NONE',
+        derivation: {}
+      })
+    ).toThrow('at least one source version id')
+  })
 })
 
 describe('Universe binding and representation freshness', () => {

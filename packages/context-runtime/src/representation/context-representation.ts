@@ -62,6 +62,9 @@ export function createRepresentation(input: {
   readonly content?: string
   readonly contentRef?: string
 }): ContextRepresentation {
+  if (input.sourceVersionIds.length === 0) {
+    throw new Error('ContextRepresentation requires at least one source version id')
+  }
   const id = createRepresentationId(input)
   return {
     id,

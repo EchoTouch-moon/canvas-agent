@@ -1,4 +1,3 @@
-import { sha256Hex } from '../util/hash'
 import type { ContextUniverseEntry, ContextUniverseRevision } from '../universe/context-universe'
 import type { ContextRepresentation } from '../representation/context-representation'
 import type { ContextPlanningRequest, ReasonCode } from './planning-request'
@@ -523,28 +522,4 @@ function makeDecision(input: {
     policyVersion: input.policyVersion,
     tokenDelta: input.tokenDelta
   }
-}
-
-export function planningRequestHashForPlanner(request: ContextPlanningRequest): string {
-  return sha256Hex(
-    [
-      'planning-request-v1',
-      request.runtimeSessionId,
-      String(request.recompositionSequence),
-      request.taskPhase ?? 'GENERAL',
-      String(request.budget.maxSemanticTokens),
-      request.pinnedSourceKeys.join('|'),
-      request.excludedSourceKeys.join('|'),
-      request.currentTargetSourceKeys.join('|'),
-      request.latestVerificationSourceKeys.join('|'),
-      request.recentEvidenceSourceKeys.join('|'),
-      (request.sourceLifecycleSignals ?? [])
-        .map(
-          (signal) =>
-            `${signal.sourceKey}:${signal.kind}:${signal.evidenceRef ?? '-'}`
-        )
-        .join(';'),
-      request.previousWorkingSetId ?? '-'
-    ].join('\u241F')
-  )
 }
