@@ -9,6 +9,26 @@
 - **Later compatibility target:** Codex
 - **CR-001 assigned packet:** `docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md`
 
+## Current status overlay — 2026-08-27 (fifth entry: CR-004 Stage 0 verified)
+
+Stage 0 — the offline Active-rewrite safety seam — is implemented and tested
+with zero provider calls: Pi-only capability profile, per-run kill switch,
+mandatory/pinned re-assertion, Working Set/Transition hash binding, tool-pair
+and system-instruction and opaque-content continuity checks, pre-send guard,
+and 19 enumerated fallback reasons; 22 tests, 140 total green. The seam has no
+send path by construction.
+
+```text
+CR-004 Stage 0:  STAGE_0_VERIFIED (provider calls 0)
+Stage 1:         CONTRACT DRAFTED — PENDING LEAD AUTHORIZATION
+Stage 1 design:  one C1-localized-bug-fix pair, Native first, budgets 2 legs /
+                 30 records / 30 min, kill switch mandatory, materialization
+                 carry-forward terminal
+value hypothesis: STILL NOT_ESTABLISHED (Stage 1 is first contact, not a quality claim)
+```
+
+Records: [Stage 0 verification](../verification/context-runtime-cr004-stage0-safety-seam-2026-08-27.md) · [Stage 1 run contract](cr004-stage1-run-contract-2026-08-27.md).
+
 ## Current status overlay — 2026-08-27 (fourth entry: Gate D adjudicated PASS)
 
 Lead review of the C0 evidence against the eight Gate D readiness criteria:
