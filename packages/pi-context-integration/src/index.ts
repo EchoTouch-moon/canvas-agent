@@ -67,6 +67,49 @@ export {
   type ReconstructedModelVisibleContext
 } from './active/request-parity'
 export {
+  PI_ACTIVE_CAPABILITY,
+  PI_ACTIVE_HARNESS,
+  PI_ACTIVE_SUPPORTED_ROLES,
+  checkCapability,
+  piActiveRoleCategory,
+  type CapabilityCheckInput,
+  type CapabilityCheckResult,
+  type CapabilityFallbackReason,
+  type PiActiveSupportedRole
+} from './active/capability-profile'
+export {
+  createRunKillSwitch,
+  type KillSwitchTripRecord,
+  type RunKillSwitch,
+  type RunKillSwitchOptions
+} from './active/kill-switch'
+export {
+  analyzeNativeMessages,
+  type AnalyzedNativeConversation,
+  type AnalyzedNativeMessage,
+  type NativeToolPair
+} from './active/native-message-analysis'
+export {
+  ACTIVE_FALLBACK_REASONS,
+  activeMessageFingerprint,
+  activeMessagesHash,
+  activeSystemInstructionHash,
+  composeActiveRewrite,
+  type ActiveFallbackReason,
+  type ActiveRewriteBinding,
+  type ActiveRewriteComposition,
+  type ActiveRewriteContinuity,
+  type ActiveRewriteFallback,
+  type ActiveRewriteReady,
+  type ComposeActiveRewriteInput
+} from './active/rewrite-composer'
+export {
+  assertRewriteSafe,
+  type PreSendGuardFallback,
+  type PreSendGuardOk,
+  type PreSendGuardResult
+} from './active/pre-send-guard'
+export {
   DEEPSEEK_PROVIDER_PROFILE,
   STEP_PLAN_PROVIDER_PROFILE,
   ModelProviderConfigurationError,
