@@ -25,7 +25,7 @@ The engineering core loop is implemented end to end: SQLite project state, immut
 
 **Product MVP v0.2 is complete for local/internal unsigned use.** Packaged migration reliability, native repository and Agent selection, immutable ExecutionRequest v2 context, the production Codex CLI adapter, resumable first-workspace onboarding, the Live-first shell and repeatable RC gates are merged. External signed/notarized distribution remains a separate release decision. See the [operator guide](docs/operator/product-mvp-v0.2.md) and the [release checklist](docs/operator/product-mvp-v0.2-release-checklist.md).
 
-The proposed post-v0.2 direction is [Context Runtime v0.3 research](docs/architecture/context-runtime-v0.3-direction.md): first observe model-call context through Pi, then decide from evidence whether a provider-neutral Working Set Runtime is worth advancing. It remains research-only and is not part of the default product path.
+The post-v0.2 research line [Context Runtime v0.3](docs/architecture/context-runtime-v0.3-direction.md) verified its provider-neutral observation and selection infrastructure credential-free, then on 2026-08-27 executed the bounded Shadow lifecycle canary live (four scenarios PASS under strict Step Plan binding, 51 provider-call records) and adjudicated Gate D `PASS`, allowing CR-004 offline Stage 0 preparation. No Active rewrite is authorized, the value hypothesis (dynamic working-set selection improves task reliability or context efficiency) remains not established, and the Working Set Runtime stays out of the product path. See the [final synthesis](docs/verification/context-runtime-v0.3-final-synthesis-2026-08-27.md) and the [Gate D record](docs/verification/context-runtime-cr004-gate-d-adjudication-2026-08-27.md); the research packages remain research-only and are not part of the default product path.
 
 Normal startup selects or reopens a repository through the Main-owned native picker; it does not require `CANVAS_AGENT_REPO`. Production execution uses the configured Codex CLI and never falls back to Fixture. `CANVAS_AGENT_REPO`, the deterministic fake Codex and picker seams are test/developer boundaries only.
 
@@ -74,9 +74,16 @@ packages/domain              Framework-free domain language and invariants
 packages/contracts           Runtime-validated IPC and Worker contracts
 packages/persistence         SQLite project-state implementation
 packages/worker-runtime      Isolated Worker and Agent adapter boundary
+packages/context-runtime     Provider-neutral context selection research runtime
+packages/repository-observer Authoritative repository content observer
+packages/pi-context-integration
+                             Pi agent shadow-observation integration
 docs/architecture            Accepted implementation decisions
 docs/operator                Local operator and release guidance
 docs/verification             Reproducible engineering evidence
+docs/product                 Product scope register and decisions
+docs/plan                    Execution plans for scoped work items
+docs/research                Context runtime research overlays and analysis
 research/context-benchmarks  Native + Shadow benchmark fixtures and harness
 canvas_agent_design_baseline_v1.1
                              Product and UI design source of truth

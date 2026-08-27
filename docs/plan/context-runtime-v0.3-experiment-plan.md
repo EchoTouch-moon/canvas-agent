@@ -9,6 +9,170 @@
 - **Later compatibility target:** Codex
 - **CR-001 assigned packet:** `docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md`
 
+## Current status overlay — 2026-08-27 (eighth entry: M2 policy A/B matrix analyzed)
+
+Three-arm matrix (NATIVE · ACTIVE v1 · ACTIVE v2 `v2-retain-latest-coarse`)
+over L1–L3 × 3 reps, 27/27 legs, 423 provider-call records, one strict
+binding. Policy v2 implemented both M1 levers (coarse sweeps over all edited
+paths + retain each path's latest read).
+
+```text
+reliability:     9/9 / 9/9 / 9/9 (v1 pathology replicated; v2 zero failures)
+context mass:    NATIVE 136 274 · v1 189 347 (+39%) · v2 121 727 (-11%)
+best cell:       L1 refactor v2 = -41% vs native, re-reads 7 -> 1
+open cell:       L2 feature v2 = +81% vs a cheap native cell (verification reads)
+value hypothesis: FIRST POSITIVE SIGNAL — policy, not mechanism, was the M1 problem
+power:           n=3/cell, p in [0.2, 1.0] — descriptive, confirmatory n>=8 next
+```
+
+Analysis: [M2 matrix analysis](../verification/cr004-m2-matrix-analysis-2026-08-27.md).
+
+## Current status overlay — 2026-08-27 (seventh entry: matrix run analyzed)
+
+Overnight Lead-authorized matrix on three larger L-series tasks (14–16 files
+each) × NATIVE/ACTIVE × 3 reps, 18/18 legs, 302 provider-call records, one
+strict binding. 31 guarded Active rewrites sent; **zero task failures either
+arm (9/9 vs 9/9)**; but only 8/31 interventions produced a net context drop
+at the next call and removals induced 11 re-reads, so total context mass rose
+~28% on ACTIVE (L2 +75%; L1 −2.5%; L3 par).
+
+```text
+reliability of dynamic rewrite:  SUPPORTED at this scale (31 rewrites, 0 failures)
+efficiency:                     NOT YET BENEFICIAL (removal too fine-grained; re-read overhead)
+policy levers:                  coarser removal · edited-file retention · size-proportional budget
+value hypothesis:               FIRST DATA — mixed; mechanism safe, economics unproven
+```
+
+Analysis: [matrix run analysis](../verification/cr004-matrix-run-analysis-2026-08-27.md). An earlier identity (`cr004-m1-20260826-609ef8a9`) was aborted for operator kill-switch contamination and is excluded.
+
+## Current status overlay — 2026-08-27 (sixth entry: CR-004 Stage 1 first contact EXECUTED)
+
+The Lead authorized Stage 1; run `cr004-s1-20260826-38bd266f` executed the
+first Active rewrite pair on the frozen C1 task under strict Step Plan
+binding: Native control PASS, Active leg **received a dynamically rewritten
+context** (superseded read-evidence removed, pair-consistent, hash-bound,
+guard-passed) and completed the task — both oracles PASS, 11 provider-call
+records total, zero stop conditions.
+
+```text
+CR-004 Stage 1:  RUN 1 EXECUTED — FIRST CONTACT COMPLETE (rewrite sent, task passed)
+value hypothesis: STILL OPEN — one pair supports no statistical/causal claim
+next evidence:   small pair matrix (new authorization + run identity required)
+```
+
+Record: [Stage 1 run 1](../verification/context-runtime-cr004-stage1-run-1-2026-08-27.md).
+
+## Current status overlay — 2026-08-27 (fifth entry: CR-004 Stage 0 verified)
+
+Stage 0 — the offline Active-rewrite safety seam — is implemented and tested
+with zero provider calls: Pi-only capability profile, per-run kill switch,
+mandatory/pinned re-assertion, Working Set/Transition hash binding, tool-pair
+and system-instruction and opaque-content continuity checks, pre-send guard,
+and 19 enumerated fallback reasons; 22 tests, 140 total green. The seam has no
+send path by construction.
+
+```text
+CR-004 Stage 0:  STAGE_0_VERIFIED (provider calls 0)
+Stage 1:         CONTRACT DRAFTED — PENDING LEAD AUTHORIZATION
+Stage 1 design:  one C1-localized-bug-fix pair, Native first, budgets 2 legs /
+                 30 records / 30 min, kill switch mandatory, materialization
+                 carry-forward terminal
+value hypothesis: STILL NOT_ESTABLISHED (Stage 1 is first contact, not a quality claim)
+```
+
+Records: [Stage 0 verification](../verification/context-runtime-cr004-stage0-safety-seam-2026-08-27.md) · [Stage 1 run contract](cr004-stage1-run-contract-2026-08-27.md).
+
+## Current status overlay — 2026-08-27 (fourth entry: Gate D adjudicated PASS)
+
+Lead review of the C0 evidence against the eight Gate D readiness criteria:
+seven positively evidenced on live traces, one (`no unexplained
+materialization failure`) structurally `NOT_OBSERVED-IN-SHADOW` and carried
+forward as a mandatory Stage 1 fail-closed stop condition.
+
+```text
+Gate D:    PASS (7/8 positive, 1 carried forward)
+CR-004:    NO_GO -> STAGE_0_PREPARATION_ALLOWED (offline safety seam, no rewrite)
+Stage 1:   STILL REQUIRES SEPARATE AUTHORIZATION + its own run contract
+value hypothesis: STILL NOT_ESTABLISHED
+```
+
+Adjudication: [Gate D record](../verification/context-runtime-cr004-gate-d-adjudication-2026-08-27.md). Stage 0 scope is enumerated there (Pi-only capability profile, Native default with per-Run opt-in, mandatory/pinned re-assertion, Working Set/Transition hash binding, continuity checks, pre-send Native fallback, kill-switch tests, zero rewritten requests).
+
+## Current status overlay — 2026-08-27 (third entry: C0 canary executed)
+
+The Lead authorized live execution and the bounded Shadow lifecycle canary ran
+under the [C0 run contract](cspv-c0-run-contract-2026-08-27.md) (Amendments
+1–2, both pre-execution): three single-use run identities against
+strictly-bound Step Plan (`step-3.7-flash`, `fallbackUsed=false`), 51
+provider-call records total. The second entry's `NOT_AUTHORIZED` state is
+superseded by that authorization; every other revival-path requirement held.
+
+```text
+E1 Distractor Elimination   PASS (live, twice-consistent)
+E2 Wrong Path Recovery      PASS (REMOVE->REHYDRATE, live, twice-consistent)
+E3 Phase Shift              PASS (REMOVE->REHYDRATE, live)
+E4 Superseded Evidence      PASS (live)
+mandatory/pinned evictions  0 across every boundary
+replay mismatches           0
+reason-code coverage        100%
+value hypothesis            STILL NOT_ESTABLISHED (Shadow is observational-only)
+Gate D / CR-004             PENDING LEAD DECISION (evidence input complete)
+```
+
+Run records: [C0 canary runs 1–3](../verification/cspv-c0-canary-runs-2026-08-27.md).
+
+## Current status overlay — 2026-08-27 (second entry: Gate C preparation)
+
+This entry records a same-day Lead direction reversal of the CSPV-C0
+decision in the first 2026-08-27 entry below: after reviewing the closure
+package, the Lead directed that the experiment continue. Only CSPV-C0 is
+revived; the other closure decisions stand, and the closure ledgers remain
+the evidence snapshot:
+
+```text
+Gate C preparation (second Lead direction)
+v0.3 program state: EXTENDED_FOR_GATE_C_PREPARATION
+value hypothesis: NOT_ESTABLISHED (closure ledgers remain the evidence snapshot)
+CSPV-C0: REVIVED_FOR_PREPARATION
+live execution: NOT_AUTHORIZED (pending provider/cost authorization)
+Gate D / CR-004: UNCHANGED (separate decisions)
+```
+
+- CSPV-C0 revival recorded in the closure decisions supersession section — [context-runtime-v0.3-closure-decisions-2026-08-27.md § Supersession](../verification/context-runtime-v0.3-closure-decisions-2026-08-27.md#supersession--cspv-c0-revived-2026-08-27-second-lead-direction)
+- C0 run contract (reviewed preparation artifact) — [cspv-c0-run-contract-2026-08-27.md](cspv-c0-run-contract-2026-08-27.md)
+- New executable artifact: Gate C evidence evaluator — provider calls `0`
+- Live execution `NOT_AUTHORIZED`: this entry grants no provider/cost authorization, and every C0 revival-path requirement (new run identity, Step Plan only with no fallback, separate scenario-run and provider-call budgets, fail closed at every gate) remains binding
+
+## Current status overlay — 2026-08-27
+
+This entry supersedes the plan header status line above and the 2026-08-13
+overlay below. The Phase 2 policy validation line ran to gate adjudication,
+the follow-on CR-009–CR-012A verification chain completed, and the v0.3
+program is closed as a stopped experiment:
+
+```text
+Phase 2 — Context Selection Policy Validation
+CSPV-B0: EXECUTED / historical POLICY_CAPABILITY_GAP
+CSPV-B1: EXECUTED / PASS
+Gate B: ADJUDICATED PASS
+Gate A: ADJUDICATED PASS
+
+Program closure
+v0.3: CLOSED_AS_STOPPED_EXPERIMENT
+value hypothesis: NOT_ESTABLISHED
+v0.4 runtime advancement: NOT AUTHORIZED
+```
+
+- CR-009 core state machine VERIFIED — [context-runtime-cr-009-core-state-machine-2026-08-14.zh-CN.md](../verification/context-runtime-cr-009-core-state-machine-2026-08-14.zh-CN.md)
+- CR-010 model-visible request parity PASS — [context-runtime-cr-010-model-visible-request-parity.md](../verification/context-runtime-cr-010-model-visible-request-parity.md)
+- CR-011 real-provider parity smoke PASS (1 provider call) — [context-runtime-cr-011-real-provider-parity-smoke.md](../verification/context-runtime-cr-011-real-provider-parity-smoke.md)
+- CR-012A Codex cross-harness conformance PASS — [context-runtime-cr-012a-codex-context-conformance.md](../verification/context-runtime-cr-012a-codex-context-conformance.md)
+- CSPV-B1 EXECUTED / PASS — [context-selection-policy-gate-b1-run-1.md](../verification/context-selection-policy-gate-b1-run-1.md)
+- Gate B adjudicated PASS — [context-selection-policy-gate-b-adjudication.md](../verification/context-selection-policy-gate-b-adjudication.md)
+- Gate A adjudicated PASS — [context-selection-policy-gate-a-adjudication-2026-08-27.md](../verification/context-selection-policy-gate-a-adjudication-2026-08-27.md)
+- Closure decisions recorded: C0 DEFERRED, CR-012B DEFERRED, CR-013 CANCELLED/FOLDED, milestone item 5 waived — [context-runtime-v0.3-closure-decisions-2026-08-27.md](../verification/context-runtime-v0.3-closure-decisions-2026-08-27.md)
+- Final synthesis: v0.3 CLOSED AS STOPPED EXPERIMENT, value hypothesis NOT ESTABLISHED, no v0.4 runtime advancement — [context-runtime-v0.3-final-synthesis-2026-08-27.md](../verification/context-runtime-v0.3-final-synthesis-2026-08-27.md)
+
 ## Current status overlay — 2026-08-13
 
 The original sections in this plan preserve the historical definitions and

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -110,5 +110,42 @@ describe('JsonlObservationSink', () => {
     expect(lines).toHaveLength(2)
     expect(JSON.parse(lines[0]!).sequence).toBe(1)
     expect(JSON.parse(lines[1]!).sequence).toBe(2)
+  })
+
+  it('keeps buffered observations on disk failure and retries them on the next flush', async () => {
+    const directory = await tempDirectory()
+    const sink = new JsonlObservationSink({ directory, sessionId: 's4' })
+    sink.write(observation(1, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'kept' }]))
+    // Block the sink file with a directory so appendFile fails.
+    await mkdir(join(directory, 's4.jsonl'))
+    await expect(sink.flush()).rejects.toThrow()
+    await rm(join(directory, 's4.jsonl'), { recursive: true, force: true })
+    await sink.flush()
+    const content = await readFile(join(directory, 's4.jsonl'), 'utf8')
+    const lines = content.trim().split('\n')
+    expect(lines).toHaveLength(1)
+    expect(JSON.parse(lines[0]!).sequence).toBe(1)
+  })
+
+  it('concurrent flush calls do not duplicate buffered lines', async () => {
+    const directory = await tempDirectory()
+    const sink = new JsonlObservationSink({ directory, sessionId: 's5' })
+    sink.write(observation(1, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'a' }]))
+    sink.write(observation(2, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'b' }]))
+    await Promise.all([sink.flush(), sink.flush()])
+    const content = await readFile(join(directory, 's5.jsonl'), 'utf8')
+    expect(content.trim().split('\n')).toHaveLength(2)
+  })
+
+  it('closeAndFlush drains the buffer before sealing the sink', async () => {
+    const directory = await tempDirectory()
+    const sink = new JsonlObservationSink({ directory, sessionId: 's6' })
+    sink.write(observation(1, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'sealed' }]))
+    await sink.closeAndFlush()
+    const content = await readFile(join(directory, 's6.jsonl'), 'utf8')
+    expect(content.trim().split('\n')).toHaveLength(1)
+    expect(() =>
+      sink.write(observation(2, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'late' }]))
+    ).toThrow('JsonlObservationSink is closed')
   })
 })

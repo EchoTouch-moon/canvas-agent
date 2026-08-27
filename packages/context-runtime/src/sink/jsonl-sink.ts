@@ -48,6 +48,7 @@ interface JsonlObservation {
 export class JsonlObservationSink implements ObservationSink {
   private readonly file: string
   private readonly buffer: string[] = []
+  private flushChain: Promise<void> = Promise.resolve()
   private closed = false
 
   constructor(options: JsonlSinkOptions) {
@@ -68,6 +69,16 @@ export class JsonlObservationSink implements ObservationSink {
 
   close(): void {
     this.closed = true
+  }
+
+  // Seals the sink after flushing any buffered observations. A failed flush
+  // rejects and leaves the buffer intact so the caller can retry flush()/close().
+  async closeAndFlush(): Promise<void> {
+    try {
+      await this.flush()
+    } finally {
+      this.closed = true
+    }
   }
 
   private serialize(observation: ModelCallObservation): string {
@@ -110,11 +121,23 @@ export class JsonlObservationSink implements ObservationSink {
   }
 
   // Flushes buffered lines to disk under `<directory>/<sessionId>.jsonl`.
+  // The buffer is retained until the append succeeds so a failed flush can be
+  // retried; overlapping flush calls are serialized to avoid duplicate appends.
   async flush(): Promise<void> {
+    const previous = this.flushChain
+    const run = previous.then(() => this.appendBuffered())
+    this.flushChain = run.then(
+      () => undefined,
+      () => undefined
+    )
+    await run
+  }
+
+  private async appendBuffered(): Promise<void> {
     if (this.buffer.length === 0) return
     const payload = this.buffer.join('\n') + '\n'
-    this.buffer.length = 0
     await mkdir(dirname(this.file), { recursive: true })
     await appendFile(this.file, payload, 'utf8')
+    this.buffer.length = 0
   }
 }

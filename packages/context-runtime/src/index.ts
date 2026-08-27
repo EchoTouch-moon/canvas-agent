@@ -212,3 +212,20 @@ export {
   type UniverseRevision,
   type UniverseVersionRecord
 } from './universe/revision'
+export {
+  ACTIVE_SET_CHANGE_KINDS,
+  DEFAULT_HIGH_PRIORITY_MAX_MODEL_CALL_DISTANCE,
+  DEFAULT_HIGH_PRIORITY_MAX_TRANSITION_DISTANCE,
+  GATE_D_CRITERIA,
+  evaluateC0Scenario,
+  type C0CriterionVerdict,
+  type C0DecisionRecord,
+  type C0EvaluationInput,
+  type C0EvaluatorOptions,
+  type C0FalseRemovalCandidate,
+  type C0FalseRemovalPriority,
+  type C0MaterializationStatus,
+  type C0ScenarioCounts,
+  type C0ScenarioVerdict,
+  type GateDCriterion
+} from './c0/evaluator'

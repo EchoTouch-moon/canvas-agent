@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Provider-neutral Context Runtime research structures (CR-001 shadow observation)",
+  "description": "Provider-neutral Context Runtime research structures (observation, planning, admission, committed working sets, transitions)",
   "exports": {
     ".": "./src/index.ts"
   },

@@ -1,4 +1,4 @@
-import { asc, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import type { Persistence } from '../db'
 import { ConcurrencyError, NotFoundError } from '../errors'
 import { nodeDraftTable, nodeTable, nodeVersionTable } from '../schema'
@@ -149,12 +149,12 @@ export function upsertNodeDraft(p: Persistence, input: UpsertNodeDraftInput): No
       revision: existing.revision + 1,
       updatedAt: p.services.now()
     })
-    .where(eq(nodeDraftTable.id, existing.id))
+    .where(and(eq(nodeDraftTable.id, existing.id), eq(nodeDraftTable.revision, expected)))
     .returning()
     .all()[0]
 
   if (updated === undefined) {
-    throw new Error(`node_draft update returned no row for ${existing.id}`)
+    throw new ConcurrencyError('NodeDraft', existing.id, expected, expected + 1)
   }
 
   touchNode(p, input.nodeId)
