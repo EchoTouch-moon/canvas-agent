@@ -17,8 +17,10 @@ import {
   aggregateMxCells,
   analyzeMatrix,
   detectReReads,
+  dropAtBoundaryOf,
   evaluateMxLegBudgetStop,
   exactPermutationTest,
+  isM2MxRunId,
   isValidMxRunId,
   MatrixStateMachine,
   MX_BUDGETS,
@@ -26,9 +28,9 @@ import {
   mxLegAnalysisInputOf,
   mxLegDirName,
   mxLegOrder,
+  MX_M2_RUN_ID_PATTERN,
   MX_RUN_ID_PATTERN,
-  MX_STRATEGIES,
-  MX_TASK_IDS,
+  mxPermutationTests,
   MX_TOTAL_LEGS,
   mxVerdictOf,
   resolveMxTasks,
@@ -314,41 +316,50 @@ describe('multi-intervention Active extension (real planner, offline)', () => {
 // ---------------------------------------------------------------------------
 
 describe('MX run identity and leg order', () => {
-  it('accepts the cr004-m1-<ISO-date>-<8-hex> format only', () => {
-    expect(isValidMxRunId('cr004-m1-20260827-4d7e9a1b')).toBe(true)
+  it('accepts both cr004-m1 and cr004-m2 identities; suggestions are M2', () => {
+    expect(isValidMxRunId('cr004-m1-20260826-d23a992c')).toBe(true)
+    expect(isValidMxRunId('cr004-m2-20260827-4d7e9a1b')).toBe(true)
     expect(isValidMxRunId('cr004-s1-20260827-4d7e9a1b')).toBe(false)
-    expect(isValidMxRunId('cr004-m1-2026-08-27-4d7e9a1b')).toBe(false)
-    expect(isValidMxRunId('cr004-m1-20260827-4D7E9A1B')).toBe(false)
+    expect(isValidMxRunId('cr004-m3-20260827-4d7e9a1b')).toBe(false)
+    expect(isValidMxRunId('cr004-m2-2026-08-27-4d7e9a1b')).toBe(false)
+    expect(isValidMxRunId('cr004-m2-20260827-4D7E9A1B')).toBe(false)
     expect(isValidMxRunId(undefined)).toBe(false)
     for (let index = 0; index < 8; index += 1) {
-      expect(MX_RUN_ID_PATTERN.test(suggestMxRunId())).toBe(true)
+      const suggested = suggestMxRunId()
+      expect(MX_RUN_ID_PATTERN.test(suggested)).toBe(true)
+      expect(MX_M2_RUN_ID_PATTERN.test(suggested)).toBe(true)
+      expect(isM2MxRunId(suggested)).toBe(true)
     }
+    expect(isM2MxRunId('cr004-m1-20260826-d23a992c')).toBe(false)
   })
 
-  it('orders 18 legs: rep-major, per task NATIVE then ACTIVE, deterministic', () => {
+  it('orders 27 legs: rep-major, per task NATIVE, ACTIVE, ACTIVE_V2, deterministic', () => {
     const order = mxLegOrder()
     expect(order).toHaveLength(MX_TOTAL_LEGS)
+    expect(MX_TOTAL_LEGS).toBe(27)
     expect(order).toEqual(mxLegOrder())
-    expect(order.slice(0, 6).map(mxLegDirName)).toEqual([
+    expect(order.slice(0, 9).map(mxLegDirName)).toEqual([
       'L1-NATIVE-rep1',
       'L1-ACTIVE-rep1',
+      'L1-ACTIVE2-rep1',
       'L2-NATIVE-rep1',
       'L2-ACTIVE-rep1',
+      'L2-ACTIVE2-rep1',
       'L3-NATIVE-rep1',
-      'L3-ACTIVE-rep1'
+      'L3-ACTIVE-rep1',
+      'L3-ACTIVE2-rep1'
     ])
-    expect(order[6]!.rep).toBe(2)
-    expect(order[17]).toEqual({ legIndex: 17, task: 'L3', strategy: 'ACTIVE', rep: 3 })
-    // Every (task, strategy, rep) cell exactly once.
+    expect(order[9]!.rep).toBe(2)
+    expect(order[26]).toEqual({ legIndex: 26, task: 'L3', strategy: 'ACTIVE_V2', rep: 3 })
+    // Every (task, strategy, rep) cell exactly once (dir names use ACTIVE2
+    // for the ACTIVE_V2 arm).
     const keys = new Set(order.map((plan) => mxLegDirName(plan)))
     expect(keys.size).toBe(MX_TOTAL_LEGS)
-    for (const task of MX_TASK_IDS) {
-      for (const strategy of MX_STRATEGIES) {
-        for (let rep = 1; rep <= 3; rep += 1) {
-          expect(keys.has(`${task}-${strategy}-rep${rep}`)).toBe(true)
-        }
-      }
+    for (const plan of order) {
+      expect(keys.has(mxLegDirName(plan))).toBe(true)
     }
+    expect(keys.has('L1-ACTIVE2-rep3')).toBe(true)
+    expect(keys.has('L1-ACTIVE_V2-rep1')).toBe(false)
   })
 })
 
@@ -373,25 +384,62 @@ function legLedger(legIndex: number, providerCallRecords: number, status: 'COMPL
 }
 
 describe('MX matrix state machine', () => {
-  it('stops launching legs at the 400-record matrix total (S-7), evidence preserved', () => {
+  it('stops launching legs at the 600-record matrix total (S-7), evidence preserved', () => {
     const machine = new MatrixStateMachine()
-    // 16 legs x 25 records = 400: at the limit, not over.
-    for (let index = 0; index < 16; index += 1) {
+    // 23 legs x 26 records = 598: at the limit, not over (M2 budget is 600).
+    for (let index = 0; index < 23; index += 1) {
       expect(machine.beginLeg(mxLegOrder()[index]!).ok).toBe(true)
-      expect(machine.endLeg(legLedger(index, 25)).stop).toBe(false)
+      expect(machine.endLeg(legLedger(index, 26)).stop).toBe(false)
     }
-    // Leg 17 starts (totals exactly at budget) and pushes over: endLeg fires S-7.
-    expect(machine.beginLeg(mxLegOrder()[16]!).ok).toBe(true)
-    const end = machine.endLeg(legLedger(16, 25))
+    // Leg 24 starts (totals exactly at budget) and pushes over: endLeg fires S-7.
+    expect(machine.beginLeg(mxLegOrder()[23]!).ok).toBe(true)
+    const end = machine.endLeg(legLedger(23, 26))
     expect(end.stop).toBe(true)
     expect(machine.isTerminal).toBe(true)
-    // No new legs launch; the 17 recorded legs stay preserved in the ledgers.
-    const refused = machine.beginLeg(mxLegOrder()[17]!)
+    // No new legs launch; the 24 recorded legs stay preserved in the ledgers.
+    const refused = machine.beginLeg(mxLegOrder()[24]!)
     expect(refused.ok).toBe(false)
     if (!refused.ok) expect(refused.stop.condition).toBe('S-7')
-    expect(machine.ledgers().legsAttempted).toBe(17)
-    expect(machine.ledgers().providerCallRecordsTotal).toBe(425)
+    expect(machine.ledgers().legsAttempted).toBe(24)
+    expect(machine.ledgers().providerCallRecordsTotal).toBe(624)
     expect(machine.stopsFired[0]!.condition).toBe('S-7')
+  })
+
+  it('refuses to launch beyond the 27-leg matrix budget (S-7)', () => {
+    const machine = new MatrixStateMachine()
+    for (let index = 0; index < MX_TOTAL_LEGS; index += 1) {
+      expect(machine.beginLeg(mxLegOrder()[index]!).ok).toBe(true)
+      machine.endLeg(legLedger(index, 5))
+    }
+    const refused = machine.beginLeg({
+      legIndex: MX_TOTAL_LEGS,
+      task: 'L1',
+      strategy: 'NATIVE',
+      rep: 4
+    })
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) {
+      expect(refused.stop.condition).toBe('S-7')
+      expect(refused.stop.reason).toContain('leg budget exhausted')
+    }
+  })
+
+  it('counts per-arm oracle passes separately across the three arms', () => {
+    const machine = new MatrixStateMachine()
+    const ledgerFor = (legIndex: number, pass: boolean): MxLegLedger => ({
+      ...legLedger(legIndex, 5),
+      oraclePass: pass
+    })
+    machine.beginLeg(mxLegOrder()[0]!)
+    machine.endLeg(ledgerFor(0, true)) // L1 NATIVE rep1
+    machine.beginLeg(mxLegOrder()[1]!)
+    machine.endLeg(ledgerFor(1, true)) // L1 ACTIVE rep1
+    machine.beginLeg(mxLegOrder()[2]!)
+    machine.endLeg(ledgerFor(2, false)) // L1 ACTIVE_V2 rep1
+    const ledgers = machine.ledgers()
+    expect(ledgers.oraclePassNative).toBe(1)
+    expect(ledgers.oraclePassActive).toBe(1)
+    expect(ledgers.oraclePassActiveV2).toBe(0)
   })
 
   it('stops launching legs when the 180-minute watchdog is exceeded', () => {
@@ -560,10 +608,10 @@ describe('MX exact permutation test', () => {
 })
 
 describe('MX aggregator', () => {
-  it('computes per-cell n, oracle rates, means/medians, and trajectories', () => {
+  it('computes per-cell n, oracle rates, means/medians, and trajectories across all three arms', () => {
     const scripted = scriptedMxLegRecords(RUN_ID)
     const cells = aggregateMxCells(scripted.map(mxLegAnalysisInputOf))
-    expect(cells).toHaveLength(6)
+    expect(cells).toHaveLength(9)
     const l1Native = cells.find((cell) => cell.task === 'L1' && cell.strategy === 'NATIVE')!
     expect(l1Native.n).toBe(3)
     expect(l1Native.completed).toBe(3)
@@ -575,10 +623,17 @@ describe('MX aggregator', () => {
     expect(
       l1Native.trajectory.legs.every((leg) => leg.peak === 3300 && leg.sum === 8400)
     ).toBe(true)
+    expect(l1Native.trajectory.meanFinal).toBe(3300)
     const l1Active = cells.find((cell) => cell.task === 'L1' && cell.strategy === 'ACTIVE')!
+    expect(l1Active.active!.policy).toBe('v1-per-edit')
     expect(l1Active.active!.sends).toBe(6)
     expect(l1Active.active!.attempts).toBe(6)
     expect(l1Active.active!.toolBlocksRemoved).toBe(6)
+    expect(l1Active.active!.removedBlocks).toBe(6)
+    expect(l1Active.active!.candidateBlocks).toBe(6)
+    expect(l1Active.active!.retainedLatestReadTargets).toBe(0)
+    // Scripted v1 boundaries show no drop (series[seq-1] never < series[seq-2]).
+    expect(l1Active.active!.dropAtBoundary).toEqual({ sent: 6, drops: 0, rate: 0 })
     // One scripted re-read of a removed target per leg => 3 per cell.
     expect(l1Active.active!.reReads).toBe(3)
     expect(l1Active.active!.postFirstInterventionReads).toBe(3)
@@ -586,14 +641,70 @@ describe('MX aggregator', () => {
     expect(l1Active.wallClockMs.median).toBe(0)
     // No NATIVE cell carries Active telemetry.
     expect(l1Native.active).toBeUndefined()
+    const l1ActiveV2 = cells.find((cell) => cell.task === 'L1' && cell.strategy === 'ACTIVE_V2')!
+    expect(l1ActiveV2.active!.policy).toBe('v2-retain-latest-coarse')
+    expect(l1ActiveV2.active!.sends).toBe(3)
+    expect(l1ActiveV2.active!.attempts).toBe(3)
+    expect(l1ActiveV2.active!.removedBlocks).toBe(9)
+    expect(l1ActiveV2.active!.candidateBlocks).toBe(9)
+    expect(l1ActiveV2.active!.retainedLatestReadTargets).toBe(6)
+    // The scripted v2 boundary drops AT the boundary: 850 < 900 each leg.
+    expect(l1ActiveV2.active!.dropAtBoundary).toEqual({ sent: 3, drops: 3, rate: 1 })
+    // Retain-latest kills the re-read pattern (fresh post-intervention reads
+    // only), while post-first-intervention reads still occur.
+    expect(l1ActiveV2.active!.reReads).toBe(0)
+    expect(l1ActiveV2.active!.postFirstInterventionReads).toBe(3)
+    expect(l1ActiveV2.tokenEstimateSum.mean).toBe(5050)
+    expect(l1ActiveV2.trajectory.meanPeak).toBe(1500)
+    expect(l1ActiveV2.trajectory.meanFinal).toBe(1400)
   })
 
-  it('verdicts report raw reliability and context-efficiency direction', () => {
+  it('verdicts report raw three-arm reliability and context-efficiency direction', () => {
     const cells = aggregateMxCells(scriptedMxLegRecords(RUN_ID).map(mxLegAnalysisInputOf))
     const verdict = mxVerdictOf(cells)
-    expect(verdict.reliability).toContain('reliability identical (raw): NATIVE oracle 0/0 vs ACTIVE 0/0')
-    expect(verdict.contextEfficiency).toContain('NATIVE 8400 vs ACTIVE 9700 (ACTIVE higher)')
+    expect(verdict.reliability).toContain(
+      'reliability identical (raw): NATIVE oracle 0/0 vs ACTIVE 0/0 vs ACTIVE_V2 0/0'
+    )
+    expect(verdict.contextEfficiency).toContain('NATIVE 8400 vs ACTIVE 9700 vs ACTIVE_V2 5050')
+    expect(verdict.contextEfficiency).toContain('ACTIVE_V2 lowest, ACTIVE highest')
     expect(mxCellOneLiner(cells[0]!)).toContain('cell L1/NATIVE n=3')
+    const v2Liner = mxCellOneLiner(
+      cells.find((cell) => cell.task === 'L2' && cell.strategy === 'ACTIVE_V2')!
+    )
+    expect(v2Liner).toContain('cell L2/ACTIVE_V2 n=3')
+    expect(v2Liner).toContain('policy=v2-retain-latest-coarse')
+    expect(v2Liner).toContain('dropAtBoundary=3/3 (100%)')
+    expect(v2Liner).toContain('reReads=0')
+  })
+
+  it('dropAtBoundaryOf implements series[seq-1] < series[seq-2] with an explicit caveat-free count', () => {
+    // Drop at seq 3 (150 < 200), none at seq 5 (300 >= 150); seq 1 is not comparable.
+    expect(dropAtBoundaryOf([100, 200, 150, 250, 300], [3, 5, 1])).toEqual({
+      sent: 3,
+      drops: 1,
+      rate: 1 / 3
+    })
+    expect(dropAtBoundaryOf([], [])).toEqual({ sent: 0, drops: 0, rate: null })
+    expect(dropAtBoundaryOf([50], [1])).toEqual({ sent: 1, drops: 0, rate: 0 })
+    expect(dropAtBoundaryOf([200, 100], [null, 2])).toEqual({ sent: 1, drops: 1, rate: 1 })
+    expect(dropAtBoundaryOf([100, 200], [2])).toEqual({ sent: 1, drops: 0, rate: 0 })
+  })
+
+  it('degrades to the M1 comparison set when no ACTIVE_V2 legs exist (M1 evidence dirs)', () => {
+    const m1Shaped = scriptedMxLegRecords('cr004-m1-20260826-d23a992c').filter(
+      (record) => record.strategy !== 'ACTIVE_V2'
+    )
+    const cells = aggregateMxCells(m1Shaped.map(mxLegAnalysisInputOf))
+    expect(cells).toHaveLength(6)
+    const tests = mxPermutationTests(cells)
+    expect(tests.map((entry) => entry.comparison)).toEqual([
+      'NATIVE_vs_ACTIVE',
+      'NATIVE_vs_ACTIVE',
+      'NATIVE_vs_ACTIVE'
+    ])
+    const verdict = mxVerdictOf(cells)
+    expect(verdict.contextEfficiency).toContain('NATIVE 8400 vs ACTIVE 9700')
+    expect(verdict.contextEfficiency).not.toContain('ACTIVE_V2')
   })
 })
 
@@ -660,7 +771,7 @@ describe('MX incremental evidence + analyzeMatrix round-trip', () => {
     }
   })
 
-  it('analyzes a full scripted dry-run report dir: 18 legs, 6 cells, re-reads, permutation', async () => {
+  it('analyzes a full scripted dry-run report dir: 27 legs, 9 cells, three-arm permutation, policy A/B', async () => {
     const reportDir = await mkdtemp(join(tmpdir(), 'canvas-mx-report-'))
     try {
       await mkdir(join(reportDir, 'legs'), { recursive: true })
@@ -668,26 +779,54 @@ describe('MX incremental evidence + analyzeMatrix round-trip', () => {
         await writeMxLegEvidence(reportDir, record, scriptedMxObservations(record))
       }
       const { analysis, markdown } = await analyzeMatrix(reportDir)
-      expect(analysis.legsAnalyzed).toBe(18)
-      expect(analysis.cells).toHaveLength(6)
+      expect(analysis.legsAnalyzed).toBe(27)
+      expect(analysis.cells).toHaveLength(9)
       const l2Active = analysis.cells.find(
         (cell) => cell.task === 'L2' && cell.strategy === 'ACTIVE'
       )!
       // Trajectories read from observations.jsonl: ACTIVE shows post-drop peak.
       expect(l2Active.trajectory.meanPeak).toBe(1900)
       expect(l2Active.active!.reReads).toBe(3)
+      const l2ActiveV2 = analysis.cells.find(
+        (cell) => cell.task === 'L2' && cell.strategy === 'ACTIVE_V2'
+      )!
+      expect(l2ActiveV2.active!.policy).toBe('v2-retain-latest-coarse')
+      expect(l2ActiveV2.active!.reReads).toBe(0)
+      expect(l2ActiveV2.active!.dropAtBoundary.rate).toBe(1)
       // Per-task permutation over observedTokenEstimateSum: identical within
-      // strategy, separated across (8400 vs 9700) => p = 2/20.
-      expect(analysis.perTask).toHaveLength(3)
-      for (const { task, permutation } of analysis.perTask) {
+      // strategy, separated across arms (8400 / 9700 / 5050) => p = 2/20 for
+      // every one of the THREE comparisons per task.
+      expect(analysis.perTask).toHaveLength(9)
+      const comparisons = new Set(analysis.perTask.map((entry) => entry.comparison))
+      expect([...comparisons].sort()).toEqual([
+        'ACTIVE_vs_ACTIVE_V2',
+        'NATIVE_vs_ACTIVE',
+        'NATIVE_vs_ACTIVE_V2'
+      ])
+      for (const { task, comparison, permutation } of analysis.perTask) {
         expect(task).toBeTruthy()
         expect(permutation.pValue).toBeCloseTo(0.1, 10)
-        expect(permutation.nativeSum).toBe(3 * 8400)
-        expect(permutation.activeSum).toBe(3 * 9700)
+        // The n=3 low-power caveat rides on every p-value.
+        expect(permutation.caveat).toContain('no causal claim')
+        if (comparison === 'NATIVE_vs_ACTIVE') {
+          expect(permutation.nativeSum).toBe(3 * 8400)
+          expect(permutation.activeSum).toBe(3 * 9700)
+        } else if (comparison === 'NATIVE_vs_ACTIVE_V2') {
+          expect(permutation.nativeSum).toBe(3 * 8400)
+          expect(permutation.activeSum).toBe(3 * 5050)
+        } else {
+          expect(permutation.nativeSum).toBe(3 * 9700)
+          expect(permutation.activeSum).toBe(3 * 5050)
+        }
       }
-      expect(analysis.verdict.contextEfficiency).toContain('ACTIVE higher')
+      expect(analysis.verdict.contextEfficiency).toContain('ACTIVE_V2 lowest')
       expect(markdown).toContain('## Per-task exact permutation tests')
+      expect(markdown).toContain('L2 ACTIVE_vs_ACTIVE_V2')
+      expect(markdown).toContain('policy=v1-per-edit')
+      expect(markdown).toContain('policy=v2-retain-latest-coarse')
       expect(markdown).toContain('reReadsOfRemovedTargets=3')
+      expect(markdown).toContain('retainedLatestReadTargets=6')
+      expect(markdown).toContain('dropAtBoundary=3/3 (100%)')
       expect(markdown).toContain('no causal claim')
     } finally {
       await rm(reportDir, { recursive: true, force: true })
@@ -706,10 +845,11 @@ describe('MX incremental evidence + analyzeMatrix round-trip', () => {
 // ---------------------------------------------------------------------------
 
 describe('MX scripted DRY_RUN legs', () => {
-  it('flow all 18 legs through the matrix machine without stops, provider calls 0', () => {
+  it('flow all 27 legs (three arms) through the matrix machine without stops, provider calls 0', () => {
     const machine = new MatrixStateMachine()
     const scripted = scriptedMxLegRecords(RUN_ID)
-    expect(scripted).toHaveLength(18)
+    expect(scripted).toHaveLength(27)
+    expect(scripted.filter((record) => record.strategy === 'ACTIVE_V2')).toHaveLength(9)
     for (const record of scripted) {
       const begin = machine.beginLeg(mxLegOrder()[record.legIndex]!)
       expect(begin.ok).toBe(true)
@@ -729,11 +869,20 @@ describe('MX scripted DRY_RUN legs', () => {
     expect(machine.isTerminal).toBe(false)
     expect(machine.stopsFired).toHaveLength(0)
     const ledgers = machine.ledgers()
-    expect(ledgers.legsAttempted).toBe(18)
+    expect(ledgers.legsAttempted).toBe(27)
     expect(ledgers.providerCallRecordsTotal).toBe(0)
-    // Stand-in oracles claim nothing.
+    // Stand-in oracles claim nothing; every ACTIVE_V2 leg carries v2-shaped
+    // intervention telemetry (one coarse SENT sweep, latest reads retained).
     for (const record of scripted) {
       expect(record.oracleResults.every((result) => result.standIn === true && result.pass === null)).toBe(true)
+      if (record.strategy !== 'ACTIVE_V2') continue
+      const interventions = record.interventionTelemetry!.interventions
+      expect(interventions).toHaveLength(1)
+      expect(interventions[0]!.policy).toBe('v2-retain-latest-coarse')
+      expect(interventions[0]!.sentRewrite).toBe(true)
+      expect(interventions[0]!.removedBlocks).toBe(3)
+      expect(interventions[0]!.candidateBlocks).toBe(3)
+      expect(interventions[0]!.retainedLatestReadTargets).toHaveLength(2)
     }
   })
 })

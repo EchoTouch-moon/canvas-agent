@@ -112,6 +112,7 @@ export {
 export {
   ACTIVE_DEFAULT_MAX_ATTEMPTS,
   ACTIVE_DEFAULT_MAX_INTERVENTIONS,
+  ACTIVE_DEFAULT_MAX_BLOCKS_PER_INTERVENTION,
   ACTIVE_EDIT_TOOLS,
   ACTIVE_READ_TOOLS,
   InMemoryActiveRewriteEvidenceCollector,
@@ -121,10 +122,15 @@ export {
   detectInterventionBoundary,
   idleInterventionSummary,
   readTargetHashOf,
+  scanEditReadStructure,
+  type ActiveRemovalPolicy,
   type ActiveRewriteEventEvidence,
   type ActiveRewriteEvidenceCollector,
   type ActiveRewriteExtensionOptions,
   type ActiveRewriteInterventionSummary,
+  type CoarseSweepReadCall,
+  type CoarseSweepReadEntry,
+  type CoarseSweepView,
   type InterventionBoundary,
   type ReadTargetRecord
 } from './extension/active-rewrite-extension'

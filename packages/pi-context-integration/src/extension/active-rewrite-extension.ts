@@ -16,6 +16,22 @@ import type { PiContentBlockView, PiMessageView } from '../pi-message-mapper'
 
 // CR-004 — Active intervention extension (Pi-only, bounded repeated sends).
 //
+// REMOVAL POLICY v2 ('v2-retain-latest-coarse', M2 matrix arm ACTIVE_V2):
+// at each intervention boundary (same trigger: a NEW edit toolCall observed)
+// the lifecycle sweep covers EVERY edited path, not just the trigger path:
+// for every path E that has at least one edit toolCall in the basis, every
+// still-active read pair for E is marked superseded EXCEPT the LATEST read
+// for E (retain-latest — the model keeps the freshest content it saw, so it
+// never needs to re-fetch; this targets the L2 re-read pattern from
+// docs/verification/cr004-matrix-run-analysis-2026-08-27.md). Reads of paths
+// with NO edit toolCall are never removed (conservative: unedited
+// exploration stays). One intervention may therefore remove many blocks at
+// once (coarse sweeps), bounded by `maxBlocksPerIntervention` (default 12):
+// with more candidates the OLDEST ones up to the cap are removed and the
+// rest wait for the next boundary. The composer/guard seam is UNCHANGED —
+// v2 only changes WHICH read pairs the lifecycle signals mark superseded
+// before planning.
+//
 // This extension wraps the SAME observation machinery the C0 executor uses
 // (PiContextShadowObserver + the enriched shadow planner path via
 // C0ScenarioExecutor), so the Working Set is always planned over REAL
@@ -76,10 +92,22 @@ export const ACTIVE_READ_TOOLS = ['read'] as const
 /** Tool names treated as edit/write-class (their appearance is the boundary). */
 export const ACTIVE_EDIT_TOOLS = ['edit', 'write'] as const
 
+/**
+ * Removal policy selection (M2 contract):
+ * - `v1-per-edit` — Stage 1 / M1 behavior: each boundary removes the earlier
+ *   still-active read pairs of the TRIGGER path only (one block per edit).
+ * - `v2-retain-latest-coarse` — coarse sweep over ALL edited paths at each
+ *   boundary, retaining the LATEST read per edited path; bounded by
+ *   `maxBlocksPerIntervention` (oldest-first).
+ */
+export type ActiveRemovalPolicy = 'v1-per-edit' | 'v2-retain-latest-coarse'
+
 /** Default bound on SENT Active rewrites per leg (matrix contract). */
 export const ACTIVE_DEFAULT_MAX_INTERVENTIONS = 5
 /** Default bound on composition ATTEMPTS per leg (matrix contract). */
 export const ACTIVE_DEFAULT_MAX_ATTEMPTS = 8
+/** Default v2 cap on read pairs removed by ONE intervention (matrix contract). */
+export const ACTIVE_DEFAULT_MAX_BLOCKS_PER_INTERVENTION = 12
 
 export interface InterventionBoundary {
   /** Repository path the edit/write-class toolCall targets. */
@@ -133,6 +161,14 @@ export interface ActiveRewriteEventEvidence {
   readonly composedMessageCount?: number
   /** readTargetHashes of the read pairs this intervention removed (attempted). */
   readonly removedReadTargetHashes?: readonly string[]
+  /** Removal policy of the attempted intervention (present when attempted). */
+  readonly policy?: ActiveRemovalPolicy
+  /** Eligible candidate read pairs the sweep found this boundary (pre-cap). */
+  readonly candidateBlocks?: number
+  /** Read pairs this intervention marks superseded (post-cap). */
+  readonly removedBlocks?: number
+  /** readTargetHash of the retained LATEST read per swept (edited) path. */
+  readonly retainedLatestReadTargets?: readonly string[]
   /** Read-class toolCalls first observed at this event (privacy-safe hashes). */
   readonly readTargets?: readonly ReadTargetRecord[]
 }
@@ -163,6 +199,14 @@ export interface ActiveRewriteInterventionSummary {
   readonly latchSetAtSequence: number | null
   /** readTargetHashes of the read pairs this attempt removed. */
   readonly removedReadTargetHashes: readonly string[]
+  /** Removal policy of this attempt; null on the idle summary. */
+  readonly policy: ActiveRemovalPolicy | null
+  /** Eligible candidate read pairs the sweep found (pre-cap). */
+  readonly candidateBlocks: number
+  /** Read pairs this attempt marks superseded (post-cap). */
+  readonly removedBlocks: number
+  /** readTargetHash of the retained LATEST read per swept (edited) path. */
+  readonly retainedLatestReadTargets: readonly string[]
 }
 
 export interface ActiveRewriteEvidenceCollector {
@@ -190,7 +234,11 @@ export function idleInterventionSummary(): ActiveRewriteInterventionSummary {
     removedSourceKeys: [],
     composedMessageCount: null,
     latchSetAtSequence: null,
-    removedReadTargetHashes: []
+    removedReadTargetHashes: [],
+    policy: null,
+    candidateBlocks: 0,
+    removedBlocks: 0,
+    retainedLatestReadTargets: []
   }
 }
 
@@ -216,7 +264,11 @@ function interventionSummaryFrom(
     removedSourceKeys: [...(event.removedSourceKeys ?? [])],
     composedMessageCount: event.composedMessageCount ?? null,
     latchSetAtSequence: sequence,
-    removedReadTargetHashes: [...(event.removedReadTargetHashes ?? [])]
+    removedReadTargetHashes: [...(event.removedReadTargetHashes ?? [])],
+    policy: event.policy ?? null,
+    candidateBlocks: event.candidateBlocks ?? 0,
+    removedBlocks: event.removedBlocks ?? 0,
+    retainedLatestReadTargets: [...(event.retainedLatestReadTargets ?? [])]
   }
 }
 
@@ -276,6 +328,14 @@ export interface ActiveRewriteExtensionOptions {
   readonly maxInterventions?: number
   /** Max composition attempts per leg. Default 8; Stage 1 single-pair = 1. */
   readonly maxAttempts?: number
+  /**
+   * Removal policy. Default `v1-per-edit` (Stage 1 / M1 semantics, unchanged).
+   * `v2-retain-latest-coarse` sweeps ALL edited paths at each boundary and
+   * retains the LATEST read per edited path (M2 ACTIVE_V2 arm).
+   */
+  readonly removalPolicy?: ActiveRemovalPolicy
+  /** v2 cap on read pairs removed by ONE intervention (oldest-first). Default 12. */
+  readonly maxBlocksPerIntervention?: number
 }
 
 function normalizePath(value: string): string {
@@ -385,6 +445,74 @@ export function detectInterventionBoundary(
   return detectInterventionBoundaries(messages, options)[0]
 }
 
+/** One read-class call (result present) with its global scan-order index. */
+export interface CoarseSweepReadCall {
+  readonly callId: string
+  readonly order: number
+}
+
+/** All result-present read calls of ONE path, in scan order (oldest first). */
+export interface CoarseSweepReadEntry {
+  readonly path: string
+  readonly reads: readonly CoarseSweepReadCall[]
+}
+
+/**
+ * Policy-v2 sweep input: every edit/write-class toolCall with a resolved path
+ * (in scan order — the trigger candidates), plus every result-present read
+ * call grouped per path (in scan order). Pure function of the message list;
+ * no clock, no I/O. Filtering to EDITED paths, retain-latest, working-set
+ * activity and the oldest-first cap are applied by the extension on top of
+ * this view.
+ */
+export interface CoarseSweepView {
+  readonly edits: readonly { readonly toolCallId: string; readonly path: string }[]
+  readonly readsByPath: readonly CoarseSweepReadEntry[]
+}
+
+/**
+ * Deterministic edit/read structure scan for the v2 coarse sweep. Reads whose
+ * toolResult is not yet present are excluded (an in-flight read is not
+ * supersedeable evidence); edits with no resolvable path are ignored.
+ */
+export function scanEditReadStructure(
+  messages: readonly PiMessageView[],
+  options: {
+    readonly readToolNames?: readonly string[]
+    readonly editToolNames?: readonly string[]
+  } = {}
+): CoarseSweepView {
+  const readTools = new Set<string>(options.readToolNames ?? ACTIVE_READ_TOOLS)
+  const editTools = new Set<string>(options.editToolNames ?? ACTIVE_EDIT_TOOLS)
+  const results = resultCallIds(messages)
+  const readsByPath = new Map<string, CoarseSweepReadCall[]>()
+  const edits: { toolCallId: string; path: string }[] = []
+  let order = 0
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue
+    for (const block of blocksOf(message)) {
+      if (block.type !== 'toolCall' || typeof block.id !== 'string' || block.id === '') continue
+      const name = block.name ?? ''
+      const path = pathOf(block)
+      order += 1
+      if (readTools.has(name)) {
+        if (path === null || !results.has(block.id)) continue
+        const calls = readsByPath.get(path) ?? []
+        calls.push({ callId: block.id, order })
+        readsByPath.set(path, calls)
+        continue
+      }
+      if (editTools.has(name) && path !== null) {
+        edits.push({ toolCallId: block.id, path })
+      }
+    }
+  }
+  return {
+    edits,
+    readsByPath: [...readsByPath.entries()].map(([path, reads]) => ({ path, reads }))
+  }
+}
+
 function workingSetKeys(executor: C0ScenarioExecutor): ReadonlySet<string> {
   return new Set(executor.latestWorkingSet?.items.flatMap((item) => item.sourceKeys) ?? [])
 }
@@ -456,6 +584,9 @@ export function createActiveRewriteExtension(
     (killSwitchFilePath !== undefined ? () => existsSync(killSwitchFilePath) : () => false)
   const maxInterventions = options.maxInterventions ?? ACTIVE_DEFAULT_MAX_INTERVENTIONS
   const maxAttempts = options.maxAttempts ?? ACTIVE_DEFAULT_MAX_ATTEMPTS
+  const removalPolicy: ActiveRemovalPolicy = options.removalPolicy ?? 'v1-per-edit'
+  const maxBlocksPerIntervention =
+    options.maxBlocksPerIntervention ?? ACTIVE_DEFAULT_MAX_BLOCKS_PER_INTERVENTION
 
   // Bounded repeated-intervention state (per leg):
   let attemptsUsed = 0
@@ -512,53 +643,119 @@ export function createActiveRewriteExtension(
       //    planned Working Set so the intervention plan can actually REMOVE it
       //    (policy-v0 REMOVEs only previously-active sources); otherwise the
       //    boundary waits for the next event instead of wasting an attempt.
-      let fire: InterventionBoundary | undefined
+      //    Policy v2 keeps the SAME trigger (a NEW edit toolCall observed) but
+      //    sweeps ALL edited paths: every still-active read pair of an edited
+      //    path is a candidate EXCEPT the path's LATEST read (retain-latest),
+      //    capped oldest-first at maxBlocksPerIntervention.
+      interface PlannedIntervention {
+        readonly policy: ActiveRemovalPolicy
+        readonly triggerEditToolCallId: string
+        readonly interventionPath: string
+        readonly readToolCallIds: readonly string[]
+        readonly candidateBlocks: number
+        readonly retainedLatestReadTargets: readonly string[]
+      }
+      const toolNameOptions = {
+        ...(options.readToolNames !== undefined ? { readToolNames: options.readToolNames } : {}),
+        ...(options.editToolNames !== undefined ? { editToolNames: options.editToolNames } : {})
+      }
+      let fire: PlannedIntervention | undefined
       if (
         attemptsUsed < maxAttempts &&
         sendsUsed < maxInterventions &&
         !killSwitch.isTripped
       ) {
-        const candidates = detectInterventionBoundaries(basis, {
-          ...(options.readToolNames !== undefined ? { readToolNames: options.readToolNames } : {}),
-          ...(options.editToolNames !== undefined ? { editToolNames: options.editToolNames } : {})
-        })
         const activeKeys = workingSetKeys(options.executor)
-        for (const candidate of candidates) {
-          if (attemptedEditToolCallIds.has(candidate.editToolCallId)) continue
-          const stillActiveReads = candidate.readToolCallIds.filter(
-            (callId) =>
-              !supersededReadCallIds.has(callId) &&
-              (activeKeys.has(`run/tool-result://${callId}`) ||
-                activeKeys.has(`run/tool-call://${callId}`))
+        const isActiveRead = (callId: string): boolean =>
+          activeKeys.has(`run/tool-result://${callId}`) ||
+          activeKeys.has(`run/tool-call://${callId}`)
+        if (removalPolicy === 'v2-retain-latest-coarse') {
+          const view = scanEditReadStructure(basis, toolNameOptions)
+          const trigger = view.edits.find(
+            (edit) => !attemptedEditToolCallIds.has(edit.toolCallId)
           )
-          if (stillActiveReads.length === 0) continue
-          fire = { path: candidate.path, editToolCallId: candidate.editToolCallId, readToolCallIds: stillActiveReads }
-          break
+          if (trigger !== undefined) {
+            const editedPaths = new Set(view.edits.map((edit) => edit.path))
+            const candidates: CoarseSweepReadCall[] = []
+            const retainedLatestReadTargets: string[] = []
+            for (const entry of view.readsByPath) {
+              // Conservative: paths with NO edit toolCall are never swept.
+              if (!editedPaths.has(entry.path)) continue
+              for (const read of entry.reads.slice(0, -1)) {
+                if (supersededReadCallIds.has(read.callId)) continue
+                if (!isActiveRead(read.callId)) continue
+                candidates.push(read)
+              }
+              // Retain-latest: the freshest read the model saw stays (the
+              // readTargetHash identifies the path, so the kept latest's
+              // hash is the path hash).
+              if (entry.reads.length > 0) {
+                retainedLatestReadTargets.push(readTargetHashOf(entry.path))
+              }
+            }
+            if (candidates.length > 0) {
+              candidates.sort((a, b) => a.order - b.order)
+              const capped = candidates.slice(0, maxBlocksPerIntervention)
+              fire = {
+                policy: 'v2-retain-latest-coarse',
+                triggerEditToolCallId: trigger.toolCallId,
+                interventionPath: trigger.path,
+                readToolCallIds: capped.map((candidate) => candidate.callId),
+                candidateBlocks: candidates.length,
+                retainedLatestReadTargets
+              }
+            }
+          }
+        } else {
+          const candidates = detectInterventionBoundaries(basis, toolNameOptions)
+          for (const candidate of candidates) {
+            if (attemptedEditToolCallIds.has(candidate.editToolCallId)) continue
+            const stillActiveReads = candidate.readToolCallIds.filter(
+              (callId) => !supersededReadCallIds.has(callId) && isActiveRead(callId)
+            )
+            if (stillActiveReads.length === 0) continue
+            fire = {
+              policy: 'v1-per-edit',
+              triggerEditToolCallId: candidate.editToolCallId,
+              interventionPath: candidate.path,
+              readToolCallIds: stillActiveReads,
+              candidateBlocks: stillActiveReads.length,
+              retainedLatestReadTargets: []
+            }
+            break
+          }
         }
       }
 
       if (fire !== undefined) {
-        // 5. Mark the earlier still-active read results for P as superseded —
+        // 5. Mark the earlier still-active read results as superseded —
         //    the exact E4 lifecycle vocabulary (SOURCE_SUPERSEDED) the C0
         //    scenario suite uses, plus the paired exclusions that let
         //    policy-v0 emit REMOVE with reason SUPERSEDED. Exclusions
-        //    accumulate so every prior intervention stays in force.
+        //    accumulate so every prior intervention stays in force. Under v2
+        //    the marked pairs span every swept (edited) path, not just the
+        //    trigger path; the composer/guard seam is unchanged.
         const newSupersededKeys: string[] = []
         for (const callId of fire.readToolCallIds) {
           supersededReadCallIds.add(callId)
           newSupersededKeys.push(`run/tool-call://${callId}`, `run/tool-result://${callId}`)
         }
         supersededSourceKeys.push(...newSupersededKeys)
-        attemptedEditToolCallIds.add(fire.editToolCallId)
+        attemptedEditToolCallIds.add(fire.triggerEditToolCallId)
         attemptsUsed += 1
         options.executor.beginTurn({
-          label: `active-intervention:${fire.path}`,
+          label:
+            fire.policy === 'v2-retain-latest-coarse'
+              ? `active-intervention-v2:${fire.interventionPath}`
+              : `active-intervention:${fire.interventionPath}`,
           prompt: '',
           events: [
             {
               kind: 'SOURCE_SUPERSEDED',
               sourceKeys: newSupersededKeys,
-              evidenceRef: `cr004:intervention:${fire.editToolCallId}:${fire.path}`
+              evidenceRef: `cr004:intervention${
+                fire.policy === 'v2-retain-latest-coarse' ? '-v2' : ''
+              }:${fire.triggerEditToolCallId}:${fire.interventionPath}`
             }
           ],
           patch: { excludedSourceKeys: [...supersededSourceKeys] }
@@ -594,6 +791,12 @@ export function createActiveRewriteExtension(
 
       // 6. THE intervention attempt — bounded, every outcome recorded.
       const boundary = fire
+      const policyTelemetry = {
+        policy: boundary.policy,
+        candidateBlocks: boundary.candidateBlocks,
+        removedBlocks: boundary.readToolCallIds.length,
+        retainedLatestReadTargets: [...boundary.retainedLatestReadTargets]
+      }
       const removedReadTargetHashes = boundary.readToolCallIds.map((callId) => {
         const target = newReadTargets.find((record) => record.toolCallId === callId)
         if (target !== undefined) return target.readTargetHash
@@ -636,8 +839,9 @@ export function createActiveRewriteExtension(
             : {}),
           killSwitchTripped: killSwitch.isTripped,
           toolBlocksRemoved: composition?.continuity.toolBlocksRemoved ?? 0,
-          interventionPath: boundary.path,
+          interventionPath: boundary.interventionPath,
           removedReadTargetHashes,
+          ...policyTelemetry,
           ...readTargetsPatch
         })
         // No send: the basis (unchanged by this attempt) is returned.
@@ -696,10 +900,11 @@ export function createActiveRewriteExtension(
         },
         killSwitchTripped: killSwitch.isTripped,
         toolBlocksRemoved: composition.continuity.toolBlocksRemoved,
-        interventionPath: boundary.path,
+        interventionPath: boundary.interventionPath,
         removedSourceKeys: composition.removedSourceKeys,
         composedMessageCount: composition.messages.length,
         removedReadTargetHashes,
+        ...policyTelemetry,
         ...readTargetsPatch
       })
       // AN ACTIVE REWRITE: the composition's messages replace the

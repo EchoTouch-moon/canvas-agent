@@ -24,7 +24,8 @@ import {
 import {
   createActiveRewriteExtension,
   InMemoryActiveRewriteEvidenceCollector,
-  type ActiveRewriteEvidenceCollector
+  type ActiveRewriteEvidenceCollector,
+  type ActiveRemovalPolicy
 } from '../extension/active-rewrite-extension'
 import type { PiMessageView } from '../pi-message-mapper'
 import { C0ScenarioExecutor } from './c0-scenarios'
@@ -64,7 +65,9 @@ import {
   type MxTaskId
 } from './matrix-core'
 
-// CR-004 Stage 1 MATRIX runner (docs/plan/cr004-matrix-run-contract-2026-08-27.md).
+// CR-004 Stage 1 MATRIX runner — M2 THREE-ARM edition
+// (docs/plan/cr004-m2-matrix-run-contract-2026-08-27.md; M1 sibling:
+// docs/plan/cr004-matrix-run-contract-2026-08-27.md).
 //
 //   --analyze <reportDir>   offline analysis mode: reads the leg evidence,
 //                           emits analysis.json + a markdown summary; no env
@@ -73,26 +76,32 @@ import {
 // LIVE mode (Lead-operated only) requires ALL of:
 //   CANVAS_CONTEXT_LIVE_SMOKE=1
 //   CANVAS_PROVIDER_EXECUTION_MODE=experiment-strict
-//   CANVAS_PROVIDER_RUN_ID=cr004-m1-<ISO-date>-<8-hex>  (single-use, fresh)
+//   CANVAS_PROVIDER_RUN_ID=cr004-m2-<ISO-date>-<8-hex>  (single-use, fresh;
+//                           consumed cr004-m1-* identities are still accepted
+//                           by validation for M1 evidence analysis)
 //   STEP_PLAN_API_KEY=<key>                            (never recorded)
 //   CANVAS_MX_KILL_SWITCH_FILE=<path>                  (optional operator stop)
 //   CANVAS_MX_MANIFEST_DIR=<dir>                       (optional; default
 //                                                      research/context-benchmarks/manifests)
 //
-// Matrix: 3 L-tasks x {NATIVE, ACTIVE} x 3 repetitions = 18 legs, deterministic
-// interleaved order (rep-major, per task NATIVE then ACTIVE). ONE strict
-// binding for the whole matrix (prepareModelProvider once, step-plan, fallback
-// 'none'). Per-leg budgets come from each task manifest; MATRIX totals hard-
-// fail at 400 provider-call records / 180 minutes (checked between legs; over
-// => stop launching new legs, S-7, evidence preserved). A leg-level provider/
-// safety error marks THAT leg FAILED and the matrix CONTINUES; only matrix-
-// level S-1 (binding) or S-7 (totals) stop everything.
+// Matrix: 3 L-tasks x {NATIVE, ACTIVE, ACTIVE_V2} x 3 repetitions = 27 legs,
+// deterministic interleaved order (rep-major, per task NATIVE, ACTIVE,
+// ACTIVE_V2). NATIVE and ACTIVE keep their exact M1 semantics; ACTIVE_V2 runs
+// the same Active extension with removalPolicy 'v2-retain-latest-coarse' and
+// raised per-leg bounds (8 sends / 12 attempts, cap 12 blocks per
+// intervention). ONE strict binding for the whole matrix
+// (prepareModelProvider once, step-plan, fallback 'none'). Per-leg budgets
+// come from each task manifest; MATRIX totals hard-fail at 600 provider-call
+// records / 180 minutes (checked between legs; over => stop launching new
+// legs, S-7, evidence preserved). A leg-level provider/safety error marks
+// THAT leg FAILED and the matrix CONTINUES; only matrix-level S-1 (binding)
+// or S-7 (totals) stop everything.
 //
 // INCREMENTAL EVIDENCE: after EACH leg the report files are written/rewritten
 // immediately (leg.json + observations.jsonl per leg; manifest.json and
 // matrix.json rewritten) — never buffered to the end.
 //
-// DRY_RUN mode (CANVAS_MX_DRY_RUN=1) drives 18 scripted stand-in legs through
+// DRY_RUN mode (CANVAS_MX_DRY_RUN=1) drives 27 scripted stand-in legs through
 // the FULL matrix state machine + incremental evidence writers + aggregator:
 // no ModelRuntime, no extension, no session, provider calls exactly 0.
 //
@@ -105,7 +114,7 @@ const BENCHMARK_ROOT = resolve(process.cwd(), '..', '..', 'research', 'context-b
 const DEFAULT_MANIFEST_DIR = join(BENCHMARK_ROOT, 'matrix-manifests')
 const REPORTS_ROOT = join(BENCHMARK_ROOT, 'reports', 'cr004-matrix')
 const STEP_PLAN_PROVIDER_ID = 'step-plan'
-const MX_CONTRACT_PATH = 'docs/plan/cr004-matrix-run-contract-2026-08-27.md'
+const MX_CONTRACT_PATH = 'docs/plan/cr004-m2-matrix-run-contract-2026-08-27.md'
 /**
  * The Active seam's out-of-band system-instruction carrier (Stage 1 constant,
  * byte-identical through every composition).
@@ -239,10 +248,14 @@ function activeInterventionExtension(
   killSwitch: ReturnType<typeof createRunKillSwitch>,
   killSwitchFilePath: string | undefined,
   runId: string,
-  lastMessages: { current: readonly PiMessageView[] }
+  lastMessages: { current: readonly PiMessageView[] },
+  removalPolicy: ActiveRemovalPolicy
 ) {
-  // Multi-intervention Active extension with the matrix contract bounds
-  // (5 sends / 8 attempts per leg — the matrix-core defaults).
+  // Multi-intervention Active extension with the matrix contract bounds.
+  // ACTIVE (v1) legs: 5 sends / 8 attempts (the M1 semantics, unchanged).
+  // ACTIVE_V2 legs: removalPolicy 'v2-retain-latest-coarse' with the raised
+  // M2 bounds (8 sends / 12 attempts, 12 blocks per intervention).
+  const v2 = removalPolicy === 'v2-retain-latest-coarse'
   const factory = createActiveRewriteExtension({
     runId,
     systemInstruction: MX_SYSTEM_INSTRUCTION,
@@ -250,8 +263,10 @@ function activeInterventionExtension(
     killSwitch,
     ...(killSwitchFilePath !== undefined ? { killSwitchFilePath } : {}),
     evidence,
-    maxInterventions: MX_BUDGETS.maxInterventionsPerLeg,
-    maxAttempts: MX_BUDGETS.maxAttemptsPerLeg
+    maxInterventions: v2 ? MX_BUDGETS.maxInterventionsPerLegV2 : MX_BUDGETS.maxInterventionsPerLeg,
+    maxAttempts: v2 ? MX_BUDGETS.maxAttemptsPerLegV2 : MX_BUDGETS.maxAttemptsPerLeg,
+    removalPolicy,
+    ...(v2 ? { maxBlocksPerIntervention: MX_BUDGETS.maxBlocksPerInterventionV2 } : {})
   })
   return (pi: ExtensionAPI): void => {
     pi.on('context', async (event: ContextEvent) => {
@@ -301,18 +316,21 @@ async function runLiveLeg(options: {
       runtimeSessionId: `${options.runId}:${mxLegDirName(plan)}`
     })
     const evidence =
-      plan.strategy === 'ACTIVE' ? new InMemoryActiveRewriteEvidenceCollector() : null
+      plan.strategy !== 'NATIVE' ? new InMemoryActiveRewriteEvidenceCollector() : null
     const lastMessages: { current: readonly PiMessageView[] } = { current: [] }
 
     const extensionFactory =
-      plan.strategy === 'ACTIVE' && evidence !== null
+      plan.strategy !== 'NATIVE' && evidence !== null
         ? activeInterventionExtension(
             executor,
             evidence,
             options.killSwitch,
             options.killSwitchFilePath,
             options.runId,
-            lastMessages
+            lastMessages,
+            plan.strategy === 'ACTIVE_V2'
+              ? 'v2-retain-latest-coarse'
+              : 'v1-per-edit'
           )
         : observerOnlyExtension(executor, lastMessages)
 
@@ -398,7 +416,7 @@ async function runLiveLeg(options: {
     }
 
     const telemetry =
-      plan.strategy === 'ACTIVE' && evidence !== null
+      plan.strategy !== 'NATIVE' && evidence !== null
         ? {
             events: evidence.events,
             interventions: evidence.interventions,
@@ -576,9 +594,16 @@ async function run(): Promise<void> {
       startedAt: startedAt.toISOString(),
       ...(final ? { finishedAt: finishedAt.toISOString() } : {}),
       wallClockMs: finishedAt.getTime() - startedAt.getTime(),
-      matrixDesign: {
+      matrixDesign: 'M2-three-arm',
+      design: {
         tasks: [...MX_TASK_IDS],
         strategies: [...MX_STRATEGIES],
+        activeV2: {
+          removalPolicy: 'v2-retain-latest-coarse',
+          maxInterventionsPerLeg: MX_BUDGETS.maxInterventionsPerLegV2,
+          maxAttemptsPerLeg: MX_BUDGETS.maxAttemptsPerLegV2,
+          maxBlocksPerIntervention: MX_BUDGETS.maxBlocksPerInterventionV2
+        },
         repetitions: MX_REPETITIONS,
         totalLegs: MX_TOTAL_LEGS,
         legOrder: mxLegOrder().map((plan) => `${mxLegDirName(plan)}#${plan.legIndex}`)
@@ -683,7 +708,7 @@ async function run(): Promise<void> {
       bindingEvidence = {
         safeSelection: safeProviderSelection(prepared.selection),
         experimentBinding: prepared.experimentBinding,
-        bindingSharedByLegs: 'ALL 18 MATRIX LEGS',
+        bindingSharedByLegs: 'ALL 27 MATRIX LEGS',
         sourceDerivation: 'live-pi-messages-only'
       }
       log(`binding=${JSON.stringify(bindingEvidence)}`)
@@ -754,12 +779,12 @@ async function run(): Promise<void> {
             outcome = {
               status: 'FAILED',
               stopCondition: {
-                condition: plan.strategy === 'ACTIVE' ? 'S-3' : 'S-2',
+                condition: plan.strategy !== 'NATIVE' ? 'S-3' : 'S-2',
                 reason: `transition-chain replay mismatch: ${leg.legRecord.replayMismatches}`
               }
             }
           }
-          if (plan.strategy === 'ACTIVE') {
+          if (plan.strategy !== 'NATIVE') {
             const telemetry = leg.legRecord.interventionTelemetry
             if (telemetry !== undefined) {
               for (const attempt of telemetry.interventions) {
@@ -891,6 +916,7 @@ async function run(): Promise<void> {
   }
   const nativeOracle = oraclePassOf('NATIVE')
   const activeOracle = oraclePassOf('ACTIVE')
+  const activeV2Oracle = oraclePassOf('ACTIVE_V2')
 
   log(`runId=${runId} mode=${mode} status=${status} legs=${ledgers.legsAttempted}/${MX_TOTAL_LEGS}`)
   log(`provider-call records=${providerCalls} wallClockMs=${ledgers.runElapsedMs}`)
@@ -906,6 +932,7 @@ async function run(): Promise<void> {
   console.log(`MX_LEGS=${ledgers.legsAttempted}/${MX_TOTAL_LEGS}`)
   console.log(`MX_ORACLE_PASS_NATIVE=${nativeOracle.pass}/${nativeOracle.evaluated}`)
   console.log(`MX_ORACLE_PASS_ACTIVE=${activeOracle.pass}/${activeOracle.evaluated}`)
+  console.log(`MX_ORACLE_PASS_ACTIVE_V2=${activeV2Oracle.pass}/${activeV2Oracle.evaluated}`)
   console.log(`MX_REPORT_DIR=${reportDir}`)
   if (status === 'STOPPED') {
     process.exit(1)

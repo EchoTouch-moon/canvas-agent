@@ -17,13 +17,17 @@ import {
   type S1StopConditionId
 } from './s1-pair-core'
 
-// CR-004 Stage 1 MATRIX core (docs/plan/cr004-matrix-run-contract-2026-08-27.md).
+// CR-004 Stage 1 MATRIX core (M2: docs/plan/cr004-m2-matrix-run-contract-2026-08-27.md;
+// M1 sibling: docs/plan/cr004-matrix-run-contract-2026-08-27.md).
 //
 // Everything the matrix runner, its offline analyzer, and its unit tests share:
-//   - the run-identity vocabulary (cr004-m1-<ISO-date>-<8-hex>, single-use);
-//   - the matrix definition (3 L-tasks x NATIVE/ACTIVE x 3 repetitions = 18
-//     legs, deterministic interleaved order: rep-major, per task Native then
-//     Active) and the matrix totals (400 provider-call records / 180 minutes);
+//   - the run-identity vocabulary (M2: cr004-m2-<ISO-date>-<8-hex>, single-use;
+//     validation still accepts consumed M1 identities for analysis of M1
+//     evidence dirs);
+//   - the matrix definition (3 L-tasks x NATIVE/ACTIVE/ACTIVE_V2 x 3
+//     repetitions = 27 legs, deterministic interleaved order: rep-major, per
+//     task Native, Active(v1), ActiveV2) and the matrix totals (600
+//     provider-call records / 180 minutes);
 //   - the matrix state machine: leg-level failures mark ONE leg FAILED and the
 //     matrix CONTINUES; only matrix-level S-1 (binding) or S-7 (totals) stop
 //     everything, checked between legs, evidence always preserved;
@@ -31,10 +35,10 @@ import {
 //     manifest.json + matrix.json rewritten after EVERY leg — never buffered
 //     to the end);
 //   - the offline aggregator/analyzer (per-cell stats, context trajectories
-//     from observations, ACTIVE-only intervention telemetry incl. re-read
-//     detection, exact permutation p-values with an explicit low-power
-//     caveat);
-//   - the DRY_RUN scripted legs (18 stand-in records through the FULL state
+//     from observations, per-ACTIVE-arm intervention telemetry incl. removal
+//     policy A/B metrics and re-read detection, exact permutation p-values for
+//     all three arm pairs with an explicit low-power caveat);
+//   - the DRY_RUN scripted legs (27 stand-in records through the FULL state
 //     machine + aggregator; provider calls exactly 0).
 //
 // No provider, no network, no ModelRuntime in this module.
@@ -43,17 +47,30 @@ import {
 // Run identity (contract section 2)
 // ---------------------------------------------------------------------------
 
-/** cr004-m1-<ISO-date-undashed>-<8-hex>, e.g. cr004-m1-20260827-4d7e9a1b */
-export const MX_RUN_ID_PATTERN = /^cr004-m1-\d{8}-[0-9a-f]{8}$/
+/**
+ * Accepts both M1 (consumed) and M2 identities: `cr004-m[12]-<ISO-date
+ * undashed>-<8-hex>`, e.g. cr004-m1-20260826-d23a992c / cr004-m2-20260827-4d7e9a1b.
+ */
+export const MX_RUN_ID_PATTERN = /^cr004-m[12]-\d{8}-[0-9a-f]{8}$/
+/** Tonight's M2 run identities: cr004-m2-<ISO-date-undashed>-<8-hex>. */
+export const MX_M2_RUN_ID_PATTERN = /^cr004-m2-\d{8}-[0-9a-f]{8}$/
 
 export function isValidMxRunId(runId: string | undefined): runId is string {
   return runId !== undefined && MX_RUN_ID_PATTERN.test(runId)
 }
 
-/** Fresh single-use run identity suggestion; the Lead must export it. */
+/** True for an M2-pattern identity (the contract in force for new runs). */
+export function isM2MxRunId(runId: string | undefined): runId is string {
+  return runId !== undefined && MX_M2_RUN_ID_PATTERN.test(runId)
+}
+
+/**
+ * Fresh single-use run identity suggestion; the Lead must export it. New runs
+ * are M2 (`cr004-m2-*`); M1 identities are consumed history.
+ */
 export function suggestMxRunId(now: Date = new Date()): string {
   const isoDate = now.toISOString().slice(0, 10).replace(/-/g, '')
-  return `cr004-m1-${isoDate}-${randomBytes(4).toString('hex')}`
+  return `cr004-m2-${isoDate}-${randomBytes(4).toString('hex')}`
 }
 
 // ---------------------------------------------------------------------------
@@ -63,8 +80,18 @@ export function suggestMxRunId(now: Date = new Date()): string {
 export const MX_TASK_IDS = ['L1', 'L2', 'L3'] as const
 export type MxTaskId = (typeof MX_TASK_IDS)[number]
 
-export const MX_STRATEGIES = ['NATIVE', 'ACTIVE'] as const
+/**
+ * M2 three-arm strategy dimension. NATIVE and ACTIVE keep their exact M1
+ * semantics; ACTIVE_V2 runs the same Active extension with
+ * removalPolicy 'v2-retain-latest-coarse' and the raised per-leg bounds
+ * (8 sends / 12 attempts).
+ */
+export const MX_STRATEGIES = ['NATIVE', 'ACTIVE', 'ACTIVE_V2'] as const
 export type MxStrategy = (typeof MX_STRATEGIES)[number]
+
+/** Strategies that run the Active rewrite extension (treatment arms). */
+export const MX_ACTIVE_STRATEGIES = ['ACTIVE', 'ACTIVE_V2'] as const
+export type MxActiveStrategy = (typeof MX_ACTIVE_STRATEGIES)[number]
 
 export const MX_REPETITIONS = 3
 export const MX_TOTAL_LEGS = MX_TASK_IDS.length * MX_STRATEGIES.length * MX_REPETITIONS
@@ -80,8 +107,9 @@ export interface MxLegPlan {
 
 /**
  * Deterministic interleaved leg order: for rep 1..3 { for task L1..L3 {
- * NATIVE then ACTIVE } } — 18 legs. Control always precedes treatment within
- * every task x repetition cell.
+ * NATIVE, ACTIVE, ACTIVE_V2 } } — 27 legs. Control always precedes the
+ * treatment arms inside every task x repetition cell, and the v1 treatment
+ * precedes the v2 treatment (M1 comparison first, policy A/B second).
  */
 export function mxLegOrder(): readonly MxLegPlan[] {
   const plans: MxLegPlan[] = []
@@ -97,8 +125,15 @@ export function mxLegOrder(): readonly MxLegPlan[] {
   return plans
 }
 
+/** Directory segment per strategy: ACTIVE_V2 legs use `ACTIVE2`. */
+const MX_STRATEGY_DIR_SEGMENT: Readonly<Record<MxStrategy, string>> = {
+  NATIVE: 'NATIVE',
+  ACTIVE: 'ACTIVE',
+  ACTIVE_V2: 'ACTIVE2'
+}
+
 export function mxLegDirName(plan: MxLegPlan): string {
-  return `${plan.task}-${plan.strategy}-rep${plan.rep}`
+  return `${plan.task}-${MX_STRATEGY_DIR_SEGMENT[plan.strategy]}-rep${plan.rep}`
 }
 
 // ---------------------------------------------------------------------------
@@ -106,16 +141,22 @@ export function mxLegDirName(plan: MxLegPlan): string {
 // ---------------------------------------------------------------------------
 
 export const MX_BUDGETS = {
-  /** 3 tasks x 2 strategies x 3 repetitions. */
+  /** 3 tasks x 3 strategies x 3 repetitions (M2 three-arm). */
   maxLegs: MX_TOTAL_LEGS,
-  /** Matrix total across all 18 legs (C0 counting semantics). */
-  maxProviderCallRecords: 400,
+  /** Matrix total across all 27 legs (C0 counting semantics). M1 was 400. */
+  maxProviderCallRecords: 600,
   /** Matrix watchdog, measured from strict preparation to evidence-close. */
   runWallClockMs: 180 * 60 * 1000,
-  /** Multi-intervention bound per ACTIVE leg (sends). */
+  /** Multi-intervention bound per ACTIVE (v1) leg (sends). M1 semantics. */
   maxInterventionsPerLeg: 5,
-  /** Multi-intervention bound per ACTIVE leg (composition attempts). */
-  maxAttemptsPerLeg: 8
+  /** Multi-intervention bound per ACTIVE (v1) leg (composition attempts). */
+  maxAttemptsPerLeg: 8,
+  /** Raised multi-intervention bound per ACTIVE_V2 leg (sends, policy v2). */
+  maxInterventionsPerLegV2: 8,
+  /** Raised multi-intervention bound per ACTIVE_V2 leg (attempts, policy v2). */
+  maxAttemptsPerLegV2: 12,
+  /** Policy-v2 cap on read pairs removed by ONE intervention (oldest-first). */
+  maxBlocksPerInterventionV2: 12
 } as const
 
 /** Per-leg budget measures checked post-hoc at leg end. */
@@ -190,6 +231,8 @@ export interface MxMatrixLedgers {
   readonly wallClockMsTotal: number
   readonly oraclePassNative: number
   readonly oraclePassActive: number
+  /** M2 third arm (policy v2); 0 for M1-era evidence. */
+  readonly oraclePassActiveV2: number
   readonly runElapsedMs: number
 }
 
@@ -233,6 +276,7 @@ export class MatrixStateMachine {
     let legsFailed = 0
     let oraclePassNative = 0
     let oraclePassActive = 0
+    let oraclePassActiveV2 = 0
     for (const leg of this.ledgersByLeg) {
       providerCallRecordsTotal += leg.providerCallRecords
       toolCallsTotal += leg.toolCalls
@@ -241,7 +285,8 @@ export class MatrixStateMachine {
       if (leg.status === 'FAILED') legsFailed += 1
       if (leg.oraclePass === true) {
         if (leg.strategy === 'NATIVE') oraclePassNative += 1
-        else oraclePassActive += 1
+        else if (leg.strategy === 'ACTIVE') oraclePassActive += 1
+        else oraclePassActiveV2 += 1
       }
     }
     return {
@@ -253,6 +298,7 @@ export class MatrixStateMachine {
       wallClockMsTotal,
       oraclePassNative,
       oraclePassActive,
+      oraclePassActiveV2,
       runElapsedMs: this.now() - this.startedAtMs
     }
   }
@@ -426,6 +472,31 @@ export function trajectorySummaryOf(series: readonly number[]): MxTrajectorySumm
   }
 }
 
+/**
+ * Drop-at-boundary rate over a leg's trajectory: the fraction of SENT
+ * interventions whose event shows a NET context drop against the previous
+ * model call — series[seq-1] < series[seq-2] (1-based observer sequence, one
+ * observation per model call). The M1 analysis found only 8/31 such drops;
+ * this is the per-arm mechanism metric for the policy A/B.
+ */
+export function dropAtBoundaryOf(
+  series: readonly number[],
+  sentBoundarySequences: readonly (number | null)[]
+): { readonly sent: number; readonly drops: number; readonly rate: number | null } {
+  let sent = 0
+  let drops = 0
+  for (const sequence of sentBoundarySequences) {
+    if (sequence === null) continue
+    sent += 1
+    if (sequence >= 2) {
+      const atBoundary = series[sequence - 1]
+      const before = series[sequence - 2]
+      if (atBoundary !== undefined && before !== undefined && atBoundary < before) drops += 1
+    }
+  }
+  return { sent, drops, rate: sent === 0 ? null : drops / sent }
+}
+
 export interface MxInterventionTelemetry {
   readonly events: readonly ActiveRewriteEventEvidence[]
   readonly interventions: readonly ActiveRewriteInterventionSummary[]
@@ -543,6 +614,16 @@ export interface MxLegAnalysisInput {
     readonly toolBlocksRemoved: number
     readonly reReads: number
     readonly postFirstInterventionReads: number
+    /** Removal policy of this leg's arm ('v1-per-edit' | 'v2-retain-latest-coarse'). */
+    readonly policy: string
+    /** Eligible candidate read pairs found across interventions (pre-cap). */
+    readonly candidateBlocks: number
+    /** Read pairs marked superseded across interventions (post-cap). */
+    readonly removedBlocks: number
+    /** Total retained-latest read targets recorded (v2 legs). */
+    readonly retainedLatestReadTargets: number
+    /** Observer sequences of SENT interventions (drop-at-boundary input). */
+    readonly sentBoundarySequences: readonly (number | null)[]
   }
 }
 
@@ -561,14 +642,20 @@ export interface MxCellAggregate {
   readonly tokenEstimateSum: { readonly mean: number | null; readonly values: readonly number[] }
   readonly trajectory: {
     readonly meanPeak: number | null
+    readonly meanFinal: number | null
     readonly meanSum: number | null
     readonly legs: readonly { readonly peak: number; readonly final: number; readonly sum: number }[]
   }
   readonly active?: {
+    readonly policy: string
     readonly attempts: number
     readonly sends: number
     readonly fallbackReasons: Readonly<Record<string, number>>
     readonly toolBlocksRemoved: number
+    readonly candidateBlocks: number
+    readonly removedBlocks: number
+    readonly retainedLatestReadTargets: number
+    readonly dropAtBoundary: { readonly sent: number; readonly drops: number; readonly rate: number | null }
     readonly reReads: number
     readonly postFirstInterventionReads: number
   }
@@ -610,6 +697,25 @@ export function mxLegAnalysisInputOf(record: MxLegRecord): MxLegAnalysisInput {
               (total, attempt) => total + attempt.toolBlocksRemoved,
               0
             ),
+            // M1-era evidence lacks the policy fields; they degrade to v1/0.
+            policy:
+              telemetry.interventions.find((attempt) => attempt.policy !== null)?.policy ??
+              'v1-per-edit',
+            candidateBlocks: telemetry.interventions.reduce(
+              (total, attempt) => total + (attempt.candidateBlocks ?? 0),
+              0
+            ),
+            removedBlocks: telemetry.interventions.reduce(
+              (total, attempt) => total + (attempt.removedBlocks ?? 0),
+              0
+            ),
+            retainedLatestReadTargets: telemetry.interventions.reduce(
+              (total, attempt) => total + (attempt.retainedLatestReadTargets?.length ?? 0),
+              0
+            ),
+            sentBoundarySequences: telemetry.interventions
+              .filter((attempt) => attempt.sentRewrite)
+              .map((attempt) => attempt.boundarySequence),
             reReads: reReads.matches.length,
             postFirstInterventionReads: reReads.postFirstInterventionReadCount
           }
@@ -637,15 +743,28 @@ export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonl
       let attempts = 0
       let sends = 0
       let toolBlocksRemoved = 0
+      let candidateBlocks = 0
+      let removedBlocks = 0
+      let retainedLatestReadTargets = 0
+      let dropSent = 0
+      let dropDrops = 0
       let reReads = 0
       let postFirstInterventionReads = 0
       let hasActive = false
+      let activePolicy = 'v1-per-edit'
       for (const leg of legs) {
         if (leg.interventions === undefined) continue
         hasActive = true
+        activePolicy = leg.interventions.policy
         attempts += leg.interventions.attempts
         sends += leg.interventions.sends
         toolBlocksRemoved += leg.interventions.toolBlocksRemoved
+        candidateBlocks += leg.interventions.candidateBlocks
+        removedBlocks += leg.interventions.removedBlocks
+        retainedLatestReadTargets += leg.interventions.retainedLatestReadTargets
+        const drop = dropAtBoundaryOf(leg.tokenSeries, leg.interventions.sentBoundarySequences)
+        dropSent += drop.sent
+        dropDrops += drop.drops
         reReads += leg.interventions.reReads
         postFirstInterventionReads += leg.interventions.postFirstInterventionReads
         for (const reason of leg.interventions.fallbackReasons) {
@@ -676,6 +795,7 @@ export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonl
         },
         trajectory: {
           meanPeak: meanOf(trajectories.map((trajectory) => trajectory.peak)),
+          meanFinal: meanOf(trajectories.map((trajectory) => trajectory.final)),
           meanSum: meanOf(trajectories.map((trajectory) => trajectory.sum)),
           legs: trajectories.map((trajectory) => ({
             peak: trajectory.peak,
@@ -686,10 +806,19 @@ export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonl
         ...(hasActive
           ? {
               active: {
+                policy: activePolicy,
                 attempts,
                 sends,
                 fallbackReasons,
                 toolBlocksRemoved,
+                candidateBlocks,
+                removedBlocks,
+                retainedLatestReadTargets,
+                dropAtBoundary: {
+                  sent: dropSent,
+                  drops: dropDrops,
+                  rate: dropSent === 0 ? null : dropDrops / dropSent
+                },
                 reReads,
                 postFirstInterventionReads
               }
@@ -775,20 +904,38 @@ export function exactPermutationTest(
   }
 }
 
-/** Per-task permutation tests over observedTokenEstimateSum. */
+/** The three M2 arm comparisons (M1 evidence dirs only produce the first). */
+export const MX_ARM_COMPARISONS = [
+  { label: 'NATIVE_vs_ACTIVE', first: 'NATIVE', second: 'ACTIVE' },
+  { label: 'NATIVE_vs_ACTIVE_V2', first: 'NATIVE', second: 'ACTIVE_V2' },
+  { label: 'ACTIVE_vs_ACTIVE_V2', first: 'ACTIVE', second: 'ACTIVE_V2' }
+] as const
+
+/** One per-task arm comparison with its exact permutation test. */
+export interface MxArmComparisonTest {
+  readonly task: MxTaskId
+  readonly comparison: string
+  readonly permutation: MxPermutationTest
+}
+
+/** Per-task exact permutation tests over observedTokenEstimateSum, all arm pairs. */
 export function mxPermutationTests(
   cells: readonly MxCellAggregate[]
-): readonly { readonly task: MxTaskId; readonly permutation: MxPermutationTest }[] {
-  const tests: { task: MxTaskId; permutation: MxPermutationTest }[] = []
+): readonly MxArmComparisonTest[] {
+  const tests: MxArmComparisonTest[] = []
   for (const task of MX_TASK_IDS) {
-    const native = cells.find((cell) => cell.task === task && cell.strategy === 'NATIVE')
-    const active = cells.find((cell) => cell.task === task && cell.strategy === 'ACTIVE')
-    if (native === undefined || active === undefined) continue
-    const permutation = exactPermutationTest(
-      native.tokenEstimateSum.values,
-      active.tokenEstimateSum.values
-    )
-    if (permutation !== null) tests.push({ task, permutation })
+    for (const comparison of MX_ARM_COMPARISONS) {
+      const first = cells.find((cell) => cell.task === task && cell.strategy === comparison.first)
+      const second = cells.find((cell) => cell.task === task && cell.strategy === comparison.second)
+      if (first === undefined || second === undefined) continue
+      const permutation = exactPermutationTest(
+        first.tokenEstimateSum.values,
+        second.tokenEstimateSum.values
+      )
+      if (permutation !== null) {
+        tests.push({ task, comparison: comparison.label, permutation })
+      }
+    }
   }
   return tests
 }
@@ -858,34 +1005,49 @@ export interface MxVerdict {
 }
 
 export function mxVerdictOf(cells: readonly MxCellAggregate[]): MxVerdict {
-  const nativeCells = cells.filter((cell) => cell.strategy === 'NATIVE')
-  const activeCells = cells.filter((cell) => cell.strategy === 'ACTIVE')
-  const nativePass = nativeCells.reduce((total, cell) => total + cell.oracle.pass, 0)
-  const nativeEvaluated = nativeCells.reduce(
-    (total, cell) => total + cell.oracle.pass + cell.oracle.fail,
-    0
-  )
-  const activePass = activeCells.reduce((total, cell) => total + cell.oracle.pass, 0)
-  const activeEvaluated = activeCells.reduce(
-    (total, cell) => total + cell.oracle.pass + cell.oracle.fail,
-    0
-  )
+  const oracleOf = (strategy: MxStrategy): { pass: number; evaluated: number } => {
+    const armCells = cells.filter((cell) => cell.strategy === strategy)
+    return {
+      pass: armCells.reduce((total, cell) => total + cell.oracle.pass, 0),
+      evaluated: armCells.reduce((total, cell) => total + cell.oracle.pass + cell.oracle.fail, 0)
+    }
+  }
+  const native = oracleOf('NATIVE')
+  const active = oracleOf('ACTIVE')
+  const activeV2 = oracleOf('ACTIVE_V2')
   const identical =
-    nativePass === activePass && nativeEvaluated === activeEvaluated
-  const reliability = identical
-    ? `reliability identical (raw): NATIVE oracle ${nativePass}/${nativeEvaluated} vs ACTIVE ${activePass}/${activeEvaluated}`
-    : `reliability differentiated (raw): NATIVE oracle ${nativePass}/${nativeEvaluated} vs ACTIVE ${activePass}/${activeEvaluated}`
-  const nativeMean = meanOf(
-    nativeCells.map((cell) => cell.tokenEstimateSum.mean ?? Number.NaN).filter((value) => !Number.isNaN(value))
-  )
-  const activeMean = meanOf(
-    activeCells.map((cell) => cell.tokenEstimateSum.mean ?? Number.NaN).filter((value) => !Number.isNaN(value))
-  )
-  const contextEfficiency =
-    nativeMean === null || activeMean === null
-      ? 'context-efficiency: insufficient data (no completed cells on one side)'
-      : `context-efficiency direction (raw, observedTokenEstimateSum mean-of-cell-means): NATIVE ${nativeMean.toFixed(0)} vs ACTIVE ${activeMean.toFixed(0)} (${activeMean < nativeMean ? 'ACTIVE lower' : activeMean > nativeMean ? 'ACTIVE higher' : 'equal'})`
-  return { reliability, contextEfficiency }
+    native.pass === active.pass &&
+    native.evaluated === active.evaluated &&
+    native.pass === activeV2.pass &&
+    native.evaluated === activeV2.evaluated
+  const reliability = `${identical ? 'reliability identical' : 'reliability differentiated'} (raw): NATIVE oracle ${native.pass}/${native.evaluated} vs ACTIVE ${active.pass}/${active.evaluated} vs ACTIVE_V2 ${activeV2.pass}/${activeV2.evaluated}`
+  const meanOfArm = (strategy: MxStrategy): number | null =>
+    meanOf(
+      cells
+        .filter((cell) => cell.strategy === strategy)
+        .map((cell) => cell.tokenEstimateSum.mean ?? Number.NaN)
+        .filter((value) => !Number.isNaN(value))
+    )
+  const means: { readonly strategy: MxStrategy; readonly mean: number }[] = []
+  for (const strategy of MX_STRATEGIES) {
+    const mean = meanOfArm(strategy)
+    if (mean !== null) means.push({ strategy, mean })
+  }
+  if (means.length < 2) {
+    return { reliability, contextEfficiency: 'context-efficiency: insufficient data (fewer than two arms with completed cells)' }
+  }
+  const lowest = means.reduce((a, b) => (b.mean < a.mean ? b : a))
+  const highest = means.reduce((a, b) => (b.mean > a.mean ? b : a))
+  const direction =
+    lowest.mean === highest.mean
+      ? 'all equal'
+      : `${lowest.strategy} lowest, ${highest.strategy} highest`
+  return {
+    reliability,
+    contextEfficiency: `context-efficiency direction (raw, observedTokenEstimateSum mean-of-cell-means): ${means
+      .map((arm) => `${arm.strategy} ${arm.mean.toFixed(0)}`)
+      .join(' vs ')} (${direction})`
+  }
 }
 
 /** One-line per-cell summary for stdout. */
@@ -895,12 +1057,16 @@ export function mxCellOneLiner(cell: MxCellAggregate): string {
       ? `oracle=${cell.oracle.pass}/${cell.oracle.pass + cell.oracle.fail}`
       : `oracle=${cell.oracle.pass}/${cell.oracle.pass + cell.oracle.fail} (${(cell.oracle.passRate * 100).toFixed(0)}%)`
   const tokens = cell.tokenEstimateSum.mean === null ? 'n/a' : cell.tokenEstimateSum.mean.toFixed(0)
-  const base = `cell ${cell.task}/${cell.strategy} n=${cell.n} (completed=${cell.completed} failed=${cell.failed}) ${oracle} records~${cell.recordCount.mean?.toFixed(1) ?? 'n/a'} tools~${cell.toolCalls.mean?.toFixed(1) ?? 'n/a'} tokenSum~${tokens} trajPeak~${cell.trajectory.meanPeak?.toFixed(0) ?? 'n/a'}`
+  const base = `cell ${cell.task}/${cell.strategy} n=${cell.n} (completed=${cell.completed} failed=${cell.failed}) ${oracle} records~${cell.recordCount.mean?.toFixed(1) ?? 'n/a'} tools~${cell.toolCalls.mean?.toFixed(1) ?? 'n/a'} tokenSum~${tokens} trajPeak~${cell.trajectory.meanPeak?.toFixed(0) ?? 'n/a'} trajFinal~${cell.trajectory.meanFinal?.toFixed(0) ?? 'n/a'}`
   if (cell.active === undefined) return base
   const fallbacks = Object.entries(cell.active.fallbackReasons)
     .map(([reason, count]) => `${reason}x${count}`)
     .join(',')
-  return `${base} interventions=${cell.active.sends}/${cell.active.attempts}${fallbacks === '' ? '' : ` fallbacks=[${fallbacks}]`} removedBlocks=${cell.active.toolBlocksRemoved} reReads=${cell.active.reReads} postFirstReads=${cell.active.postFirstInterventionReads}`
+  const dropRate =
+    cell.active.dropAtBoundary.rate === null
+      ? 'n/a'
+      : `${(cell.active.dropAtBoundary.rate * 100).toFixed(0)}%`
+  return `${base} policy=${cell.active.policy} interventions=${cell.active.sends}/${cell.active.attempts}${fallbacks === '' ? '' : ` fallbacks=[${fallbacks}]`} removedBlocks=${cell.active.removedBlocks}${cell.active.candidateBlocks > cell.active.removedBlocks ? ` (capped from ${cell.active.candidateBlocks})` : ''} retainedLatest=${cell.active.retainedLatestReadTargets} dropAtBoundary=${cell.active.dropAtBoundary.drops}/${cell.active.dropAtBoundary.sent} (${dropRate}) reReads=${cell.active.reReads} postFirstReads=${cell.active.postFirstInterventionReads}`
 }
 
 // ---------------------------------------------------------------------------
@@ -913,7 +1079,7 @@ export interface MxAnalysisOutput {
     readonly generatedAt: string
     readonly legsAnalyzed: number
     readonly cells: readonly MxCellAggregate[]
-    readonly perTask: readonly { readonly task: MxTaskId; readonly permutation: MxPermutationTest }[]
+    readonly perTask: readonly MxArmComparisonTest[]
     readonly verdict: MxVerdict
   }
   readonly markdown: string
@@ -967,36 +1133,36 @@ export async function analyzeMatrix(reportDir: string): Promise<MxAnalysisOutput
   lines.push('')
   lines.push('## Per-cell aggregates')
   lines.push('')
-  lines.push('| Cell | n | oracle | records (mean/median) | tools | wall ms (mean/median) | tokenSum mean | trajectory peak mean / sum mean |')
+  lines.push('| Cell | n | oracle | records (mean/median) | tools | wall ms (mean/median) | tokenSum mean | trajectory peak / final / sum (means) |')
   lines.push('| --- | --- | --- | --- | --- | --- | --- | --- |')
   for (const cell of cells) {
     lines.push(
-      `| ${cell.task}/${cell.strategy} | ${cell.n} | ${cell.oracle.pass}/${cell.oracle.pass + cell.oracle.fail} | ${cell.recordCount.mean?.toFixed(1) ?? '-'}/${cell.recordCount.median ?? '-'} | ${cell.toolCalls.mean?.toFixed(1) ?? '-'} | ${cell.wallClockMs.mean?.toFixed(0) ?? '-'}/${cell.wallClockMs.median ?? '-'} | ${cell.tokenEstimateSum.mean?.toFixed(0) ?? '-'} | ${cell.trajectory.meanPeak?.toFixed(0) ?? '-'} / ${cell.trajectory.meanSum?.toFixed(0) ?? '-'} |`
+      `| ${cell.task}/${cell.strategy} | ${cell.n} | ${cell.oracle.pass}/${cell.oracle.pass + cell.oracle.fail} | ${cell.recordCount.mean?.toFixed(1) ?? '-'}/${cell.recordCount.median ?? '-'} | ${cell.toolCalls.mean?.toFixed(1) ?? '-'} | ${cell.wallClockMs.mean?.toFixed(0) ?? '-'}/${cell.wallClockMs.median ?? '-'} | ${cell.tokenEstimateSum.mean?.toFixed(0) ?? '-'} | ${cell.trajectory.meanPeak?.toFixed(0) ?? '-'} / ${cell.trajectory.meanFinal?.toFixed(0) ?? '-'} / ${cell.trajectory.meanSum?.toFixed(0) ?? '-'} |`
     )
   }
   lines.push('')
-  lines.push('Per-leg context trajectories (observedMessageTokenEstimate per model call; NATIVE expected monotonic, ACTIVE should show drops at interventions):')
+  lines.push('Per-leg context trajectories (observedMessageTokenEstimate per model call; NATIVE expected monotonic, ACTIVE arms should show drops at interventions):')
   for (const cell of cells) {
     lines.push(`- ${cell.task}/${cell.strategy}: ${cell.trajectory.legs.map((leg) => `peak=${leg.peak},final=${leg.final},sum=${leg.sum}`).join(' | ')}`)
   }
   lines.push('')
-  lines.push('## ACTIVE intervention telemetry')
+  lines.push('## Per-arm Active intervention telemetry (policy A/B)')
   lines.push('')
   for (const cell of cells.filter((candidate) => candidate.active !== undefined)) {
     const active = cell.active!
     lines.push(
-      `- ${cell.task}/ACTIVE: sends=${active.sends}/${active.attempts} attempts, removedBlocks=${active.toolBlocksRemoved}, reReadsOfRemovedTargets=${active.reReads}, postFirstInterventionReads=${active.postFirstInterventionReads}${Object.keys(active.fallbackReasons).length === 0 ? '' : `, fallbacks=${JSON.stringify(active.fallbackReasons)}`}`
+      `- ${cell.task}/${cell.strategy}: policy=${active.policy}, sends=${active.sends}/${active.attempts} attempts, removedBlocks=${active.removedBlocks}${active.candidateBlocks > active.removedBlocks ? ` (capped from ${active.candidateBlocks} candidates)` : ` (candidates=${active.candidateBlocks})`}, retainedLatestReadTargets=${active.retainedLatestReadTargets}, dropAtBoundary=${active.dropAtBoundary.drops}/${active.dropAtBoundary.sent}${active.dropAtBoundary.rate === null ? '' : ` (${(active.dropAtBoundary.rate * 100).toFixed(0)}%)`}, reReadsOfRemovedTargets=${active.reReads}, postFirstInterventionReads=${active.postFirstInterventionReads}${Object.keys(active.fallbackReasons).length === 0 ? '' : `, fallbacks=${JSON.stringify(active.fallbackReasons)}`}`
     )
   }
   lines.push('')
-  lines.push('## Per-task exact permutation tests (observedTokenEstimateSum)')
+  lines.push('## Per-task exact permutation tests (observedTokenEstimateSum, all arm pairs)')
   lines.push('')
   if (perTask.length === 0) {
     lines.push('(insufficient legs on one side)')
   }
-  for (const { task, permutation } of perTask) {
+  for (const { task, comparison, permutation } of perTask) {
     lines.push(
-      `- ${task}: NATIVE sum=${permutation.nativeSum} vs ACTIVE sum=${permutation.activeSum}; observed diff=${permutation.observedDifference}; p=${permutation.pValue.toFixed(3)} (${permutation.asExtreme}/${permutation.assignments} assignments). ${permutation.caveat}.`
+      `- ${task} ${comparison}: first-arm sum=${permutation.nativeSum} vs second-arm sum=${permutation.activeSum}; observed diff=${permutation.observedDifference}; p=${permutation.pValue.toFixed(3)} (${permutation.asExtreme}/${permutation.assignments} assignments). ${permutation.caveat}.`
     )
   }
   lines.push('')
@@ -1048,22 +1214,37 @@ function scriptedInterventionsOf(
     removedSourceKeys: [`run/tool-call://scripted-${sent.sequence}`, `run/tool-result://scripted-${sent.sequence}`],
     composedMessageCount: 4,
     latchSetAtSequence: sent.sequence,
-    removedReadTargetHashes: [sent.hash]
+    removedReadTargetHashes: [sent.hash],
+    policy: 'v1-per-edit' as const,
+    candidateBlocks: 1,
+    removedBlocks: 1,
+    retainedLatestReadTargets: []
   }))
 }
 
 /**
- * Scripted stand-in legs for DRY_RUN: 18 records in the deterministic matrix
- * order, driven through the FULL matrix state machine, incremental evidence
- * writers, and aggregator by the runner. NATIVE trajectories are monotonic;
- * ACTIVE trajectories drop after each scripted intervention; one scripted
- * re-read of a removed target appears in every ACTIVE leg so the analyzer's
- * re-read detection is exercised. Provider calls: 0.
+ * Scripted stand-in legs for DRY_RUN: 27 records in the deterministic M2
+ * matrix order (3 tasks x NATIVE/ACTIVE/ACTIVE_V2 x 3 reps), driven through
+ * the FULL matrix state machine, incremental evidence writers, and aggregator
+ * by the runner. NATIVE trajectories are monotonic; ACTIVE trajectories drop
+ * after each scripted v1 intervention, with one scripted re-read of a removed
+ * target per leg (the M1 L2 pattern) so the analyzer's re-read detection is
+ * exercised; ACTIVE_V2 trajectories carry v2-shaped telemetry — ONE coarse
+ * intervention removing three read pairs across two edited paths while
+ * retaining the latest read of each swept path, a net drop AT the boundary
+ * (series[seq-1] < series[seq-2]), and a post-intervention read of a FRESH
+ * target (retain-latest kills the re-read pattern: reReads=0). Provider
+ * calls: 0.
  */
 export function scriptedMxLegRecords(runId: string): readonly MxLegRecord[] {
   const nativeSeries = [400, 900, 1500, 2300, 3300]
   const activeSeries = [400, 900, 1500, 950, 1500, 1050, 1500, 1900]
+  // v2: coarse removal bends the trajectory down AT the boundary (850 < 900).
+  const activeV2Series = [400, 900, 850, 1500, 1400]
   const removedHash = 'feed0000feed0001'
+  const removedHashV2PathA = 'feed0000feed0003'
+  const removedHashV2PathB = 'feed0000feed0004'
+  const freshHashV2 = 'feed0000feed0005'
   const records: MxLegRecord[] = []
   for (const plan of mxLegOrder()) {
     const standInOracle = (kind: S1OracleResult['kind'], command: string): S1OracleResult => ({
@@ -1100,8 +1281,7 @@ export function scriptedMxLegRecords(runId: string): readonly MxLegRecord[] {
         wallClockMs: 0,
         trajectory: trajectorySummaryOf(nativeSeries)
       })
-    } else {
-      const interventionSequences = [3, 5]
+    } else if (plan.strategy === 'ACTIVE') {
       const events: ActiveRewriteEventEvidence[] = [
         scriptedEvent(1, activeSeries[0]!, {
           readTargets: [{ toolCallId: 'scripted-read-1', readTargetHash: removedHash }]
@@ -1117,7 +1297,11 @@ export function scriptedMxLegRecords(runId: string): readonly MxLegRecord[] {
           toolBlocksRemoved: 1,
           interventionPath: 'src/scripted-target.ts',
           composedMessageCount: 4,
-          removedReadTargetHashes: [removedHash]
+          removedReadTargetHashes: [removedHash],
+          policy: 'v1-per-edit',
+          candidateBlocks: 1,
+          removedBlocks: 1,
+          retainedLatestReadTargets: []
         }),
         scriptedEvent(4, activeSeries[3]!),
         scriptedEvent(5, activeSeries[4]!, {
@@ -1130,7 +1314,11 @@ export function scriptedMxLegRecords(runId: string): readonly MxLegRecord[] {
           toolBlocksRemoved: 1,
           interventionPath: 'src/scripted-target-2.ts',
           composedMessageCount: 4,
-          removedReadTargetHashes: ['feed0000feed0002']
+          removedReadTargetHashes: ['feed0000feed0002'],
+          policy: 'v1-per-edit',
+          candidateBlocks: 1,
+          removedBlocks: 1,
+          retainedLatestReadTargets: []
         }),
         // A scripted RE-READ of the target removed at intervention 1.
         scriptedEvent(6, activeSeries[5]!, {
@@ -1155,6 +1343,94 @@ export function scriptedMxLegRecords(runId: string): readonly MxLegRecord[] {
           interventions,
           attemptsUsed: interventions.length,
           sendsUsed: interventions.length,
+          killSwitchTripped: false
+        }
+      })
+    } else {
+      // ACTIVE_V2: one coarse sweep over two edited paths (A read 3x, B read
+      // 2x): 3 candidate older reads removed in ONE intervention, the latest
+      // read of each swept path retained.
+      const v2Events: ActiveRewriteEventEvidence[] = [
+        scriptedEvent(1, activeV2Series[0]!, {
+          readTargets: [
+            { toolCallId: 'scripted-v2-a1', readTargetHash: removedHashV2PathA },
+            { toolCallId: 'scripted-v2-a2', readTargetHash: removedHashV2PathA },
+            { toolCallId: 'scripted-v2-a3', readTargetHash: removedHashV2PathA }
+          ]
+        }),
+        scriptedEvent(2, activeV2Series[1]!, {
+          readTargets: [
+            { toolCallId: 'scripted-v2-b1', readTargetHash: removedHashV2PathB },
+            { toolCallId: 'scripted-v2-b2', readTargetHash: removedHashV2PathB }
+          ]
+        }),
+        scriptedEvent(3, activeV2Series[2]!, {
+          boundaryReached: true,
+          interventionAttempted: true,
+          interventionIndex: 1,
+          compositionVerdict: 'REWRITE_READY',
+          guardVerdict: 'PASS',
+          sentRewrite: true,
+          toolBlocksRemoved: 3,
+          interventionPath: 'src/scripted-coarse-a.ts',
+          composedMessageCount: 5,
+          removedReadTargetHashes: [
+            removedHashV2PathA,
+            removedHashV2PathA,
+            removedHashV2PathB
+          ],
+          policy: 'v2-retain-latest-coarse',
+          candidateBlocks: 3,
+          removedBlocks: 3,
+          retainedLatestReadTargets: [removedHashV2PathA, removedHashV2PathB]
+        }),
+        // A post-intervention read of a FRESH target — not a re-read (the
+        // latest reads of the swept paths stay in context under v2).
+        scriptedEvent(4, activeV2Series[3]!, {
+          readTargets: [{ toolCallId: 'scripted-v2-c1', readTargetHash: freshHashV2 }]
+        }),
+        scriptedEvent(5, activeV2Series[4]!)
+      ]
+      const v2Interventions: ActiveRewriteInterventionSummary[] = [
+        {
+          boundarySequence: 3,
+          interventionPath: 'src/scripted-coarse-a.ts',
+          interventionIndex: 1,
+          attemptOutcome: 'SENT' as const,
+          compositionVerdict: 'REWRITE_READY' as const,
+          guardVerdict: 'PASS' as const,
+          sentRewrite: true,
+          killSwitchTripped: false,
+          toolBlocksRemoved: 3,
+          removedSourceKeys: [
+            'run/tool-call://scripted-v2-a1',
+            'run/tool-result://scripted-v2-a1',
+            'run/tool-call://scripted-v2-a2',
+            'run/tool-result://scripted-v2-a2',
+            'run/tool-call://scripted-v2-b1',
+            'run/tool-result://scripted-v2-b1'
+          ],
+          composedMessageCount: 5,
+          latchSetAtSequence: 3,
+          removedReadTargetHashes: [removedHashV2PathA, removedHashV2PathA, removedHashV2PathB],
+          policy: 'v2-retain-latest-coarse',
+          candidateBlocks: 3,
+          removedBlocks: 3,
+          retainedLatestReadTargets: [removedHashV2PathA, removedHashV2PathB]
+        }
+      ]
+      records.push({
+        ...common,
+        recordCount: activeV2Series.length,
+        toolCallCount: 8,
+        observedTokenEstimateSum: activeV2Series.reduce((a, b) => a + b, 0),
+        wallClockMs: 0,
+        trajectory: trajectorySummaryOf(activeV2Series),
+        interventionTelemetry: {
+          events: v2Events,
+          interventions: v2Interventions,
+          attemptsUsed: v2Interventions.length,
+          sendsUsed: v2Interventions.length,
           killSwitchTripped: false
         }
       })
