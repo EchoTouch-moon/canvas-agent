@@ -36,17 +36,16 @@ import {
   evaluateMxLegBudgetStop,
   isValidMxRunId,
   MatrixStateMachine,
+  MxConfigError,
   MX_BUDGETS,
   mxCellOneLiner,
   mxLegAnalysisInputOf,
   mxLegDirName,
   mxLegOrder,
-  MX_REPETITIONS,
-  MX_RUN_ID_PATTERN,
-  MX_STRATEGIES,
-  MX_TASK_IDS,
-  MX_TOTAL_LEGS,
   mxPermutationTests,
+  mxShapeFromEnv,
+  MX_RUN_ID_PATTERN,
+  mxTotalLegsOf,
   mxVerdictOf,
   resolveMxTasks,
   scriptedMxLegRecords,
@@ -60,50 +59,67 @@ import {
   type MxLegRecord,
   type MxLegStop,
   type MxLegStatus,
+  type MxMatrixShape,
   type MxStrategy,
   type MxTaskDefinition,
   type MxTaskId
 } from './matrix-core'
 
-// CR-004 Stage 1 MATRIX runner — M2 THREE-ARM edition
-// (docs/plan/cr004-m2-matrix-run-contract-2026-08-27.md; M1 sibling:
+// CR-004 Stage 1 MATRIX runner — M3 VERIFY-WINDOW-DEDUP edition
+// (docs/plan/cr004-m3-matrix-run-contract-2026-08-27.md; M2 sibling:
+// docs/plan/cr004-m2-matrix-run-contract-2026-08-27.md; M1:
 // docs/plan/cr004-matrix-run-contract-2026-08-27.md).
 //
 //   --analyze <reportDir>   offline analysis mode: reads the leg evidence,
 //                           emits analysis.json + a markdown summary; no env
-//                           gates, no provider, no network.
+//                           gates, no provider, no network. M1/M2 evidence
+//                           dirs still analyze correctly (the analyzer
+//                           understands the historical v1 ACTIVE arm).
 //
 // LIVE mode (Lead-operated only) requires ALL of:
 //   CANVAS_CONTEXT_LIVE_SMOKE=1
 //   CANVAS_PROVIDER_EXECUTION_MODE=experiment-strict
-//   CANVAS_PROVIDER_RUN_ID=cr004-m2-<ISO-date>-<8-hex>  (single-use, fresh;
-//                           consumed cr004-m1-* identities are still accepted
-//                           by validation for M1 evidence analysis)
+//   CANVAS_PROVIDER_RUN_ID=cr004-m3-<ISO-date>-<8-hex>  (single-use, fresh;
+//                           consumed cr004-m1-*/cr004-m2-* identities are
+//                           still accepted by validation for evidence
+//                           analysis)
 //   STEP_PLAN_API_KEY=<key>                            (never recorded)
 //   CANVAS_MX_KILL_SWITCH_FILE=<path>                  (optional operator stop)
 //   CANVAS_MX_MANIFEST_DIR=<dir>                       (optional; default
-//                                                      research/context-benchmarks/manifests)
+//                                                      research/context-benchmarks/matrix-manifests)
+//   CANVAS_MX_TASKS=L1,L2,L3                           (optional; validated
+//                                                      comma list from
+//                                                      {L1,L2,L3}, default
+//                                                      all — enables the
+//                                                      targeted L2-only run)
+//   CANVAS_MX_REPS=3                                   (optional; integer
+//                                                      1..8, default 3)
 //
-// Matrix: 3 L-tasks x {NATIVE, ACTIVE, ACTIVE_V2} x 3 repetitions = 27 legs,
-// deterministic interleaved order (rep-major, per task NATIVE, ACTIVE,
-// ACTIVE_V2). NATIVE and ACTIVE keep their exact M1 semantics; ACTIVE_V2 runs
-// the same Active extension with removalPolicy 'v2-retain-latest-coarse' and
+// Matrix (M3 design): tasks (CANVAS_MX_TASKS, default L1,L2,L3) x
+// {NATIVE, ACTIVE_V2, ACTIVE_V3} x CANVAS_MX_REPS repetitions — 27 legs by
+// default, 12 for the targeted L2 x 4 shape — deterministic interleaved order
+// (rep-major, per task NATIVE, ACTIVE_V2, ACTIVE_V3). NATIVE and ACTIVE_V2
+// keep their exact M1/M2 semantics; ACTIVE_V3 runs the same Active extension
+// with removalPolicy 'v3-verify-window-dedup' (v2 retain-latest coarse
+// sweeps + duplicate-read dedup + the verification-window deferral) and the
 // raised per-leg bounds (8 sends / 12 attempts, cap 12 blocks per
-// intervention). ONE strict binding for the whole matrix
-// (prepareModelProvider once, step-plan, fallback 'none'). Per-leg budgets
-// come from each task manifest; MATRIX totals hard-fail at 600 provider-call
-// records / 180 minutes (checked between legs; over => stop launching new
-// legs, S-7, evidence preserved). A leg-level provider/safety error marks
-// THAT leg FAILED and the matrix CONTINUES; only matrix-level S-1 (binding)
-// or S-7 (totals) stop everything.
+// intervention, verify window 2 trailing tool events). ONE strict binding for
+// the whole matrix (prepareModelProvider once, step-plan, fallback 'none').
+// Per-leg budgets come from each task manifest; MATRIX totals hard-fail at
+// 600 provider-call records / 180 minutes (checked between legs; over =>
+// stop launching new legs, S-7, evidence preserved). A leg-level
+// provider/safety error marks THAT leg FAILED and the matrix CONTINUES; only
+// matrix-level S-1 (binding) or S-7 (totals) stop everything.
 //
 // INCREMENTAL EVIDENCE: after EACH leg the report files are written/rewritten
 // immediately (leg.json + observations.jsonl per leg; manifest.json and
 // matrix.json rewritten) — never buffered to the end.
 //
-// DRY_RUN mode (CANVAS_MX_DRY_RUN=1) drives 27 scripted stand-in legs through
-// the FULL matrix state machine + incremental evidence writers + aggregator:
-// no ModelRuntime, no extension, no session, provider calls exactly 0.
+// DRY_RUN mode (CANVAS_MX_DRY_RUN=1) drives the configured shape's scripted
+// stand-in legs (27 by default; 12 for CANVAS_MX_TASKS=L2 CANVAS_MX_REPS=4)
+// through the FULL matrix state machine + incremental evidence writers +
+// aggregator: no ModelRuntime, no extension, no session, provider calls
+// exactly 0.
 //
 // Evidence: research/context-benchmarks/reports/cr004-matrix/<runId>/
 //   manifest.json  legs/<task>-<strategy>-rep<N>/{leg.json, observations.jsonl}
@@ -114,7 +130,7 @@ const BENCHMARK_ROOT = resolve(process.cwd(), '..', '..', 'research', 'context-b
 const DEFAULT_MANIFEST_DIR = join(BENCHMARK_ROOT, 'matrix-manifests')
 const REPORTS_ROOT = join(BENCHMARK_ROOT, 'reports', 'cr004-matrix')
 const STEP_PLAN_PROVIDER_ID = 'step-plan'
-const MX_CONTRACT_PATH = 'docs/plan/cr004-m2-matrix-run-contract-2026-08-27.md'
+const MX_CONTRACT_PATH = 'docs/plan/cr004-m3-matrix-run-contract-2026-08-27.md'
 /**
  * The Active seam's out-of-band system-instruction carrier (Stage 1 constant,
  * byte-identical through every composition).
@@ -252,10 +268,14 @@ function activeInterventionExtension(
   removalPolicy: ActiveRemovalPolicy
 ) {
   // Multi-intervention Active extension with the matrix contract bounds.
-  // ACTIVE (v1) legs: 5 sends / 8 attempts (the M1 semantics, unchanged).
+  // ACTIVE (v1, historical) legs: 5 sends / 8 attempts (the M1 semantics).
   // ACTIVE_V2 legs: removalPolicy 'v2-retain-latest-coarse' with the raised
   // M2 bounds (8 sends / 12 attempts, 12 blocks per intervention).
+  // ACTIVE_V3 legs: removalPolicy 'v3-verify-window-dedup' with the same
+  // raised bounds plus the 2-tool-event verification window.
   const v2 = removalPolicy === 'v2-retain-latest-coarse'
+  const v3 = removalPolicy === 'v3-verify-window-dedup'
+  const raised = v2 || v3
   const factory = createActiveRewriteExtension({
     runId,
     systemInstruction: MX_SYSTEM_INSTRUCTION,
@@ -263,10 +283,24 @@ function activeInterventionExtension(
     killSwitch,
     ...(killSwitchFilePath !== undefined ? { killSwitchFilePath } : {}),
     evidence,
-    maxInterventions: v2 ? MX_BUDGETS.maxInterventionsPerLegV2 : MX_BUDGETS.maxInterventionsPerLeg,
-    maxAttempts: v2 ? MX_BUDGETS.maxAttemptsPerLegV2 : MX_BUDGETS.maxAttemptsPerLeg,
+    maxInterventions: raised
+      ? v3
+        ? MX_BUDGETS.maxInterventionsPerLegV3
+        : MX_BUDGETS.maxInterventionsPerLegV2
+      : MX_BUDGETS.maxInterventionsPerLeg,
+    maxAttempts: raised
+      ? v3
+        ? MX_BUDGETS.maxAttemptsPerLegV3
+        : MX_BUDGETS.maxAttemptsPerLegV2
+      : MX_BUDGETS.maxAttemptsPerLeg,
     removalPolicy,
-    ...(v2 ? { maxBlocksPerIntervention: MX_BUDGETS.maxBlocksPerInterventionV2 } : {})
+    ...(v2 ? { maxBlocksPerIntervention: MX_BUDGETS.maxBlocksPerInterventionV2 } : {}),
+    ...(v3
+      ? {
+          maxBlocksPerIntervention: MX_BUDGETS.maxBlocksPerInterventionV3,
+          verifyWindowEvents: MX_BUDGETS.verifyWindowEventsV3
+        }
+      : {})
   })
   return (pi: ExtensionAPI): void => {
     pi.on('context', async (event: ContextEvent) => {
@@ -330,7 +364,9 @@ async function runLiveLeg(options: {
             lastMessages,
             plan.strategy === 'ACTIVE_V2'
               ? 'v2-retain-latest-coarse'
-              : 'v1-per-edit'
+              : plan.strategy === 'ACTIVE_V3'
+                ? 'v3-verify-window-dedup'
+                : 'v1-per-edit'
           )
         : observerOnlyExtension(executor, lastMessages)
 
@@ -531,6 +567,21 @@ async function run(): Promise<void> {
     log(`DRY_RUN generated run identity ${runId} (no provider binding occurs in DRY_RUN)`)
   }
 
+  // ---- Matrix shape (validated env knobs; recorded in the manifest) -------
+  let shape: MxMatrixShape
+  try {
+    shape = mxShapeFromEnv({
+      tasks: process.env['CANVAS_MX_TASKS'],
+      reps: process.env['CANVAS_MX_REPS']
+    })
+  } catch (error) {
+    if (!(error instanceof MxConfigError)) throw error
+    console.error(`[cr004-mx] REFUSED: ${error.message}`)
+    console.error('MX_STATUS=FAILED')
+    process.exit(1)
+  }
+  const totalLegs = mxTotalLegsOf(shape)
+
   // ---- Manifest resolution (both modes): refuse clearly when missing -------
   const manifestDir = resolve(
     process.env['CANVAS_MX_MANIFEST_DIR'] ?? DEFAULT_MANIFEST_DIR
@@ -541,7 +592,8 @@ async function run(): Promise<void> {
     tasks = await resolveMxTasks({
       manifestDir,
       benchmarkRoot,
-      requireFixtures: mode === 'LIVE'
+      requireFixtures: mode === 'LIVE',
+      taskIds: shape.tasks
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -560,7 +612,7 @@ async function run(): Promise<void> {
   await mkdir(join(reportDir, 'legs'), { recursive: true })
 
   const startedAt = new Date()
-  const machine = new MatrixStateMachine()
+  const machine = new MatrixStateMachine({ maxLegs: totalLegs })
   const killSwitch = createRunKillSwitch(runId, { now: () => new Date().toISOString() })
   const killSwitchFilePath = process.env['CANVAS_MX_KILL_SWITCH_FILE']
   const legIndexEntries: {
@@ -594,19 +646,30 @@ async function run(): Promise<void> {
       startedAt: startedAt.toISOString(),
       ...(final ? { finishedAt: finishedAt.toISOString() } : {}),
       wallClockMs: finishedAt.getTime() - startedAt.getTime(),
-      matrixDesign: 'M2-three-arm',
+      matrixDesign: 'M3-verify-window-dedup',
       design: {
-        tasks: [...MX_TASK_IDS],
-        strategies: [...MX_STRATEGIES],
+        tasks: [...shape.tasks],
+        strategies: [...shape.strategies],
+        envConfig: {
+          tasks: [...shape.tasks].join(','),
+          reps: shape.repetitions
+        },
         activeV2: {
           removalPolicy: 'v2-retain-latest-coarse',
           maxInterventionsPerLeg: MX_BUDGETS.maxInterventionsPerLegV2,
           maxAttemptsPerLeg: MX_BUDGETS.maxAttemptsPerLegV2,
           maxBlocksPerIntervention: MX_BUDGETS.maxBlocksPerInterventionV2
         },
-        repetitions: MX_REPETITIONS,
-        totalLegs: MX_TOTAL_LEGS,
-        legOrder: mxLegOrder().map((plan) => `${mxLegDirName(plan)}#${plan.legIndex}`)
+        activeV3: {
+          removalPolicy: 'v3-verify-window-dedup',
+          maxInterventionsPerLeg: MX_BUDGETS.maxInterventionsPerLegV3,
+          maxAttemptsPerLeg: MX_BUDGETS.maxAttemptsPerLegV3,
+          maxBlocksPerIntervention: MX_BUDGETS.maxBlocksPerInterventionV3,
+          verifyWindowEvents: MX_BUDGETS.verifyWindowEventsV3
+        },
+        repetitions: shape.repetitions,
+        totalLegs,
+        legOrder: mxLegOrder(shape).map((plan) => `${mxLegDirName(plan)}#${plan.legIndex}`)
       },
       tasks: tasks.map((task) => ({
         slot: task.slot,
@@ -654,11 +717,12 @@ async function run(): Promise<void> {
   }
 
   if (dryRun) {
-    // DRY_RUN: 18 scripted stand-in legs through the FULL matrix state machine
-    // + incremental evidence writers + aggregator. Provider calls exactly 0.
-    const scripted = scriptedMxLegRecords(runId)
+    // DRY_RUN: the configured shape's scripted stand-in legs through the FULL
+    // matrix state machine + incremental evidence writers + aggregator.
+    // Provider calls exactly 0.
+    const scripted = scriptedMxLegRecords(runId, shape)
     for (const record of scripted) {
-      const plan = mxLegOrder()[record.legIndex]!
+      const plan = mxLegOrder(shape)[record.legIndex]!
       const begin = machine.beginLeg(plan)
       if (!begin.ok) {
         log(`leg=${mxLegDirName(plan)} refused: ${begin.stop.condition} ${begin.stop.reason}`)
@@ -708,7 +772,7 @@ async function run(): Promise<void> {
       bindingEvidence = {
         safeSelection: safeProviderSelection(prepared.selection),
         experimentBinding: prepared.experimentBinding,
-        bindingSharedByLegs: 'ALL 27 MATRIX LEGS',
+        bindingSharedByLegs: `ALL ${totalLegs} MATRIX LEGS`,
         sourceDerivation: 'live-pi-messages-only'
       }
       log(`binding=${JSON.stringify(bindingEvidence)}`)
@@ -723,7 +787,7 @@ async function run(): Promise<void> {
     }
 
     if (!machine.isTerminal && prepared !== null && runtime !== null) {
-      for (const plan of mxLegOrder()) {
+      for (const plan of mxLegOrder(shape)) {
         // Operator kill switch between legs: a trip is MATRIX-TERMINAL (S-8).
         // Without this check an operator trip recorded by one Active leg's
         // extension would leave every later Active leg running rewrite-free
@@ -915,10 +979,10 @@ async function run(): Promise<void> {
     return { pass, evaluated }
   }
   const nativeOracle = oraclePassOf('NATIVE')
-  const activeOracle = oraclePassOf('ACTIVE')
   const activeV2Oracle = oraclePassOf('ACTIVE_V2')
+  const activeV3Oracle = oraclePassOf('ACTIVE_V3')
 
-  log(`runId=${runId} mode=${mode} status=${status} legs=${ledgers.legsAttempted}/${MX_TOTAL_LEGS}`)
+  log(`runId=${runId} mode=${mode} status=${status} legs=${ledgers.legsAttempted}/${totalLegs}`)
   log(`provider-call records=${providerCalls} wallClockMs=${ledgers.runElapsedMs}`)
   for (const stop of machine.stopsFired) {
     log(`stop ${stop.condition} (MATRIX): ${stop.reason}`)
@@ -929,10 +993,10 @@ async function run(): Promise<void> {
   log(`report=${reportDir}`)
   console.log(`MX_STATUS=${status}`)
   console.log(`MX_PROVIDER_CALLS=${providerCalls}`)
-  console.log(`MX_LEGS=${ledgers.legsAttempted}/${MX_TOTAL_LEGS}`)
+  console.log(`MX_LEGS=${ledgers.legsAttempted}/${totalLegs}`)
   console.log(`MX_ORACLE_PASS_NATIVE=${nativeOracle.pass}/${nativeOracle.evaluated}`)
-  console.log(`MX_ORACLE_PASS_ACTIVE=${activeOracle.pass}/${activeOracle.evaluated}`)
   console.log(`MX_ORACLE_PASS_ACTIVE_V2=${activeV2Oracle.pass}/${activeV2Oracle.evaluated}`)
+  console.log(`MX_ORACLE_PASS_ACTIVE_V3=${activeV3Oracle.pass}/${activeV3Oracle.evaluated}`)
   console.log(`MX_REPORT_DIR=${reportDir}`)
   if (status === 'STOPPED') {
     process.exit(1)
