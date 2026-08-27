@@ -29,6 +29,7 @@ import {
   mxLegAnalysisInputOf,
   mxLegDirName,
   mxLegOrder,
+  type MxLegPlan,
   MX_M3_RUN_ID_PATTERN,
   MX_RUN_ID_PATTERN,
   mxPermutationTests,
@@ -446,8 +447,8 @@ describe('MX run identity and leg order', () => {
 // Matrix state machine: totals stop, watchdog, continue-on-leg-failure
 // ---------------------------------------------------------------------------
 
-function legLedger(legIndex: number, providerCallRecords: number, status: 'COMPLETED' | 'FAILED' = 'COMPLETED'): MxLegLedger {
-  const plan = mxLegOrder()[legIndex]!
+function legLedger(legIndex: number, providerCallRecords: number, status: 'COMPLETED' | 'FAILED' = 'COMPLETED', order: readonly MxLegPlan[] = mxLegOrder()): MxLegLedger {
+  const plan = order[legIndex]!
   return {
     legIndex,
     task: plan.task,
@@ -463,24 +464,26 @@ function legLedger(legIndex: number, providerCallRecords: number, status: 'COMPL
 }
 
 describe('MX matrix state machine', () => {
-  it('stops launching legs at the 600-record matrix total (S-7), evidence preserved', () => {
-    const machine = new MatrixStateMachine()
-    // 23 legs x 26 records = 598: at the limit, not over (M2 budget is 600).
-    for (let index = 0; index < 23; index += 1) {
-      expect(machine.beginLeg(mxLegOrder()[index]!).ok).toBe(true)
-      expect(machine.endLeg(legLedger(index, 26)).stop).toBe(false)
+  it('stops launching legs at the 900-record matrix total (S-7), evidence preserved', () => {
+    const shape = mxShapeFromEnv({ reps: '4' })
+    const machine = new MatrixStateMachine({ maxLegs: mxTotalLegsOf(shape) })
+    // 36-leg shape (all tasks, all arms, 4 reps); 34 legs x 26 records = 884:
+    // under the 900 budget; leg 35 (910 total) pushes over and fires S-7.
+    const order = mxLegOrder(shape)
+    for (let index = 0; index < 34; index += 1) {
+      expect(machine.beginLeg(order[index]!).ok).toBe(true)
+      expect(machine.endLeg(legLedger(index, 26, 'COMPLETED', order)).stop).toBe(false)
     }
-    // Leg 24 starts (totals exactly at budget) and pushes over: endLeg fires S-7.
-    expect(machine.beginLeg(mxLegOrder()[23]!).ok).toBe(true)
-    const end = machine.endLeg(legLedger(23, 26))
+    expect(machine.beginLeg(order[34]!).ok).toBe(true)
+    const end = machine.endLeg(legLedger(34, 26, 'COMPLETED', order))
     expect(end.stop).toBe(true)
     expect(machine.isTerminal).toBe(true)
-    // No new legs launch; the 24 recorded legs stay preserved in the ledgers.
-    const refused = machine.beginLeg(mxLegOrder()[24]!)
+    // No new legs launch; the 35 recorded legs stay preserved in the ledgers.
+    const refused = machine.beginLeg(order[35]!)
     expect(refused.ok).toBe(false)
     if (!refused.ok) expect(refused.stop.condition).toBe('S-7')
-    expect(machine.ledgers().legsAttempted).toBe(24)
-    expect(machine.ledgers().providerCallRecordsTotal).toBe(624)
+    expect(machine.ledgers().legsAttempted).toBe(35)
+    expect(machine.ledgers().providerCallRecordsTotal).toBe(910)
     expect(machine.stopsFired[0]!.condition).toBe('S-7')
   })
 
@@ -1110,5 +1113,27 @@ describe('MX scripted DRY_RUN legs', () => {
         scripted.filter((record) => record.rep === rep).map((record) => record.strategy)
       ).toEqual(['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3'])
     }
+  })
+})
+
+describe('CANVAS_MX_ARMS arm selection (M4 confirmatory shape)', () => {
+  it('defaults to all three arms and canonicalizes order', () => {
+    expect(mxShapeFromEnv({}).strategies).toEqual(['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3'])
+    expect(mxShapeFromEnv({ arms: 'ACTIVE_V2,NATIVE' }).strategies).toEqual(['NATIVE', 'ACTIVE_V2'])
+  })
+
+  it('refuses unknown, duplicate and empty arm lists', () => {
+    expect(() => mxShapeFromEnv({ arms: 'ACTIVE' })).toThrow(MxConfigError)
+    expect(() => mxShapeFromEnv({ arms: 'NATIVE,NATIVE' })).toThrow(MxConfigError)
+    expect(() => mxShapeFromEnv({ arms: ' , ' })).toThrow(MxConfigError)
+  })
+
+  it('shapes the confirmatory two-arm design: 2 tasks x 2 arms x 8 reps = 32 legs', () => {
+    const shape = mxShapeFromEnv({ tasks: 'L1,L2', arms: 'NATIVE,ACTIVE_V2', reps: '8' })
+    expect(mxTotalLegsOf(shape)).toBe(32)
+    const order = mxLegOrder(shape)
+    expect(order[0]).toMatchObject({ task: 'L1', strategy: 'NATIVE', rep: 1 })
+    expect(order[1]).toMatchObject({ task: 'L1', strategy: 'ACTIVE_V2', rep: 1 })
+    expect(order[2]).toMatchObject({ task: 'L2', strategy: 'NATIVE', rep: 1 })
   })
 })

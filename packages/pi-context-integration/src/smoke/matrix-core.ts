@@ -183,14 +183,42 @@ export function parseMxRepetitionsEnv(raw: string | undefined): number {
   return parsed
 }
 
+/**
+ * Parse CANVAS_MX_ARMS: a comma list from {NATIVE, ACTIVE_V2, ACTIVE_V3};
+ * default all three. Refuses empty tokens, duplicates and unknown arms; the
+ * canonical order (control first) applies regardless of the env listing.
+ */
+export function parseMxStrategiesEnv(raw: string | undefined): readonly MxStrategy[] {
+  if (raw === undefined) return [...MX_STRATEGIES]
+  const tokens = raw
+    .split(',')
+    .map((token) => token.trim())
+    .filter((token) => token !== '')
+  if (tokens.length === 0) {
+    throw new MxConfigError('CANVAS_MX_ARMS must be a comma list from {NATIVE,ACTIVE_V2,ACTIVE_V3} (got an empty list)')
+  }
+  const arms: MxStrategy[] = []
+  for (const token of tokens) {
+    if (!(MX_STRATEGIES as readonly string[]).includes(token)) {
+      throw new MxConfigError(`CANVAS_MX_ARMS: unknown arm '${token}' (allowed: NATIVE,ACTIVE_V2,ACTIVE_V3)`)
+    }
+    if (arms.includes(token as MxStrategy)) {
+      throw new MxConfigError(`CANVAS_MX_ARMS: duplicate arm '${token}'`)
+    }
+    arms.push(token as MxStrategy)
+  }
+  return MX_STRATEGIES.filter((strategy) => arms.includes(strategy))
+}
+
 /** Resolve and validate the full matrix shape from the env knobs. */
 export function mxShapeFromEnv(env: {
   readonly tasks?: string | undefined
   readonly reps?: string | undefined
+  readonly arms?: string | undefined
 }): MxMatrixShape {
   return {
     tasks: parseMxTasksEnv(env.tasks),
-    strategies: [...MX_STRATEGIES],
+    strategies: parseMxStrategiesEnv(env.arms),
     repetitions: parseMxRepetitionsEnv(env.reps)
   }
 }
@@ -250,7 +278,7 @@ export const MX_BUDGETS = {
   /** Default design: 3 tasks x 3 strategies x 3 repetitions (M3 three-arm); a configured shape scales this (state machine option). */
   maxLegs: MX_TOTAL_LEGS,
   /** Matrix total across all legs (C0 counting semantics). M1 was 400. */
-  maxProviderCallRecords: 600,
+  maxProviderCallRecords: 900,
   /** Matrix watchdog, measured from strict preparation to evidence-close. */
   runWallClockMs: 180 * 60 * 1000,
   /** Multi-intervention bound per ACTIVE (v1) leg (sends). M1 semantics. */

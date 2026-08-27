@@ -572,7 +572,8 @@ async function run(): Promise<void> {
   try {
     shape = mxShapeFromEnv({
       tasks: process.env['CANVAS_MX_TASKS'],
-      reps: process.env['CANVAS_MX_REPS']
+      reps: process.env['CANVAS_MX_REPS'],
+      arms: process.env['CANVAS_MX_ARMS']
     })
   } catch (error) {
     if (!(error instanceof MxConfigError)) throw error
