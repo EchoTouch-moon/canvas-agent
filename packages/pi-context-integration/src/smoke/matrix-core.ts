@@ -55,11 +55,11 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Accepts M1/M2 (consumed) and M3 identities: `cr004-m[123]-<ISO-date
+ * Accepts M1–M4 (each M-series run must carry its own contract): `cr004-m[1-9]-<ISO-date
  * undashed>-<8-hex>`, e.g. cr004-m1-20260826-d23a992c /
  * cr004-m2-20260827-4d7e9a1b / cr004-m3-20260827-9c1d2e3f.
  */
-export const MX_RUN_ID_PATTERN = /^cr004-m[123]-\d{8}-[0-9a-f]{8}$/
+export const MX_RUN_ID_PATTERN = /^cr004-m[1-9]-\d{8}-[0-9a-f]{8}$/
 /** Tonight's M3 run identities: cr004-m3-<ISO-date-undashed>-<8-hex>. */
 export const MX_M3_RUN_ID_PATTERN = /^cr004-m3-\d{8}-[0-9a-f]{8}$/
 

@@ -342,12 +342,13 @@ describe('multi-intervention Active extension (real planner, offline)', () => {
 // ---------------------------------------------------------------------------
 
 describe('MX run identity and leg order', () => {
-  it('accepts cr004-m1/m2/m3 identities; suggestions are M3', () => {
+  it('accepts cr004-m1..m4 identities; suggestions are M-series', () => {
     expect(isValidMxRunId('cr004-m1-20260826-d23a992c')).toBe(true)
     expect(isValidMxRunId('cr004-m2-20260827-4d7e9a1b')).toBe(true)
     expect(isValidMxRunId('cr004-m3-20260827-4d7e9a1b')).toBe(true)
-    expect(isValidMxRunId('cr004-m4-20260827-4d7e9a1b')).toBe(false)
+    expect(isValidMxRunId('cr004-m4-20260827-4d7e9a1b')).toBe(true)
     expect(isValidMxRunId('cr004-s1-20260827-4d7e9a1b')).toBe(false)
+    expect(isValidMxRunId('cr004-m0-20260827-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-m3-2026-08-27-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-m3-20260827-4D7E9A1B')).toBe(false)
     expect(isValidMxRunId(undefined)).toBe(false)
