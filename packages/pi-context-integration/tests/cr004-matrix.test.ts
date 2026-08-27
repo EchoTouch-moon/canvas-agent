@@ -20,19 +20,25 @@ import {
   dropAtBoundaryOf,
   evaluateMxLegBudgetStop,
   exactPermutationTest,
-  isM2MxRunId,
+  isM3MxRunId,
   isValidMxRunId,
   MatrixStateMachine,
+  MxConfigError,
   MX_BUDGETS,
   mxCellOneLiner,
   mxLegAnalysisInputOf,
   mxLegDirName,
   mxLegOrder,
-  MX_M2_RUN_ID_PATTERN,
+  type MxLegPlan,
+  MX_M3_RUN_ID_PATTERN,
   MX_RUN_ID_PATTERN,
   mxPermutationTests,
+  mxShapeFromEnv,
+  mxTotalLegsOf,
   MX_TOTAL_LEGS,
   mxVerdictOf,
+  parseMxRepetitionsEnv,
+  parseMxTasksEnv,
   resolveMxTasks,
   scriptedMxLegRecords,
   scriptedMxObservations,
@@ -41,7 +47,8 @@ import {
   writeMxAggregate,
   writeMxLegEvidence,
   writeMxManifest,
-  type MxLegLedger
+  type MxLegLedger,
+  type MxMatrixShape
 } from '../src/smoke/matrix-core'
 
 // CR-004 Stage 1 MATRIX runner tests. Offline, credential-free, network-free:
@@ -53,6 +60,25 @@ import {
 
 const FIXED_NOW = '2026-08-27T00:00:00.000Z'
 const RUN_ID = 'cr004-m1-20260827-01234567'
+
+/** The historical M2 design (M2-era evidence dirs must still analyze). */
+const M2_SHAPE: MxMatrixShape = {
+  tasks: ['L1', 'L2', 'L3'],
+  strategies: ['NATIVE', 'ACTIVE', 'ACTIVE_V2'],
+  repetitions: 3
+}
+/** The historical M1 design (M1-era evidence dirs must still analyze). */
+const M1_SHAPE: MxMatrixShape = {
+  tasks: ['L1', 'L2', 'L3'],
+  strategies: ['NATIVE', 'ACTIVE'],
+  repetitions: 3
+}
+/** The targeted M3 shape the contract's first run uses (L2-only, 4 reps). */
+const M3_L2_SHAPE: MxMatrixShape = {
+  tasks: ['L2'],
+  strategies: ['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3'],
+  repetitions: 4
+}
 
 // ---------------------------------------------------------------------------
 // Multi-intervention Active extension (real planner, offline)
@@ -316,50 +342,105 @@ describe('multi-intervention Active extension (real planner, offline)', () => {
 // ---------------------------------------------------------------------------
 
 describe('MX run identity and leg order', () => {
-  it('accepts both cr004-m1 and cr004-m2 identities; suggestions are M2', () => {
+  it('accepts cr004-m1..m4 identities; suggestions are M-series', () => {
     expect(isValidMxRunId('cr004-m1-20260826-d23a992c')).toBe(true)
     expect(isValidMxRunId('cr004-m2-20260827-4d7e9a1b')).toBe(true)
+    expect(isValidMxRunId('cr004-m3-20260827-4d7e9a1b')).toBe(true)
+    expect(isValidMxRunId('cr004-m4-20260827-4d7e9a1b')).toBe(true)
     expect(isValidMxRunId('cr004-s1-20260827-4d7e9a1b')).toBe(false)
-    expect(isValidMxRunId('cr004-m3-20260827-4d7e9a1b')).toBe(false)
-    expect(isValidMxRunId('cr004-m2-2026-08-27-4d7e9a1b')).toBe(false)
-    expect(isValidMxRunId('cr004-m2-20260827-4D7E9A1B')).toBe(false)
+    expect(isValidMxRunId('cr004-m0-20260827-4d7e9a1b')).toBe(false)
+    expect(isValidMxRunId('cr004-m3-2026-08-27-4d7e9a1b')).toBe(false)
+    expect(isValidMxRunId('cr004-m3-20260827-4D7E9A1B')).toBe(false)
     expect(isValidMxRunId(undefined)).toBe(false)
     for (let index = 0; index < 8; index += 1) {
       const suggested = suggestMxRunId()
       expect(MX_RUN_ID_PATTERN.test(suggested)).toBe(true)
-      expect(MX_M2_RUN_ID_PATTERN.test(suggested)).toBe(true)
-      expect(isM2MxRunId(suggested)).toBe(true)
+      expect(MX_M3_RUN_ID_PATTERN.test(suggested)).toBe(true)
+      expect(isM3MxRunId(suggested)).toBe(true)
     }
-    expect(isM2MxRunId('cr004-m1-20260826-d23a992c')).toBe(false)
+    expect(isM3MxRunId('cr004-m2-20260827-4d7e9a1b')).toBe(false)
   })
 
-  it('orders 27 legs: rep-major, per task NATIVE, ACTIVE, ACTIVE_V2, deterministic', () => {
+  it('orders the 27-leg M3 default: rep-major, per task NATIVE, ACTIVE_V2, ACTIVE_V3, deterministic', () => {
     const order = mxLegOrder()
     expect(order).toHaveLength(MX_TOTAL_LEGS)
     expect(MX_TOTAL_LEGS).toBe(27)
     expect(order).toEqual(mxLegOrder())
     expect(order.slice(0, 9).map(mxLegDirName)).toEqual([
       'L1-NATIVE-rep1',
-      'L1-ACTIVE-rep1',
       'L1-ACTIVE2-rep1',
+      'L1-ACTIVE3-rep1',
       'L2-NATIVE-rep1',
-      'L2-ACTIVE-rep1',
       'L2-ACTIVE2-rep1',
+      'L2-ACTIVE3-rep1',
       'L3-NATIVE-rep1',
-      'L3-ACTIVE-rep1',
-      'L3-ACTIVE2-rep1'
+      'L3-ACTIVE2-rep1',
+      'L3-ACTIVE3-rep1'
     ])
     expect(order[9]!.rep).toBe(2)
-    expect(order[26]).toEqual({ legIndex: 26, task: 'L3', strategy: 'ACTIVE_V2', rep: 3 })
-    // Every (task, strategy, rep) cell exactly once (dir names use ACTIVE2
-    // for the ACTIVE_V2 arm).
+    expect(order[26]).toEqual({ legIndex: 26, task: 'L3', strategy: 'ACTIVE_V3', rep: 3 })
+    // Every (task, strategy, rep) cell exactly once (dir names use ACTIVE2/
+    // ACTIVE3 for the ACTIVE_V2/ACTIVE_V3 arms).
     const keys = new Set(order.map((plan) => mxLegDirName(plan)))
     expect(keys.size).toBe(MX_TOTAL_LEGS)
     for (const plan of order) {
       expect(keys.has(mxLegDirName(plan))).toBe(true)
     }
     expect(keys.has('L1-ACTIVE2-rep3')).toBe(true)
-    expect(keys.has('L1-ACTIVE_V2-rep1')).toBe(false)
+    expect(keys.has('L1-ACTIVE3-rep1')).toBe(true)
+    expect(keys.has('L1-ACTIVE-rep1')).toBe(false)
+    expect(keys.has('L1-ACTIVE_V3-rep1')).toBe(false)
+  })
+
+  it('orders historical shapes exactly as M1/M2 did (analysis compat)', () => {
+    const m1 = mxLegOrder(M1_SHAPE)
+    expect(m1).toHaveLength(18)
+    expect(m1.slice(0, 6).map(mxLegDirName)).toEqual([
+      'L1-NATIVE-rep1',
+      'L1-ACTIVE-rep1',
+      'L2-NATIVE-rep1',
+      'L2-ACTIVE-rep1',
+      'L3-NATIVE-rep1',
+      'L3-ACTIVE-rep1'
+    ])
+    const m2 = mxLegOrder(M2_SHAPE)
+    expect(m2).toHaveLength(27)
+    expect(m2.slice(0, 3).map(mxLegDirName)).toEqual([
+      'L1-NATIVE-rep1',
+      'L1-ACTIVE-rep1',
+      'L1-ACTIVE2-rep1'
+    ])
+    expect(m2[26]).toEqual({ legIndex: 26, task: 'L3', strategy: 'ACTIVE_V2', rep: 3 })
+  })
+
+  it('shapes a targeted run from the env: TASKS=L2 REPS=4 => 12 legs; validation refuses bad values', () => {
+    expect(mxShapeFromEnv({})).toEqual({
+      tasks: ['L1', 'L2', 'L3'],
+      strategies: ['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3'],
+      repetitions: 3
+    })
+    expect(mxTotalLegsOf(mxShapeFromEnv({ tasks: 'L2', reps: '4' }))).toBe(12)
+    const targeted = mxLegOrder(M3_L2_SHAPE)
+    expect(targeted).toHaveLength(12)
+    expect(targeted.slice(0, 3).map(mxLegDirName)).toEqual([
+      'L2-NATIVE-rep1',
+      'L2-ACTIVE2-rep1',
+      'L2-ACTIVE3-rep1'
+    ])
+    expect(targeted[11]).toEqual({ legIndex: 11, task: 'L2', strategy: 'ACTIVE_V3', rep: 4 })
+    // Canonical task order regardless of listing order; whitespace tolerated.
+    expect(parseMxTasksEnv('L3, L1')).toEqual(['L1', 'L3'])
+    // Validation: unknown slot, duplicates, empty list, bad reps, out of range.
+    expect(() => parseMxTasksEnv('L4')).toThrow(MxConfigError)
+    expect(() => parseMxTasksEnv('L2,L2')).toThrow(/duplicate/)
+    expect(() => parseMxTasksEnv(' , ')).toThrow(/CANVAS_MX_TASKS/)
+    expect(parseMxTasksEnv(undefined)).toEqual(['L1', 'L2', 'L3'])
+    expect(parseMxRepetitionsEnv(undefined)).toBe(3)
+    expect(parseMxRepetitionsEnv('1')).toBe(1)
+    expect(parseMxRepetitionsEnv('8')).toBe(8)
+    expect(() => parseMxRepetitionsEnv('0')).toThrow(/out of range/)
+    expect(() => parseMxRepetitionsEnv('9')).toThrow(/out of range/)
+    expect(() => parseMxRepetitionsEnv('three')).toThrow(/CANVAS_MX_REPS/)
   })
 })
 
@@ -367,8 +448,8 @@ describe('MX run identity and leg order', () => {
 // Matrix state machine: totals stop, watchdog, continue-on-leg-failure
 // ---------------------------------------------------------------------------
 
-function legLedger(legIndex: number, providerCallRecords: number, status: 'COMPLETED' | 'FAILED' = 'COMPLETED'): MxLegLedger {
-  const plan = mxLegOrder()[legIndex]!
+function legLedger(legIndex: number, providerCallRecords: number, status: 'COMPLETED' | 'FAILED' = 'COMPLETED', order: readonly MxLegPlan[] = mxLegOrder()): MxLegLedger {
+  const plan = order[legIndex]!
   return {
     legIndex,
     task: plan.task,
@@ -384,24 +465,26 @@ function legLedger(legIndex: number, providerCallRecords: number, status: 'COMPL
 }
 
 describe('MX matrix state machine', () => {
-  it('stops launching legs at the 600-record matrix total (S-7), evidence preserved', () => {
-    const machine = new MatrixStateMachine()
-    // 23 legs x 26 records = 598: at the limit, not over (M2 budget is 600).
-    for (let index = 0; index < 23; index += 1) {
-      expect(machine.beginLeg(mxLegOrder()[index]!).ok).toBe(true)
-      expect(machine.endLeg(legLedger(index, 26)).stop).toBe(false)
+  it('stops launching legs at the 900-record matrix total (S-7), evidence preserved', () => {
+    const shape = mxShapeFromEnv({ reps: '4' })
+    const machine = new MatrixStateMachine({ maxLegs: mxTotalLegsOf(shape) })
+    // 36-leg shape (all tasks, all arms, 4 reps); 34 legs x 26 records = 884:
+    // under the 900 budget; leg 35 (910 total) pushes over and fires S-7.
+    const order = mxLegOrder(shape)
+    for (let index = 0; index < 34; index += 1) {
+      expect(machine.beginLeg(order[index]!).ok).toBe(true)
+      expect(machine.endLeg(legLedger(index, 26, 'COMPLETED', order)).stop).toBe(false)
     }
-    // Leg 24 starts (totals exactly at budget) and pushes over: endLeg fires S-7.
-    expect(machine.beginLeg(mxLegOrder()[23]!).ok).toBe(true)
-    const end = machine.endLeg(legLedger(23, 26))
+    expect(machine.beginLeg(order[34]!).ok).toBe(true)
+    const end = machine.endLeg(legLedger(34, 26, 'COMPLETED', order))
     expect(end.stop).toBe(true)
     expect(machine.isTerminal).toBe(true)
-    // No new legs launch; the 24 recorded legs stay preserved in the ledgers.
-    const refused = machine.beginLeg(mxLegOrder()[24]!)
+    // No new legs launch; the 35 recorded legs stay preserved in the ledgers.
+    const refused = machine.beginLeg(order[35]!)
     expect(refused.ok).toBe(false)
     if (!refused.ok) expect(refused.stop.condition).toBe('S-7')
-    expect(machine.ledgers().legsAttempted).toBe(24)
-    expect(machine.ledgers().providerCallRecordsTotal).toBe(624)
+    expect(machine.ledgers().legsAttempted).toBe(35)
+    expect(machine.ledgers().providerCallRecordsTotal).toBe(910)
     expect(machine.stopsFired[0]!.condition).toBe('S-7')
   })
 
@@ -424,7 +507,7 @@ describe('MX matrix state machine', () => {
     }
   })
 
-  it('counts per-arm oracle passes separately across the three arms', () => {
+  it('counts per-arm oracle passes separately across the arms', () => {
     const machine = new MatrixStateMachine()
     const ledgerFor = (legIndex: number, pass: boolean): MxLegLedger => ({
       ...legLedger(legIndex, 5),
@@ -433,13 +516,34 @@ describe('MX matrix state machine', () => {
     machine.beginLeg(mxLegOrder()[0]!)
     machine.endLeg(ledgerFor(0, true)) // L1 NATIVE rep1
     machine.beginLeg(mxLegOrder()[1]!)
-    machine.endLeg(ledgerFor(1, true)) // L1 ACTIVE rep1
+    machine.endLeg(ledgerFor(1, true)) // L1 ACTIVE_V2 rep1
     machine.beginLeg(mxLegOrder()[2]!)
-    machine.endLeg(ledgerFor(2, false)) // L1 ACTIVE_V2 rep1
+    machine.endLeg(ledgerFor(2, false)) // L1 ACTIVE_V3 rep1
     const ledgers = machine.ledgers()
     expect(ledgers.oraclePassNative).toBe(1)
-    expect(ledgers.oraclePassActive).toBe(1)
-    expect(ledgers.oraclePassActiveV2).toBe(0)
+    expect(ledgers.oraclePassActive).toBe(0)
+    expect(ledgers.oraclePassActiveV2).toBe(1)
+    expect(ledgers.oraclePassActiveV3).toBe(0)
+  })
+
+  it('scales the leg-count bound with a configured shape (targeted 12-leg run)', () => {
+    const machine = new MatrixStateMachine({ maxLegs: 12 })
+    const order = mxLegOrder(M3_L2_SHAPE)
+    for (const plan of order) {
+      expect(machine.beginLeg(plan).ok).toBe(true)
+      machine.endLeg(legLedger(plan.legIndex, 5))
+    }
+    const refused = machine.beginLeg({
+      legIndex: 12,
+      task: 'L2',
+      strategy: 'NATIVE',
+      rep: 5
+    })
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) {
+      expect(refused.stop.condition).toBe('S-7')
+      expect(refused.stop.reason).toContain('leg budget exhausted')
+    }
   })
 
   it('stops launching legs when the 180-minute watchdog is exceeded', () => {
@@ -608,10 +712,13 @@ describe('MX exact permutation test', () => {
 })
 
 describe('MX aggregator', () => {
-  it('computes per-cell n, oracle rates, means/medians, and trajectories across all three arms', () => {
-    const scripted = scriptedMxLegRecords(RUN_ID)
+  it('M2-shaped evidence still aggregates exactly as before (v1 + v2 arms)', () => {
+    const scripted = scriptedMxLegRecords('cr004-m2-20260827-01234567', M2_SHAPE)
     const cells = aggregateMxCells(scripted.map(mxLegAnalysisInputOf))
     expect(cells).toHaveLength(9)
+    expect(cells.map((cell) => cell.strategy)).toEqual(
+      expect.arrayContaining(['NATIVE', 'ACTIVE', 'ACTIVE_V2'])
+    )
     const l1Native = cells.find((cell) => cell.task === 'L1' && cell.strategy === 'NATIVE')!
     expect(l1Native.n).toBe(3)
     expect(l1Native.completed).toBe(3)
@@ -619,11 +726,9 @@ describe('MX aggregator', () => {
     expect(l1Native.oracle).toEqual({ pass: 0, fail: 0, notRun: 3, passRate: null })
     expect(l1Native.recordCount.mean).toBe(5)
     expect(l1Native.tokenEstimateSum.mean).toBe(8400)
-    // NATIVE scripted trajectories are strictly monotonic.
-    expect(
-      l1Native.trajectory.legs.every((leg) => leg.peak === 3300 && leg.sum === 8400)
-    ).toBe(true)
     expect(l1Native.trajectory.meanFinal).toBe(3300)
+    // No NATIVE cell carries Active telemetry.
+    expect(l1Native.active).toBeUndefined()
     const l1Active = cells.find((cell) => cell.task === 'L1' && cell.strategy === 'ACTIVE')!
     expect(l1Active.active!.policy).toBe('v1-per-edit')
     expect(l1Active.active!.sends).toBe(6)
@@ -637,10 +742,10 @@ describe('MX aggregator', () => {
     // One scripted re-read of a removed target per leg => 3 per cell.
     expect(l1Active.active!.reReads).toBe(3)
     expect(l1Active.active!.postFirstInterventionReads).toBe(3)
+    expect(l1Active.active!.dedupRemovals).toBe(0)
+    expect(l1Active.active!.deferredSweeps).toBe(0)
     // Median of an odd set of equal values.
     expect(l1Active.wallClockMs.median).toBe(0)
-    // No NATIVE cell carries Active telemetry.
-    expect(l1Native.active).toBeUndefined()
     const l1ActiveV2 = cells.find((cell) => cell.task === 'L1' && cell.strategy === 'ACTIVE_V2')!
     expect(l1ActiveV2.active!.policy).toBe('v2-retain-latest-coarse')
     expect(l1ActiveV2.active!.sends).toBe(3)
@@ -650,8 +755,6 @@ describe('MX aggregator', () => {
     expect(l1ActiveV2.active!.retainedLatestReadTargets).toBe(6)
     // The scripted v2 boundary drops AT the boundary: 850 < 900 each leg.
     expect(l1ActiveV2.active!.dropAtBoundary).toEqual({ sent: 3, drops: 3, rate: 1 })
-    // Retain-latest kills the re-read pattern (fresh post-intervention reads
-    // only), while post-first-intervention reads still occur.
     expect(l1ActiveV2.active!.reReads).toBe(0)
     expect(l1ActiveV2.active!.postFirstInterventionReads).toBe(3)
     expect(l1ActiveV2.tokenEstimateSum.mean).toBe(5050)
@@ -659,14 +762,54 @@ describe('MX aggregator', () => {
     expect(l1ActiveV2.trajectory.meanFinal).toBe(1400)
   })
 
-  it('verdicts report raw three-arm reliability and context-efficiency direction', () => {
+  it('aggregates the M3 default (v2 + v3 arms) incl. dedupRemovals/deferredSweeps', () => {
+    const cells = aggregateMxCells(scriptedMxLegRecords(RUN_ID).map(mxLegAnalysisInputOf))
+    expect(cells).toHaveLength(9)
+    // The v1 ACTIVE arm is M1/M2 history: absent from the M3 design.
+    expect(cells.find((cell) => cell.strategy === 'ACTIVE')).toBeUndefined()
+    const l1Native = cells.find((cell) => cell.task === 'L1' && cell.strategy === 'NATIVE')!
+    expect(l1Native.n).toBe(3)
+    expect(l1Native.tokenEstimateSum.mean).toBe(8400)
+    // NATIVE scripted trajectories are strictly monotonic.
+    expect(
+      l1Native.trajectory.legs.every((leg) => leg.peak === 3300 && leg.sum === 8400)
+    ).toBe(true)
+    expect(l1Native.trajectory.meanFinal).toBe(3300)
+    expect(l1Native.active).toBeUndefined()
+    const l1ActiveV2 = cells.find((cell) => cell.task === 'L1' && cell.strategy === 'ACTIVE_V2')!
+    expect(l1ActiveV2.active!.policy).toBe('v2-retain-latest-coarse')
+    expect(l1ActiveV2.active!.sends).toBe(3)
+    expect(l1ActiveV2.active!.removedBlocks).toBe(9)
+    expect(l1ActiveV2.active!.retainedLatestReadTargets).toBe(6)
+    expect(l1ActiveV2.active!.dedupRemovals).toBe(0)
+    expect(l1ActiveV2.active!.deferredSweeps).toBe(0)
+    const l1ActiveV3 = cells.find((cell) => cell.task === 'L1' && cell.strategy === 'ACTIVE_V3')!
+    expect(l1ActiveV3.active!.policy).toBe('v3-verify-window-dedup')
+    expect(l1ActiveV3.active!.sends).toBe(6)
+    expect(l1ActiveV3.active!.attempts).toBe(6)
+    expect(l1ActiveV3.active!.removedBlocks).toBe(6)
+    expect(l1ActiveV3.active!.candidateBlocks).toBe(6)
+    expect(l1ActiveV3.active!.retainedLatestReadTargets).toBe(6)
+    // One dedup removal + one deferred-then-resumed sweep per leg => 3 per cell.
+    expect(l1ActiveV3.active!.dedupRemovals).toBe(3)
+    expect(l1ActiveV3.active!.deferredSweeps).toBe(3)
+    // Both scripted v3 boundaries drop AT the boundary (850 < 900, 1300 < 1400).
+    expect(l1ActiveV3.active!.dropAtBoundary).toEqual({ sent: 6, drops: 6, rate: 1 })
+    expect(l1ActiveV3.active!.reReads).toBe(0)
+    expect(l1ActiveV3.tokenEstimateSum.mean).toBe(4850)
+    expect(l1ActiveV3.trajectory.meanPeak).toBe(1400)
+    expect(l1ActiveV3.trajectory.meanFinal).toBe(1300)
+  })
+
+  it('verdicts report raw arm reliability and context-efficiency direction for the arms present', () => {
     const cells = aggregateMxCells(scriptedMxLegRecords(RUN_ID).map(mxLegAnalysisInputOf))
     const verdict = mxVerdictOf(cells)
     expect(verdict.reliability).toContain(
-      'reliability identical (raw): NATIVE oracle 0/0 vs ACTIVE 0/0 vs ACTIVE_V2 0/0'
+      'reliability identical (raw): NATIVE oracle 0/0 vs ACTIVE_V2 0/0 vs ACTIVE_V3 0/0'
     )
-    expect(verdict.contextEfficiency).toContain('NATIVE 8400 vs ACTIVE 9700 vs ACTIVE_V2 5050')
-    expect(verdict.contextEfficiency).toContain('ACTIVE_V2 lowest, ACTIVE highest')
+    expect(verdict.reliability).not.toContain('ACTIVE ')
+    expect(verdict.contextEfficiency).toContain('NATIVE 8400 vs ACTIVE_V2 5050 vs ACTIVE_V3 4850')
+    expect(verdict.contextEfficiency).toContain('ACTIVE_V3 lowest, NATIVE highest')
     expect(mxCellOneLiner(cells[0]!)).toContain('cell L1/NATIVE n=3')
     const v2Liner = mxCellOneLiner(
       cells.find((cell) => cell.task === 'L2' && cell.strategy === 'ACTIVE_V2')!
@@ -675,6 +818,24 @@ describe('MX aggregator', () => {
     expect(v2Liner).toContain('policy=v2-retain-latest-coarse')
     expect(v2Liner).toContain('dropAtBoundary=3/3 (100%)')
     expect(v2Liner).toContain('reReads=0')
+    const v3Liner = mxCellOneLiner(
+      cells.find((cell) => cell.task === 'L2' && cell.strategy === 'ACTIVE_V3')!
+    )
+    expect(v3Liner).toContain('cell L2/ACTIVE_V3 n=3')
+    expect(v3Liner).toContain('policy=v3-verify-window-dedup')
+    expect(v3Liner).toContain('dedupRemovals=3')
+    expect(v3Liner).toContain('deferredSweeps=3')
+    // M2-shaped verdict keeps its exact historical shape.
+    const m2Verdict = mxVerdictOf(
+      aggregateMxCells(
+        scriptedMxLegRecords('cr004-m2-20260827-01234567', M2_SHAPE).map(mxLegAnalysisInputOf)
+      )
+    )
+    expect(m2Verdict.reliability).toContain(
+      'reliability identical (raw): NATIVE oracle 0/0 vs ACTIVE 0/0 vs ACTIVE_V2 0/0'
+    )
+    expect(m2Verdict.contextEfficiency).toContain('NATIVE 8400 vs ACTIVE 9700 vs ACTIVE_V2 5050')
+    expect(m2Verdict.contextEfficiency).toContain('ACTIVE_V2 lowest, ACTIVE highest')
   })
 
   it('dropAtBoundaryOf implements series[seq-1] < series[seq-2] with an explicit caveat-free count', () => {
@@ -690,10 +851,8 @@ describe('MX aggregator', () => {
     expect(dropAtBoundaryOf([100, 200], [2])).toEqual({ sent: 1, drops: 0, rate: 0 })
   })
 
-  it('degrades to the M1 comparison set when no ACTIVE_V2 legs exist (M1 evidence dirs)', () => {
-    const m1Shaped = scriptedMxLegRecords('cr004-m1-20260826-d23a992c').filter(
-      (record) => record.strategy !== 'ACTIVE_V2'
-    )
+  it('degrades to the M1 comparison set when no ACTIVE_V2/V3 legs exist (M1 evidence dirs)', () => {
+    const m1Shaped = scriptedMxLegRecords('cr004-m1-20260826-d23a992c', M1_SHAPE)
     const cells = aggregateMxCells(m1Shaped.map(mxLegAnalysisInputOf))
     expect(cells).toHaveLength(6)
     const tests = mxPermutationTests(cells)
@@ -705,6 +864,7 @@ describe('MX aggregator', () => {
     const verdict = mxVerdictOf(cells)
     expect(verdict.contextEfficiency).toContain('NATIVE 8400 vs ACTIVE 9700')
     expect(verdict.contextEfficiency).not.toContain('ACTIVE_V2')
+    expect(verdict.contextEfficiency).not.toContain('ACTIVE_V3')
   })
 })
 
@@ -781,53 +941,90 @@ describe('MX incremental evidence + analyzeMatrix round-trip', () => {
       const { analysis, markdown } = await analyzeMatrix(reportDir)
       expect(analysis.legsAnalyzed).toBe(27)
       expect(analysis.cells).toHaveLength(9)
+      const l2ActiveV2 = analysis.cells.find(
+        (cell) => cell.task === 'L2' && cell.strategy === 'ACTIVE_V2'
+      )!
+      // Trajectories read from observations.jsonl: the v2 peak is post-drop.
+      expect(l2ActiveV2.trajectory.meanPeak).toBe(1500)
+      expect(l2ActiveV2.active!.reReads).toBe(0)
+      const l2ActiveV3 = analysis.cells.find(
+        (cell) => cell.task === 'L2' && cell.strategy === 'ACTIVE_V3'
+      )!
+      expect(l2ActiveV3.active!.policy).toBe('v3-verify-window-dedup')
+      expect(l2ActiveV3.active!.reReads).toBe(0)
+      expect(l2ActiveV3.active!.dropAtBoundary.rate).toBe(1)
+      expect(l2ActiveV3.active!.dedupRemovals).toBe(3)
+      expect(l2ActiveV3.active!.deferredSweeps).toBe(3)
+      // Per-task permutation over observedTokenEstimateSum: identical within
+      // strategy, separated across arms (8400 / 5050 / 4850) => p = 2/20 for
+      // every one of the THREE present-arm comparisons per task.
+      expect(analysis.perTask).toHaveLength(9)
+      const comparisons = new Set(analysis.perTask.map((entry) => entry.comparison))
+      expect([...comparisons].sort()).toEqual([
+        'ACTIVE_V2_vs_ACTIVE_V3',
+        'NATIVE_vs_ACTIVE_V2',
+        'NATIVE_vs_ACTIVE_V3'
+      ])
+      for (const { task, comparison, permutation } of analysis.perTask) {
+        expect(task).toBeTruthy()
+        expect(permutation.pValue).toBeCloseTo(0.1, 10)
+        // The low-power caveat rides on every p-value.
+        expect(permutation.caveat).toContain('no causal claim')
+        if (comparison === 'NATIVE_vs_ACTIVE_V2') {
+          expect(permutation.nativeSum).toBe(3 * 8400)
+          expect(permutation.activeSum).toBe(3 * 5050)
+        } else if (comparison === 'NATIVE_vs_ACTIVE_V3') {
+          expect(permutation.nativeSum).toBe(3 * 8400)
+          expect(permutation.activeSum).toBe(3 * 4850)
+        } else {
+          expect(permutation.nativeSum).toBe(3 * 5050)
+          expect(permutation.activeSum).toBe(3 * 4850)
+        }
+      }
+      expect(analysis.verdict.contextEfficiency).toContain('ACTIVE_V3 lowest')
+      expect(markdown).toContain('## Per-task exact permutation tests')
+      expect(markdown).toContain('L2 ACTIVE_V2_vs_ACTIVE_V3')
+      expect(markdown).toContain('policy=v2-retain-latest-coarse')
+      expect(markdown).toContain('policy=v3-verify-window-dedup')
+      expect(markdown).toContain('reReadsOfRemovedTargets=0')
+      expect(markdown).toContain('retainedLatestReadTargets=6')
+      expect(markdown).toContain('dropAtBoundary=3/3 (100%)')
+      expect(markdown).toContain('dedupRemovals=3')
+      expect(markdown).toContain('deferredSweeps=3')
+      expect(markdown).toContain('no causal claim')
+    } finally {
+      await rm(reportDir, { recursive: true, force: true })
+    }
+  })
+
+  it('still analyzes an M2-shaped evidence dir exactly as before (M2 analysis compat)', async () => {
+    const reportDir = await mkdtemp(join(tmpdir(), 'canvas-mx-report-'))
+    try {
+      await mkdir(join(reportDir, 'legs'), { recursive: true })
+      for (const record of scriptedMxLegRecords('cr004-m2-20260827-01234567', M2_SHAPE)) {
+        await writeMxLegEvidence(reportDir, record, scriptedMxObservations(record))
+      }
+      const { analysis, markdown } = await analyzeMatrix(reportDir)
+      expect(analysis.legsAnalyzed).toBe(27)
+      expect(analysis.cells).toHaveLength(9)
       const l2Active = analysis.cells.find(
         (cell) => cell.task === 'L2' && cell.strategy === 'ACTIVE'
       )!
       // Trajectories read from observations.jsonl: ACTIVE shows post-drop peak.
       expect(l2Active.trajectory.meanPeak).toBe(1900)
       expect(l2Active.active!.reReads).toBe(3)
-      const l2ActiveV2 = analysis.cells.find(
-        (cell) => cell.task === 'L2' && cell.strategy === 'ACTIVE_V2'
-      )!
-      expect(l2ActiveV2.active!.policy).toBe('v2-retain-latest-coarse')
-      expect(l2ActiveV2.active!.reReads).toBe(0)
-      expect(l2ActiveV2.active!.dropAtBoundary.rate).toBe(1)
-      // Per-task permutation over observedTokenEstimateSum: identical within
-      // strategy, separated across arms (8400 / 9700 / 5050) => p = 2/20 for
-      // every one of the THREE comparisons per task.
-      expect(analysis.perTask).toHaveLength(9)
+      expect(l2Active.active!.dedupRemovals).toBe(0)
+      expect(l2Active.active!.deferredSweeps).toBe(0)
       const comparisons = new Set(analysis.perTask.map((entry) => entry.comparison))
       expect([...comparisons].sort()).toEqual([
         'ACTIVE_vs_ACTIVE_V2',
         'NATIVE_vs_ACTIVE',
         'NATIVE_vs_ACTIVE_V2'
       ])
-      for (const { task, comparison, permutation } of analysis.perTask) {
-        expect(task).toBeTruthy()
-        expect(permutation.pValue).toBeCloseTo(0.1, 10)
-        // The n=3 low-power caveat rides on every p-value.
-        expect(permutation.caveat).toContain('no causal claim')
-        if (comparison === 'NATIVE_vs_ACTIVE') {
-          expect(permutation.nativeSum).toBe(3 * 8400)
-          expect(permutation.activeSum).toBe(3 * 9700)
-        } else if (comparison === 'NATIVE_vs_ACTIVE_V2') {
-          expect(permutation.nativeSum).toBe(3 * 8400)
-          expect(permutation.activeSum).toBe(3 * 5050)
-        } else {
-          expect(permutation.nativeSum).toBe(3 * 9700)
-          expect(permutation.activeSum).toBe(3 * 5050)
-        }
-      }
-      expect(analysis.verdict.contextEfficiency).toContain('ACTIVE_V2 lowest')
-      expect(markdown).toContain('## Per-task exact permutation tests')
+      expect(analysis.verdict.contextEfficiency).toContain('ACTIVE_V2 lowest, ACTIVE highest')
       expect(markdown).toContain('L2 ACTIVE_vs_ACTIVE_V2')
       expect(markdown).toContain('policy=v1-per-edit')
-      expect(markdown).toContain('policy=v2-retain-latest-coarse')
       expect(markdown).toContain('reReadsOfRemovedTargets=3')
-      expect(markdown).toContain('retainedLatestReadTargets=6')
-      expect(markdown).toContain('dropAtBoundary=3/3 (100%)')
-      expect(markdown).toContain('no causal claim')
     } finally {
       await rm(reportDir, { recursive: true, force: true })
     }
@@ -845,11 +1042,12 @@ describe('MX incremental evidence + analyzeMatrix round-trip', () => {
 // ---------------------------------------------------------------------------
 
 describe('MX scripted DRY_RUN legs', () => {
-  it('flow all 27 legs (three arms) through the matrix machine without stops, provider calls 0', () => {
+  it('flows all 27 default legs (M3 three arms) through the matrix machine without stops, provider calls 0', () => {
     const machine = new MatrixStateMachine()
     const scripted = scriptedMxLegRecords(RUN_ID)
     expect(scripted).toHaveLength(27)
     expect(scripted.filter((record) => record.strategy === 'ACTIVE_V2')).toHaveLength(9)
+    expect(scripted.filter((record) => record.strategy === 'ACTIVE_V3')).toHaveLength(9)
     for (const record of scripted) {
       const begin = machine.beginLeg(mxLegOrder()[record.legIndex]!)
       expect(begin.ok).toBe(true)
@@ -872,17 +1070,71 @@ describe('MX scripted DRY_RUN legs', () => {
     expect(ledgers.legsAttempted).toBe(27)
     expect(ledgers.providerCallRecordsTotal).toBe(0)
     // Stand-in oracles claim nothing; every ACTIVE_V2 leg carries v2-shaped
-    // intervention telemetry (one coarse SENT sweep, latest reads retained).
+    // intervention telemetry (one coarse SENT sweep, latest reads retained)
+    // and every ACTIVE_V3 leg carries v3-shaped telemetry (one dedup removal
+    // + one verify-window-deferred then resumed sweep).
     for (const record of scripted) {
       expect(record.oracleResults.every((result) => result.standIn === true && result.pass === null)).toBe(true)
-      if (record.strategy !== 'ACTIVE_V2') continue
-      const interventions = record.interventionTelemetry!.interventions
-      expect(interventions).toHaveLength(1)
-      expect(interventions[0]!.policy).toBe('v2-retain-latest-coarse')
-      expect(interventions[0]!.sentRewrite).toBe(true)
-      expect(interventions[0]!.removedBlocks).toBe(3)
-      expect(interventions[0]!.candidateBlocks).toBe(3)
-      expect(interventions[0]!.retainedLatestReadTargets).toHaveLength(2)
+      if (record.strategy === 'ACTIVE_V2') {
+        const interventions = record.interventionTelemetry!.interventions
+        expect(interventions).toHaveLength(1)
+        expect(interventions[0]!.policy).toBe('v2-retain-latest-coarse')
+        expect(interventions[0]!.trigger).toBe('edit')
+        expect(interventions[0]!.sentRewrite).toBe(true)
+        expect(interventions[0]!.removedBlocks).toBe(3)
+        expect(interventions[0]!.candidateBlocks).toBe(3)
+        expect(interventions[0]!.retainedLatestReadTargets).toHaveLength(2)
+        continue
+      }
+      if (record.strategy === 'ACTIVE_V3') {
+        const telemetry = record.interventionTelemetry!
+        const interventions = telemetry.interventions
+        expect(interventions).toHaveLength(2)
+        expect(interventions[0]!.policy).toBe('v3-verify-window-dedup')
+        expect(interventions[0]!.trigger).toBe('dedup')
+        expect(interventions[0]!.sentRewrite).toBe(true)
+        expect(interventions[0]!.removedBlocks).toBe(1)
+        expect(interventions[1]!.trigger).toBe('edit')
+        expect(interventions[1]!.sentRewrite).toBe(true)
+        expect(interventions[1]!.removedBlocks).toBe(1)
+        // Exactly one deferred boundary evaluation per scripted v3 leg.
+        expect(telemetry.events.filter((event) => event.deferredByVerifyWindow === true)).toHaveLength(1)
+      }
     }
+  })
+
+  it('scripts the targeted L2 x 4 shape: 12 legs, all L2, reps 1..4', () => {
+    const scripted = scriptedMxLegRecords('cr004-m3-20260827-01234567', M3_L2_SHAPE)
+    expect(scripted).toHaveLength(12)
+    expect(scripted.every((record) => record.task === 'L2')).toBe(true)
+    expect(scripted.filter((record) => record.strategy === 'NATIVE')).toHaveLength(4)
+    expect(scripted.filter((record) => record.strategy === 'ACTIVE_V3')).toHaveLength(4)
+    for (let rep = 1; rep <= 4; rep += 1) {
+      expect(
+        scripted.filter((record) => record.rep === rep).map((record) => record.strategy)
+      ).toEqual(['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3'])
+    }
+  })
+})
+
+describe('CANVAS_MX_ARMS arm selection (M4 confirmatory shape)', () => {
+  it('defaults to all three arms and canonicalizes order', () => {
+    expect(mxShapeFromEnv({}).strategies).toEqual(['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3'])
+    expect(mxShapeFromEnv({ arms: 'ACTIVE_V2,NATIVE' }).strategies).toEqual(['NATIVE', 'ACTIVE_V2'])
+  })
+
+  it('refuses unknown, duplicate and empty arm lists', () => {
+    expect(() => mxShapeFromEnv({ arms: 'ACTIVE' })).toThrow(MxConfigError)
+    expect(() => mxShapeFromEnv({ arms: 'NATIVE,NATIVE' })).toThrow(MxConfigError)
+    expect(() => mxShapeFromEnv({ arms: ' , ' })).toThrow(MxConfigError)
+  })
+
+  it('shapes the confirmatory two-arm design: 2 tasks x 2 arms x 8 reps = 32 legs', () => {
+    const shape = mxShapeFromEnv({ tasks: 'L1,L2', arms: 'NATIVE,ACTIVE_V2', reps: '8' })
+    expect(mxTotalLegsOf(shape)).toBe(32)
+    const order = mxLegOrder(shape)
+    expect(order[0]).toMatchObject({ task: 'L1', strategy: 'NATIVE', rep: 1 })
+    expect(order[1]).toMatchObject({ task: 'L1', strategy: 'ACTIVE_V2', rep: 1 })
+    expect(order[2]).toMatchObject({ task: 'L2', strategy: 'NATIVE', rep: 1 })
   })
 })

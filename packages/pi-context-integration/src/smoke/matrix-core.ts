@@ -17,29 +17,36 @@ import {
   type S1StopConditionId
 } from './s1-pair-core'
 
-// CR-004 Stage 1 MATRIX core (M2: docs/plan/cr004-m2-matrix-run-contract-2026-08-27.md;
-// M1 sibling: docs/plan/cr004-matrix-run-contract-2026-08-27.md).
+// CR-004 Stage 1 MATRIX core (M3: docs/plan/cr004-m3-matrix-run-contract-2026-08-27.md;
+// M2 sibling: docs/plan/cr004-m2-matrix-run-contract-2026-08-27.md; M1:
+// docs/plan/cr004-matrix-run-contract-2026-08-27.md).
 //
 // Everything the matrix runner, its offline analyzer, and its unit tests share:
-//   - the run-identity vocabulary (M2: cr004-m2-<ISO-date>-<8-hex>, single-use;
-//     validation still accepts consumed M1 identities for analysis of M1
-//     evidence dirs);
-//   - the matrix definition (3 L-tasks x NATIVE/ACTIVE/ACTIVE_V2 x 3
-//     repetitions = 27 legs, deterministic interleaved order: rep-major, per
-//     task Native, Active(v1), ActiveV2) and the matrix totals (600
-//     provider-call records / 180 minutes);
+//   - the run-identity vocabulary (M3: cr004-m3-<ISO-date>-<8-hex>, single-use;
+//     validation still accepts consumed M1/M2 identities so M1/M2 evidence
+//     dirs keep analyzing correctly);
+//   - the matrix definition — M3 default: 3 L-tasks x NATIVE/ACTIVE_V2/
+//     ACTIVE_V3 x 3 repetitions = 27 legs, deterministic interleaved order
+//     (rep-major, per task NATIVE, ACTIVE_V2, ACTIVE_V3) — now CONFIGURABLE
+//     via the validated env knobs CANVAS_MX_TASKS (subset of L1/L2/L3) and
+//     CANVAS_MX_REPS (1..8) so a targeted run (e.g. L2-only x 4 reps = 12
+//     legs) is possible; the matrix totals stay 600 provider-call records /
+//     180 minutes;
 //   - the matrix state machine: leg-level failures mark ONE leg FAILED and the
 //     matrix CONTINUES; only matrix-level S-1 (binding) or S-7 (totals) stop
 //     everything, checked between legs, evidence always preserved;
 //   - incremental evidence writers (leg.json + observations.jsonl per leg,
 //     manifest.json + matrix.json rewritten after EVERY leg — never buffered
 //     to the end);
-//   - the offline aggregator/analyzer (per-cell stats, context trajectories
-//     from observations, per-ACTIVE-arm intervention telemetry incl. removal
-//     policy A/B metrics and re-read detection, exact permutation p-values for
-//     all three arm pairs with an explicit low-power caveat);
-//   - the DRY_RUN scripted legs (27 stand-in records through the FULL state
-//     machine + aggregator; provider calls exactly 0).
+//   - the offline aggregator/analyzer (per-cell stats for every arm PRESENT —
+//     M1/M2-era dirs with the v1 ACTIVE arm still analyze correctly — context
+//     trajectories from observations, per-ACTIVE-arm intervention telemetry
+//     incl. removal policy A/B metrics, v3 dedupRemovals/deferredSweeps, and
+//     re-read detection, exact pairwise permutation p-values across present
+//     arms with an explicit low-power caveat);
+//   - the DRY_RUN scripted legs (stand-in records for the configured shape —
+//     27 by default, 12 for the targeted L2 x 4 shape — through the FULL
+//     state machine + aggregator; provider calls exactly 0).
 //
 // No provider, no network, no ModelRuntime in this module.
 
@@ -48,29 +55,30 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Accepts both M1 (consumed) and M2 identities: `cr004-m[12]-<ISO-date
- * undashed>-<8-hex>`, e.g. cr004-m1-20260826-d23a992c / cr004-m2-20260827-4d7e9a1b.
+ * Accepts M1–M4 (each M-series run must carry its own contract): `cr004-m[1-9]-<ISO-date
+ * undashed>-<8-hex>`, e.g. cr004-m1-20260826-d23a992c /
+ * cr004-m2-20260827-4d7e9a1b / cr004-m3-20260827-9c1d2e3f.
  */
-export const MX_RUN_ID_PATTERN = /^cr004-m[12]-\d{8}-[0-9a-f]{8}$/
-/** Tonight's M2 run identities: cr004-m2-<ISO-date-undashed>-<8-hex>. */
-export const MX_M2_RUN_ID_PATTERN = /^cr004-m2-\d{8}-[0-9a-f]{8}$/
+export const MX_RUN_ID_PATTERN = /^cr004-m[1-9]-\d{8}-[0-9a-f]{8}$/
+/** Tonight's M3 run identities: cr004-m3-<ISO-date-undashed>-<8-hex>. */
+export const MX_M3_RUN_ID_PATTERN = /^cr004-m3-\d{8}-[0-9a-f]{8}$/
 
 export function isValidMxRunId(runId: string | undefined): runId is string {
   return runId !== undefined && MX_RUN_ID_PATTERN.test(runId)
 }
 
-/** True for an M2-pattern identity (the contract in force for new runs). */
-export function isM2MxRunId(runId: string | undefined): runId is string {
-  return runId !== undefined && MX_M2_RUN_ID_PATTERN.test(runId)
+/** True for an M3-pattern identity (the contract in force for new runs). */
+export function isM3MxRunId(runId: string | undefined): runId is string {
+  return runId !== undefined && MX_M3_RUN_ID_PATTERN.test(runId)
 }
 
 /**
  * Fresh single-use run identity suggestion; the Lead must export it. New runs
- * are M2 (`cr004-m2-*`); M1 identities are consumed history.
+ * are M3 (`cr004-m3-*`); M1/M2 identities are consumed history.
  */
 export function suggestMxRunId(now: Date = new Date()): string {
   const isoDate = now.toISOString().slice(0, 10).replace(/-/g, '')
-  return `cr004-m2-${isoDate}-${randomBytes(4).toString('hex')}`
+  return `cr004-m3-${isoDate}-${randomBytes(4).toString('hex')}`
 }
 
 // ---------------------------------------------------------------------------
@@ -81,20 +89,144 @@ export const MX_TASK_IDS = ['L1', 'L2', 'L3'] as const
 export type MxTaskId = (typeof MX_TASK_IDS)[number]
 
 /**
- * M2 three-arm strategy dimension. NATIVE and ACTIVE keep their exact M1
- * semantics; ACTIVE_V2 runs the same Active extension with
- * removalPolicy 'v2-retain-latest-coarse' and the raised per-leg bounds
- * (8 sends / 12 attempts).
+ * M3 three-arm strategy dimension: NATIVE and ACTIVE_V2 keep their exact M1/
+ * M2 semantics; ACTIVE_V3 runs the same Active extension with removalPolicy
+ * 'v3-verify-window-dedup' (v2 retain-latest coarse sweeps + duplicate-read
+ * dedup + the verification-window deferral) and the raised per-leg bounds
+ * (8 sends / 12 attempts). The v1 ACTIVE arm is M1/M2 history (replicated
+ * twice) and is not part of the M3 design.
  */
-export const MX_STRATEGIES = ['NATIVE', 'ACTIVE', 'ACTIVE_V2'] as const
-export type MxStrategy = (typeof MX_STRATEGIES)[number]
+export const MX_STRATEGIES = ['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3'] as const
+
+/**
+ * Every strategy the analyzer understands, in canonical order — including the
+ * historical v1 ACTIVE arm so M1/M2 evidence dirs still analyze correctly.
+ */
+export const MX_ALL_STRATEGIES = ['NATIVE', 'ACTIVE', 'ACTIVE_V2', 'ACTIVE_V3'] as const
+export type MxStrategy = (typeof MX_ALL_STRATEGIES)[number]
 
 /** Strategies that run the Active rewrite extension (treatment arms). */
-export const MX_ACTIVE_STRATEGIES = ['ACTIVE', 'ACTIVE_V2'] as const
+export const MX_ACTIVE_STRATEGIES = ['ACTIVE', 'ACTIVE_V2', 'ACTIVE_V3'] as const
 export type MxActiveStrategy = (typeof MX_ACTIVE_STRATEGIES)[number]
 
 export const MX_REPETITIONS = 3
 export const MX_TOTAL_LEGS = MX_TASK_IDS.length * MX_STRATEGIES.length * MX_REPETITIONS
+
+/** Configurable repetitions bounds (CANVAS_MX_REPS; contract section 5). */
+export const MX_MIN_REPETITIONS = 1
+export const MX_MAX_REPETITIONS = 8
+
+/** The validated matrix shape: which task cells and how many repetitions. */
+export interface MxMatrixShape {
+  /** Task slots to run, in canonical order (CANVAS_MX_TASKS). */
+  readonly tasks: readonly MxTaskId[]
+  /** Treatment arms to run, control first (fixed M3 arm set by default). */
+  readonly strategies: readonly MxStrategy[]
+  /** 1-based repetition count (CANVAS_MX_REPS, 1..8). */
+  readonly repetitions: number
+}
+
+/** The M3 default design: L1,L2,L3 x NATIVE,ACTIVE_V2,ACTIVE_V3 x 3 = 27 legs. */
+export const MX_DEFAULT_SHAPE: MxMatrixShape = {
+  tasks: [...MX_TASK_IDS],
+  strategies: [...MX_STRATEGIES],
+  repetitions: MX_REPETITIONS
+}
+
+/** Configuration error in the matrix env knobs; the runner REFUSES on it. */
+export class MxConfigError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'MxConfigError'
+  }
+}
+
+/**
+ * Parse CANVAS_MX_TASKS: a comma list from {L1,L2,L3}; default all three.
+ * Refuses empty tokens, duplicates, and unknown slot names.
+ */
+export function parseMxTasksEnv(raw: string | undefined): readonly MxTaskId[] {
+  if (raw === undefined) return [...MX_TASK_IDS]
+  const tokens = raw
+    .split(',')
+    .map((token) => token.trim())
+    .filter((token) => token !== '')
+  if (tokens.length === 0) {
+    throw new MxConfigError('CANVAS_MX_TASKS must be a comma list from {L1,L2,L3} (got an empty list)')
+  }
+  const tasks: MxTaskId[] = []
+  for (const token of tokens) {
+    if (!(MX_TASK_IDS as readonly string[]).includes(token)) {
+      throw new MxConfigError(`CANVAS_MX_TASKS: unknown task slot '${token}' (allowed: L1,L2,L3)`)
+    }
+    if (tasks.includes(token as MxTaskId)) {
+      throw new MxConfigError(`CANVAS_MX_TASKS: duplicate task slot '${token}'`)
+    }
+    tasks.push(token as MxTaskId)
+  }
+  // Canonical order regardless of the env listing.
+  return MX_TASK_IDS.filter((task) => tasks.includes(task))
+}
+
+/**
+ * Parse CANVAS_MX_REPS: an integer in [1, 8]; default 3.
+ */
+export function parseMxRepetitionsEnv(raw: string | undefined): number {
+  if (raw === undefined) return MX_REPETITIONS
+  if (!/^\d+$/.test(raw.trim())) {
+    throw new MxConfigError(`CANVAS_MX_REPS must be an integer in [${MX_MIN_REPETITIONS}, ${MX_MAX_REPETITIONS}] (got '${raw}')`)
+  }
+  const parsed = Number.parseInt(raw.trim()!, 10)
+  if (parsed < MX_MIN_REPETITIONS || parsed > MX_MAX_REPETITIONS) {
+    throw new MxConfigError(`CANVAS_MX_REPS out of range: ${parsed} (allowed ${MX_MIN_REPETITIONS}..${MX_MAX_REPETITIONS})`)
+  }
+  return parsed
+}
+
+/**
+ * Parse CANVAS_MX_ARMS: a comma list from {NATIVE, ACTIVE_V2, ACTIVE_V3};
+ * default all three. Refuses empty tokens, duplicates and unknown arms; the
+ * canonical order (control first) applies regardless of the env listing.
+ */
+export function parseMxStrategiesEnv(raw: string | undefined): readonly MxStrategy[] {
+  if (raw === undefined) return [...MX_STRATEGIES]
+  const tokens = raw
+    .split(',')
+    .map((token) => token.trim())
+    .filter((token) => token !== '')
+  if (tokens.length === 0) {
+    throw new MxConfigError('CANVAS_MX_ARMS must be a comma list from {NATIVE,ACTIVE_V2,ACTIVE_V3} (got an empty list)')
+  }
+  const arms: MxStrategy[] = []
+  for (const token of tokens) {
+    if (!(MX_STRATEGIES as readonly string[]).includes(token)) {
+      throw new MxConfigError(`CANVAS_MX_ARMS: unknown arm '${token}' (allowed: NATIVE,ACTIVE_V2,ACTIVE_V3)`)
+    }
+    if (arms.includes(token as MxStrategy)) {
+      throw new MxConfigError(`CANVAS_MX_ARMS: duplicate arm '${token}'`)
+    }
+    arms.push(token as MxStrategy)
+  }
+  return MX_STRATEGIES.filter((strategy) => arms.includes(strategy))
+}
+
+/** Resolve and validate the full matrix shape from the env knobs. */
+export function mxShapeFromEnv(env: {
+  readonly tasks?: string | undefined
+  readonly reps?: string | undefined
+  readonly arms?: string | undefined
+}): MxMatrixShape {
+  return {
+    tasks: parseMxTasksEnv(env.tasks),
+    strategies: parseMxStrategiesEnv(env.arms),
+    repetitions: parseMxRepetitionsEnv(env.reps)
+  }
+}
+
+/** Total leg count of a shape. */
+export function mxTotalLegsOf(shape: MxMatrixShape): number {
+  return shape.tasks.length * shape.strategies.length * shape.repetitions
+}
 
 export interface MxLegPlan {
   /** 0-based position in the deterministic leg order. */
@@ -106,17 +238,18 @@ export interface MxLegPlan {
 }
 
 /**
- * Deterministic interleaved leg order: for rep 1..3 { for task L1..L3 {
- * NATIVE, ACTIVE, ACTIVE_V2 } } — 27 legs. Control always precedes the
- * treatment arms inside every task x repetition cell, and the v1 treatment
- * precedes the v2 treatment (M1 comparison first, policy A/B second).
+ * Deterministic interleaved leg order for a shape: for rep 1..repetitions {
+ * for task (shape order) { for strategy (shape order) } }. Default (M3):
+ * 27 legs — control always precedes the treatment arms inside every
+ * task x repetition cell, and the v2 treatment precedes the v3 treatment
+ * (established policy first, new policy second).
  */
-export function mxLegOrder(): readonly MxLegPlan[] {
+export function mxLegOrder(shape: MxMatrixShape = MX_DEFAULT_SHAPE): readonly MxLegPlan[] {
   const plans: MxLegPlan[] = []
   let legIndex = 0
-  for (let rep = 1; rep <= MX_REPETITIONS; rep += 1) {
-    for (const task of MX_TASK_IDS) {
-      for (const strategy of MX_STRATEGIES) {
+  for (let rep = 1; rep <= shape.repetitions; rep += 1) {
+    for (const task of shape.tasks) {
+      for (const strategy of shape.strategies) {
         plans.push({ legIndex, task, strategy, rep })
         legIndex += 1
       }
@@ -125,11 +258,12 @@ export function mxLegOrder(): readonly MxLegPlan[] {
   return plans
 }
 
-/** Directory segment per strategy: ACTIVE_V2 legs use `ACTIVE2`. */
+/** Directory segment per strategy: ACTIVE_V2 -> ACTIVE2, ACTIVE_V3 -> ACTIVE3. */
 const MX_STRATEGY_DIR_SEGMENT: Readonly<Record<MxStrategy, string>> = {
   NATIVE: 'NATIVE',
   ACTIVE: 'ACTIVE',
-  ACTIVE_V2: 'ACTIVE2'
+  ACTIVE_V2: 'ACTIVE2',
+  ACTIVE_V3: 'ACTIVE3'
 }
 
 export function mxLegDirName(plan: MxLegPlan): string {
@@ -141,10 +275,10 @@ export function mxLegDirName(plan: MxLegPlan): string {
 // ---------------------------------------------------------------------------
 
 export const MX_BUDGETS = {
-  /** 3 tasks x 3 strategies x 3 repetitions (M2 three-arm). */
+  /** Default design: 3 tasks x 3 strategies x 3 repetitions (M3 three-arm); a configured shape scales this (state machine option). */
   maxLegs: MX_TOTAL_LEGS,
-  /** Matrix total across all 27 legs (C0 counting semantics). M1 was 400. */
-  maxProviderCallRecords: 600,
+  /** Matrix total across all legs (C0 counting semantics). M1 was 400. */
+  maxProviderCallRecords: 900,
   /** Matrix watchdog, measured from strict preparation to evidence-close. */
   runWallClockMs: 180 * 60 * 1000,
   /** Multi-intervention bound per ACTIVE (v1) leg (sends). M1 semantics. */
@@ -156,7 +290,15 @@ export const MX_BUDGETS = {
   /** Raised multi-intervention bound per ACTIVE_V2 leg (attempts, policy v2). */
   maxAttemptsPerLegV2: 12,
   /** Policy-v2 cap on read pairs removed by ONE intervention (oldest-first). */
-  maxBlocksPerInterventionV2: 12
+  maxBlocksPerInterventionV2: 12,
+  /** Raised multi-intervention bound per ACTIVE_V3 leg (sends, policy v3). */
+  maxInterventionsPerLegV3: 8,
+  /** Raised multi-intervention bound per ACTIVE_V3 leg (attempts, policy v3). */
+  maxAttemptsPerLegV3: 12,
+  /** Policy-v3 cap on read pairs removed by ONE intervention (oldest-first). */
+  maxBlocksPerInterventionV3: 12,
+  /** Policy-v3 verification-window width in trailing tool events. */
+  verifyWindowEventsV3: 2
 } as const
 
 /** Per-leg budget measures checked post-hoc at leg end. */
@@ -233,14 +375,17 @@ export interface MxMatrixLedgers {
   readonly oraclePassActive: number
   /** M2 third arm (policy v2); 0 for M1-era evidence. */
   readonly oraclePassActiveV2: number
+  /** M3 third arm (policy v3); 0 for M1/M2-era evidence. */
+  readonly oraclePassActiveV3: number
   readonly runElapsedMs: number
 }
 
 /**
  * Matrix state machine. Leg-level failures NEVER stop the matrix; only the
- * matrix-level totals (S-7: 400 provider-call records / 180 minutes, checked
- * between legs) or a strict binding failure (S-1) are terminal. Deterministic
- * under an injected clock; no I/O.
+ * matrix-level totals (S-7: 600 provider-call records / 180 minutes, checked
+ * between legs) or a strict binding failure (S-1) are terminal. The leg-count
+ * bound defaults to the 27-leg M3 design and scales with a configured shape
+ * (passed by the runner). Deterministic under an injected clock; no I/O.
  */
 export class MatrixStateMachine {
   private readonly ledgersByLeg: MxLegLedger[] = []
@@ -249,11 +394,20 @@ export class MatrixStateMachine {
   private readonly startedAtMs: number
   private readonly now: () => number
   private readonly nowIso: () => string
+  private readonly maxLegs: number
 
-  constructor(options: { readonly now?: () => number; readonly nowIso?: () => string } = {}) {
+  constructor(
+    options: {
+      readonly now?: () => number
+      readonly nowIso?: () => string
+      /** Leg-count bound for the configured shape. Default: MX_TOTAL_LEGS. */
+      readonly maxLegs?: number
+    } = {}
+  ) {
     this.now = options.now ?? Date.now
     this.nowIso = options.nowIso ?? (() => new Date().toISOString())
     this.startedAtMs = this.now()
+    this.maxLegs = options.maxLegs ?? MX_BUDGETS.maxLegs
   }
 
   get isTerminal(): boolean {
@@ -277,6 +431,7 @@ export class MatrixStateMachine {
     let oraclePassNative = 0
     let oraclePassActive = 0
     let oraclePassActiveV2 = 0
+    let oraclePassActiveV3 = 0
     for (const leg of this.ledgersByLeg) {
       providerCallRecordsTotal += leg.providerCallRecords
       toolCallsTotal += leg.toolCalls
@@ -286,7 +441,8 @@ export class MatrixStateMachine {
       if (leg.oraclePass === true) {
         if (leg.strategy === 'NATIVE') oraclePassNative += 1
         else if (leg.strategy === 'ACTIVE') oraclePassActive += 1
-        else oraclePassActiveV2 += 1
+        else if (leg.strategy === 'ACTIVE_V2') oraclePassActiveV2 += 1
+        else oraclePassActiveV3 += 1
       }
     }
     return {
@@ -299,6 +455,7 @@ export class MatrixStateMachine {
       oraclePassNative,
       oraclePassActive,
       oraclePassActiveV2,
+      oraclePassActiveV3,
       runElapsedMs: this.now() - this.startedAtMs
     }
   }
@@ -344,7 +501,7 @@ export class MatrixStateMachine {
         stop: this.fireMatrixStop('S-7', 'leg start refused: the matrix is already terminal')
       }
     }
-    if (this.ledgersByLeg.length >= MX_BUDGETS.maxLegs) {
+    if (this.ledgersByLeg.length >= this.maxLegs) {
       return {
         ok: false,
         stop: this.fireMatrixStop('S-7', `matrix leg budget exhausted: ${this.ledgersByLeg.length} legs attempted`)
@@ -390,16 +547,20 @@ export interface MxTaskDefinition extends C1TaskDefinition {
 }
 
 /**
- * Resolve the three L-task manifests from a manifest directory. Each task id
- * must match exactly one `<task>-*.json` file; a missing or ambiguous match
- * refuses with a clear error. Fixtures are existence-checked only when
- * `requireFixtures` (LIVE mode; DRY_RUN never touches fixtures).
+ * Resolve the L-task manifests from a manifest directory. Each requested task
+ * id (default: all three) must match exactly one `<task>-*.json` file; a
+ * missing or ambiguous match refuses with a clear error. Fixtures are
+ * existence-checked only when `requireFixtures` (LIVE mode; DRY_RUN never
+ * touches fixtures). A targeted run (CANVAS_MX_TASKS=L2) resolves ONLY the
+ * slots it will execute.
  */
 export async function resolveMxTasks(options: {
   readonly manifestDir: string
   /** Root the manifest fixturePath is relative to (the benchmark root). */
   readonly benchmarkRoot: string
   readonly requireFixtures: boolean
+  /** Task slots to resolve (default all; subset for targeted runs). */
+  readonly taskIds?: readonly MxTaskId[]
 }): Promise<readonly MxTaskDefinition[]> {
   const entries = await readdir(options.manifestDir, { withFileTypes: true })
   const jsonFiles = entries
@@ -407,7 +568,7 @@ export async function resolveMxTasks(options: {
     .map((entry) => entry.name)
     .sort()
   const tasks: MxTaskDefinition[] = []
-  for (const taskId of MX_TASK_IDS) {
+  for (const taskId of options.taskIds ?? MX_TASK_IDS) {
     const matches = jsonFiles.filter((name) => new RegExp(`^${taskId}-.+\\.json$`).test(name))
     if (matches.length === 0) {
       throw new Error(
@@ -614,16 +775,20 @@ export interface MxLegAnalysisInput {
     readonly toolBlocksRemoved: number
     readonly reReads: number
     readonly postFirstInterventionReads: number
-    /** Removal policy of this leg's arm ('v1-per-edit' | 'v2-retain-latest-coarse'). */
+    /** Removal policy of this leg's arm ('v1-per-edit' | 'v2-retain-latest-coarse' | 'v3-verify-window-dedup'). */
     readonly policy: string
     /** Eligible candidate read pairs found across interventions (pre-cap). */
     readonly candidateBlocks: number
     /** Read pairs marked superseded across interventions (post-cap). */
     readonly removedBlocks: number
-    /** Total retained-latest read targets recorded (v2 legs). */
+    /** Total retained-latest read targets recorded (v2/v3 legs). */
     readonly retainedLatestReadTargets: number
     /** Observer sequences of SENT interventions (drop-at-boundary input). */
     readonly sentBoundarySequences: readonly (number | null)[]
+    /** Read pairs removed by DEDUP-triggered interventions (v3 legs; 0 otherwise). */
+    readonly dedupRemovals: number
+    /** Boundary evaluations that deferred an edit sweep (v3 legs; 0 otherwise). */
+    readonly deferredSweeps: number
   }
 }
 
@@ -658,6 +823,10 @@ export interface MxCellAggregate {
     readonly dropAtBoundary: { readonly sent: number; readonly drops: number; readonly rate: number | null }
     readonly reReads: number
     readonly postFirstInterventionReads: number
+    /** Read pairs removed by DEDUP-triggered interventions (v3 legs; 0 otherwise). */
+    readonly dedupRemovals: number
+    /** Boundary evaluations that deferred an edit sweep (v3 legs; 0 otherwise). */
+    readonly deferredSweeps: number
   }
 }
 
@@ -716,6 +885,16 @@ export function mxLegAnalysisInputOf(record: MxLegRecord): MxLegAnalysisInput {
             sentBoundarySequences: telemetry.interventions
               .filter((attempt) => attempt.sentRewrite)
               .map((attempt) => attempt.boundarySequence),
+            // M1/M2-era evidence lacks the trigger/deferral fields; both
+            // degrade to 0.
+            dedupRemovals: telemetry.interventions.reduce(
+              (total, attempt) =>
+                total + (attempt.trigger === 'dedup' ? (attempt.removedBlocks ?? 0) : 0),
+              0
+            ),
+            deferredSweeps: telemetry.events.filter(
+              (event) => event.deferredByVerifyWindow === true
+            ).length,
             reReads: reReads.matches.length,
             postFirstInterventionReads: reReads.postFirstInterventionReadCount
           }
@@ -726,8 +905,11 @@ export function mxLegAnalysisInputOf(record: MxLegRecord): MxLegAnalysisInput {
 
 export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonly MxCellAggregate[] {
   const cells: MxCellAggregate[] = []
+  // Canonical iteration over EVERY strategy the analyzer understands (the
+  // historical v1 ACTIVE arm included): absent arms simply contribute no
+  // cell, so M1/M2/M3 evidence dirs all aggregate correctly.
   for (const task of MX_TASK_IDS) {
-    for (const strategy of MX_STRATEGIES) {
+    for (const strategy of MX_ALL_STRATEGIES) {
       const legs = inputs.filter((input) => input.task === task && input.strategy === strategy)
       if (legs.length === 0) continue
       const rateOf = (
@@ -750,6 +932,8 @@ export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonl
       let dropDrops = 0
       let reReads = 0
       let postFirstInterventionReads = 0
+      let dedupRemovals = 0
+      let deferredSweeps = 0
       let hasActive = false
       let activePolicy = 'v1-per-edit'
       for (const leg of legs) {
@@ -759,6 +943,8 @@ export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonl
         // degrades to the v1 default when a leg fired zero interventions.
         if (leg.strategy === 'ACTIVE_V2') {
           activePolicy = 'v2-retain-latest-coarse'
+        } else if (leg.strategy === 'ACTIVE_V3') {
+          activePolicy = 'v3-verify-window-dedup'
         } else if (leg.interventions.policy !== 'v1-per-edit') {
           activePolicy = leg.interventions.policy
         }
@@ -768,6 +954,8 @@ export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonl
         candidateBlocks += leg.interventions.candidateBlocks
         removedBlocks += leg.interventions.removedBlocks
         retainedLatestReadTargets += leg.interventions.retainedLatestReadTargets
+        dedupRemovals += leg.interventions.dedupRemovals
+        deferredSweeps += leg.interventions.deferredSweeps
         const drop = dropAtBoundaryOf(leg.tokenSeries, leg.interventions.sentBoundarySequences)
         dropSent += drop.sent
         dropDrops += drop.drops
@@ -826,7 +1014,9 @@ export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonl
                   rate: dropSent === 0 ? null : dropDrops / dropSent
                 },
                 reReads,
-                postFirstInterventionReads
+                postFirstInterventionReads,
+                dedupRemovals,
+                deferredSweeps
               }
             }
           : {})
@@ -856,7 +1046,7 @@ export interface MxPermutationTest {
 }
 
 export const MX_LOW_POWER_CAVEAT =
-  'n=3 per cell: descriptive statistics and exact enumeration of all C(6,3)=20 label assignments only; low statistical power; no causal claim'
+  'small-n per cell: descriptive statistics and exact enumeration of all label assignments only; low statistical power; no causal claim'
 
 function combinationSums(pool: readonly number[], k: number): readonly number[] {
   const sums: number[] = []
@@ -910,12 +1100,28 @@ export function exactPermutationTest(
   }
 }
 
-/** The three M2 arm comparisons (M1 evidence dirs only produce the first). */
-export const MX_ARM_COMPARISONS = [
-  { label: 'NATIVE_vs_ACTIVE', first: 'NATIVE', second: 'ACTIVE' },
-  { label: 'NATIVE_vs_ACTIVE_V2', first: 'NATIVE', second: 'ACTIVE_V2' },
-  { label: 'ACTIVE_vs_ACTIVE_V2', first: 'ACTIVE', second: 'ACTIVE_V2' }
-] as const
+/**
+ * Pairwise arm comparisons across the strategies PRESENT in the cells, in
+ * canonical order (an M3 dir yields NATIVE_vs_ACTIVE_V2, NATIVE_vs_ACTIVE_V3,
+ * ACTIVE_V2_vs_ACTIVE_V3; an M2 dir yields the M2 trio; an M1 dir only
+ * NATIVE_vs_ACTIVE).
+ */
+export function mxArmComparisons(present: readonly MxStrategy[]): readonly {
+  readonly label: string
+  readonly first: MxStrategy
+  readonly second: MxStrategy
+}[] {
+  const ordered = MX_ALL_STRATEGIES.filter((strategy) => present.includes(strategy))
+  const comparisons: { label: string; first: MxStrategy; second: MxStrategy }[] = []
+  for (let i = 0; i < ordered.length; i += 1) {
+    for (let j = i + 1; j < ordered.length; j += 1) {
+      const first = ordered[i]!
+      const second = ordered[j]!
+      comparisons.push({ label: `${first}_vs_${second}`, first, second })
+    }
+  }
+  return comparisons
+}
 
 /** One per-task arm comparison with its exact permutation test. */
 export interface MxArmComparisonTest {
@@ -924,13 +1130,14 @@ export interface MxArmComparisonTest {
   readonly permutation: MxPermutationTest
 }
 
-/** Per-task exact permutation tests over observedTokenEstimateSum, all arm pairs. */
+/** Per-task exact permutation tests over observedTokenEstimateSum, all PRESENT arm pairs. */
 export function mxPermutationTests(
   cells: readonly MxCellAggregate[]
 ): readonly MxArmComparisonTest[] {
   const tests: MxArmComparisonTest[] = []
+  const present = [...new Set(cells.map((cell) => cell.strategy))]
   for (const task of MX_TASK_IDS) {
-    for (const comparison of MX_ARM_COMPARISONS) {
+    for (const comparison of mxArmComparisons(present)) {
       const first = cells.find((cell) => cell.task === task && cell.strategy === comparison.first)
       const second = cells.find((cell) => cell.task === task && cell.strategy === comparison.second)
       if (first === undefined || second === undefined) continue
@@ -1011,6 +1218,9 @@ export interface MxVerdict {
 }
 
 export function mxVerdictOf(cells: readonly MxCellAggregate[]): MxVerdict {
+  const present = MX_ALL_STRATEGIES.filter((strategy) =>
+    cells.some((cell) => cell.strategy === strategy)
+  )
   const oracleOf = (strategy: MxStrategy): { pass: number; evaluated: number } => {
     const armCells = cells.filter((cell) => cell.strategy === strategy)
     return {
@@ -1018,15 +1228,21 @@ export function mxVerdictOf(cells: readonly MxCellAggregate[]): MxVerdict {
       evaluated: armCells.reduce((total, cell) => total + cell.oracle.pass + cell.oracle.fail, 0)
     }
   }
-  const native = oracleOf('NATIVE')
-  const active = oracleOf('ACTIVE')
-  const activeV2 = oracleOf('ACTIVE_V2')
+  const oracles = present.map((strategy) => ({ strategy, ...oracleOf(strategy) }))
   const identical =
-    native.pass === active.pass &&
-    native.evaluated === active.evaluated &&
-    native.pass === activeV2.pass &&
-    native.evaluated === activeV2.evaluated
-  const reliability = `${identical ? 'reliability identical' : 'reliability differentiated'} (raw): NATIVE oracle ${native.pass}/${native.evaluated} vs ACTIVE ${active.pass}/${active.evaluated} vs ACTIVE_V2 ${activeV2.pass}/${activeV2.evaluated}`
+    oracles.length === 0 ||
+    oracles.every(
+      (arm, index) =>
+        index === 0 ||
+        (arm.pass === oracles[0]!.pass && arm.evaluated === oracles[0]!.evaluated)
+    )
+  const reliability = `reliability ${identical ? 'identical' : 'differentiated'} (raw): ${oracles
+    .map((arm, index) =>
+      index === 0
+        ? `${arm.strategy} oracle ${arm.pass}/${arm.evaluated}`
+        : `${arm.strategy} ${arm.pass}/${arm.evaluated}`
+    )
+    .join(' vs ')}`
   const meanOfArm = (strategy: MxStrategy): number | null =>
     meanOf(
       cells
@@ -1035,7 +1251,7 @@ export function mxVerdictOf(cells: readonly MxCellAggregate[]): MxVerdict {
         .filter((value) => !Number.isNaN(value))
     )
   const means: { readonly strategy: MxStrategy; readonly mean: number }[] = []
-  for (const strategy of MX_STRATEGIES) {
+  for (const strategy of present) {
     const mean = meanOfArm(strategy)
     if (mean !== null) means.push({ strategy, mean })
   }
@@ -1072,7 +1288,7 @@ export function mxCellOneLiner(cell: MxCellAggregate): string {
     cell.active.dropAtBoundary.rate === null
       ? 'n/a'
       : `${(cell.active.dropAtBoundary.rate * 100).toFixed(0)}%`
-  return `${base} policy=${cell.active.policy} interventions=${cell.active.sends}/${cell.active.attempts}${fallbacks === '' ? '' : ` fallbacks=[${fallbacks}]`} removedBlocks=${cell.active.removedBlocks}${cell.active.candidateBlocks > cell.active.removedBlocks ? ` (capped from ${cell.active.candidateBlocks})` : ''} retainedLatest=${cell.active.retainedLatestReadTargets} dropAtBoundary=${cell.active.dropAtBoundary.drops}/${cell.active.dropAtBoundary.sent} (${dropRate}) reReads=${cell.active.reReads} postFirstReads=${cell.active.postFirstInterventionReads}`
+  return `${base} policy=${cell.active.policy} interventions=${cell.active.sends}/${cell.active.attempts}${fallbacks === '' ? '' : ` fallbacks=[${fallbacks}]`} removedBlocks=${cell.active.removedBlocks}${cell.active.candidateBlocks > cell.active.removedBlocks ? ` (capped from ${cell.active.candidateBlocks})` : ''} retainedLatest=${cell.active.retainedLatestReadTargets} dropAtBoundary=${cell.active.dropAtBoundary.drops}/${cell.active.dropAtBoundary.sent} (${dropRate}) reReads=${cell.active.reReads} postFirstReads=${cell.active.postFirstInterventionReads} dedupRemovals=${cell.active.dedupRemovals} deferredSweeps=${cell.active.deferredSweeps}`
 }
 
 // ---------------------------------------------------------------------------
@@ -1157,7 +1373,7 @@ export async function analyzeMatrix(reportDir: string): Promise<MxAnalysisOutput
   for (const cell of cells.filter((candidate) => candidate.active !== undefined)) {
     const active = cell.active!
     lines.push(
-      `- ${cell.task}/${cell.strategy}: policy=${active.policy}, sends=${active.sends}/${active.attempts} attempts, removedBlocks=${active.removedBlocks}${active.candidateBlocks > active.removedBlocks ? ` (capped from ${active.candidateBlocks} candidates)` : ` (candidates=${active.candidateBlocks})`}, retainedLatestReadTargets=${active.retainedLatestReadTargets}, dropAtBoundary=${active.dropAtBoundary.drops}/${active.dropAtBoundary.sent}${active.dropAtBoundary.rate === null ? '' : ` (${(active.dropAtBoundary.rate * 100).toFixed(0)}%)`}, reReadsOfRemovedTargets=${active.reReads}, postFirstInterventionReads=${active.postFirstInterventionReads}${Object.keys(active.fallbackReasons).length === 0 ? '' : `, fallbacks=${JSON.stringify(active.fallbackReasons)}`}`
+      `- ${cell.task}/${cell.strategy}: policy=${active.policy}, sends=${active.sends}/${active.attempts} attempts, removedBlocks=${active.removedBlocks}${active.candidateBlocks > active.removedBlocks ? ` (capped from ${active.candidateBlocks} candidates)` : ` (candidates=${active.candidateBlocks})`}, retainedLatestReadTargets=${active.retainedLatestReadTargets}, dropAtBoundary=${active.dropAtBoundary.drops}/${active.dropAtBoundary.sent}${active.dropAtBoundary.rate === null ? '' : ` (${(active.dropAtBoundary.rate * 100).toFixed(0)}%)`}, reReadsOfRemovedTargets=${active.reReads}, postFirstInterventionReads=${active.postFirstInterventionReads}, dedupRemovals=${active.dedupRemovals}, deferredSweeps=${active.deferredSweeps}${Object.keys(active.fallbackReasons).length === 0 ? '' : `, fallbacks=${JSON.stringify(active.fallbackReasons)}`}`
     )
   }
   lines.push('')
@@ -1222,6 +1438,7 @@ function scriptedInterventionsOf(
     latchSetAtSequence: sent.sequence,
     removedReadTargetHashes: [sent.hash],
     policy: 'v1-per-edit' as const,
+    trigger: 'edit' as const,
     candidateBlocks: 1,
     removedBlocks: 1,
     retainedLatestReadTargets: []
@@ -1229,30 +1446,44 @@ function scriptedInterventionsOf(
 }
 
 /**
- * Scripted stand-in legs for DRY_RUN: 27 records in the deterministic M2
- * matrix order (3 tasks x NATIVE/ACTIVE/ACTIVE_V2 x 3 reps), driven through
- * the FULL matrix state machine, incremental evidence writers, and aggregator
- * by the runner. NATIVE trajectories are monotonic; ACTIVE trajectories drop
- * after each scripted v1 intervention, with one scripted re-read of a removed
- * target per leg (the M1 L2 pattern) so the analyzer's re-read detection is
- * exercised; ACTIVE_V2 trajectories carry v2-shaped telemetry — ONE coarse
- * intervention removing three read pairs across two edited paths while
- * retaining the latest read of each swept path, a net drop AT the boundary
- * (series[seq-1] < series[seq-2]), and a post-intervention read of a FRESH
- * target (retain-latest kills the re-read pattern: reReads=0). Provider
- * calls: 0.
+ * Scripted stand-in legs for DRY_RUN: one record per leg of the configured
+ * shape (default: the 27-leg M3 matrix order, 3 tasks x NATIVE/ACTIVE_V2/
+ * ACTIVE_V3 x 3 reps; the historical v1 ACTIVE arm still scripts for M1/M2-
+ * shaped tests), driven through the FULL matrix state machine, incremental
+ * evidence writers, and aggregator by the runner. NATIVE trajectories are
+ * monotonic; ACTIVE trajectories drop after each scripted v1 intervention,
+ * with one scripted re-read of a removed target per leg (the M1 L2 pattern)
+ * so the analyzer's re-read detection is exercised; ACTIVE_V2 trajectories
+ * carry v2-shaped telemetry — ONE coarse intervention removing three read
+ * pairs across two edited paths while retaining the latest read of each swept
+ * path, a net drop AT the boundary (series[seq-1] < series[seq-2]), and a
+ * post-intervention read of a FRESH target (retain-latest kills the re-read
+ * pattern: reReads=0); ACTIVE_V3 trajectories carry v3-shaped telemetry — a
+ * DEDUP-triggered intervention (identical re-read of an already-read path,
+ * removed with NO edit boundary in flight), one edit sweep DEFERRED by the
+ * verification window (deferredByVerifyWindow event telemetry), then the
+ * resumed edit sweep once the window closes (dedupRemovals=1,
+ * deferredSweeps=1 per leg). Provider calls: 0.
  */
-export function scriptedMxLegRecords(runId: string): readonly MxLegRecord[] {
+export function scriptedMxLegRecords(
+  runId: string,
+  shape: MxMatrixShape = MX_DEFAULT_SHAPE
+): readonly MxLegRecord[] {
   const nativeSeries = [400, 900, 1500, 2300, 3300]
   const activeSeries = [400, 900, 1500, 950, 1500, 1050, 1500, 1900]
   // v2: coarse removal bends the trajectory down AT the boundary (850 < 900).
   const activeV2Series = [400, 900, 850, 1500, 1400]
+  // v3: dedup drops at seq 3 (850 < 900) and the resumed (post-verify-window)
+  // sweep drops at seq 5 (1300 < 1400).
+  const activeV3Series = [400, 900, 850, 1400, 1300]
   const removedHash = 'feed0000feed0001'
   const removedHashV2PathA = 'feed0000feed0003'
   const removedHashV2PathB = 'feed0000feed0004'
   const freshHashV2 = 'feed0000feed0005'
+  const dedupHashV3PathA = 'feed0000feed0006'
+  const sweepHashV3PathB = 'feed0000feed0007'
   const records: MxLegRecord[] = []
-  for (const plan of mxLegOrder()) {
+  for (const plan of mxLegOrder(shape)) {
     const standInOracle = (kind: S1OracleResult['kind'], command: string): S1OracleResult => ({
       kind,
       command,
@@ -1305,6 +1536,7 @@ export function scriptedMxLegRecords(runId: string): readonly MxLegRecord[] {
           composedMessageCount: 4,
           removedReadTargetHashes: [removedHash],
           policy: 'v1-per-edit',
+          trigger: 'edit',
           candidateBlocks: 1,
           removedBlocks: 1,
           retainedLatestReadTargets: []
@@ -1322,6 +1554,7 @@ export function scriptedMxLegRecords(runId: string): readonly MxLegRecord[] {
           composedMessageCount: 4,
           removedReadTargetHashes: ['feed0000feed0002'],
           policy: 'v1-per-edit',
+          trigger: 'edit',
           candidateBlocks: 1,
           removedBlocks: 1,
           retainedLatestReadTargets: []
@@ -1352,7 +1585,7 @@ export function scriptedMxLegRecords(runId: string): readonly MxLegRecord[] {
           killSwitchTripped: false
         }
       })
-    } else {
+    } else if (plan.strategy === 'ACTIVE_V2') {
       // ACTIVE_V2: one coarse sweep over two edited paths (A read 3x, B read
       // 2x): 3 candidate older reads removed in ONE intervention, the latest
       // read of each swept path retained.
@@ -1386,6 +1619,7 @@ export function scriptedMxLegRecords(runId: string): readonly MxLegRecord[] {
             removedHashV2PathB
           ],
           policy: 'v2-retain-latest-coarse',
+          trigger: 'edit',
           candidateBlocks: 3,
           removedBlocks: 3,
           retainedLatestReadTargets: [removedHashV2PathA, removedHashV2PathB]
@@ -1420,6 +1654,7 @@ export function scriptedMxLegRecords(runId: string): readonly MxLegRecord[] {
           latchSetAtSequence: 3,
           removedReadTargetHashes: [removedHashV2PathA, removedHashV2PathA, removedHashV2PathB],
           policy: 'v2-retain-latest-coarse',
+          trigger: 'edit',
           candidateBlocks: 3,
           removedBlocks: 3,
           retainedLatestReadTargets: [removedHashV2PathA, removedHashV2PathB]
@@ -1437,6 +1672,129 @@ export function scriptedMxLegRecords(runId: string): readonly MxLegRecord[] {
           interventions: v2Interventions,
           attemptsUsed: v2Interventions.length,
           sendsUsed: v2Interventions.length,
+          killSwitchTripped: false
+        }
+      })
+    } else {
+      // ACTIVE_V3: the L2 verification pattern. Path A is read twice with
+      // IDENTICAL content and NO edit boundary in flight -> a DEDUP
+      // intervention removes the older duplicate. Then an edit of path B
+      // arrives while the last two tool events are bash (a verification
+      // sequence) -> the edit sweep is DEFERRED (deferredByVerifyWindow
+      // event telemetry, deferredSweeps=1) until a read closes the window,
+      // where the resumed retain-latest sweep removes B's older read.
+      const v3Events: ActiveRewriteEventEvidence[] = [
+        scriptedEvent(1, activeV3Series[0]!, {
+          readTargets: [
+            { toolCallId: 'scripted-v3-a1', readTargetHash: dedupHashV3PathA },
+            { toolCallId: 'scripted-v3-a2', readTargetHash: dedupHashV3PathA }
+          ]
+        }),
+        scriptedEvent(2, activeV3Series[1]!, {
+          readTargets: [{ toolCallId: 'scripted-v3-b1', readTargetHash: sweepHashV3PathB }]
+        }),
+        scriptedEvent(3, activeV3Series[2]!, {
+          boundaryReached: true,
+          interventionAttempted: true,
+          interventionIndex: 1,
+          compositionVerdict: 'REWRITE_READY',
+          guardVerdict: 'PASS',
+          sentRewrite: true,
+          toolBlocksRemoved: 1,
+          interventionPath: 'src/scripted-verify-a.ts',
+          composedMessageCount: 4,
+          removedReadTargetHashes: [dedupHashV3PathA],
+          policy: 'v3-verify-window-dedup',
+          trigger: 'dedup',
+          candidateBlocks: 1,
+          removedBlocks: 1,
+          retainedLatestReadTargets: [dedupHashV3PathA]
+        }),
+        // The edit boundary is observed here, but the model is mid-verification
+        // (two bash-class tool events): the sweep DEFERS — nothing removed.
+        scriptedEvent(4, activeV3Series[3]!, {
+          deferredByVerifyWindow: true
+        }),
+        // The window closes (a read follows the bash runs): the deferred sweep
+        // RESUMES and removes path B's older read (retain-latest).
+        scriptedEvent(5, activeV3Series[4]!, {
+          boundaryReached: true,
+          interventionAttempted: true,
+          interventionIndex: 2,
+          compositionVerdict: 'REWRITE_READY',
+          guardVerdict: 'PASS',
+          sentRewrite: true,
+          toolBlocksRemoved: 1,
+          interventionPath: 'src/scripted-verify-b.ts',
+          composedMessageCount: 4,
+          removedReadTargetHashes: [sweepHashV3PathB],
+          policy: 'v3-verify-window-dedup',
+          trigger: 'edit',
+          candidateBlocks: 1,
+          removedBlocks: 1,
+          retainedLatestReadTargets: [sweepHashV3PathB]
+        })
+      ]
+      const v3Interventions: ActiveRewriteInterventionSummary[] = [
+        {
+          boundarySequence: 3,
+          interventionPath: 'src/scripted-verify-a.ts',
+          interventionIndex: 1,
+          attemptOutcome: 'SENT' as const,
+          compositionVerdict: 'REWRITE_READY' as const,
+          guardVerdict: 'PASS' as const,
+          sentRewrite: true,
+          killSwitchTripped: false,
+          toolBlocksRemoved: 1,
+          removedSourceKeys: [
+            'run/tool-call://scripted-v3-a1',
+            'run/tool-result://scripted-v3-a1'
+          ],
+          composedMessageCount: 4,
+          latchSetAtSequence: 3,
+          removedReadTargetHashes: [dedupHashV3PathA],
+          policy: 'v3-verify-window-dedup',
+          trigger: 'dedup',
+          candidateBlocks: 1,
+          removedBlocks: 1,
+          retainedLatestReadTargets: [dedupHashV3PathA]
+        },
+        {
+          boundarySequence: 5,
+          interventionPath: 'src/scripted-verify-b.ts',
+          interventionIndex: 2,
+          attemptOutcome: 'SENT' as const,
+          compositionVerdict: 'REWRITE_READY' as const,
+          guardVerdict: 'PASS' as const,
+          sentRewrite: true,
+          killSwitchTripped: false,
+          toolBlocksRemoved: 1,
+          removedSourceKeys: [
+            'run/tool-call://scripted-v3-b1',
+            'run/tool-result://scripted-v3-b1'
+          ],
+          composedMessageCount: 4,
+          latchSetAtSequence: 5,
+          removedReadTargetHashes: [sweepHashV3PathB],
+          policy: 'v3-verify-window-dedup',
+          trigger: 'edit',
+          candidateBlocks: 1,
+          removedBlocks: 1,
+          retainedLatestReadTargets: [sweepHashV3PathB]
+        }
+      ]
+      records.push({
+        ...common,
+        recordCount: activeV3Series.length,
+        toolCallCount: 8,
+        observedTokenEstimateSum: activeV3Series.reduce((a, b) => a + b, 0),
+        wallClockMs: 0,
+        trajectory: trajectorySummaryOf(activeV3Series),
+        interventionTelemetry: {
+          events: v3Events,
+          interventions: v3Interventions,
+          attemptsUsed: v3Interventions.length,
+          sendsUsed: v3Interventions.length,
           killSwitchTripped: false
         }
       })

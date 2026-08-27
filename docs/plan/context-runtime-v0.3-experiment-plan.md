@@ -9,6 +9,23 @@
 - **Later compatibility target:** Codex
 - **CR-001 assigned packet:** `docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md`
 
+## Current status overlay — 2026-08-27 (ninth entry: M4 confirmatory matrix analyzed)
+
+Lead-directed continuation on a fresh branch (PR #50 merged first): policy v3
+built and tested but its triggers never fired live (M3, targeted L2 — v2 beat
+native there for the first time); then the confirmatory M4 — L1+L2 x NATIVE
+vs ACTIVE v2 x 8 reps, 32 legs, 546 records, exact permutation tests.
+
+```text
+L1 context mass:  v2 -46% vs native   p=0.045  (program's first <0.05 result)
+L2 context mass:  v2 -13% vs native   p=0.671  (direction favors v2)
+pooled oracle:    14/16 vs 14/16      (neutral; task-shaped: L1 8/8 vs 6/8, L2 6/8 vs 8/8)
+value hypothesis: EFFICIENCY ESTABLISHED (descriptive), RELIABILITY NEUTRAL,
+                  single-model internal-token caveats; retain-K sweep named next
+```
+
+Records: [M3 targeted analysis](../verification/cr004-m3-targeted-analysis-2026-08-27.md) · [M4 confirmatory analysis](../verification/cr004-m4-confirmatory-analysis-2026-08-27.md). One M3 identity aborted for a hung provider request (no in-flight timeout at the session seam; recorded, mitigation in the M4 contract).
+
 ## Current status overlay — 2026-08-27 (eighth entry: M2 policy A/B matrix analyzed)
 
 Three-arm matrix (NATIVE · ACTIVE v1 · ACTIVE v2 `v2-retain-latest-coarse`)

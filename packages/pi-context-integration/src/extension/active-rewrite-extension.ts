@@ -16,6 +16,37 @@ import type { PiContentBlockView, PiMessageView } from '../pi-message-mapper'
 
 // CR-004 — Active intervention extension (Pi-only, bounded repeated sends).
 //
+// REMOVAL POLICY v3 ('v3-verify-window-dedup', M3 matrix arm ACTIVE_V3):
+// v3 = v2 + duplicate-read dedup + a verification-window deferral, targeting
+// the one M2 cell where v2 stayed above native (L2: verification-heavy re-reads
+// of edited files AFTER editing stops, when NO further edit boundary exists to
+// trigger a sweep — docs/verification/cr004-m2-matrix-analysis-2026-08-27.md):
+//
+//   - DUPLICATE-READ DEDUP (a NEW intervention trigger, not tied to edits):
+//     when the SAME path has been read multiple times with IDENTICAL
+//     tool-result content (readContentHash = first 16 hex of sha256 over the
+//     toolResult text, mirroring readTargetHash style) and NO edit of that
+//     path occurred between the reads, every older duplicate read pair is
+//     superseded — the information is fully preserved in the newer copy. The
+//     arrival of such a duplicate read opens an intervention boundary even
+//     with no edit in flight, so verification re-reads become removable the
+//     moment they duplicate. Dedup sweeps are coarse (all paths' dedup
+//     candidates, oldest-first, same maxBlocksPerIntervention cap) and feed
+//     the SAME bounded send/attempt budget as edit-triggered sweeps.
+//   - VERIFICATION-WINDOW DEFERRAL: while a verification sequence is in
+//     flight — the most recent tool activity is bash-class toolCalls (tool
+//     name 'bash') within the last K tool events (default K = 2) —
+//     edit-triggered sweeps are DEFERRED (nothing is removed mid-verification;
+//     the model's working set stays stable while it is actively checking).
+//     The pending edit trigger stays eligible and the sweep resumes at the
+//     next non-verification boundary. Dedup removals are still allowed during
+//     a verification window (pure win: information preserved). Deferred
+//     boundary evaluations are recorded (deferredByVerifyWindow + the per-leg
+//     deferredSweeps count, reason 'verification-window').
+//   - Edit-triggered sweeps under v3 keep v2's retain-latest + coarse
+//     semantics EXACTLY (v3 = v2 + dedup + verify-window; default policy
+//     remains v1-per-edit, so Stage 1 / C0 semantics are untouched).
+//
 // REMOVAL POLICY v2 ('v2-retain-latest-coarse', M2 matrix arm ACTIVE_V2):
 // at each intervention boundary (same trigger: a NEW edit toolCall observed)
 // the lifecycle sweep covers EVERY edited path, not just the trigger path:
@@ -91,23 +122,39 @@ import type { PiContentBlockView, PiMessageView } from '../pi-message-mapper'
 export const ACTIVE_READ_TOOLS = ['read'] as const
 /** Tool names treated as edit/write-class (their appearance is the boundary). */
 export const ACTIVE_EDIT_TOOLS = ['edit', 'write'] as const
+/**
+ * Tool names classified as verification-class (bash-class) for the v3
+ * verification window: the model running tests/oracles.
+ */
+export const ACTIVE_VERIFY_TOOLS = ['bash'] as const
 
 /**
- * Removal policy selection (M2 contract):
+ * Removal policy selection (M3 contract):
  * - `v1-per-edit` — Stage 1 / M1 behavior: each boundary removes the earlier
  *   still-active read pairs of the TRIGGER path only (one block per edit).
  * - `v2-retain-latest-coarse` — coarse sweep over ALL edited paths at each
  *   boundary, retaining the LATEST read per edited path; bounded by
  *   `maxBlocksPerIntervention` (oldest-first).
+ * - `v3-verify-window-dedup` — v2 semantics PLUS duplicate-read dedup (a NEW
+ *   read of an already-read path with IDENTICAL tool-result content and no
+ *   path edit between the reads opens an intervention boundary; older
+ *   duplicates are superseded) and a verification-window deferral
+ *   (edit-triggered sweeps defer while the last K tool events are bash-class;
+ *   dedup still fires).
  */
-export type ActiveRemovalPolicy = 'v1-per-edit' | 'v2-retain-latest-coarse'
+export type ActiveRemovalPolicy =
+  | 'v1-per-edit'
+  | 'v2-retain-latest-coarse'
+  | 'v3-verify-window-dedup'
 
 /** Default bound on SENT Active rewrites per leg (matrix contract). */
 export const ACTIVE_DEFAULT_MAX_INTERVENTIONS = 5
 /** Default bound on composition ATTEMPTS per leg (matrix contract). */
 export const ACTIVE_DEFAULT_MAX_ATTEMPTS = 8
-/** Default v2 cap on read pairs removed by ONE intervention (matrix contract). */
+/** Default v2/v3 cap on read pairs removed by ONE intervention (matrix contract). */
 export const ACTIVE_DEFAULT_MAX_BLOCKS_PER_INTERVENTION = 12
+/** Default v3 verification-window width in trailing tool events (M3 contract). */
+export const ACTIVE_DEFAULT_VERIFY_WINDOW_EVENTS = 2
 
 export interface InterventionBoundary {
   /** Repository path the edit/write-class toolCall targets. */
@@ -163,6 +210,15 @@ export interface ActiveRewriteEventEvidence {
   readonly removedReadTargetHashes?: readonly string[]
   /** Removal policy of the attempted intervention (present when attempted). */
   readonly policy?: ActiveRemovalPolicy
+  /** What opened the attempted boundary: an edit toolCall or a duplicate read. */
+  readonly trigger?: 'edit' | 'dedup'
+  /**
+   * True when this event's boundary evaluation DEFERRED an edit-triggered
+   * sweep because a verification sequence was in flight (v3 only): the pending
+   * trigger stays eligible and the sweep resumes at the next non-verification
+   * boundary. Reason: 'verification-window'.
+   */
+  readonly deferredByVerifyWindow?: boolean
   /** Eligible candidate read pairs the sweep found this boundary (pre-cap). */
   readonly candidateBlocks?: number
   /** Read pairs this intervention marks superseded (post-cap). */
@@ -201,6 +257,8 @@ export interface ActiveRewriteInterventionSummary {
   readonly removedReadTargetHashes: readonly string[]
   /** Removal policy of this attempt; null on the idle summary. */
   readonly policy: ActiveRemovalPolicy | null
+  /** What opened this attempt's boundary; null on the idle summary. */
+  readonly trigger: 'edit' | 'dedup' | null
   /** Eligible candidate read pairs the sweep found (pre-cap). */
   readonly candidateBlocks: number
   /** Read pairs this attempt marks superseded (post-cap). */
@@ -236,6 +294,7 @@ export function idleInterventionSummary(): ActiveRewriteInterventionSummary {
     latchSetAtSequence: null,
     removedReadTargetHashes: [],
     policy: null,
+    trigger: null,
     candidateBlocks: 0,
     removedBlocks: 0,
     retainedLatestReadTargets: []
@@ -266,6 +325,9 @@ function interventionSummaryFrom(
     latchSetAtSequence: sequence,
     removedReadTargetHashes: [...(event.removedReadTargetHashes ?? [])],
     policy: event.policy ?? null,
+    // M1/M2-era evidence predates the trigger field; every such attempt was
+    // edit-triggered.
+    trigger: event.trigger ?? 'edit',
     candidateBlocks: event.candidateBlocks ?? 0,
     removedBlocks: event.removedBlocks ?? 0,
     retainedLatestReadTargets: [...(event.retainedLatestReadTargets ?? [])]
@@ -303,6 +365,23 @@ export class InMemoryActiveRewriteEvidenceCollector implements ActiveRewriteEvid
   get attemptsUsed(): number {
     return this.attempts.length
   }
+
+  /** Read pairs removed by DEDUP-triggered attempts (v3 per-leg metric). */
+  get dedupRemovals(): number {
+    return this.attempts.reduce(
+      (total, attempt) => total + (attempt.trigger === 'dedup' ? attempt.removedBlocks : 0),
+      0
+    )
+  }
+
+  /**
+   * Boundary evaluations that DEFERRED an edit-triggered sweep because a
+   * verification window was open (v3 per-leg metric; reason
+   * 'verification-window'). One per event at which a deferral happened.
+   */
+  get deferredSweeps(): number {
+    return this.evidence.filter((event) => event.deferredByVerifyWindow === true).length
+  }
 }
 
 export interface ActiveRewriteExtensionOptions {
@@ -332,10 +411,16 @@ export interface ActiveRewriteExtensionOptions {
    * Removal policy. Default `v1-per-edit` (Stage 1 / M1 semantics, unchanged).
    * `v2-retain-latest-coarse` sweeps ALL edited paths at each boundary and
    * retains the LATEST read per edited path (M2 ACTIVE_V2 arm).
+   * `v3-verify-window-dedup` keeps the v2 sweep semantics and adds
+   * duplicate-read dedup plus the verification-window deferral (M3 ACTIVE_V3).
    */
   readonly removalPolicy?: ActiveRemovalPolicy
-  /** v2 cap on read pairs removed by ONE intervention (oldest-first). Default 12. */
+  /** v2/v3 cap on read pairs removed by ONE intervention (oldest-first). Default 12. */
   readonly maxBlocksPerIntervention?: number
+  /** v3 verification-window width in trailing tool events. Default 2. */
+  readonly verifyWindowEvents?: number
+  /** v3 verification-class (bash-class) tool names. Default ['bash']. */
+  readonly verifyToolNames?: readonly string[]
 }
 
 function normalizePath(value: string): string {
@@ -513,6 +598,170 @@ export function scanEditReadStructure(
   }
 }
 
+/**
+ * Privacy-safe content identity of a read's toolResult: first 16 hex of
+ * sha256 over the result TEXT content (readTargetHash style, but over the
+ * content rather than the path). Computed here, where the raw messages are
+ * visible; never the content itself.
+ */
+export function readContentHashOf(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16)
+}
+
+/** One older duplicate read call (identical content to a later read). */
+export interface DuplicateReadCall {
+  readonly callId: string
+  readonly order: number
+  readonly readContentHash: string
+}
+
+/** All supersedeable older duplicates of ONE path, in scan order (oldest first). */
+export interface DuplicateReadEntry {
+  readonly path: string
+  /** The newest read whose content the duplicates reproduce (kept). */
+  readonly anchorCallId: string
+  readonly duplicates: readonly DuplicateReadCall[]
+}
+
+/** Policy-v3 dedup sweep input (pure function of the message list). */
+export interface DuplicateSweepView {
+  readonly entries: readonly DuplicateReadEntry[]
+  /**
+   * Read calls whose arrival ESTABLISHED a duplication (they duplicate an
+   * earlier read of the same path), in scan order — the dedup trigger
+   * candidates ("the duplicate just arrived").
+   */
+  readonly triggerReadCalls: readonly { readonly callId: string; readonly order: number; readonly path: string }[]
+}
+
+/**
+ * Deterministic duplicate-read scan for the v3 dedup sweep. A read call is an
+ * OLDER DUPLICATE (supersedeable) when a LATER read of the SAME path carries
+ * IDENTICAL tool-result content (readContentHash) and NO edit of that path
+ * occurred between the two reads — the information is fully preserved in the
+ * later copy. Reads whose toolResult is not yet present are excluded. Pure
+ * function of the message list; no clock, no I/O.
+ */
+export function scanDuplicateReads(
+  messages: readonly PiMessageView[],
+  options: {
+    readonly readToolNames?: readonly string[]
+    readonly editToolNames?: readonly string[]
+  } = {}
+): DuplicateSweepView {
+  const readTools = new Set<string>(options.readToolNames ?? ACTIVE_READ_TOOLS)
+  const editTools = new Set<string>(options.editToolNames ?? ACTIVE_EDIT_TOOLS)
+  // toolResult text per toolCallId (content identity of the evidence).
+  const resultTextByCallId = new Map<string, string>()
+  for (const message of messages) {
+    if (message.role !== 'toolResult' || typeof message.toolCallId !== 'string') continue
+    const text = blocksOf(message)
+      .filter((block) => block.type === 'text' && typeof block.text === 'string')
+      .map((block) => block.text as string)
+      .join('\n')
+    resultTextByCallId.set(message.toolCallId, text)
+  }
+  interface ScanRead {
+    readonly callId: string
+    readonly order: number
+    readonly readContentHash: string
+  }
+  const readsByPath = new Map<string, ScanRead[]>()
+  const editOrdersByPath = new Map<string, number[]>()
+  let order = 0
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue
+    for (const block of blocksOf(message)) {
+      if (block.type !== 'toolCall' || typeof block.id !== 'string' || block.id === '') continue
+      const name = block.name ?? ''
+      const path = pathOf(block)
+      order += 1
+      if (readTools.has(name)) {
+        if (path === null) continue
+        const resultText = resultTextByCallId.get(block.id)
+        // An in-flight read (no result yet) is not supersedeable evidence and
+        // cannot anchor a duplication either.
+        if (resultText === undefined) continue
+        const read: ScanRead = {
+          callId: block.id,
+          order,
+          readContentHash: readContentHashOf(resultText)
+        }
+        const calls = readsByPath.get(path) ?? []
+        calls.push(read)
+        readsByPath.set(path, calls)
+        continue
+      }
+      if (editTools.has(name) && path !== null) {
+        const orders = editOrdersByPath.get(path) ?? []
+        orders.push(order)
+        editOrdersByPath.set(path, orders)
+      }
+    }
+  }
+  const entries: DuplicateReadEntry[] = []
+  const triggerReadCalls: { callId: string; order: number; path: string }[] = []
+  for (const [path, reads] of readsByPath) {
+    const editOrders = editOrdersByPath.get(path) ?? []
+    const hasEditBetween = (from: number, to: number): boolean =>
+      editOrders.some((editOrder) => editOrder > from && editOrder < to)
+    const duplicates: DuplicateReadCall[] = []
+    let anchor: ScanRead | undefined
+    for (let index = 0; index < reads.length; index += 1) {
+      const read = reads[index]!
+      const laterDuplicate = reads.find(
+        (other, otherIndex) =>
+          otherIndex > index &&
+          other.readContentHash === read.readContentHash &&
+          !hasEditBetween(read.order, other.order)
+      )
+      if (laterDuplicate === undefined) continue
+      duplicates.push({
+        callId: read.callId,
+        order: read.order,
+        readContentHash: read.readContentHash
+      })
+      // The newest read that anchors at least one older duplicate.
+      if (anchor === undefined || laterDuplicate.order > anchor.order) {
+        anchor = laterDuplicate
+      }
+    }
+    if (duplicates.length === 0 || anchor === undefined) continue
+    entries.push({ path, anchorCallId: anchor.callId, duplicates })
+    triggerReadCalls.push({ callId: anchor.callId, order: anchor.order, path })
+  }
+  return { entries, triggerReadCalls }
+}
+
+/**
+ * The v3 verification window: OPEN while the most recent tool activity is
+ * bash-class — operational definition: EVERY one of the last
+ * `verifyWindowEvents` (default 2) toolCall blocks in scan order (message
+ * order, then block order) is a verification-class tool call, and at least one
+ * exists. While open, edit-triggered sweeps defer. Pure function of the
+ * message list; no clock, no I/O.
+ */
+export function isVerificationWindowOpen(
+  messages: readonly PiMessageView[],
+  options: {
+    readonly verifyToolNames?: readonly string[]
+    readonly verifyWindowEvents?: number
+  } = {}
+): boolean {
+  const verifyTools = new Set<string>(options.verifyToolNames ?? ACTIVE_VERIFY_TOOLS)
+  const windowEvents = options.verifyWindowEvents ?? ACTIVE_DEFAULT_VERIFY_WINDOW_EVENTS
+  const tail: string[] = []
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue
+    for (const block of blocksOf(message)) {
+      if (block.type !== 'toolCall' || typeof block.id !== 'string' || block.id === '') continue
+      tail.push(block.name ?? '')
+      if (tail.length > windowEvents) tail.shift()
+    }
+  }
+  return tail.length > 0 && tail.every((name) => verifyTools.has(name))
+}
+
 function workingSetKeys(executor: C0ScenarioExecutor): ReadonlySet<string> {
   return new Set(executor.latestWorkingSet?.items.flatMap((item) => item.sourceKeys) ?? [])
 }
@@ -587,12 +836,25 @@ export function createActiveRewriteExtension(
   const removalPolicy: ActiveRemovalPolicy = options.removalPolicy ?? 'v1-per-edit'
   const maxBlocksPerIntervention =
     options.maxBlocksPerIntervention ?? ACTIVE_DEFAULT_MAX_BLOCKS_PER_INTERVENTION
+  const verifyWindowOptions = {
+    ...(options.verifyToolNames !== undefined
+      ? { verifyToolNames: options.verifyToolNames }
+      : {}),
+    ...(options.verifyWindowEvents !== undefined
+      ? { verifyWindowEvents: options.verifyWindowEvents }
+      : {})
+  }
 
   // Bounded repeated-intervention state (per leg):
   let attemptsUsed = 0
   let sendsUsed = 0
-  /** Boundaries already attempted (by edit toolCallId) — never retried. */
+  /** Edit boundaries already attempted (by edit toolCallId) — never retried. */
   const attemptedEditToolCallIds = new Set<string>()
+  /**
+   * Dedup boundaries already attempted (by the duplicate read's toolCallId —
+   * the newer copy whose arrival opened the boundary) — never retried.
+   */
+  const attemptedDedupTriggerCallIds = new Set<string>()
   /** Read pairs already superseded by an attempt — never removed twice. */
   const supersededReadCallIds = new Set<string>()
   /** Accumulated exclusion keys so earlier interventions stay excluded. */
@@ -637,19 +899,31 @@ export function createActiveRewriteExtension(
       }
 
       // 4. Boundary evaluation over the basis — bounded repeated intervention.
-      //    A boundary qualifies when it is NEW (its edit toolCallId was never
-      //    attempted), has at least one earlier read pair for the path that is
-      //    not yet superseded, and that read pair is ACTIVE in the latest
-      //    planned Working Set so the intervention plan can actually REMOVE it
-      //    (policy-v0 REMOVEs only previously-active sources); otherwise the
-      //    boundary waits for the next event instead of wasting an attempt.
-      //    Policy v2 keeps the SAME trigger (a NEW edit toolCall observed) but
-      //    sweeps ALL edited paths: every still-active read pair of an edited
-      //    path is a candidate EXCEPT the path's LATEST read (retain-latest),
-      //    capped oldest-first at maxBlocksPerIntervention.
+      //    A boundary qualifies when it is NEW (its trigger toolCallId — an
+      //    edit toolCall, or under v3 the duplicate read's toolCallId — was
+      //    never attempted), has at least one earlier read pair for the path
+      //    that is not yet superseded, and that read pair is ACTIVE in the
+      //    latest planned Working Set so the intervention plan can actually
+      //    REMOVE it (policy-v0 REMOVEs only previously-active sources);
+      //    otherwise the boundary waits for the next event instead of wasting
+      //    an attempt. Policy v2 keeps the SAME trigger (a NEW edit toolCall
+      //    observed) but sweeps ALL edited paths: every still-active read pair
+      //    of an edited path is a candidate EXCEPT the path's LATEST read
+      //    (retain-latest), capped oldest-first at
+      //    maxBlocksPerIntervention. Policy v3 keeps the v2 sweep for
+      //    edit-triggered boundaries, DEFERS it while a verification window is
+      //    open (recorded, resumed at the next non-verification boundary), and
+      //    adds the dedup-only trigger (a NEW duplicate read opens a boundary
+      //    with NO edit in flight; dedup removals are allowed even inside a
+      //    verification window — pure win, information preserved). Dedup
+      //    sweeps are coarse too: every path's supersedeable older duplicates,
+      //    oldest-first, under the SAME cap; both trigger kinds feed the same
+      //    bounded send/attempt budget.
       interface PlannedIntervention {
         readonly policy: ActiveRemovalPolicy
-        readonly triggerEditToolCallId: string
+        readonly trigger: 'edit' | 'dedup'
+        /** Edit toolCallId for 'edit' triggers; the newer duplicate read's for 'dedup'. */
+        readonly triggerToolCallId: string
         readonly interventionPath: string
         readonly readToolCallIds: readonly string[]
         readonly candidateBlocks: number
@@ -660,6 +934,8 @@ export function createActiveRewriteExtension(
         ...(options.editToolNames !== undefined ? { editToolNames: options.editToolNames } : {})
       }
       let fire: PlannedIntervention | undefined
+      /** True when THIS event's boundary evaluation deferred an edit sweep. */
+      let deferredByVerifyWindow = false
       if (
         attemptsUsed < maxAttempts &&
         sendsUsed < maxInterventions &&
@@ -669,36 +945,130 @@ export function createActiveRewriteExtension(
         const isActiveRead = (callId: string): boolean =>
           activeKeys.has(`run/tool-result://${callId}`) ||
           activeKeys.has(`run/tool-call://${callId}`)
-        if (removalPolicy === 'v2-retain-latest-coarse') {
+        const coarseSweep = (
+          view: CoarseSweepView
+        ): { readonly candidates: readonly CoarseSweepReadCall[]; readonly retainedLatestReadTargets: readonly string[] } => {
+          const editedPaths = new Set(view.edits.map((edit) => edit.path))
+          const candidates: CoarseSweepReadCall[] = []
+          const retainedLatestReadTargets: string[] = []
+          for (const entry of view.readsByPath) {
+            // Conservative: paths with NO edit toolCall are never swept.
+            if (!editedPaths.has(entry.path)) continue
+            for (const read of entry.reads.slice(0, -1)) {
+              if (supersededReadCallIds.has(read.callId)) continue
+              if (!isActiveRead(read.callId)) continue
+              candidates.push(read)
+            }
+            // Retain-latest: the freshest read the model saw stays (the
+            // readTargetHash identifies the path, so the kept latest's
+            // hash is the path hash).
+            if (entry.reads.length > 0) {
+              retainedLatestReadTargets.push(readTargetHashOf(entry.path))
+            }
+          }
+          return { candidates, retainedLatestReadTargets }
+        }
+        if (removalPolicy === 'v3-verify-window-dedup') {
+          // (i) Edit-triggered v2-style sweep — DEFERRED while a verification
+          //     window is open. The deferral is per boundary EVALUATION: the
+          //     pending edit trigger stays eligible and the sweep resumes at
+          //     the next non-verification boundary.
+          const view = scanEditReadStructure(basis, toolNameOptions)
+          const trigger = view.edits.find(
+            (edit) => !attemptedEditToolCallIds.has(edit.toolCallId)
+          )
+          let editSweep:
+            | {
+                readonly triggerToolCallId: string
+                readonly interventionPath: string
+                readonly readToolCallIds: readonly string[]
+                readonly candidateBlocks: number
+                readonly retainedLatestReadTargets: readonly string[]
+              }
+            | undefined
+          if (trigger !== undefined) {
+            const { candidates, retainedLatestReadTargets } = coarseSweep(view)
+            if (candidates.length > 0) {
+              const sorted = [...candidates].sort((a, b) => a.order - b.order)
+              const capped = sorted.slice(0, maxBlocksPerIntervention)
+              editSweep = {
+                triggerToolCallId: trigger.toolCallId,
+                interventionPath: trigger.path,
+                readToolCallIds: capped.map((candidate) => candidate.callId),
+                candidateBlocks: candidates.length,
+                retainedLatestReadTargets
+              }
+            }
+          }
+          if (editSweep !== undefined && isVerificationWindowOpen(basis, verifyWindowOptions)) {
+            editSweep = undefined
+            deferredByVerifyWindow = true
+          }
+          // (ii) Dedup-only trigger — evaluated even inside a verification
+          //      window. The trigger is the NEWEST duplicate-establishing read
+          //      never attempted before; the sweep covers every path's older
+          //      duplicates (coarse, oldest-first, same cap).
+          const dedupView = scanDuplicateReads(basis, toolNameOptions)
+          const dedupTrigger = [...dedupView.triggerReadCalls]
+            .reverse()
+            .find((read) => !attemptedDedupTriggerCallIds.has(read.callId))
+          if (dedupTrigger !== undefined) {
+            const supersedeable = (callId: string): boolean =>
+              !supersededReadCallIds.has(callId) && isActiveRead(callId)
+            const candidates = dedupView.entries.flatMap((entry) =>
+              entry.duplicates.filter((duplicate) => supersedeable(duplicate.callId))
+            )
+            if (candidates.length > 0) {
+              candidates.sort((a, b) => a.order - b.order)
+              const capped = candidates.slice(0, maxBlocksPerIntervention)
+              const cappedCallIds = new Set(capped.map((candidate) => candidate.callId))
+              const retainedLatestReadTargets: string[] = []
+              for (const entry of dedupView.entries) {
+                if (entry.duplicates.some((duplicate) => cappedCallIds.has(duplicate.callId))) {
+                  // The path's newest read (the duplication anchor or later)
+                  // stays; the readTargetHash identifies the path.
+                  retainedLatestReadTargets.push(readTargetHashOf(entry.path))
+                }
+              }
+              fire = {
+                policy: 'v3-verify-window-dedup',
+                trigger: 'dedup',
+                triggerToolCallId: dedupTrigger.callId,
+                interventionPath: dedupTrigger.path,
+                readToolCallIds: capped.map((candidate) => candidate.callId),
+                candidateBlocks: candidates.length,
+                retainedLatestReadTargets
+              }
+            }
+          }
+          // (iii) Outside a verification window the edit sweep takes priority
+          //       over a same-event dedup boundary when both are ready (the
+          //       coarse sweep subsumes the dedup candidates of edited paths).
+          if (fire === undefined && editSweep !== undefined) {
+            fire = {
+              policy: 'v3-verify-window-dedup',
+              trigger: 'edit',
+              triggerToolCallId: editSweep.triggerToolCallId,
+              interventionPath: editSweep.interventionPath,
+              readToolCallIds: editSweep.readToolCallIds,
+              candidateBlocks: editSweep.candidateBlocks,
+              retainedLatestReadTargets: editSweep.retainedLatestReadTargets
+            }
+          }
+        } else if (removalPolicy === 'v2-retain-latest-coarse') {
           const view = scanEditReadStructure(basis, toolNameOptions)
           const trigger = view.edits.find(
             (edit) => !attemptedEditToolCallIds.has(edit.toolCallId)
           )
           if (trigger !== undefined) {
-            const editedPaths = new Set(view.edits.map((edit) => edit.path))
-            const candidates: CoarseSweepReadCall[] = []
-            const retainedLatestReadTargets: string[] = []
-            for (const entry of view.readsByPath) {
-              // Conservative: paths with NO edit toolCall are never swept.
-              if (!editedPaths.has(entry.path)) continue
-              for (const read of entry.reads.slice(0, -1)) {
-                if (supersededReadCallIds.has(read.callId)) continue
-                if (!isActiveRead(read.callId)) continue
-                candidates.push(read)
-              }
-              // Retain-latest: the freshest read the model saw stays (the
-              // readTargetHash identifies the path, so the kept latest's
-              // hash is the path hash).
-              if (entry.reads.length > 0) {
-                retainedLatestReadTargets.push(readTargetHashOf(entry.path))
-              }
-            }
+            const { candidates, retainedLatestReadTargets } = coarseSweep(view)
             if (candidates.length > 0) {
-              candidates.sort((a, b) => a.order - b.order)
-              const capped = candidates.slice(0, maxBlocksPerIntervention)
+              const sorted = [...candidates].sort((a, b) => a.order - b.order)
+              const capped = sorted.slice(0, maxBlocksPerIntervention)
               fire = {
                 policy: 'v2-retain-latest-coarse',
-                triggerEditToolCallId: trigger.toolCallId,
+                trigger: 'edit',
+                triggerToolCallId: trigger.toolCallId,
                 interventionPath: trigger.path,
                 readToolCallIds: capped.map((candidate) => candidate.callId),
                 candidateBlocks: candidates.length,
@@ -716,7 +1086,8 @@ export function createActiveRewriteExtension(
             if (stillActiveReads.length === 0) continue
             fire = {
               policy: 'v1-per-edit',
-              triggerEditToolCallId: candidate.editToolCallId,
+              trigger: 'edit',
+              triggerToolCallId: candidate.editToolCallId,
               interventionPath: candidate.path,
               readToolCallIds: stillActiveReads,
               candidateBlocks: stillActiveReads.length,
@@ -734,28 +1105,45 @@ export function createActiveRewriteExtension(
         //    policy-v0 emit REMOVE with reason SUPERSEDED. Exclusions
         //    accumulate so every prior intervention stays in force. Under v2
         //    the marked pairs span every swept (edited) path, not just the
-        //    trigger path; the composer/guard seam is unchanged.
+        //    trigger path; under v3 they may alternatively span the dedup
+        //    candidates (trigger 'dedup'); the composer/guard seam is
+        //    unchanged.
         const newSupersededKeys: string[] = []
         for (const callId of fire.readToolCallIds) {
           supersededReadCallIds.add(callId)
           newSupersededKeys.push(`run/tool-call://${callId}`, `run/tool-result://${callId}`)
         }
         supersededSourceKeys.push(...newSupersededKeys)
-        attemptedEditToolCallIds.add(fire.triggerEditToolCallId)
+        if (fire.trigger === 'edit') {
+          attemptedEditToolCallIds.add(fire.triggerToolCallId)
+        } else {
+          attemptedDedupTriggerCallIds.add(fire.triggerToolCallId)
+        }
         attemptsUsed += 1
+        const interventionLabel = (() => {
+          if (fire.policy === 'v3-verify-window-dedup') {
+            return `active-intervention-v3${fire.trigger === 'dedup' ? '-dedup' : ''}:${fire.interventionPath}`
+          }
+          return fire.policy === 'v2-retain-latest-coarse'
+            ? `active-intervention-v2:${fire.interventionPath}`
+            : `active-intervention:${fire.interventionPath}`
+        })()
+        const evidenceRef = (() => {
+          if (fire.policy === 'v3-verify-window-dedup') {
+            return `cr004:intervention-v3:${fire.trigger}:${fire.triggerToolCallId}:${fire.interventionPath}`
+          }
+          return `cr004:intervention${
+            fire.policy === 'v2-retain-latest-coarse' ? '-v2' : ''
+          }:${fire.triggerToolCallId}:${fire.interventionPath}`
+        })()
         options.executor.beginTurn({
-          label:
-            fire.policy === 'v2-retain-latest-coarse'
-              ? `active-intervention-v2:${fire.interventionPath}`
-              : `active-intervention:${fire.interventionPath}`,
+          label: interventionLabel,
           prompt: '',
           events: [
             {
               kind: 'SOURCE_SUPERSEDED',
               sourceKeys: newSupersededKeys,
-              evidenceRef: `cr004:intervention${
-                fire.policy === 'v2-retain-latest-coarse' ? '-v2' : ''
-              }:${fire.triggerEditToolCallId}:${fire.interventionPath}`
+              evidenceRef
             }
           ],
           patch: { excludedSourceKeys: [...supersededSourceKeys] }
@@ -771,6 +1159,9 @@ export function createActiveRewriteExtension(
         options.executor.base.inMemory.last()?.observedMessageTokenEstimate ?? 0
       const readTargetsPatch =
         newReadTargets.length > 0 ? { readTargets: newReadTargets } : {}
+      const verifyWindowPatch = deferredByVerifyWindow
+        ? { deferredByVerifyWindow: true as const }
+        : {}
 
       if (fire === undefined) {
         options.evidence.record({
@@ -783,6 +1174,7 @@ export function createActiveRewriteExtension(
           sentRewrite: false,
           killSwitchTripped: killSwitch.isTripped,
           toolBlocksRemoved: 0,
+          ...verifyWindowPatch,
           ...readTargetsPatch
         })
         // The carried basis (== the native list before any send) is returned.
@@ -793,6 +1185,7 @@ export function createActiveRewriteExtension(
       const boundary = fire
       const policyTelemetry = {
         policy: boundary.policy,
+        trigger: boundary.trigger,
         candidateBlocks: boundary.candidateBlocks,
         removedBlocks: boundary.readToolCallIds.length,
         retainedLatestReadTargets: [...boundary.retainedLatestReadTargets]
@@ -842,6 +1235,7 @@ export function createActiveRewriteExtension(
           interventionPath: boundary.interventionPath,
           removedReadTargetHashes,
           ...policyTelemetry,
+          ...verifyWindowPatch,
           ...readTargetsPatch
         })
         // No send: the basis (unchanged by this attempt) is returned.
@@ -905,6 +1299,7 @@ export function createActiveRewriteExtension(
         composedMessageCount: composition.messages.length,
         removedReadTargetHashes,
         ...policyTelemetry,
+        ...verifyWindowPatch,
         ...readTargetsPatch
       })
       // AN ACTIVE REWRITE: the composition's messages replace the
