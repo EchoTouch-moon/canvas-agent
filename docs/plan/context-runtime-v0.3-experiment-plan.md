@@ -9,6 +9,24 @@
 - **Later compatibility target:** Codex
 - **CR-001 assigned packet:** `docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md`
 
+## Current status overlay — 2026-08-27 (eighth entry: M2 policy A/B matrix analyzed)
+
+Three-arm matrix (NATIVE · ACTIVE v1 · ACTIVE v2 `v2-retain-latest-coarse`)
+over L1–L3 × 3 reps, 27/27 legs, 423 provider-call records, one strict
+binding. Policy v2 implemented both M1 levers (coarse sweeps over all edited
+paths + retain each path's latest read).
+
+```text
+reliability:     9/9 / 9/9 / 9/9 (v1 pathology replicated; v2 zero failures)
+context mass:    NATIVE 136 274 · v1 189 347 (+39%) · v2 121 727 (-11%)
+best cell:       L1 refactor v2 = -41% vs native, re-reads 7 -> 1
+open cell:       L2 feature v2 = +81% vs a cheap native cell (verification reads)
+value hypothesis: FIRST POSITIVE SIGNAL — policy, not mechanism, was the M1 problem
+power:           n=3/cell, p in [0.2, 1.0] — descriptive, confirmatory n>=8 next
+```
+
+Analysis: [M2 matrix analysis](../verification/cr004-m2-matrix-analysis-2026-08-27.md).
+
 ## Current status overlay — 2026-08-27 (seventh entry: matrix run analyzed)
 
 Overnight Lead-authorized matrix on three larger L-series tasks (14–16 files

@@ -755,7 +755,13 @@ export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonl
       for (const leg of legs) {
         if (leg.interventions === undefined) continue
         hasActive = true
-        activePolicy = leg.interventions.policy
+        // The arm's strategy is authoritative; the per-leg policy payload
+        // degrades to the v1 default when a leg fired zero interventions.
+        if (leg.strategy === 'ACTIVE_V2') {
+          activePolicy = 'v2-retain-latest-coarse'
+        } else if (leg.interventions.policy !== 'v1-per-edit') {
+          activePolicy = leg.interventions.policy
+        }
         attempts += leg.interventions.attempts
         sends += leg.interventions.sends
         toolBlocksRemoved += leg.interventions.toolBlocksRemoved
