@@ -38,7 +38,9 @@ import {
   assertMxProfileBindable,
   MxProfileError,
   readMxProfileContract,
+  resolveMxArmOrder,
   validateMxShapeAgainstProfile,
+  type MxArmOrderMode,
   type MxExperimentProfile
 } from './mx-profiles'
 import {
@@ -55,8 +57,10 @@ import {
   MatrixStateMachine,
   MxConfigError,
   MX_BUDGETS,
+  mxArmOrderBindingsOf,
   mxCellOneLiner,
   mxLegAnalysisInputOf,
+  mxBlockArmOrderOf,
   mxLegDirName,
   mxLegOrder,
   mxPermutationTests,
@@ -72,6 +76,7 @@ import {
   writeMxAggregate,
   writeMxLegEvidence,
   writeMxManifest,
+  type MxBlockOrderBinding,
   type MxLegPlan,
   type MxLegRecord,
   type MxLegStop,
@@ -669,7 +674,8 @@ async function run(): Promise<void> {
     shape = mxShapeFromEnv({
       tasks: process.env['CANVAS_MX_TASKS'],
       reps: process.env['CANVAS_MX_REPS'],
-      arms: process.env['CANVAS_MX_ARMS']
+      arms: process.env['CANVAS_MX_ARMS'],
+      armOrder: process.env['CANVAS_MX_ARM_ORDER']
     })
   } catch (error) {
     if (!(error instanceof MxConfigError)) throw error
@@ -677,9 +683,25 @@ async function run(): Promise<void> {
     console.error('MX_STATUS=FAILED')
     process.exit(1)
   }
+  // ---- Arm-order resolution (M5 pre-registration; BOTH modes) -------------
+  // A profile with a REQUIRED arm-order mode (M5: 'randomized') forces it —
+  // an explicit conflicting CANVAS_MX_ARM_ORDER request is REFUSED; an unset
+  // knob adopts the profile's mode. Historical series keep 'canonical'.
+  let armOrder: MxArmOrderMode
+  try {
+    armOrder = resolveMxArmOrder(shape.armOrder, profile)
+  } catch (error) {
+    const message = error instanceof MxProfileError ? error.message : String(error)
+    console.error(`[cr004-mx] REFUSED: ${message}`)
+    console.error('MX_STATUS=FAILED')
+    process.exit(1)
+  }
+  shape = { ...shape, armOrder }
+  log(`armOrder=${armOrder}${armOrder === 'randomized' ? ' (seeded per task x rep block from the run identity)' : ''}`)
   // LIVE runs are bound to the profile's shape bounds (allowed tasks/arms,
-  // max repetitions). DRY_RUN scripted stand-ins legitimately replay
-  // historical shapes, so the bounds gate applies to LIVE only.
+  // max repetitions, required arm-order mode). DRY_RUN scripted stand-ins
+  // legitimately replay historical shapes, so the bounds gate applies to
+  // LIVE only.
   if (!dryRun) {
     try {
       validateMxShapeAgainstProfile(shape, profile)
@@ -691,6 +713,15 @@ async function run(): Promise<void> {
     }
   }
   const totalLegs = mxTotalLegsOf(shape)
+  // The full leg order (randomized shapes derive every block's shuffle from
+  // the run identity) and the per-block order bindings for the manifest.
+  const legOrder = mxLegOrder(shape, { runId })
+  const armOrderBindings = mxArmOrderBindingsOf(shape, runId)
+  const armOrderBindingByBlock = new Map(
+    armOrderBindings.map((binding) => [`${binding.task}:rep${binding.rep}`, binding])
+  )
+  const blockBindingOf = (task: MxTaskId, rep: number): MxBlockOrderBinding | null =>
+    armOrderBindingByBlock.get(`${task}:rep${rep}`) ?? null
 
   // ---- Manifest resolution (both modes): refuse clearly when missing -------
   const manifestDir = resolve(
@@ -733,6 +764,10 @@ async function run(): Promise<void> {
     readonly rep: number
     readonly status: MxLegStatus
     readonly stopCondition: MxLegRecord['stopCondition']
+    /** Randomized shapes: this leg's block seed (null when canonical). */
+    readonly blockSeed: string | null
+    /** Randomized shapes: the realized arm order of this leg's block. */
+    readonly blockArmOrder: readonly string[] | null
   }[] = []
   let bindingEvidence: Record<string, unknown> | null = null
 
@@ -786,7 +821,7 @@ async function run(): Promise<void> {
         },
         repetitions: shape.repetitions,
         totalLegs,
-        legOrder: mxLegOrder(shape).map((plan) => `${mxLegDirName(plan)}#${plan.legIndex}`)
+        legOrder: mxLegOrder(shape, { runId }).map((plan) => `${mxLegDirName(plan)}#${plan.legIndex}`)
       },
       tasks: tasks.map((task) => ({
         slot: task.slot,
@@ -839,13 +874,17 @@ async function run(): Promise<void> {
     // Provider calls exactly 0.
     const scripted = scriptedMxLegRecords(runId, shape)
     for (const record of scripted) {
-      const plan = mxLegOrder(shape)[record.legIndex]!
+      const plan = mxLegOrder(shape, { runId })[record.legIndex]!
       const begin = machine.beginLeg(plan)
       if (!begin.ok) {
         log(`leg=${mxLegDirName(plan)} refused: ${begin.stop.condition} ${begin.stop.reason}`)
         break
       }
       await writeMxLegEvidence(reportDir, record, scriptedMxObservations(record))
+      const scriptedBlock =
+        shape.armOrder === 'randomized'
+          ? mxBlockArmOrderOf(shape.strategies, runId, plan.task, plan.rep)
+          : null
       legIndexEntries.push({
         legIndex: record.legIndex,
         dir: mxLegDirName(plan),
@@ -853,7 +892,9 @@ async function run(): Promise<void> {
         strategy: record.strategy,
         rep: record.rep,
         status: record.status,
-        stopCondition: record.stopCondition
+        stopCondition: record.stopCondition,
+        blockSeed: scriptedBlock?.seedHex ?? null,
+        blockArmOrder: scriptedBlock?.arms ?? null
       })
       legRecords.push(record)
       machine.endLeg({
@@ -904,7 +945,7 @@ async function run(): Promise<void> {
     }
 
     if (!machine.isTerminal && prepared !== null && runtime !== null) {
-      for (const plan of mxLegOrder(shape)) {
+      for (const plan of mxLegOrder(shape, { runId })) {
         // Operator kill switch between legs: a trip is MATRIX-TERMINAL (S-8).
         // Without this check an operator trip recorded by one Active leg's
         // extension would leave every later Active leg running rewrite-free
@@ -1045,6 +1086,10 @@ async function run(): Promise<void> {
         }
         // IMMEDIATE per-leg evidence write; matrix continues on leg failure.
         await writeMxLegEvidence(reportDir, legRecord, legObservations)
+        const liveBlock =
+          shape.armOrder === 'randomized'
+            ? mxBlockArmOrderOf(shape.strategies, runId, plan.task, plan.rep)
+            : null
         legIndexEntries.push({
           legIndex: legRecord.legIndex,
           dir: mxLegDirName(plan),
@@ -1052,7 +1097,9 @@ async function run(): Promise<void> {
           strategy: legRecord.strategy,
           rep: legRecord.rep,
           status: legRecord.status,
-          stopCondition: legRecord.stopCondition
+          stopCondition: legRecord.stopCondition,
+          blockSeed: liveBlock?.seedHex ?? null,
+          blockArmOrder: liveBlock?.arms ?? null
         })
         legRecords.push(legRecord)
         const primary = legRecord.oracleResults.filter(

@@ -9,6 +9,27 @@
 - **Later compatibility target:** Codex
 - **CR-001 assigned packet:** `docs/tasks/deepseek/DS-008-pi-context-shadow-observation.md`
 
+## Current status overlay — 2026-08-28 (tenth entry: M5 pre-registered replication — efficiency FAIL, reliability PASS)
+
+Lead review response executed: the Hardening PR (#52: transactional
+rewrites, in-flight deadlines, ExperimentProfile binding, JSONL race, API
+isolation, evidence roots) merged; then the pre-registered M5 Phase A ran
+under seeded randomized arm order with block-aware exact permutation,
+Holm family and a pre-declared reliability gate.
+
+```text
+Primary (L1, one-sided):   p=0.602  => FAIL  (no efficiency advantage under randomization)
+Secondary (L2, Holm):      p=1.000  => FAIL
+Reliability non-inferiority: 16/16 vs 16/16 => PASS
+M4's -46%/p=0.045:         NOT REPLICATED — order/temporally confounded (exchangeability
+                           critique vindicated; L1 native variance across runs: 289k->315k->183k)
+campaign verdict:          dynamic rewrite (v2) is RELIABILITY-NEUTRAL, well-evidenced;
+                           EFFICIENCY NOT ESTABLISHED — earlier favorable estimates were
+                           order-confounded; future claims need randomized paired designs
+```
+
+Records: [M5 Phase A analysis](../verification/cr004-m5-replication-analysis-2026-08-28.md) · [Hardening PR #52 response amendment in the M4 analysis](./../verification/cr004-m4-confirmatory-analysis-2026-08-27.md).
+
 ## Current status overlay — 2026-08-27 (ninth entry: M4 confirmatory matrix analyzed)
 
 Lead-directed continuation on a fresh branch (PR #50 merged first): policy v3

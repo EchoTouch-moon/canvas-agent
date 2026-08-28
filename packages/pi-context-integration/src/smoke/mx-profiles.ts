@@ -11,20 +11,30 @@ import { join } from 'node:path'
 // itself was never rewritten). This registry closes that: every M-series is
 // a READ-ONLY history entry binding the run-identity pattern to the exact
 // contract file, the matrix design label, and the shape bounds (allowed
-// tasks/arms, max repetitions) the series may run. A run identity must match
-// exactly one profile; the profile's contract must EXIST on disk at startup
-// (refuse otherwise); the env knobs are validated against the profile's
-// bounds; and an unknown series (M5+) is REFUSED until a profile + contract
-// are deliberately added here. The offline analyzer additionally cross-checks
-// every manifest against its run-id series and emits `provenanceWarnings`
-// without rewriting historical evidence.
+// tasks/arms, max repetitions, required arm-order mode) the series may run.
+// A run identity must match exactly one profile; the profile's contract must
+// EXIST on disk at startup (refuse otherwise); the env knobs are validated
+// against the profile's bounds; and an unknown series (M6+) is REFUSED until
+// a profile + contract are deliberately added here. The offline analyzer
+// additionally cross-checks every manifest against its run-id series and
+// emits `provenanceWarnings` without rewriting historical evidence.
 //
 // No provider, no network. The only fs use is the contract existence check +
 // hashing at runner startup and inside --analyze.
 
-export type MxSeriesId = 'M1' | 'M2' | 'M3' | 'M4'
+export type MxSeriesId = 'M1' | 'M2' | 'M3' | 'M4' | 'M5'
 export type MxTaskSlot = 'L1' | 'L2' | 'L3'
 export type MxArm = 'NATIVE' | 'ACTIVE' | 'ACTIVE_V2' | 'ACTIVE_V3'
+
+/**
+ * Within-block arm ordering mode (M5 pre-registration). 'canonical' (default)
+ * keeps the deterministic control-first order of every historical series;
+ * 'randomized' shuffles the arm sequence inside every (task x rep) block with
+ * a shuffle seeded from the run identity hash — the M4 exchangeability
+ * confound fix. Defined here (not matrix-core) so the profile registry can
+ * enforce it without an import cycle.
+ */
+export type MxArmOrderMode = 'canonical' | 'randomized'
 
 /** One M-series experiment profile (registry entry; add deliberately). */
 export interface MxExperimentProfile {
@@ -41,14 +51,21 @@ export interface MxExperimentProfile {
   readonly allowedArms: readonly MxArm[]
   /** Maximum repetitions a run of this series may use. */
   readonly maxReps: number
+  /**
+   * Arm-order mode runs of this series MUST use (M5: 'randomized' — the
+   * pre-registered design refuses the canonical control-first order).
+   * Undefined for the historical series (canonical, unchanged).
+   */
+  readonly armOrder?: MxArmOrderMode
 }
 
 const ALL_TASKS: readonly MxTaskSlot[] = ['L1', 'L2', 'L3']
 
 /**
- * The registry (read-only history M1..M4). M1 evidence embedded its design
- * object instead of a string label, so `M1-active-baseline` is the registry's
- * canonical name for that series (historical manifests are never rewritten).
+ * The registry (read-only history M1..M4 + the authorized M5 replication).
+ * M1 evidence embedded its design object instead of a string label, so
+ * `M1-active-baseline` is the registry's canonical name for that series
+ * (historical manifests are never rewritten).
  */
 export const MX_EXPERIMENT_PROFILES: readonly MxExperimentProfile[] = [
   {
@@ -86,6 +103,23 @@ export const MX_EXPERIMENT_PROFILES: readonly MxExperimentProfile[] = [
     allowedTasks: ['L1', 'L2'],
     allowedArms: ['NATIVE', 'ACTIVE_V2'],
     maxReps: 8
+  },
+  {
+    // The pre-registered replication (Lead review prescription 2026-08-27):
+    // same two-arm design as M4, but with SEEDED within-block arm-order
+    // randomization replacing the deterministic control-first order, and a
+    // pre-registered analysis (exact sign-flip permutation primary endpoint,
+    // Holm secondary, non-inferiority reliability gate). The contract file
+    // keeps its original -DRAFT filename (references exist; the Status line
+    // inside it carries the authorization).
+    series: 'M5',
+    runIdPattern: /^cr004-m5-\d{8}-[0-9a-f]{8}$/,
+    contractPath: 'docs/plan/cr004-m5-replication-run-contract-DRAFT-2026-08-28.md',
+    matrixDesign: 'M5-preregistered-replication',
+    allowedTasks: ['L1', 'L2'],
+    allowedArms: ['NATIVE', 'ACTIVE_V2'],
+    maxReps: 8,
+    armOrder: 'randomized'
   }
 ]
 
@@ -120,7 +154,7 @@ export function isValidMxProfileRunId(runId: string | undefined): runId is strin
 
 /**
  * Resolve the profile a run identity binds to and REFUSE when the binding is
- * unsound: an unknown/unregistered series (M5+ must add a profile + contract
+ * unsound: an unknown/unregistered series (M6+ must add a profile + contract
  * first — a deliberate act), an ambiguous multi-match (registry defect), or a
  * contract file missing on disk (checked at startup, both runner modes).
  */
@@ -162,13 +196,16 @@ export interface MxShapeLike {
   readonly tasks: readonly string[]
   readonly strategies: readonly string[]
   readonly repetitions: number
+  /** Arm-order mode (optional; the canonical default applies when absent). */
+  readonly armOrder?: unknown
 }
 
 /**
  * Validate the resolved matrix shape (env knobs) against the profile's
- * bounds: every task and arm must be allowed for the series, and the
- * repetition count must not exceed the series' maximum. Throws MxProfileError
- * on the first violation.
+ * bounds: every task and arm must be allowed for the series, the
+ * repetition count must not exceed the series' maximum, and — for series
+ * with a REQUIRED arm-order mode (M5: randomized) — the shape must carry
+ * exactly that mode. Throws MxProfileError on the first violation.
  */
 export function validateMxShapeAgainstProfile(shape: MxShapeLike, profile: MxExperimentProfile): void {
   for (const task of shape.tasks) {
@@ -190,6 +227,35 @@ export function validateMxShapeAgainstProfile(shape: MxShapeLike, profile: MxExp
       `repetitions ${shape.repetitions} exceed experiment profile ${profile.series} max ${profile.maxReps}`
     )
   }
+  if (profile.armOrder !== undefined) {
+    const mode = typeof shape.armOrder === 'string' ? shape.armOrder : '(none)'
+    if (shape.armOrder !== profile.armOrder) {
+      throw new MxProfileError(
+        `experiment profile ${profile.series} requires armOrder '${profile.armOrder}' (the pre-registered design); refusing '${mode}'`
+      )
+    }
+  }
+}
+
+/**
+ * Resolve the effective arm-order mode for a run: a profile with a REQUIRED
+ * mode forces it (an explicit conflicting request is REFUSED — an M5 run
+ * cannot opt into the canonical control-first order); otherwise the requested
+ * mode applies, defaulting to 'canonical' (all historical behavior).
+ */
+export function resolveMxArmOrder(
+  requested: MxArmOrderMode | undefined,
+  profile: MxExperimentProfile
+): MxArmOrderMode {
+  if (profile.armOrder !== undefined) {
+    if (requested !== undefined && requested !== profile.armOrder) {
+      throw new MxProfileError(
+        `experiment profile ${profile.series} requires armOrder '${profile.armOrder}' (the pre-registered design); refusing requested '${requested}'`
+      )
+    }
+    return profile.armOrder
+  }
+  return requested ?? 'canonical'
 }
 
 /** Read the profile's contract file and hash it (manifest binding evidence). */
@@ -285,6 +351,14 @@ export function mxProvenanceWarnings(
     if (repetitions > profile.maxReps) {
       warnings.push(
         `recorded design repetitions ${repetitions} exceed series ${profile.series} max ${profile.maxReps}`
+      )
+    }
+    // M5+: a required arm-order mode is cross-checked when the manifest
+    // records one (absent => the canonical default, warned below).
+    const armOrder = (design as { armOrder?: unknown }).armOrder
+    if (profile.armOrder !== undefined && armOrder !== profile.armOrder) {
+      warnings.push(
+        `recorded design armOrder '${typeof armOrder === 'string' ? armOrder : '(none)'}' violates series ${profile.series} required '${profile.armOrder}'`
       )
     }
   }
