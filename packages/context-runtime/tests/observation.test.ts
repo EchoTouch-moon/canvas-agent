@@ -197,6 +197,20 @@ describe('RuntimeSession sequence', () => {
     expect(session.nextSequence()).toBe(5)
     expect(session.nextSequence()).toBe(6)
   })
+
+  it('releaseSequences rolls back claims without dropping below zero (transactional observers)', () => {
+    const session = new RuntimeSession('session-tx', 5)
+    expect(session.nextSequence()).toBe(5)
+    expect(session.nextSequence()).toBe(6)
+    expect(session.claimedCount()).toBe(2)
+    session.releaseSequences(1)
+    expect(session.claimedCount()).toBe(1)
+    // The released sequence is reclaimed by the re-observed boundary.
+    expect(session.nextSequence()).toBe(6)
+    session.releaseSequences(10)
+    expect(session.claimedCount()).toBe(0)
+    expect(session.currentSequence()).toBe(4)
+  })
 })
 
 describe('redaction', () => {

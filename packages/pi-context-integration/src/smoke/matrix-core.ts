@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import {
   ESTIMATE_SCOPE_AGENT_MESSAGES,
   JsonlObservationSink,
@@ -16,6 +16,29 @@ import {
   type S1OracleResult,
   type S1StopConditionId
 } from './s1-pair-core'
+import {
+  MX_LATEST_PROFILE,
+  MX_EXPERIMENT_PROFILES,
+  mxProfileForRunId,
+  mxProvenanceWarnings
+} from './mx-profiles'
+
+export {
+  MX_EXPERIMENT_PROFILES,
+  MX_LATEST_PROFILE,
+  MxProfileError,
+  assertMxProfileBindable,
+  isValidMxProfileRunId,
+  mxProfileForRunId,
+  mxProvenanceWarnings,
+  mxRunIdSeriesOf,
+  readMxProfileContract,
+  validateMxShapeAgainstProfile,
+  type MxArm,
+  type MxExperimentProfile,
+  type MxSeriesId,
+  type MxTaskSlot
+} from './mx-profiles'
 
 // CR-004 Stage 1 MATRIX core (M3: docs/plan/cr004-m3-matrix-run-contract-2026-08-27.md;
 // M2 sibling: docs/plan/cr004-m2-matrix-run-contract-2026-08-27.md; M1:
@@ -51,20 +74,26 @@ import {
 // No provider, no network, no ModelRuntime in this module.
 
 // ---------------------------------------------------------------------------
-// Run identity (contract section 2)
+// Run identity (contract section 2; profile-bound since the CR-004 hardening)
 // ---------------------------------------------------------------------------
 
 /**
- * Accepts M1–M4 (each M-series run must carry its own contract): `cr004-m[1-9]-<ISO-date
- * undashed>-<8-hex>`, e.g. cr004-m1-20260826-d23a992c /
- * cr004-m2-20260827-4d7e9a1b / cr004-m3-20260827-9c1d2e3f.
+ * Run identities of the REGISTERED series only (M1..M4; see
+ * MX_EXPERIMENT_PROFILES): `cr004-m<N>-<ISO-date-undashed>-<8-hex>`, e.g.
+ * cr004-m1-20260826-d23a992c / cr004-m2-20260827-4d7e9a1b /
+ * cr004-m4-20260827-d0cec2f5. An M5+ identity is REFUSED until a profile +
+ * contract are deliberately added to the registry (the old open `m[1-9]`
+ * pattern accepted series whose contracts do not exist).
  */
-export const MX_RUN_ID_PATTERN = /^cr004-m[1-9]-\d{8}-[0-9a-f]{8}$/
+export const MX_RUN_ID_PATTERN = new RegExp(
+  `^cr004-(?:${MX_EXPERIMENT_PROFILES.map((profile) => profile.series.toLowerCase()).join('|')})-\\d{8}-[0-9a-f]{8}$`
+)
 /** Tonight's M3 run identities: cr004-m3-<ISO-date-undashed>-<8-hex>. */
 export const MX_M3_RUN_ID_PATTERN = /^cr004-m3-\d{8}-[0-9a-f]{8}$/
 
+/** True when the identity matches exactly one REGISTERED experiment profile. */
 export function isValidMxRunId(runId: string | undefined): runId is string {
-  return runId !== undefined && MX_RUN_ID_PATTERN.test(runId)
+  return mxProfileForRunId(runId) !== undefined
 }
 
 /** True for an M3-pattern identity (the contract in force for new runs). */
@@ -74,11 +103,13 @@ export function isM3MxRunId(runId: string | undefined): runId is string {
 
 /**
  * Fresh single-use run identity suggestion; the Lead must export it. New runs
- * are M3 (`cr004-m3-*`); M1/M2 identities are consumed history.
+ * come from the LATEST REGISTERED profile (M4 confirmatory); earlier series
+ * are consumed history.
  */
 export function suggestMxRunId(now: Date = new Date()): string {
   const isoDate = now.toISOString().slice(0, 10).replace(/-/g, '')
-  return `cr004-m3-${isoDate}-${randomBytes(4).toString('hex')}`
+  const series = MX_LATEST_PROFILE.series.toLowerCase()
+  return `cr004-${series}-${isoDate}-${randomBytes(4).toString('hex')}`
 }
 
 // ---------------------------------------------------------------------------
@@ -1303,6 +1334,12 @@ export interface MxAnalysisOutput {
     readonly cells: readonly MxCellAggregate[]
     readonly perTask: readonly MxArmComparisonTest[]
     readonly verdict: MxVerdict
+    /**
+     * Manifest-vs-run-id-series cross-check warnings (CR-004 hardening).
+     * Historical evidence is NEVER rewritten; e.g. the M4 dir records the M3
+     * contract + design (verified mislabel) and surfaces here.
+     */
+    readonly provenanceWarnings: readonly string[]
   }
   readonly markdown: string
 }
@@ -1339,13 +1376,25 @@ export async function analyzeMatrix(reportDir: string): Promise<MxAnalysisOutput
   const cells = aggregateMxCells(inputs)
   const perTask = mxPermutationTests(cells)
   const verdict = mxVerdictOf(cells)
+  // Provenance cross-check: the recorded manifest vs the run-id series
+  // (the run dir name is the fallback identity). Read-only on evidence.
+  let provenanceWarnings: readonly string[] = []
+  try {
+    const manifestRaw = await readFile(join(reportDir, 'manifest.json'), 'utf8')
+    provenanceWarnings = mxProvenanceWarnings(JSON.parse(manifestRaw) as Record<string, unknown>, {
+      runIdFallback: basename(reportDir)
+    })
+  } catch {
+    provenanceWarnings = ['manifest.json absent or unreadable: provenance cannot be cross-checked']
+  }
   const analysis = {
     reportDir,
     generatedAt: new Date().toISOString(),
     legsAnalyzed: inputs.length,
     cells,
     perTask,
-    verdict
+    verdict,
+    provenanceWarnings
   }
 
   const lines: string[] = []
@@ -1353,6 +1402,14 @@ export async function analyzeMatrix(reportDir: string): Promise<MxAnalysisOutput
   lines.push('')
   lines.push(`Legs analyzed: ${inputs.length}. Metadata-only; token figures are internal estimates, not provider measurements.`)
   lines.push('')
+  if (provenanceWarnings.length > 0) {
+    lines.push('## Provenance warnings (manifest vs run-id series; evidence NOT rewritten)')
+    lines.push('')
+    for (const warning of provenanceWarnings) {
+      lines.push(`- WARNING: ${warning}`)
+    }
+    lines.push('')
+  }
   lines.push('## Per-cell aggregates')
   lines.push('')
   lines.push('| Cell | n | oracle | records (mean/median) | tools | wall ms (mean/median) | tokenSum mean | trajectory peak / final / sum (means) |')

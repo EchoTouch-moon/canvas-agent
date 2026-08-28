@@ -18,12 +18,21 @@
 | pooled oracle | 14/16 | 14/16 | **0** | — |
 | per-call trajectory peak (mean of cell means) | 18 422 | 16 454 | −11% | — |
 
-**L1 at p=0.045 is the program's first below-0.05 result: on read-then-edit
-refactor work, retention-aware coarse removal cut total model-visible context
-mass nearly in half, beyond what 12 870 label reassignments can plausibly
-attribute to chance** — still reported descriptively (one model, internal
-token estimates, no causal language). L2's −13% favors v2 but does not
-separate from native's own variance, exactly as M3 predicted.
+**L1 at nominal exact-permutation p=0.045 is the program's first below-0.05
+signal: on read-then-edit refactor work, retention-aware coarse removal cut
+total model-visible context mass nearly in half.** Lead-review correction
+(2026-08-27, recorded here rather than rewriting history): this is a
+**nominal** p-value under an exchangeability assumption that M4 does not fully
+satisfy — treatment assignment was deterministic (control-first inside every
+task × rep), so within-block execution order is bound to the arm and temporal
+provider drift cannot be excluded by label reassignment alone; and the two
+per-task tests carry no pre-declared multiplicity handling (Bonferroni at
+α=0.05 family-wise gives 0.025, which L1's 0.045 does not meet). Correct
+phrasing: **strong descriptive efficiency signal with a nominal p<0.05
+permutation value — not established family-wise significance.** The M5
+replication contract must pre-declare primary endpoint, alpha, multiplicity
+procedure and randomized within-rep arm order. L2's −13% favors v2 but does
+not separate from native's own variance, exactly as M3 predicted.
 
 ## Reliability: net-neutral, task-shaped
 
@@ -43,7 +52,7 @@ that, and the honest record keeps it as a hypothesis.
 
 1. **Efficiency: established at the descriptive level.** v2 is the cheapest
    arm in every matrix since its introduction (M2 −11%, M3 −9% on L2, M4
-   −35% pooled), with L1 individually significant at p=0.045.
+   −35% pooled), with L1 individually carrying a nominal p=0.045 permutation value (see the exchangeability and multiplicity correction above).
 2. **Reliability: neutral pooled (14/16 vs 14/16 at n=8), task-shaped
    variance** — a safety/performance trade-off surface that the policy's
    retain-K parameter can explore.
@@ -62,3 +71,37 @@ that, and the honest record keeps it as a hypothesis.
 - A fifth matrix only if retain-K changes the L1 picture.
 
 Raw evidence: local untracked `research/context-benchmarks/reports/cr004-matrix/cr004-m4-20260827-d0cec2f5/`.
+
+## Review-response amendment (2026-08-27, post-merge)
+
+The Lead review of PRs #50/#51 surfaced four issues this amendment records
+and the companion Hardening PR fixes:
+
+1. **Statistical language downgraded** (above): nominal p under
+   exchangeability; no pre-declared multiplicity — "first significant
+   result" was too strong and is superseded by "first nominal p<0.05
+   efficiency signal".
+2. **Evidence contract mislabel (verified and fixed)**: the M4 raw-evidence
+   manifest records the M3 contract path and `M3-verify-window-dedup`
+   design — the runner hardcoded them. Fixed by the ExperimentProfile
+   registry (series ↔ contract ↔ design ↔ shape binding, contract-hash
+   in the manifest); the analyzer now emits provenance warnings on the
+   existing M4 evidence (evidence NOT rewritten).
+3. **Transactional Active Rewrite (P1, fixed)**: the extension mutated
+   runtime state before compose/guard; any fallback left the runtime
+   believing sources removed while the model saw native context. The
+   propose → compose → guard → commit restructure with rollback-purity
+   tests closes this; Active rewrite was NO-GO for further scale until
+   this landed.
+4. **Session hangs (P1, fixed)**: `session.prompt()` had no in-flight
+   deadline; stalls required external kills. Legs now run under
+   manifest-budget deadlines with real `session.abort()` and graceful
+   evidence close, and the matrix continues.
+
+Also fixed in the Hardening PR: the JSONL sink write race (lines buffered
+during an in-flight append were dropped on the wholesale clear), the v3
+dedup hash now uses full SHA-256 internally (truncation is telemetry-only),
+experimental APIs moved behind the `./experimental` export boundary, and
+every run dir now carries an `evidence-root.json` (code commit, contract/
+manifest/analysis hashes, legs root, providerConfigHash) with an offline
+`--verify-evidence` mode.

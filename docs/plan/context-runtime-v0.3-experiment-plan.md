@@ -17,7 +17,7 @@ native there for the first time); then the confirmatory M4 — L1+L2 x NATIVE
 vs ACTIVE v2 x 8 reps, 32 legs, 546 records, exact permutation tests.
 
 ```text
-L1 context mass:  v2 -46% vs native   p=0.045  (program's first <0.05 result)
+L1 context mass:  v2 -46% vs native   nominal p=0.045 (first <0.05 signal; not family-wise)
 L2 context mass:  v2 -13% vs native   p=0.671  (direction favors v2)
 pooled oracle:    14/16 vs 14/16      (neutral; task-shaped: L1 8/8 vs 6/8, L2 6/8 vs 8/8)
 value hypothesis: EFFICIENCY ESTABLISHED (descriptive), RELIABILITY NEUTRAL,

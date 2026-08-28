@@ -63,6 +63,31 @@ export class PiContextShadowObserver {
     this.observe(messages, sequence)
     return { messages }
   }
+
+  /**
+   * Transactional observation snapshot (CR-004 hardening): everything one
+   * model-call observation mutates — the claimed sequence counter and the
+   * in-memory observation log. `restoreTransaction` rewinds both so a rolled
+   * back boundary re-observes with the SAME sequence and leaves no duplicate
+   * observation (observedAt is a `now()` timestamp; with an injected fixed
+   * clock the restored state is byte-identical).
+   */
+  snapshotForTransaction(): { readonly claimed: number; readonly observationCount: number } {
+    return {
+      claimed: this.runtimeSession.claimedCount(),
+      observationCount: this.inMemory.count
+    }
+  }
+
+  restoreTransaction(snapshot: { readonly claimed: number; readonly observationCount: number }): void {
+    const claimedNow = this.runtimeSession.claimedCount()
+    if (claimedNow > snapshot.claimed) {
+      this.runtimeSession.releaseSequences(claimedNow - snapshot.claimed)
+    }
+    if (this.inMemory.count > snapshot.observationCount) {
+      this.inMemory.observations.length = snapshot.observationCount
+    }
+  }
 }
 
 export interface PiContextShadowExtensionOptions {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import type { ContextEvent, ExtensionAPI, ExtensionFactory } from '@earendil-works/pi-coding-agent'
+import { type PiMessageView } from '../src'
 import {
   createRunKillSwitch,
   createActiveRewriteExtension,
@@ -10,9 +11,8 @@ import {
   readTargetHashOf,
   scanDuplicateReads,
   type ActiveRemovalPolicy,
-  type ActiveRewriteEventEvidence,
-  type PiMessageView
-} from '../src'
+  type ActiveRewriteEventEvidence
+} from '../src/experimental'
 import { C0ScenarioExecutor } from '../src/smoke/c0-scenarios'
 
 // CR-004 removal policy v3 ('v3-verify-window-dedup') tests — the M3

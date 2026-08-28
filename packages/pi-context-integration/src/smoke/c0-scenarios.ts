@@ -751,6 +751,34 @@ export interface C0ScenarioExecutorOptions {
   readonly maxSemanticTokens?: number
 }
 
+/** Transactional planning snapshot of {@link C0ScenarioExecutor}. */
+export interface C0PlanningSnapshot {
+  readonly enriched: ReturnType<EnrichedPiShadowObserver['snapshotForTransaction']>
+  readonly state: MutableC0PlanningState
+  readonly previousWorkingSet: ContextWorkingSet | null
+  readonly latestTransition: ContextTransition | null
+  readonly removalHistory: readonly RemovalRecord[]
+  readonly planningSequence: number
+  readonly turnLabel: string
+  readonly representationsById: ReadonlyMap<string, ContextRepresentation>
+  readonly boundaries: readonly C0BoundaryRecord[]
+  readonly records: readonly C0DecisionRecord[]
+  readonly chain: readonly C0ChainDecision[]
+  readonly universeVersionIds: ReadonlySet<string>
+}
+
+/** Deterministic JSON with recursively sorted keys (digest input). */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
+  if (value !== null && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+      a.localeCompare(b)
+    )
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`).join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
+}
+
 export class C0ScenarioExecutor {
   readonly base: PiContextShadowObserver
   readonly enriched: EnrichedPiShadowObserver
@@ -808,6 +836,77 @@ export class C0ScenarioExecutor {
   /** Latest planned Transition (null before the first boundary). Read-only Stage 1 accessor. */
   get latestTransitionResult(): ContextTransition | null {
     return this.latestTransition
+  }
+
+  /**
+   * Transactional planning snapshot (CR-004 hardening): everything
+   * `beginTurn` + `observeBoundary` mutate — the planning state, the planned
+   * Working Set / Transition chain, the decision history, the representation
+   * registry, and the underlying observation seam (enriched observer
+   * snapshot). `restorePlanningState` rewinds ALL of it so an intervention
+   * attempt that fails composition/guard leaves the executor exactly as it
+   * was before the attempt; the event is then re-observed natively.
+   */
+  snapshotPlanningState(): C0PlanningSnapshot {
+    return {
+      enriched: this.enriched.snapshotForTransaction(),
+      state: this.state,
+      previousWorkingSet: this.previousWorkingSet,
+      latestTransition: this.latestTransition,
+      removalHistory: this.removalHistory,
+      planningSequence: this.planningSequence,
+      turnLabel: this.turnLabel,
+      representationsById: new Map(this.representationsById),
+      boundaries: [...this.boundaries],
+      records: [...this.records],
+      chain: [...this.chain],
+      universeVersionIds: new Set(this.universeVersionIds)
+    }
+  }
+
+  restorePlanningState(snapshot: C0PlanningSnapshot): void {
+    this.enriched.restoreTransaction(snapshot.enriched)
+    this.state = snapshot.state
+    this.previousWorkingSet = snapshot.previousWorkingSet
+    this.latestTransition = snapshot.latestTransition
+    this.removalHistory = [...snapshot.removalHistory]
+    this.planningSequence = snapshot.planningSequence
+    this.turnLabel = snapshot.turnLabel
+    this.representationsById.clear()
+    for (const [id, representation] of snapshot.representationsById) {
+      this.representationsById.set(id, representation)
+    }
+    this.boundaries.length = 0
+    this.boundaries.push(...snapshot.boundaries)
+    this.records.length = 0
+    this.records.push(...snapshot.records)
+    this.chain.length = 0
+    this.chain.push(...snapshot.chain)
+    this.universeVersionIds.clear()
+    for (const versionId of snapshot.universeVersionIds) {
+      this.universeVersionIds.add(versionId)
+    }
+  }
+
+  /**
+   * Deterministic sha256 over the semantic planning history (boundaries,
+   * decisions, chain, universe versions, final active sources, planning
+   * sequence and observation count). Regression tests hash this before/after
+   * a rolled-back intervention attempt to prove the history is unchanged.
+   */
+  planningStateDigest(): string {
+    return sha256Hex(
+      stableStringify({
+        boundaries: this.boundaries,
+        records: this.records,
+        chain: this.chain,
+        universeVersionIds: [...this.universeVersionIds].sort(),
+        finalActiveSourceKeys: [...this.finalActiveSourceKeys()].sort(),
+        planningSequence: this.planningSequence,
+        observationCount: this.observationCount,
+        excludedSourceKeys: this.state.excludedSourceKeys
+      })
+    )
   }
 
   /** Applies a turn's scripted events + request patch before its boundaries. */
