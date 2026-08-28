@@ -15,12 +15,17 @@ import {
 import { JsonlObservationSink } from '@canvas-agent/context-runtime'
 import { C0ScenarioExecutor } from './c0-scenarios'
 import {
-  createRunKillSwitch,
+  LEG_DEADLINE_STOP_REASON,
+  legDeadlineOf,
+  runPromptWithDeadline
+} from './leg-deadline'
+import {
   ProviderBindingError,
   prepareModelProvider,
   safeProviderSelection,
   type PreparedModelProvider
 } from '../index'
+import { createRunKillSwitch } from '../experimental'
 import {
   createActiveRewriteExtension,
   InMemoryActiveRewriteEvidenceCollector,
@@ -113,6 +118,22 @@ class S1BoundaryFailure extends Error {
     const message = cause instanceof Error ? cause.message : String(cause)
     super(`S1 boundary failure: ${message}`)
     this.name = 'S1BoundaryFailure'
+  }
+}
+
+/** The leg prompt exceeded its in-flight deadline; the session was aborted. */
+class S1LegDeadlineExceeded extends Error {
+  constructor(detail: {
+    readonly deadlineMs: number
+    readonly settledWithinGrace: boolean
+    readonly abortErrorMessage?: string
+  }) {
+    super(
+      `leg deadline exceeded after ${detail.deadlineMs}ms; session aborted in-flight` +
+        (detail.settledWithinGrace ? '' : '; prompt did not settle within the post-abort grace') +
+        (detail.abortErrorMessage !== undefined ? `; abort error: ${detail.abortErrorMessage}` : '')
+    )
+    this.name = 'S1LegDeadlineExceeded'
   }
 }
 
@@ -325,18 +346,39 @@ async function runLiveLeg(options: {
       tools: [...options.task.allowedTools]
     })
 
-    // The manifest task prompt, issued ONCE, exactly as the manifest specifies.
-    log(`leg=${options.strategy} prompt issued (taskId=${options.task.taskId})`)
+    // The manifest task prompt, issued ONCE, exactly as the manifest specifies,
+    // bounded by the IN-FLIGHT LEG DEADLINE (manifest wallClockMs + 60s grace):
+    // on the deadline the session is aborted in flight and the leg fails with
+    // S-9 'leg deadline exceeded; session aborted in-flight' (evidence kept).
+    const deadlineMs = legDeadlineOf(options.task.budget.wallClockMs)
+    log(`leg=${options.strategy} prompt issued (taskId=${options.task.taskId}) deadlineMs=${deadlineMs}`)
     try {
-      await session.prompt(options.task.prompt)
+      const outcome = await runPromptWithDeadline(session, options.task.prompt, deadlineMs)
+      if (outcome.status === 'TIMED_OUT') {
+        log(
+          `leg=${options.strategy} deadline exceeded (deadlineMs=${outcome.deadlineMs}); session aborted in-flight` +
+            (outcome.settledWithinGrace ? '' : '; prompt did not settle within the post-abort grace')
+        )
+        // Fail closed, but evidence-close first: the observations collected so
+        // far are always preserved before the error escapes (contract S-1..S-9).
+        await flushObservations(
+          executor,
+          options.observationDir,
+          `${options.strategy.toLowerCase()}-observations`
+        )
+        throw new S1LegDeadlineExceeded(outcome)
+      }
     } catch (error) {
-      // Fail closed, but evidence-close first: the observations collected so
-      // far are always preserved before the error escapes (contract S-1..S-9).
-      await flushObservations(
-        executor,
-        options.observationDir,
-        `${options.strategy.toLowerCase()}-observations`
-      )
+      if (!(error instanceof S1LegDeadlineExceeded)) {
+        // Fail closed, but evidence-close first: the observations collected so
+        // far are always preserved before the error escapes (contract S-1..S-9).
+        await flushObservations(
+          executor,
+          options.observationDir,
+          `${options.strategy.toLowerCase()}-observations`
+        )
+        throw error
+      }
       throw error
     }
     await flushObservations(
@@ -556,7 +598,9 @@ async function run(): Promise<void> {
             )
           }
         } catch (error) {
-          if (error instanceof S1BoundaryFailure) {
+          if (error instanceof S1LegDeadlineExceeded) {
+            machine.fireRunStop('S-9', `${LEG_DEADLINE_STOP_REASON} (${error.message})`)
+          } else if (error instanceof S1BoundaryFailure) {
             machine.fireRunStop('S-2', error.message)
           } else {
             const message = error instanceof Error ? error.message : String(error)
@@ -625,7 +669,9 @@ async function run(): Promise<void> {
             machine.recordKillSwitchTrip(trip.reason)
           }
         } catch (error) {
-          if (error instanceof S1BoundaryFailure) {
+          if (error instanceof S1LegDeadlineExceeded) {
+            machine.fireRunStop('S-9', `${LEG_DEADLINE_STOP_REASON} (${error.message})`)
+          } else if (error instanceof S1BoundaryFailure) {
             machine.fireRunStop('S-2', error.message)
           } else {
             const message = error instanceof Error ? error.message : String(error)

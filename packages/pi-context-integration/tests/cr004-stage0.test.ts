@@ -2,17 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { computeWorkingSetLogicalHash } from '@canvas-agent/context-runtime'
 import {
   EnrichedPiShadowObserver,
-  PI_ACTIVE_CAPABILITY,
   PiContextShadowObserver,
   ShadowPlannerObserver,
+  type PiMessageView
+} from '../src'
+import {
+  PI_ACTIVE_CAPABILITY,
   assertRewriteSafe,
   checkCapability,
   composeActiveRewrite,
   createRunKillSwitch,
   type ActiveRewriteComposition,
-  type ComposeActiveRewriteInput,
-  type PiMessageView
-} from '../src'
+  type ComposeActiveRewriteInput
+} from '../src/experimental'
 
 // CR-004 Stage 0 safety-seam tests. Offline, credential-free, network-free:
 // Working Sets / Transitions come from the REAL policy-v0 planner

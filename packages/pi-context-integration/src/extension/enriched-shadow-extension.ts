@@ -44,6 +44,21 @@ export interface EnrichedPiShadowObserverOptions {
   readonly seeds?: readonly SnapshotLikeSeed[]
 }
 
+/**
+ * Transactional observation snapshot (CR-004 hardening): the observer state one
+ * `observeModelCall` mutates — the base observation seam, the universe
+ * revision, the call-result log, and the pending external-observation queue.
+ * `restoreTransaction` rewinds all of it so a rolled-back boundary can be
+ * re-observed exactly (external observations queued before the snapshot are
+ * re-queued and consumed again by the re-observation).
+ */
+export interface EnrichedObserverSnapshot {
+  readonly base: ReturnType<PiContextShadowObserver['snapshotForTransaction']>
+  readonly universe: ContextUniverseRevision | null
+  readonly callResultCount: number
+  readonly pendingExternalObservations: ReadonlyMap<string, ExternalObservation>
+}
+
 // Provider-neutral external observation: an authoritative adapter queues a
 // SourceObservation (AVAILABLE / ABSENT / UNAVAILABLE) with its explicit source
 // descriptor. Applied at the next model-call boundary through the normal
@@ -113,6 +128,27 @@ export class EnrichedPiShadowObserver {
         }
       }))
     )
+  }
+
+  snapshotForTransaction(): EnrichedObserverSnapshot {
+    return {
+      base: this.base.snapshotForTransaction(),
+      universe: this.universe,
+      callResultCount: this.callResults.length,
+      pendingExternalObservations: new Map(this.pendingExternalObservations)
+    }
+  }
+
+  restoreTransaction(snapshot: EnrichedObserverSnapshot): void {
+    this.base.restoreTransaction(snapshot.base)
+    this.universe = snapshot.universe
+    if (this.callResults.length > snapshot.callResultCount) {
+      ;(this.callResults as EnrichedShadowResult[]).length = snapshot.callResultCount
+    }
+    this.pendingExternalObservations.clear()
+    for (const [key, value] of snapshot.pendingExternalObservations) {
+      this.pendingExternalObservations.set(key, value)
+    }
   }
 
   private takeExternalObservations(): readonly ExternalObservation[] {

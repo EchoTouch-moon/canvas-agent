@@ -15,12 +15,12 @@ import {
 } from '@earendil-works/pi-coding-agent'
 import { type ModelCallObservation } from '@canvas-agent/context-runtime'
 import {
-  createRunKillSwitch,
   ProviderBindingError,
   prepareModelProvider,
   safeProviderSelection,
   type PreparedModelProvider
 } from '../index'
+import { createRunKillSwitch } from '../experimental'
 import {
   createActiveRewriteExtension,
   InMemoryActiveRewriteEvidenceCollector,
@@ -29,6 +29,23 @@ import {
 } from '../extension/active-rewrite-extension'
 import type { PiMessageView } from '../pi-message-mapper'
 import { C0ScenarioExecutor } from './c0-scenarios'
+import {
+  LEG_DEADLINE_STOP_REASON,
+  legDeadlineOf,
+  runPromptWithDeadline
+} from './leg-deadline'
+import {
+  assertMxProfileBindable,
+  MxProfileError,
+  readMxProfileContract,
+  validateMxShapeAgainstProfile,
+  type MxExperimentProfile
+} from './mx-profiles'
+import {
+  verifyMxEvidenceRoot,
+  writeMxEvidenceRoot,
+  MX_EVIDENCE_ROOT_FILENAME
+} from './mx-evidence-root'
 import type { S1OracleResult } from './s1-pair-core'
 import {
   aggregateMxCells,
@@ -129,8 +146,9 @@ const BENCHMARK_ROOT = resolve(process.cwd(), '..', '..', 'research', 'context-b
 // CR-004 matrix artifacts live apart from the frozen CR-005 six-category corpus.
 const DEFAULT_MANIFEST_DIR = join(BENCHMARK_ROOT, 'matrix-manifests')
 const REPORTS_ROOT = join(BENCHMARK_ROOT, 'reports', 'cr004-matrix')
+/** Repo root for the experiment-profile contract existence check + hashing. */
+const REPO_ROOT = resolve(process.cwd(), '..', '..')
 const STEP_PLAN_PROVIDER_ID = 'step-plan'
-const MX_CONTRACT_PATH = 'docs/plan/cr004-m3-matrix-run-contract-2026-08-27.md'
 /**
  * The Active seam's out-of-band system-instruction carrier (Stage 1 constant,
  * byte-identical through every composition).
@@ -323,6 +341,27 @@ class MxLegObservationError extends Error {
   }
 }
 
+/**
+ * The leg's prompt exceeded its in-flight deadline (manifest wallClockMs +
+ * grace): the session was aborted in flight. Evidence-close happens through
+ * the MxLegObservationError channel; the leg is FAILED with S-9 and the
+ * matrix CONTINUES (replaces the external-kill mitigation).
+ */
+class MxLegDeadlineExceeded extends MxLegObservationError {
+  constructor(executor: C0ScenarioExecutor, detail: {
+    readonly deadlineMs: number
+    readonly settledWithinGrace: boolean
+    readonly abortErrorMessage?: string
+  }) {
+    super(executor, new Error(
+      `leg deadline exceeded after ${detail.deadlineMs}ms; session aborted in-flight` +
+        (detail.settledWithinGrace ? '' : '; prompt did not settle within the post-abort grace') +
+        (detail.abortErrorMessage !== undefined ? `; abort error: ${detail.abortErrorMessage}` : '')
+    ))
+    this.name = 'MxLegDeadlineExceeded'
+  }
+}
+
 /** One live matrix leg in a FRESH temp fixture copy. */
 async function runLiveLeg(options: {
   readonly plan: MxLegPlan
@@ -396,14 +435,28 @@ async function runLiveLeg(options: {
       tools: [...task.allowedTools]
     })
 
-    // The manifest task prompt, issued ONCE, exactly as the manifest specifies.
-    log(`leg=${mxLegDirName(plan)} prompt issued (taskId=${task.taskId})`)
+    // The manifest task prompt, issued ONCE, exactly as the manifest specifies,
+    // bounded by the IN-FLIGHT LEG DEADLINE (manifest wallClockMs + 60s grace):
+    // on the deadline the session is aborted in flight, the leg is FAILED with
+    // S-9, and the matrix continues (no external kill needed).
+    const deadlineMs = legDeadlineOf(task.budget.wallClockMs)
+    log(`leg=${mxLegDirName(plan)} prompt issued (taskId=${task.taskId}) deadlineMs=${deadlineMs}`)
     try {
-      await session.prompt(task.prompt)
+      const outcome = await runPromptWithDeadline(session, task.prompt, deadlineMs)
+      if (outcome.status === 'TIMED_OUT') {
+        log(
+          `leg=${mxLegDirName(plan)} deadline exceeded (deadlineMs=${outcome.deadlineMs}); session aborted in-flight` +
+            (outcome.settledWithinGrace ? '' : '; prompt did not settle within the post-abort grace')
+        )
+        throw new MxLegDeadlineExceeded(executor, outcome)
+      }
     } catch (error) {
       // Evidence-close first: observations collected so far are preserved
       // before the error escapes; the runner then marks the leg FAILED.
-      throw new MxLegObservationError(executor, error)
+      if (!(error instanceof MxLegDeadlineExceeded)) {
+        throw new MxLegObservationError(executor, error)
+      }
+      throw error
     }
     const wallClockMs = Date.now() - legStartedAt
 
@@ -501,6 +554,25 @@ interface LegOutcome {
 }
 
 async function run(): Promise<void> {
+  // ---- Evidence verification mode (--verify-evidence <reportDir>) ----------
+  const verifyArgIndex = process.argv.indexOf('--verify-evidence')
+  if (verifyArgIndex !== -1) {
+    const reportDir = process.argv[verifyArgIndex + 1]
+    if (reportDir === undefined || reportDir === '') {
+      console.error('[cr004-mx] REFUSED: --verify-evidence requires a report directory argument.')
+      console.error('MX_STATUS=FAILED')
+      process.exit(1)
+    }
+    const resolvedReportDir = resolve(reportDir)
+    const verification = await verifyMxEvidenceRoot(resolvedReportDir, { repoRoot: REPO_ROOT })
+    for (const [field, check] of Object.entries(verification.fields)) {
+      console.log(`[cr004-mx] EVIDENCE ${field}=${check}`)
+    }
+    console.log(`MX_EVIDENCE_VERIFY=${verification.allMatch ? 'MATCH' : 'MISMATCH'}`)
+    if (!verification.allMatch) process.exit(1)
+    return
+  }
+
   // ---- Offline analysis mode (--analyze <reportDir>) -----------------------
   const analyzeArgIndex = process.argv.indexOf('--analyze')
   if (analyzeArgIndex !== -1) {
@@ -517,8 +589,12 @@ async function run(): Promise<void> {
       `${JSON.stringify(analysis, null, 2)}\n`,
       'utf8'
     )
+    // Refresh the evidence root AFTER analysis.json lands (the root covers it).
+    const evidenceRoot = await writeMxEvidenceRoot(resolvedReportDir, { repoRoot: REPO_ROOT })
     console.log(markdown)
     console.log(`MX_ANALYSIS=${join(resolvedReportDir, 'analysis.json')}`)
+    console.log(`MX_EVIDENCE_ROOT=${join(resolvedReportDir, MX_EVIDENCE_ROOT_FILENAME)}`)
+    console.log(`MX_EVIDENCE_LEGS_ROOT=${evidenceRoot.legsRoot}`)
     return
   }
 
@@ -542,7 +618,7 @@ async function run(): Promise<void> {
     }
     if (!isValidMxRunId(process.env['CANVAS_PROVIDER_RUN_ID'])) {
       console.error(
-        `[cr004-mx] REFUSED: CANVAS_PROVIDER_RUN_ID must match /^${MX_RUN_ID_PATTERN.source}$/.`
+        `[cr004-mx] REFUSED: CANVAS_PROVIDER_RUN_ID must match a REGISTERED experiment profile /^${MX_RUN_ID_PATTERN.source}$/ (unregistered series need a deliberate registry entry + contract).`
       )
       console.error(`[cr004-mx] SUGGESTED_CANVAS_PROVIDER_RUN_ID=${suggestMxRunId()}`)
       console.error(
@@ -567,6 +643,26 @@ async function run(): Promise<void> {
     log(`DRY_RUN generated run identity ${runId} (no provider binding occurs in DRY_RUN)`)
   }
 
+  // ---- Experiment profile / contract binding (BOTH modes, startup gate) ----
+  // The run identity must match exactly one REGISTERED series whose contract
+  // file EXISTS on disk; the manifest then records that series' contractPath,
+  // contractSha256 and matrixDesign (the hardcoded M3 constants recorded the
+  // wrong contract + design for the real M4 run — verified mislabel).
+  let profile: MxExperimentProfile
+  try {
+    profile = assertMxProfileBindable(runId, { repoRoot: REPO_ROOT })
+  } catch (error) {
+    const message = error instanceof MxProfileError ? error.message : String(error)
+    console.error(`[cr004-mx] REFUSED: experiment profile binding failed: ${message}`)
+    console.error(`[cr004-mx] SUGGESTED_CANVAS_PROVIDER_RUN_ID=${suggestMxRunId()}`)
+    console.error('MX_STATUS=FAILED')
+    process.exit(1)
+  }
+  const contractBinding = await readMxProfileContract(profile, { repoRoot: REPO_ROOT })
+  log(
+    `profile=${profile.series} contract=${profile.contractPath} sha256=${contractBinding.contractSha256.slice(0, 12)} design=${profile.matrixDesign}`
+  )
+
   // ---- Matrix shape (validated env knobs; recorded in the manifest) -------
   let shape: MxMatrixShape
   try {
@@ -580,6 +676,19 @@ async function run(): Promise<void> {
     console.error(`[cr004-mx] REFUSED: ${error.message}`)
     console.error('MX_STATUS=FAILED')
     process.exit(1)
+  }
+  // LIVE runs are bound to the profile's shape bounds (allowed tasks/arms,
+  // max repetitions). DRY_RUN scripted stand-ins legitimately replay
+  // historical shapes, so the bounds gate applies to LIVE only.
+  if (!dryRun) {
+    try {
+      validateMxShapeAgainstProfile(shape, profile)
+    } catch (error) {
+      const message = error instanceof MxProfileError ? error.message : String(error)
+      console.error(`[cr004-mx] REFUSED: ${message}`)
+      console.error('MX_STATUS=FAILED')
+      process.exit(1)
+    }
   }
   const totalLegs = mxTotalLegsOf(shape)
 
@@ -643,11 +752,18 @@ async function run(): Promise<void> {
             ? 'DRY_RUN_COMPLETE'
             : 'EXECUTED'
         : 'RUNNING',
-      contract: MX_CONTRACT_PATH,
+      contract: profile.contractPath,
+      contractSha256: contractBinding.contractSha256,
       startedAt: startedAt.toISOString(),
       ...(final ? { finishedAt: finishedAt.toISOString() } : {}),
       wallClockMs: finishedAt.getTime() - startedAt.getTime(),
-      matrixDesign: 'M3-verify-window-dedup',
+      matrixDesign: profile.matrixDesign,
+      experimentProfile: {
+        series: profile.series,
+        allowedTasks: [...profile.allowedTasks],
+        allowedArms: [...profile.allowedArms],
+        maxReps: profile.maxReps
+      },
       design: {
         tasks: [...shape.tasks],
         strategies: [...shape.strategies],
@@ -865,7 +981,15 @@ async function run(): Promise<void> {
             }
           }
         } catch (error) {
-          if (error instanceof MxLegObservationError) {
+          if (error instanceof MxLegDeadlineExceeded) {
+            // Evidence-close the partial leg FIRST, then mark it FAILED with
+            // the canonical S-9 deadline reason; the matrix CONTINUES.
+            legObservations = [...error.executor.base.inMemory.observations]
+            outcome = {
+              status: 'FAILED',
+              stopCondition: { condition: 'S-9', reason: `${LEG_DEADLINE_STOP_REASON} (${error.message})` }
+            }
+          } else if (error instanceof MxLegObservationError) {
             // Evidence-close the partial leg FIRST, then mark it FAILED.
             legObservations = [...error.executor.base.inMemory.observations]
             const isBoundary = error.failure instanceof MxBoundaryFailure
@@ -959,6 +1083,11 @@ async function run(): Promise<void> {
   }
 
   await writeIncrementalEvidence(true)
+
+  // EVIDENCE ROOT: tamper-evident anchor over the finished run dir (covers
+  // every file incl. manifest.json/matrix.json; excludes itself).
+  const evidenceRoot = await writeMxEvidenceRoot(reportDir, { repoRoot: REPO_ROOT })
+  log(`evidence-root legsRoot=${evidenceRoot.legsRoot.slice(0, 16)} commit=${evidenceRoot.codeCommit ?? 'null'}`)
 
   const ledgers = machine.ledgers()
   const terminalStop = machine.stopsFired[0]

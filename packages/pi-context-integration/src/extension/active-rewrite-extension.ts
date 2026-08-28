@@ -11,7 +11,7 @@ import {
   type ActiveRewriteComposition,
   type ActiveRewriteReady
 } from '../active/rewrite-composer'
-import type { C0ScenarioExecutor } from '../smoke/c0-scenarios'
+import type { C0PlanningSnapshot, C0ScenarioExecutor } from '../smoke/c0-scenarios'
 import type { PiContentBlockView, PiMessageView } from '../pi-message-mapper'
 
 // CR-004 — Active intervention extension (Pi-only, bounded repeated sends).
@@ -85,18 +85,23 @@ import type { PiContentBlockView, PiMessageView } from '../pi-message-mapper'
 //      still active in the latest planned Working Set — each such NEW
 //      boundary may fire an intervention while sends remain under
 //      `maxInterventions` and attempts under `maxAttempts`;
-//   5. at a firing boundary it marks the earlier still-active read results
-//      for P as superseded (SOURCE_SUPERSEDED lifecycle signals + exclusions
-//      — the exact E4 vocabulary of c0-scenarios, accumulated across
-//      interventions), advances the observation/planning chain OVER THE BASIS
-//      (so observations measure the context the model actually sees), then
-//      composes the Active rewrite (activeModeOptIn, harness 'PI', the
-//      per-Run kill switch) over the basis + the REAL planned Working Set +
-//      Transition; REWRITE_READY + pre-send guard PASS => the composition's
+//   5. at a firing boundary it TRANSACTIONALLY proposes superseding the
+//      earlier still-active read results for P (SOURCE_SUPERSEDED lifecycle
+//      signals + exclusions — the exact E4 vocabulary of c0-scenarios,
+//      accumulated across interventions): the executor is snapshotted, the
+//      proposal is applied as a TRIAL turn, and the observation/planning
+//      chain advances OVER THE BASIS (so observations measure the context the
+//      model actually sees); the Active rewrite is then composed (activeMode-
+//      OptIn, harness 'PI', the per-Run kill switch) over the basis + the
+//      REAL planned Working Set + Transition and validated by the pre-send
+//      guard. REWRITE_READY + guard PASS => COMMIT: the composition's
 //      messages REPLACE the model-visible context (an Active rewrite send),
 //      the removal joins the carried basis, and the readTargetHashes of the
-//      removed pairs are recorded. ANY fallback or guard failure records its
-//      machine-readable reason and returns the basis unchanged.
+//      removed pairs are recorded. ANY fallback or guard failure first
+//      RESTORES the executor's pre-attempt snapshot and re-observes the event
+//      natively — the working-set/transition history is then byte-identical
+//      to a never-attempted event — and records its machine-readable reason,
+//      returning the basis unchanged.
 //
 // Composing over the carried basis (not the raw native list) is what makes a
 // SECOND intervention composable at all: sources removed by earlier
@@ -1098,28 +1103,35 @@ export function createActiveRewriteExtension(
         }
       }
 
+      // 5-7. TRANSACTIONAL intervention (CR-004 hardening): propose ->
+      //      trial-observe -> compose -> guard -> commit. NOTHING persistent
+      //      mutates until the pre-send guard PASSES. The candidate
+      //      supersession is computed into LOCALS (the exact E4 vocabulary —
+      //      SOURCE_SUPERSEDED signals + exclusions — applied as a TRIAL turn
+      //      against a snapshotted executor); only a guard-PASS commits the
+      //      patch to the live executor state (whose trial observation then
+      //      STANDS as the event's single observation). On ANY fallback
+      //      (compose refusal, exception, guard failure) the executor is
+      //      restored to its pre-attempt snapshot and the event is re-observed
+      //      natively, so the working-set/transition history is exactly what a
+      //      never-attempted event would produce. Prior SENT removals stay
+      //      carried either way (a SENT intervention commits; a FAILED attempt
+      //      rolls back completely).
+      let attemptTransaction: C0PlanningSnapshot | undefined
+      const newSupersededKeys: string[] = []
       if (fire !== undefined) {
-        // 5. Mark the earlier still-active read results as superseded —
-        //    the exact E4 lifecycle vocabulary (SOURCE_SUPERSEDED) the C0
-        //    scenario suite uses, plus the paired exclusions that let
-        //    policy-v0 emit REMOVE with reason SUPERSEDED. Exclusions
-        //    accumulate so every prior intervention stays in force. Under v2
-        //    the marked pairs span every swept (edited) path, not just the
-        //    trigger path; under v3 they may alternatively span the dedup
-        //    candidates (trigger 'dedup'); the composer/guard seam is
-        //    unchanged.
-        const newSupersededKeys: string[] = []
         for (const callId of fire.readToolCallIds) {
-          supersededReadCallIds.add(callId)
           newSupersededKeys.push(`run/tool-call://${callId}`, `run/tool-result://${callId}`)
         }
-        supersededSourceKeys.push(...newSupersededKeys)
+        attemptTransaction = options.executor.snapshotPlanningState()
+        // Attempt accounting is leg ledger, not executor state: the attempt is
+        // consumed and its trigger is never retried, even on fallback.
+        attemptsUsed += 1
         if (fire.trigger === 'edit') {
           attemptedEditToolCallIds.add(fire.triggerToolCallId)
         } else {
           attemptedDedupTriggerCallIds.add(fire.triggerToolCallId)
         }
-        attemptsUsed += 1
         const interventionLabel = (() => {
           if (fire.policy === 'v3-verify-window-dedup') {
             return `active-intervention-v3${fire.trigger === 'dedup' ? '-dedup' : ''}:${fire.interventionPath}`
@@ -1146,14 +1158,27 @@ export function createActiveRewriteExtension(
               evidenceRef
             }
           ],
-          patch: { excludedSourceKeys: [...supersededSourceKeys] }
+          // The PROPOSED exclusion view: prior committed exclusions + this
+          // attempt's candidates (identical content to the committed patch).
+          patch: { excludedSourceKeys: [...supersededSourceKeys, ...newSupersededKeys] }
         })
       }
 
       // 6. Advance the observation/planning chain OVER THE BASIS so the
       //    observation measures the context the model actually sees (drops at
-      //    interventions become visible in the trajectory).
-      options.executor.observeBoundary(basis)
+      //    interventions become visible in the trajectory). Inside an attempt
+      //    this observation is TRIAL state: a fallback restores the snapshot
+      //    and re-observes natively.
+      try {
+        options.executor.observeBoundary(basis)
+      } catch (error) {
+        // The observation itself failed (S-2 class): restore the pre-attempt
+        // snapshot so no partial trial state survives, then propagate.
+        if (attemptTransaction !== undefined) {
+          options.executor.restorePlanningState(attemptTransaction)
+        }
+        throw error
+      }
       const sequence = options.executor.observationCount
       const observedTokenEstimate =
         options.executor.base.inMemory.last()?.observedMessageTokenEstimate ?? 0
@@ -1209,6 +1234,15 @@ export function createActiveRewriteExtension(
         guardReason?: string,
         composition?: ActiveRewriteReady
       ): { messages: ContextEvent['messages'] } => {
+        // ROLL BACK the trial completely before recording: the executor
+        // returns to its pre-attempt snapshot and the event is re-observed
+        // NATIVELY, so the working-set/transition history is exactly what a
+        // never-attempted event would produce. Only the attempt LEDGER
+        // (attemptsUsed + the never-retried trigger) persists.
+        if (attemptTransaction !== undefined) {
+          options.executor.restorePlanningState(attemptTransaction)
+          options.executor.observeBoundary(basis)
+        }
         options.evidence.record({
           sequence,
           observedTokenEstimate,
@@ -1277,7 +1311,15 @@ export function createActiveRewriteExtension(
         return recordFallback('GUARD', undefined, guard.reason, composition)
       }
 
+      // COMMIT: the guard passed, so the trial becomes permanent. The
+      // executor's trial observation STANDS as this event's single observation
+      // (planned over the committed supersession), and the supersession joins
+      // the live extension state — exactly one mutation per SENT attempt.
       sendsUsed += 1
+      for (const callId of boundary.readToolCallIds) {
+        supersededReadCallIds.add(callId)
+      }
+      supersededSourceKeys.push(...newSupersededKeys)
       options.evidence.record({
         sequence,
         observedTokenEstimate,

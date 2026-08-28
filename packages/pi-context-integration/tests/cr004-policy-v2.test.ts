@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ContextEvent, ExtensionAPI, ExtensionFactory } from '@earendil-works/pi-coding-agent'
+import { type PiMessageView } from '../src'
 import {
   createRunKillSwitch,
   createActiveRewriteExtension,
@@ -7,9 +8,8 @@ import {
   readTargetHashOf,
   scanEditReadStructure,
   type ActiveRemovalPolicy,
-  type ActiveRewriteEventEvidence,
-  type PiMessageView
-} from '../src'
+  type ActiveRewriteEventEvidence
+} from '../src/experimental'
 import { C0ScenarioExecutor } from '../src/smoke/c0-scenarios'
 
 // CR-004 removal policy v2 ('v2-retain-latest-coarse') tests — the M2

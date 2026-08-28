@@ -23,8 +23,6 @@ import {
 } from '@earendil-works/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
 import {
-  PiCommittedContextAdapter,
-  PiContextTranslationError,
   canonicalizeIntendedContext,
   canonicalizeObservedContext,
   compareContextParity,
@@ -32,9 +30,13 @@ import {
   InMemoryModelRequestCapture,
   reconstructModelVisibleContext,
   type CapturedModelRequest,
-  type ContextRenderTrace,
   type ReconstructedModelVisibleContext
 } from '../src'
+import {
+  PiCommittedContextAdapter,
+  PiContextTranslationError,
+  type ContextRenderTrace
+} from '../src/experimental'
 
 interface FixtureSource {
   readonly sourceId: string

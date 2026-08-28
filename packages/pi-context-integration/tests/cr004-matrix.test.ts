@@ -4,14 +4,14 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ContextEvent, ExtensionAPI, ExtensionFactory } from '@earendil-works/pi-coding-agent'
+import { type PiMessageView } from '../src'
 import {
   createRunKillSwitch,
   createActiveRewriteExtension,
   InMemoryActiveRewriteEvidenceCollector,
   readTargetHashOf,
-  type ActiveRewriteEventEvidence,
-  type PiMessageView
-} from '../src'
+  type ActiveRewriteEventEvidence
+} from '../src/experimental'
 import { C0ScenarioExecutor } from '../src/smoke/c0-scenarios'
 import {
   aggregateMxCells,
@@ -30,7 +30,6 @@ import {
   mxLegDirName,
   mxLegOrder,
   type MxLegPlan,
-  MX_M3_RUN_ID_PATTERN,
   MX_RUN_ID_PATTERN,
   mxPermutationTests,
   mxShapeFromEnv,
@@ -342,21 +341,26 @@ describe('multi-intervention Active extension (real planner, offline)', () => {
 // ---------------------------------------------------------------------------
 
 describe('MX run identity and leg order', () => {
-  it('accepts cr004-m1..m4 identities; suggestions are M-series', () => {
+  it('accepts exactly the REGISTERED series (m1..m4); unregistered m5+ are refused', () => {
     expect(isValidMxRunId('cr004-m1-20260826-d23a992c')).toBe(true)
     expect(isValidMxRunId('cr004-m2-20260827-4d7e9a1b')).toBe(true)
     expect(isValidMxRunId('cr004-m3-20260827-4d7e9a1b')).toBe(true)
     expect(isValidMxRunId('cr004-m4-20260827-4d7e9a1b')).toBe(true)
+    // The old open m[1-9] pattern accepted series with NO contract; the
+    // profile registry refuses them until one is deliberately added.
+    expect(isValidMxRunId('cr004-m5-20260827-4d7e9a1b')).toBe(false)
+    expect(isValidMxRunId('cr004-m6-20260901-4d7e9a1b')).toBe(false)
+    expect(isValidMxRunId('cr004-m9-20260901-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-s1-20260827-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-m0-20260827-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-m3-2026-08-27-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-m3-20260827-4D7E9A1B')).toBe(false)
     expect(isValidMxRunId(undefined)).toBe(false)
+    // Suggestions come from the LATEST registered profile (M4 confirmatory).
     for (let index = 0; index < 8; index += 1) {
       const suggested = suggestMxRunId()
       expect(MX_RUN_ID_PATTERN.test(suggested)).toBe(true)
-      expect(MX_M3_RUN_ID_PATTERN.test(suggested)).toBe(true)
-      expect(isM3MxRunId(suggested)).toBe(true)
+      expect(/^cr004-m4-\d{8}-[0-9a-f]{8}$/.test(suggested)).toBe(true)
     }
     expect(isM3MxRunId('cr004-m2-20260827-4d7e9a1b')).toBe(false)
   })
@@ -577,6 +581,28 @@ describe('MX matrix state machine', () => {
     expect(machine.ledgers().legsAttempted).toBe(2)
     expect(machine.ledgers().legsFailed).toBe(1)
     expect(machine.ledgers().legsCompleted).toBe(1)
+    expect(machine.stopsFired).toHaveLength(0)
+  })
+
+  it('a TIMED_OUT leg (S-9 leg deadline exceeded; session aborted in-flight) does not terminal-stop the matrix', () => {
+    const machine = new MatrixStateMachine()
+    expect(machine.beginLeg(mxLegOrder()[0]!).ok).toBe(true)
+    const end = machine.endLeg({
+      ...legLedger(0, 5),
+      status: 'FAILED',
+      oraclePass: null,
+      stopCondition: {
+        condition: 'S-9',
+        reason: 'leg deadline exceeded; session aborted in-flight (leg deadline exceeded after 660000ms; session aborted in-flight)'
+      }
+    })
+    // The deadline failure is LEG-level: the matrix CONTINUES to the next leg.
+    expect(end.stop).toBe(false)
+    expect(machine.isTerminal).toBe(false)
+    expect(machine.beginLeg(mxLegOrder()[1]!).ok).toBe(true)
+    machine.endLeg(legLedger(1, 5))
+    expect(machine.ledgers().legsAttempted).toBe(2)
+    expect(machine.ledgers().legsFailed).toBe(1)
     expect(machine.stopsFired).toHaveLength(0)
   })
 

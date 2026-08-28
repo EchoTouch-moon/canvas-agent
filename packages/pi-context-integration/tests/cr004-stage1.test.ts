@@ -3,15 +3,15 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ContextEvent, ExtensionAPI, ExtensionFactory } from '@earendil-works/pi-coding-agent'
+import { type PiMessageView } from '../src'
 import {
   createRunKillSwitch,
   detectInterventionBoundary,
   InMemoryActiveRewriteEvidenceCollector,
   createActiveRewriteExtension,
   idleInterventionSummary,
-  type ActiveRewriteEventEvidence,
-  type PiMessageView
-} from '../src'
+  type ActiveRewriteEventEvidence
+} from '../src/experimental'
 import { C0ScenarioExecutor } from '../src/smoke/c0-scenarios'
 import {
   evaluateS1BudgetStops,

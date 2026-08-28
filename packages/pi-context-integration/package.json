@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Pi Context Integration: provider-neutral CR-001 shadow observation of Pi model-call context",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./experimental": "./src/experimental.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

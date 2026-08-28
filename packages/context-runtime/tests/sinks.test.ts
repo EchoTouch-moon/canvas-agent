@@ -148,4 +148,63 @@ describe('JsonlObservationSink', () => {
       sink.write(observation(2, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'late' }]))
     ).toThrow('JsonlObservationSink is closed')
   })
+
+  // CR-004 hardening regression: appendBuffered used to clear the WHOLE buffer
+  // after its awaited append, silently dropping lines written while the append
+  // was in flight. The fix removes exactly the appended line count from the
+  // buffer head, so mid-flight writes survive for the next flush.
+  it('keeps lines written while an append is in flight (write race regression)', async () => {
+    const payloads: string[] = []
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const sink = new JsonlObservationSink({
+      directory: '/unused',
+      sessionId: 'race',
+      fs: {
+        mkdir: async () => undefined,
+        appendFile: async (_file, data) => {
+          await gate // hold the first append in flight
+          payloads.push(String(data))
+        }
+      }
+    })
+    sink.write(observation(1, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'first' }]))
+    const flushing = sink.flush()
+    // Two more lines land in the buffer WHILE the first append is awaited.
+    sink.write(observation(2, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'mid-a' }]))
+    sink.write(observation(3, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'mid-b' }]))
+    release!()
+    await flushing
+    // The in-flight append owned exactly line 1; lines 2-3 must still flush.
+    await sink.flush()
+    const lines = payloads.join('').trim().split('\n')
+    expect(lines).toHaveLength(3)
+    expect(lines.map((line) => JSON.parse(line!).sequence)).toEqual([1, 2, 3])
+  })
+
+  it('a failed append retains exactly the failed lines for retry (injectable seam)', async () => {
+    let fail = true
+    const payloads: string[] = []
+    const sink = new JsonlObservationSink({
+      directory: '/unused',
+      sessionId: 'retry',
+      fs: {
+        mkdir: async () => undefined,
+        appendFile: async (_file, data) => {
+          if (fail) throw new Error('disk full (simulated)')
+          payloads.push(String(data))
+        }
+      }
+    })
+    sink.write(observation(1, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'kept' }]))
+    await expect(sink.flush()).rejects.toThrow('disk full')
+    // The failed append removed nothing: a later line and a retry both flush.
+    sink.write(observation(2, [{ role: 'user', category: 'USER', contentType: 'text', fingerprintText: 'later' }]))
+    fail = false
+    await sink.flush()
+    const lines = payloads.join('').trim().split('\n')
+    expect(lines.map((line) => JSON.parse(line!).sequence)).toEqual([1, 2])
+  })
 })

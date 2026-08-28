@@ -7,9 +7,20 @@ import type {
 } from '../observation/types'
 import type { ObservationSink } from './in-memory-sink'
 
+/** Injectable fs seam (tests substitute deterministic delayed impls). */
+export interface JsonlSinkFsSeam {
+  readonly mkdir: typeof mkdir
+  readonly appendFile: typeof appendFile
+}
+
 export interface JsonlSinkOptions {
   readonly directory: string
   readonly sessionId: string
+  /**
+   * Optional filesystem seam for deterministic offline tests (delayed or
+   * failing appends). Defaults to `node:fs/promises`.
+   */
+  readonly fs?: JsonlSinkFsSeam
 }
 
 interface JsonlModelMessageDescriptor {
@@ -50,9 +61,11 @@ export class JsonlObservationSink implements ObservationSink {
   private readonly buffer: string[] = []
   private flushChain: Promise<void> = Promise.resolve()
   private closed = false
+  private readonly fs: JsonlSinkFsSeam
 
   constructor(options: JsonlSinkOptions) {
     this.file = join(options.directory, `${options.sessionId}.jsonl`)
+    this.fs = options.fs ?? { mkdir, appendFile }
   }
 
   get path(): string {
@@ -135,9 +148,14 @@ export class JsonlObservationSink implements ObservationSink {
 
   private async appendBuffered(): Promise<void> {
     if (this.buffer.length === 0) return
-    const payload = this.buffer.join('\n') + '\n'
-    await mkdir(dirname(this.file), { recursive: true })
-    await appendFile(this.file, payload, 'utf8')
-    this.buffer.length = 0
+    // Capture the exact lines this append owns BEFORE awaiting: writes that
+    // land in the buffer while the append is in flight must survive (they are
+    // removed by a LATER append, never by this one). A failed append removes
+    // nothing, so every line stays retryable.
+    const lineCount = this.buffer.length
+    const payload = this.buffer.slice(0, lineCount).join('\n') + '\n'
+    await this.fs.mkdir(dirname(this.file), { recursive: true })
+    await this.fs.appendFile(this.file, payload, 'utf8')
+    this.buffer.splice(0, lineCount)
   }
 }

@@ -26,6 +26,19 @@ export class RuntimeSession {
   sequenceTimeline(): readonly number[] {
     return Array.from({ length: this.claimed }, (_, index) => this.startingSequence + index)
   }
+
+  // Number of sequences claimed so far (transaction snapshots capture this).
+  claimedCount(): number {
+    return this.claimed
+  }
+
+  // Transactional observers (CR-004 hardening): release the most recently
+  // claimed sequences so a rolled-back model-call boundary reclaims the same
+  // sequence numbers when it is re-observed. Never drops below zero; a count
+  // larger than claimed releases everything.
+  releaseSequences(count = 1): void {
+    this.claimed = Math.max(0, this.claimed - count)
+  }
 }
 
 // Deterministic, collision-resistant-enough research session id. It is a
