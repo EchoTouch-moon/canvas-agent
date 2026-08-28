@@ -20,7 +20,8 @@ import {
   MX_LATEST_PROFILE,
   MX_EXPERIMENT_PROFILES,
   mxProfileForRunId,
-  mxProvenanceWarnings
+  mxProvenanceWarnings,
+  type MxArmOrderMode
 } from './mx-profiles'
 
 export {
@@ -31,10 +32,12 @@ export {
   isValidMxProfileRunId,
   mxProfileForRunId,
   mxProvenanceWarnings,
+  resolveMxArmOrder,
   mxRunIdSeriesOf,
   readMxProfileContract,
   validateMxShapeAgainstProfile,
   type MxArm,
+  type MxArmOrderMode,
   type MxExperimentProfile,
   type MxSeriesId,
   type MxTaskSlot
@@ -155,13 +158,21 @@ export interface MxMatrixShape {
   readonly strategies: readonly MxStrategy[]
   /** 1-based repetition count (CANVAS_MX_REPS, 1..8). */
   readonly repetitions: number
+  /**
+   * Within-block arm ordering (CANVAS_MX_ARM_ORDER; default 'canonical' —
+   * all historical behavior). 'randomized': every (task x rep) block's arm
+   * sequence is a deterministic shuffle seeded from the run identity hash
+   * (see mxBlockOrderSeedHexOf), recorded leg-by-leg in the manifest.
+   */
+  readonly armOrder?: MxArmOrderMode
 }
 
 /** The M3 default design: L1,L2,L3 x NATIVE,ACTIVE_V2,ACTIVE_V3 x 3 = 27 legs. */
 export const MX_DEFAULT_SHAPE: MxMatrixShape = {
   tasks: [...MX_TASK_IDS],
   strategies: [...MX_STRATEGIES],
-  repetitions: MX_REPETITIONS
+  repetitions: MX_REPETITIONS,
+  armOrder: 'canonical'
 }
 
 /** Configuration error in the matrix env knobs; the runner REFUSES on it. */
@@ -241,16 +252,31 @@ export function parseMxStrategiesEnv(raw: string | undefined): readonly MxStrate
   return MX_STRATEGIES.filter((strategy) => arms.includes(strategy))
 }
 
+/**
+ * Parse CANVAS_MX_ARM_ORDER: 'canonical' or 'randomized'; default canonical
+ * (every historical series keeps the deterministic control-first order).
+ */
+export function parseMxArmOrderEnv(raw: string | undefined): MxArmOrderMode {
+  if (raw === undefined) return 'canonical'
+  const trimmed = raw.trim()
+  if (trimmed === 'canonical' || trimmed === 'randomized') return trimmed
+  throw new MxConfigError(
+    `CANVAS_MX_ARM_ORDER must be 'canonical' or 'randomized' (got '${raw}')`
+  )
+}
+
 /** Resolve and validate the full matrix shape from the env knobs. */
 export function mxShapeFromEnv(env: {
   readonly tasks?: string | undefined
   readonly reps?: string | undefined
   readonly arms?: string | undefined
+  readonly armOrder?: string | undefined
 }): MxMatrixShape {
   return {
     tasks: parseMxTasksEnv(env.tasks),
     strategies: parseMxStrategiesEnv(env.arms),
-    repetitions: parseMxRepetitionsEnv(env.reps)
+    repetitions: parseMxRepetitionsEnv(env.reps),
+    armOrder: parseMxArmOrderEnv(env.armOrder)
   }
 }
 
@@ -268,25 +294,124 @@ export interface MxLegPlan {
   readonly rep: number
 }
 
+// ---------------------------------------------------------------------------
+// Seeded within-block arm randomization (M5 pre-registration)
+// ---------------------------------------------------------------------------
+
+/**
+ * mulberry32 — a small deterministic 32-bit PRNG, no dependencies. Seeded
+ * from the first 4 bytes of the block seed hash; one draw per Fisher-Yates
+ * swap step.
+ */
+function mulberry32(seed: number): () => number {
+  let state = seed >>> 0
+  return () => {
+    state = (state + 0x6d2b79f5) | 0
+    let t = state
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/**
+ * The per-block seed: sha256 over `<runId>:<task>:rep<rep>` (fixed-width
+ * task slot + unprefixed-vs-prefixed rep keep the concatenation unambiguous).
+ * The full hex digest is manifest evidence; the uint32 (first 4 bytes,
+ * big-endian) seeds the PRNG.
+ */
+export function mxBlockOrderSeedHexOf(runId: string, task: MxTaskId, rep: number): string {
+  return createHash('sha256').update(`${runId}:${task}:rep${rep}`, 'utf8').digest('hex')
+}
+
+/** One (task x rep) block's realized arm order + the seed that produced it. */
+export interface MxBlockOrderBinding {
+  readonly task: MxTaskId
+  readonly rep: number
+  /** sha256 hex digest the shuffle was seeded from (manifest evidence). */
+  readonly seedHex: string
+  /** The realized arm sequence for this block (a permutation of `arms`). */
+  readonly arms: readonly MxStrategy[]
+}
+
+/**
+ * Deterministic within-block arm order for 'randomized' shapes: a
+ * Fisher-Yates shuffle of `arms` seeded by mulberry32(sha256(runId:task:rep)
+ * first 4 bytes). Same run identity => byte-identical order; different
+ * run/task/rep => different seed stream.
+ */
+export function mxBlockArmOrderOf(
+  arms: readonly MxStrategy[],
+  runId: string,
+  task: MxTaskId,
+  rep: number
+): MxBlockOrderBinding {
+  const seedHex = mxBlockOrderSeedHexOf(runId, task, rep)
+  const seed = Number.parseInt(seedHex.slice(0, 8), 16) >>> 0
+  const rand = mulberry32(seed)
+  const order = [...arms]
+  for (let i = order.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rand() * (i + 1))
+    const swap = order[i]!
+    order[i] = order[j]!
+    order[j] = swap
+  }
+  return { task, rep, seedHex, arms: order }
+}
+
 /**
  * Deterministic interleaved leg order for a shape: for rep 1..repetitions {
- * for task (shape order) { for strategy (shape order) } }. Default (M3):
- * 27 legs — control always precedes the treatment arms inside every
- * task x repetition cell, and the v2 treatment precedes the v3 treatment
- * (established policy first, new policy second).
+ * for task (shape order) { for strategy (block order) } }. Canonical mode
+ * (default, every historical series): control always precedes the treatment
+ * arms inside every task x repetition cell, and the v2 treatment precedes
+ * the v3 treatment — default (M3): 27 legs. Randomized mode (M5): each
+ * (task x rep) block's arm sequence is the seeded shuffle above; the run
+ * identity is REQUIRED then (the seed is derived from it).
  */
-export function mxLegOrder(shape: MxMatrixShape = MX_DEFAULT_SHAPE): readonly MxLegPlan[] {
+export function mxLegOrder(
+  shape: MxMatrixShape = MX_DEFAULT_SHAPE,
+  options: { readonly runId?: string } = {}
+): readonly MxLegPlan[] {
+  const mode = shape.armOrder ?? 'canonical'
+  if (mode === 'randomized' && options.runId === undefined) {
+    throw new MxConfigError(
+      "armOrder 'randomized' requires a run identity to seed the per-block shuffle (pass { runId })"
+    )
+  }
   const plans: MxLegPlan[] = []
   let legIndex = 0
   for (let rep = 1; rep <= shape.repetitions; rep += 1) {
     for (const task of shape.tasks) {
-      for (const strategy of shape.strategies) {
+      const blockArms =
+        mode === 'randomized'
+          ? mxBlockArmOrderOf(shape.strategies, options.runId!, task, rep).arms
+          : shape.strategies
+      for (const strategy of blockArms) {
         plans.push({ legIndex, task, strategy, rep })
         legIndex += 1
       }
     }
   }
   return plans
+}
+
+/**
+ * Manifest evidence for a shape's arm ordering: the mode plus, when
+ * randomized, one binding per (task x rep) block (seed + realized order).
+ */
+export function mxArmOrderBindingsOf(
+  shape: MxMatrixShape,
+  runId: string
+): readonly MxBlockOrderBinding[] {
+  const mode = shape.armOrder ?? 'canonical'
+  if (mode !== 'randomized') return []
+  const bindings: MxBlockOrderBinding[] = []
+  for (let rep = 1; rep <= shape.repetitions; rep += 1) {
+    for (const task of shape.tasks) {
+      bindings.push(mxBlockArmOrderOf(shape.strategies, runId, task, rep))
+    }
+  }
+  return bindings
 }
 
 /** Directory segment per strategy: ACTIVE_V2 -> ACTIVE2, ACTIVE_V3 -> ACTIVE3. */
@@ -789,6 +914,8 @@ function medianOf(values: readonly number[]): number | null {
 export interface MxLegAnalysisInput {
   readonly task: MxTaskId
   readonly strategy: MxStrategy
+  /** 1-based repetition number (block pairing for the M5 analysis). */
+  readonly rep: number
   readonly status: MxLegStatus
   readonly oraclePass: boolean | null
   readonly regressionPass: boolean | null
@@ -875,6 +1002,7 @@ export function mxLegAnalysisInputOf(record: MxLegRecord): MxLegAnalysisInput {
   return {
     task: record.task,
     strategy: record.strategy,
+    rep: record.rep,
     status: record.status,
     oraclePass: primaryOf('PRIMARY'),
     regressionPass: primaryOf('REGRESSION'),
@@ -1185,6 +1313,305 @@ export function mxPermutationTests(
 }
 
 // ---------------------------------------------------------------------------
+// M5 pre-registered analysis (docs/plan/cr004-m5-replication-run-contract-
+// DRAFT-2026-08-28.md). Emitted ONLY when the manifest's matrixDesign is
+// 'M5-preregistered-replication'. Everything here is pre-declared: the
+// primary/secondary endpoints, the exact sign-flip permutation, the Holm
+// family, and the reliability non-inferiority gate. Inference (PASS/FAIL)
+// prints ONLY for mode LIVE — a DRY_RUN dir carries scripted stand-in legs
+// and is marked SUPPRESSED/no-inference.
+// ---------------------------------------------------------------------------
+
+/** Pre-registered family alpha (primary one-sided 0.05; Holm family 0.05). */
+export const M5_FAMILY_ALPHA = 0.05
+/** Enumeration bound: 2^blocks sign assignments (8 blocks => 256, exact). */
+export const M5_SIGN_FLIP_MAX_BLOCKS = 20
+/** The M5 matrix design label that activates this analysis. */
+export const M5_MATRIX_DESIGN = 'M5-preregistered-replication'
+
+export interface M5SignFlipTest {
+  /** Usable blocks (exactly one completed NATIVE + one completed ACTIVE_V2). */
+  readonly blocks: number
+  /** Per-block differences (native - active) observedTokenEstimateSum, rep order. */
+  readonly differences: readonly number[]
+  /** Sum of the differences; positive favors the one-sided alternative. */
+  readonly observedSum: number
+  /** Total sign-flip assignments (2^blocks). */
+  readonly assignments: number
+  /** Assignments with flipped-sum >= observed (one-sided, tolerance 1e-9). */
+  readonly asExtreme: number
+  readonly pValue: number
+}
+
+/**
+ * Exact one-sided sign-flip permutation test for the M5 primary/secondary
+ * endpoint: statistic = sum of per-block (native - active) differences;
+ * permutation distribution = ALL 2^blocks sign-flip assignments of the
+ * within-block differences (block-aware: randomization happened inside each
+   task x rep block, so the block is the exchangeability unit). Hand-checkable:
+ * all blocks favoring ACTIVE (all differences > 0) => p = 1/256 at 8 blocks
+ * (the observed assignment is the maximum); symmetric differences => p = 0.5.
+ */
+export function m5ExactSignFlipTest(differences: readonly number[]): M5SignFlipTest | null {
+  if (differences.length === 0 || differences.length > M5_SIGN_FLIP_MAX_BLOCKS) return null
+  const observedSum = differences.reduce((total, value) => total + value, 0)
+  const assignments = 1 << differences.length
+  const tolerance = 1e-9
+  let asExtreme = 0
+  for (let mask = 0; mask < assignments; mask += 1) {
+    let sum = 0
+    for (let block = 0; block < differences.length; block += 1) {
+      sum += (mask & (1 << block)) === 0 ? differences[block]! : -differences[block]!
+    }
+    if (sum >= observedSum - tolerance) asExtreme += 1
+  }
+  return {
+    blocks: differences.length,
+    differences: [...differences],
+    observedSum,
+    assignments,
+    asExtreme,
+    pValue: asExtreme / assignments
+  }
+}
+
+/**
+ * Standard Holm step-down adjusted p-values over a family, returned in the
+ * INPUT order: order raw p ascending; adjusted[rank j] = max over ranks <= j
+ * of min(1, (m - j) * p_j) (monotone, capped at 1). Hand-checkable: family
+ * {0.01, 0.04} -> {0.02, 0.04}; {0.03, 0.04} -> {0.06, 0.06}; {0.5, 0.9} ->
+ * {1, 1}.
+ */
+export function holmAdjustedPValues(rawPValues: readonly number[]): readonly number[] {
+  const m = rawPValues.length
+  const adjusted = new Array<number>(m)
+  const order = rawPValues
+    .map((rawP, index) => ({ rawP, index }))
+    .sort((a, b) => a.rawP - b.rawP)
+  let running = 0
+  for (let rank = 0; rank < m; rank += 1) {
+    const candidate = Math.min(1, (m - rank) * order[rank]!.rawP)
+    running = Math.max(running, candidate)
+    adjusted[order[rank]!.index] = running
+  }
+  return adjusted
+}
+
+export type M5Gate = 'PASS' | 'FAIL' | 'NOT_EVALUABLE' | 'SUPPRESSED'
+
+/** One pre-registered endpoint (primary L1 / secondary L2). */
+export interface M5EndpointAnalysis {
+  readonly endpoint: 'primary' | 'secondary'
+  readonly task: MxTaskId
+  readonly measure: 'observedTokenEstimateSum'
+  readonly alternative: 'one-sided ACTIVE_V2 < NATIVE'
+  readonly blocksUsed: number
+  /** Blocks with legs present but not exactly one completed leg per arm. */
+  readonly incompleteBlocks: number
+  readonly differences: readonly number[]
+  readonly observedSum: number | null
+  readonly assignments: number | null
+  readonly asExtreme: number | null
+  readonly rawP: number | null
+  /** Primary: raw p <= 0.05. Secondary: Holm-adjusted p <= family alpha. */
+  readonly gate: M5Gate
+}
+
+export interface M5ReliabilityAnalysis {
+  readonly preDeclared: 'ACTIVE_V2 pooled oracle passes >= NATIVE pooled passes - 1 (of the 16 pre-registered legs per arm)'
+  readonly margin: 1
+  readonly nativePass: number
+  readonly activePass: number
+  readonly nativeEvaluated: number
+  readonly activeEvaluated: number
+  readonly nativeNotRun: number
+  readonly activeNotRun: number
+  /** activePass - nativePass. */
+  readonly difference: number
+  readonly gate: M5Gate
+  /** Descriptive only (the gate is pooled and pre-declared). */
+  readonly byTask: readonly {
+    readonly task: MxTaskId
+    readonly nativePass: number
+    readonly nativeEvaluated: number
+    readonly activePass: number
+    readonly activeEvaluated: number
+  }[]
+}
+
+export interface M5Analysis {
+  readonly design: typeof M5_MATRIX_DESIGN
+  readonly contractPath: string
+  readonly mode: 'LIVE' | 'DRY_RUN'
+  readonly inference: 'EMITTED (mode LIVE)' | 'SUPPRESSED (mode DRY_RUN; inference prints only for mode LIVE)'
+  readonly familyAlpha: typeof M5_FAMILY_ALPHA
+  readonly primary: M5EndpointAnalysis
+  readonly secondary: M5EndpointAnalysis
+  /** The two-test Holm family {L1 primary, L2 secondary}; null when a raw p is missing. */
+  readonly holm: readonly {
+    readonly endpoint: 'L1-primary' | 'L2-secondary'
+    readonly rawP: number
+    readonly adjustedP: number
+    readonly reject: boolean
+  }[] | null
+  readonly reliability: M5ReliabilityAnalysis
+}
+
+function m5EndpointOf(
+  inputs: readonly MxLegAnalysisInput[],
+  task: MxTaskId,
+  endpoint: 'primary' | 'secondary',
+  mode: 'LIVE' | 'DRY_RUN',
+  adjustedP: number | null
+): M5EndpointAnalysis {
+  const { differences, incompleteBlocks } = m5BlocksOf(inputs, task)
+  const test = m5ExactSignFlipTest(differences)
+  const inferenceEligible = mode === 'LIVE'
+  let gate: M5Gate
+  if (!inferenceEligible) gate = 'SUPPRESSED'
+  else if (endpoint === 'primary') gate = test === null ? 'NOT_EVALUABLE' : test.pValue <= M5_FAMILY_ALPHA ? 'PASS' : 'FAIL'
+  else gate = adjustedP === null ? 'NOT_EVALUABLE' : adjustedP <= M5_FAMILY_ALPHA ? 'PASS' : 'FAIL'
+  return {
+    endpoint,
+    task,
+    measure: 'observedTokenEstimateSum',
+    alternative: 'one-sided ACTIVE_V2 < NATIVE',
+    blocksUsed: test === null ? 0 : test.blocks,
+    incompleteBlocks,
+    differences,
+    observedSum: test === null ? null : test.observedSum,
+    assignments: test === null ? null : test.assignments,
+    asExtreme: test === null ? null : test.asExtreme,
+    rawP: test === null ? null : test.pValue,
+    gate
+  }
+}
+
+/**
+ * The full pre-registered M5 analysis over a report dir's leg inputs. The
+ * ONLY inferential outputs of an M5 run; mechanism metrics stay under the
+ * descriptive sections. PASS/FAIL gates are emitted only for mode LIVE
+ * (DRY_RUN dirs are marked SUPPRESSED — stand-in data supports no inference).
+ */
+export function m5AnalysisOf(
+  inputs: readonly MxLegAnalysisInput[],
+  options: { readonly mode: 'LIVE' | 'DRY_RUN' }
+): M5Analysis {
+  const rawPs = [
+    m5ExactSignFlipTest(m5BlocksOf(inputs, 'L1').differences)?.pValue ?? null,
+    m5ExactSignFlipTest(m5BlocksOf(inputs, 'L2').differences)?.pValue ?? null
+  ]
+  const holm =
+    rawPs[0] !== null && rawPs[1] !== null
+      ? holmAdjustedPValues(rawPs as readonly number[]).map((adjustedP, index) => ({
+          endpoint: (index === 0 ? 'L1-primary' : 'L2-secondary') as 'L1-primary' | 'L2-secondary',
+          rawP: rawPs[index]!,
+          adjustedP,
+          reject: adjustedP <= M5_FAMILY_ALPHA
+        }))
+      : null
+  const primary = m5EndpointOf(inputs, 'L1', 'primary', options.mode, holm?.[1]?.adjustedP ?? null)
+  const secondary = m5EndpointOf(inputs, 'L2', 'secondary', options.mode, holm?.[1]?.adjustedP ?? null)
+  // Reliability non-inferiority gate: pooled over L1+L2, pre-declared margin 1.
+  const reliabilityLegs = inputs.filter(
+    (input) =>
+      (input.task === 'L1' || input.task === 'L2') &&
+      (input.strategy === 'NATIVE' || input.strategy === 'ACTIVE_V2')
+  )
+  const countsOf = (
+    legs: readonly MxLegAnalysisInput[]
+  ): { pass: number; evaluated: number; notRun: number } => {
+    const pass = legs.filter((leg) => leg.oraclePass === true).length
+    const fail = legs.filter((leg) => leg.oraclePass === false).length
+    return { pass, evaluated: pass + fail, notRun: legs.filter((leg) => leg.oraclePass === null).length }
+  }
+  const native = countsOf(reliabilityLegs.filter((leg) => leg.strategy === 'NATIVE'))
+  const active = countsOf(reliabilityLegs.filter((leg) => leg.strategy === 'ACTIVE_V2'))
+  const byTask = (['L1', 'L2'] as const).map((task) => {
+    const taskLegs = reliabilityLegs.filter((leg) => leg.task === task)
+    const taskNative = countsOf(taskLegs.filter((leg) => leg.strategy === 'NATIVE'))
+    const taskActive = countsOf(taskLegs.filter((leg) => leg.strategy === 'ACTIVE_V2'))
+    return {
+      task,
+      nativePass: taskNative.pass,
+      nativeEvaluated: taskNative.evaluated,
+      activePass: taskActive.pass,
+      activeEvaluated: taskActive.evaluated
+    }
+  })
+  const difference = active.pass - native.pass
+  const reliabilityGate: M5Gate =
+    options.mode !== 'LIVE'
+      ? 'SUPPRESSED'
+      : native.evaluated === 0 && active.evaluated === 0
+        ? 'NOT_EVALUABLE'
+        : active.pass >= native.pass - 1
+          ? 'PASS'
+          : 'FAIL'
+  return {
+    design: M5_MATRIX_DESIGN,
+    contractPath: 'docs/plan/cr004-m5-replication-run-contract-DRAFT-2026-08-28.md',
+    mode: options.mode,
+    inference:
+      options.mode === 'LIVE'
+        ? 'EMITTED (mode LIVE)'
+        : 'SUPPRESSED (mode DRY_RUN; inference prints only for mode LIVE)',
+    familyAlpha: M5_FAMILY_ALPHA,
+    primary,
+    secondary,
+    holm,
+    reliability: {
+      preDeclared:
+        'ACTIVE_V2 pooled oracle passes >= NATIVE pooled passes - 1 (of the 16 pre-registered legs per arm)',
+      margin: 1,
+      nativePass: native.pass,
+      activePass: active.pass,
+      nativeEvaluated: native.evaluated,
+      activeEvaluated: active.evaluated,
+      nativeNotRun: native.notRun,
+      activeNotRun: active.notRun,
+      difference,
+      gate: reliabilityGate,
+      byTask
+    }
+  }
+}
+
+/**
+ * Per-task block extraction for the M5 endpoints: blocks = rep cells with
+ * exactly one COMPLETED NATIVE and one COMPLETED ACTIVE_V2 leg (the
+ * randomized design guarantees one of each per block; anything else —
+ * failures, missing legs, duplicates — surfaces as incompleteBlocks instead
+ * of silently pairing).
+ */
+function m5BlocksOf(
+  inputs: readonly MxLegAnalysisInput[],
+  task: MxTaskId
+): { readonly differences: readonly number[]; readonly incompleteBlocks: number } {
+  const legs = inputs.filter(
+    (input) =>
+      input.task === task && (input.strategy === 'NATIVE' || input.strategy === 'ACTIVE_V2')
+  )
+  const reps = [...new Set(legs.map((leg) => leg.rep))].sort((a, b) => a - b)
+  const differences: number[] = []
+  let incompleteBlocks = 0
+  for (const rep of reps) {
+    const native = legs.filter(
+      (leg) => leg.rep === rep && leg.strategy === 'NATIVE' && leg.status === 'COMPLETED'
+    )
+    const active = legs.filter(
+      (leg) => leg.rep === rep && leg.strategy === 'ACTIVE_V2' && leg.status === 'COMPLETED'
+    )
+    if (native.length === 1 && active.length === 1) {
+      differences.push(native[0]!.observedTokenEstimateSum - active[0]!.observedTokenEstimateSum)
+    } else {
+      incompleteBlocks += 1
+    }
+  }
+  return { differences, incompleteBlocks }
+}
+
+// ---------------------------------------------------------------------------
 // Re-read detection from intervention telemetry
 // ---------------------------------------------------------------------------
 
@@ -1340,6 +1767,12 @@ export interface MxAnalysisOutput {
      * contract + design (verified mislabel) and surfaces here.
      */
     readonly provenanceWarnings: readonly string[]
+    /**
+     * The M5 pre-registered analysis — present ONLY when the manifest's
+     * matrixDesign is 'M5-preregistered-replication'. PASS/FAIL gates are
+     * emitted only for mode LIVE (DRY_RUN dirs are marked SUPPRESSED).
+     */
+    readonly m5Analysis?: M5Analysis
   }
   readonly markdown: string
 }
@@ -1351,9 +1784,11 @@ export async function analyzeMatrix(reportDir: string): Promise<MxAnalysisOutput
     .map((entry) => entry.name)
     .sort()
   const inputs: MxLegAnalysisInput[] = []
+  const legModes = new Set<'LIVE' | 'DRY_RUN'>()
   for (const legDir of legDirs) {
     const legJson = await readFile(join(legsDir, legDir, 'leg.json'), 'utf8')
     const record = JSON.parse(legJson) as MxLegRecord
+    legModes.add(record.mode)
     // Context trajectory from the observations file (per-model-call estimates).
     let series: readonly number[] = record.trajectory.series
     try {
@@ -1378,15 +1813,29 @@ export async function analyzeMatrix(reportDir: string): Promise<MxAnalysisOutput
   const verdict = mxVerdictOf(cells)
   // Provenance cross-check: the recorded manifest vs the run-id series
   // (the run dir name is the fallback identity). Read-only on evidence.
-  let provenanceWarnings: readonly string[] = []
+  let manifest: Record<string, unknown> | null = null
   try {
-    const manifestRaw = await readFile(join(reportDir, 'manifest.json'), 'utf8')
-    provenanceWarnings = mxProvenanceWarnings(JSON.parse(manifestRaw) as Record<string, unknown>, {
-      runIdFallback: basename(reportDir)
-    })
+    manifest = JSON.parse(await readFile(join(reportDir, 'manifest.json'), 'utf8')) as Record<
+      string,
+      unknown
+    >
   } catch {
-    provenanceWarnings = ['manifest.json absent or unreadable: provenance cannot be cross-checked']
+    manifest = null
   }
+  const provenanceWarnings: readonly string[] =
+    manifest === null
+      ? ['manifest.json absent or unreadable: provenance cannot be cross-checked']
+      : mxProvenanceWarnings(manifest, { runIdFallback: basename(reportDir) })
+  // M5 pre-registered analysis: only when the manifest declares the design,
+  // and only inferential for ALL-LIVE evidence (any DRY_RUN leg — or none —
+  // suppresses inference; stand-in data supports no PASS/FAIL).
+  const matrixDesign = manifest !== null && typeof manifest['matrixDesign'] === 'string'
+    ? (manifest['matrixDesign'] as string)
+    : null
+  const analysisMode: 'LIVE' | 'DRY_RUN' =
+    legModes.size === 1 && legModes.has('LIVE') ? 'LIVE' : 'DRY_RUN'
+  const m5Analysis =
+    matrixDesign === M5_MATRIX_DESIGN ? m5AnalysisOf(inputs, { mode: analysisMode }) : undefined
   const analysis = {
     reportDir,
     generatedAt: new Date().toISOString(),
@@ -1394,7 +1843,8 @@ export async function analyzeMatrix(reportDir: string): Promise<MxAnalysisOutput
     cells,
     perTask,
     verdict,
-    provenanceWarnings
+    provenanceWarnings,
+    ...(m5Analysis !== undefined ? { m5Analysis } : {})
   }
 
   const lines: string[] = []
@@ -1407,6 +1857,47 @@ export async function analyzeMatrix(reportDir: string): Promise<MxAnalysisOutput
     lines.push('')
     for (const warning of provenanceWarnings) {
       lines.push(`- WARNING: ${warning}`)
+    }
+    lines.push('')
+  }
+  if (m5Analysis !== undefined) {
+    lines.push(`## M5 pre-registered analysis (${m5Analysis.contractPath})`)
+    lines.push('')
+    if (m5Analysis.mode !== 'LIVE') {
+      lines.push(
+        '- SUPPRESSED (no inference): mode=DRY_RUN — this directory carries scripted stand-in legs (provider calls 0); inference sections print only for mode LIVE.'
+      )
+      lines.push(
+        '- The machinery ran (block extraction, sign-flip enumeration, Holm, gate arithmetic on stand-in data) purely as an offline wiring check; the analysis.json gates read SUPPRESSED and support no conclusion.'
+      )
+    } else {
+      lines.push(
+        '- Mode LIVE. The endpoints below are the ONLY pre-registered inferential outputs of this run; every other section of this document is descriptive (no inference).'
+      )
+      const primary = m5Analysis.primary
+      lines.push(
+        `- Primary endpoint: L1 ${primary.measure}, one-sided (ACTIVE_V2 < NATIVE), block-aware exact sign-flip permutation — blocks=${primary.blocksUsed}${primary.incompleteBlocks > 0 ? ` (+${primary.incompleteBlocks} incomplete)` : ''}, observedSum=${primary.observedSum}, p=${primary.rawP} (${primary.asExtreme}/${primary.assignments} assignments) => ${primary.gate} (alpha=${M5_FAMILY_ALPHA}).`
+      )
+      const secondary = m5Analysis.secondary
+      lines.push(
+        `- Secondary endpoint: L2 ${secondary.measure}, same statistic — blocks=${secondary.blocksUsed}${secondary.incompleteBlocks > 0 ? ` (+${secondary.incompleteBlocks} incomplete)` : ''}, observedSum=${secondary.observedSum}, raw p=${secondary.rawP}${m5Analysis.holm === null ? '' : `, Holm-adjusted p=${m5Analysis.holm[1]!.adjustedP} (family of 2, step-down)`} => ${secondary.gate} (family alpha=${M5_FAMILY_ALPHA}).`
+      )
+      if (m5Analysis.holm !== null) {
+        lines.push(
+          `- Holm family {L1 primary, L2 secondary}: ${m5Analysis.holm
+            .map((test) => `${test.endpoint} raw=${test.rawP} adjusted=${test.adjustedP} reject=${test.reject}`)
+            .join('; ')}.`
+        )
+      }
+      const reliability = m5Analysis.reliability
+      lines.push(
+        `- Reliability non-inferiority gate (pre-declared, pooled): ACTIVE_V2 ${reliability.activePass}/${reliability.activeEvaluated} evaluated vs NATIVE ${reliability.nativePass}/${reliability.nativeEvaluated} evaluated (of the 16 pre-registered legs per arm; difference ${reliability.difference}, margin ${reliability.margin}) => ${reliability.gate}.`
+      )
+      lines.push(
+        `- Task-level splits (descriptive only; the gate is pooled and pre-declared): ${reliability.byTask
+          .map((split) => `${split.task} NATIVE ${split.nativePass}/${split.nativeEvaluated} vs ACTIVE_V2 ${split.activePass}/${split.activeEvaluated}`)
+          .join('; ')}.`
+      )
     }
     lines.push('')
   }
@@ -1540,7 +2031,7 @@ export function scriptedMxLegRecords(
   const dedupHashV3PathA = 'feed0000feed0006'
   const sweepHashV3PathB = 'feed0000feed0007'
   const records: MxLegRecord[] = []
-  for (const plan of mxLegOrder(shape)) {
+  for (const plan of mxLegOrder(shape, { runId })) {
     const standInOracle = (kind: S1OracleResult['kind'], command: string): S1OracleResult => ({
       kind,
       command,

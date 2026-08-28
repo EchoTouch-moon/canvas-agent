@@ -341,14 +341,15 @@ describe('multi-intervention Active extension (real planner, offline)', () => {
 // ---------------------------------------------------------------------------
 
 describe('MX run identity and leg order', () => {
-  it('accepts exactly the REGISTERED series (m1..m4); unregistered m5+ are refused', () => {
+  it('accepts exactly the REGISTERED series (m1..m5); unregistered m6+ are refused', () => {
     expect(isValidMxRunId('cr004-m1-20260826-d23a992c')).toBe(true)
     expect(isValidMxRunId('cr004-m2-20260827-4d7e9a1b')).toBe(true)
     expect(isValidMxRunId('cr004-m3-20260827-4d7e9a1b')).toBe(true)
     expect(isValidMxRunId('cr004-m4-20260827-4d7e9a1b')).toBe(true)
     // The old open m[1-9] pattern accepted series with NO contract; the
-    // profile registry refuses them until one is deliberately added.
-    expect(isValidMxRunId('cr004-m5-20260827-4d7e9a1b')).toBe(false)
+    // profile registry refuses them until one is deliberately added (M5
+    // became deliberate with the pre-registered replication contract).
+    expect(isValidMxRunId('cr004-m5-20260828-4d7e9a1b')).toBe(true)
     expect(isValidMxRunId('cr004-m6-20260901-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-m9-20260901-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-s1-20260827-4d7e9a1b')).toBe(false)
@@ -356,11 +357,11 @@ describe('MX run identity and leg order', () => {
     expect(isValidMxRunId('cr004-m3-2026-08-27-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-m3-20260827-4D7E9A1B')).toBe(false)
     expect(isValidMxRunId(undefined)).toBe(false)
-    // Suggestions come from the LATEST registered profile (M4 confirmatory).
+    // Suggestions come from the LATEST registered profile (M5 pre-registered replication).
     for (let index = 0; index < 8; index += 1) {
       const suggested = suggestMxRunId()
       expect(MX_RUN_ID_PATTERN.test(suggested)).toBe(true)
-      expect(/^cr004-m4-\d{8}-[0-9a-f]{8}$/.test(suggested)).toBe(true)
+      expect(/^cr004-m5-\d{8}-[0-9a-f]{8}$/.test(suggested)).toBe(true)
     }
     expect(isM3MxRunId('cr004-m2-20260827-4d7e9a1b')).toBe(false)
   })
@@ -421,7 +422,8 @@ describe('MX run identity and leg order', () => {
     expect(mxShapeFromEnv({})).toEqual({
       tasks: ['L1', 'L2', 'L3'],
       strategies: ['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3'],
-      repetitions: 3
+      repetitions: 3,
+      armOrder: 'canonical'
     })
     expect(mxTotalLegsOf(mxShapeFromEnv({ tasks: 'L2', reps: '4' }))).toBe(12)
     const targeted = mxLegOrder(M3_L2_SHAPE)

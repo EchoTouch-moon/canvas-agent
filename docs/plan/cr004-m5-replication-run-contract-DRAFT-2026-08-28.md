@@ -1,6 +1,6 @@
 # CR-004 M5 — pre-registered replication contract (DRAFT)
 
-- **Status:** `DRAFT — PENDING HARDENING-PR MERGE + RUNNER ORDER-RANDOMIZATION + LEAD AUTHORIZATION`
+- **Status:** `AUTHORIZED (Lead review prescription 2026-08-27 + standing Lead direction) — Phase A only; Phase B requires its own amendment`
 - **Date drafted:** 2026-08-28
 - **Purpose:** the clean replication the Lead review prescribed after the Hardening PR — no new policy, no adaptive endpoint selection.
 
@@ -46,10 +46,8 @@ Internal token estimates; descriptive reliability; no causal language;
 n=8/cell. Any deviation from this pre-registration requires a recorded
 amendment BEFORE the affected leg launches.
 
-## Implementation prerequisites
+## Implementation prerequisites (both satisfied 2026-08-28)
 
-1. Runner arm-order randomization (seeded, manifest-recorded) — the
-   ExperimentProfile for M5 stays REFUSED until this and this contract's
-   final status land.
-2. Hardening-PR transactional semantics and leg deadlines operative
-   (merged).
+1. Runner arm-order randomization (seeded, manifest-recorded) — implemented;
+   the M5 ExperimentProfile enforces randomized order and refuses canonical.
+2. Hardening-PR (#52) transactional semantics and leg deadlines — merged.
