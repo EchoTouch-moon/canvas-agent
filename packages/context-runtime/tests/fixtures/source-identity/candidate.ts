@@ -163,6 +163,10 @@ export class CandidateIdentityMapper {
     if (priorSubject !== undefined && priorSubject !== subject.subjectKey) {
       throw new Error(`tool call id remapped: ${callId}`);
     }
+    if (priorSubject !== undefined && observation.status !== "AVAILABLE") {
+      throw new Error(`tool call id reused: ${callId}`);
+    }
+    this.callSubjectById.set(callId, subject.subjectKey);
 
     if (observation.status === "UNAVAILABLE") {
       return {
@@ -223,7 +227,6 @@ export class CandidateIdentityMapper {
       )
       .at(-1);
 
-    this.callSubjectById.set(instance.callId, subject.subjectKey);
     this.callIdentity.set(instance.callId, instance);
     return {
       eventId,
@@ -296,6 +299,9 @@ export class CandidateIdentityMapper {
     evidenceInstanceId: string,
     reasonCodes: readonly string[],
   ): IdentityDecision {
+    if (reasonCodes.length === 0) {
+      throw new Error(`REMOVE requires a reason: ${transitionId}`);
+    }
     if (this.removalByTransition.has(transitionId)) {
       throw new Error(`duplicate REMOVE transition: ${transitionId}`);
     }

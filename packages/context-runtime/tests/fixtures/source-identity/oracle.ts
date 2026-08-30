@@ -507,6 +507,39 @@ export function validateIdentityNegativeCases(): readonly IdentityOracleFailure[
     // Expected hard failure: reusing a cold call id would resurrect old evidence.
   }
 
+  const unavailableCallReuse: IdentityTrace = {
+    id: "LC1-UNAVAILABLE-CALL-REUSE",
+    events: [
+      {
+        kind: "OBSERVE",
+        id: "UA1",
+        transitionId: "UA1",
+        observation: unavailableFixture(),
+      },
+      {
+        kind: "OBSERVE",
+        id: "UA2",
+        transitionId: "UA2",
+        observation: {
+          ...REOPEN_A,
+          callId: "read-unavailable-direct",
+          universeRevision: "universe:r1",
+          status: "ABSENT",
+          representationKind: "REFERENCE",
+        },
+      },
+    ],
+  };
+  try {
+    runIdentityTrace(unavailableCallReuse);
+    failures.push({
+      eventId: "UA2",
+      message: "every tool call id must be single-use",
+    });
+  } catch {
+    // Expected hard failure: unavailable observations still consume call identity.
+  }
+
   const changedVersionTrace: IdentityTrace = {
     id: "LC1-CHANGED-VERSION",
     events: [
