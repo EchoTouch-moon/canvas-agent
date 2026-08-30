@@ -107,6 +107,25 @@ export {
   type PromptDeadlineSession
 } from './smoke/leg-deadline'
 export {
+  LC1_MAPPING_QUARANTINE_REASONS,
+  LC1_MAPPING_REJECTION_REASONS,
+  Lc1ProductionRepositoryMapper,
+  normalizeLc1RepositoryPath,
+  type Lc1AcceptedRepositoryObservation,
+  type Lc1AuthorityOrder,
+  type Lc1ExternalObservation,
+  type Lc1ExternalObservationSink,
+  type Lc1MappingIssue,
+  type Lc1MappingQuarantineReason,
+  type Lc1MappingRejectionReason,
+  type Lc1ProductionMappingResult,
+  type Lc1ProductionMappingSnapshot,
+  type Lc1RepositoryMappingRequest,
+  type Lc1RepositoryPathResolver,
+  type Lc1RepositoryRevision,
+  type Lc1RepositoryScope
+} from './active/lc1-production-mapping'
+export {
   MX_EVIDENCE_ROOT_FILENAME,
   computeMxEvidenceRoot,
   findRepoRoot,
