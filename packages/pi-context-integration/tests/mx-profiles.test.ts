@@ -175,6 +175,21 @@ describe('mxProvenanceWarnings (manifest vs run-id series)', () => {
       ).some((warning) => warning.includes('outside series M4 bounds'))
     ).toBe(true)
   })
+
+  it('accepts a manifest that records the required randomized arm order', () => {
+    expect(
+      mxProvenanceWarnings({
+        runId: 'cr004-m6-20260830-01234567',
+        contract: 'docs/plan/cr004-m6-mechanism-screen-run-contract-2026-08-30.md',
+        design: {
+          tasks: ['L1', 'L2', 'L3'],
+          strategies: ['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3', 'ACTIVE_V4'],
+          repetitions: 4,
+          armOrder: 'randomized'
+        }
+      })
+    ).toEqual([])
+  })
 })
 
 describe('analyzeMatrix provenance cross-check (read-only on evidence)', () => {

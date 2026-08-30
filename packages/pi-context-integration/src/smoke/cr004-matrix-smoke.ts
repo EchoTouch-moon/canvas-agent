@@ -824,8 +824,11 @@ async function run(): Promise<void> {
         strategies: [...shape.strategies],
         envConfig: {
           tasks: [...shape.tasks].join(','),
-          reps: shape.repetitions
+          reps: shape.repetitions,
+          arms: [...shape.strategies].join(','),
+          armOrder: shape.armOrder
         },
+        armOrder: shape.armOrder,
         activeV2: {
           removalPolicy: 'v2-retain-latest-coarse',
           maxInterventionsPerLeg: MX_BUDGETS.maxInterventionsPerLegV2,
