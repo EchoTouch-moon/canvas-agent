@@ -171,6 +171,7 @@ describe("CR-004 LC1 logical source identity candidate oracle", () => {
       ],
     });
     expect(result.observations[0]?.outcome).toBe("CONSERVATIVE_KEEP");
+    expect(result.observations[0]?.sourceVersionId).toBeNull();
     expect(result.decisions).toHaveLength(0);
 
     const absentResult = runIdentityTrace({
@@ -181,14 +182,17 @@ describe("CR-004 LC1 logical source identity candidate oracle", () => {
           id: "A1",
           transitionId: "A1",
           observation: {
-            ...unavailableFixture(),
+            ...REOPEN_A,
             callId: "read-absent-direct",
+            universeRevision: "universe:r1",
             status: "ABSENT" as const,
+            representationKind: "REFERENCE" as const,
           },
         },
       ],
     });
     expect(absentResult.observations[0]?.outcome).toBe("CONFIRMED_ABSENT");
+    expect(absentResult.observations[0]?.sourceVersionId).toBeNull();
     expect(absentResult.decisions).toHaveLength(0);
   });
 

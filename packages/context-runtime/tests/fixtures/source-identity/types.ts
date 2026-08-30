@@ -47,14 +47,28 @@ export interface CandidateSourceVersion {
   readonly universeRevision: string;
 }
 
-export interface CandidateEvidenceInput extends LogicalSourceInput {
+export interface CandidateEvidenceBase extends LogicalSourceInput {
   readonly callId: string;
-  readonly contentHash: string;
   readonly universeRevision: string;
-  readonly status: IdentityObservationStatus;
   readonly representationKind: IdentityRepresentationKind;
-  readonly unavailableReason?: string;
 }
+
+export type CandidateEvidenceInput =
+  | (CandidateEvidenceBase & {
+      readonly status: "AVAILABLE";
+      readonly contentHash: string;
+      readonly unavailableReason?: never;
+    })
+  | (CandidateEvidenceBase & {
+      readonly status: "UNAVAILABLE";
+      readonly unavailableReason: string;
+      readonly contentHash?: never;
+    })
+  | (CandidateEvidenceBase & {
+      readonly status: "ABSENT";
+      readonly contentHash?: never;
+      readonly unavailableReason?: never;
+    });
 
 export interface EvidenceInstance {
   readonly evidenceInstanceId: string;
@@ -89,7 +103,7 @@ export interface ConservativeObservation {
   readonly eventId: string;
   readonly callId: string;
   readonly subjectKey: string;
-  readonly sourceVersionId: string;
+  readonly sourceVersionId: string | null;
   readonly status: "UNAVAILABLE" | "ABSENT";
   readonly outcome: "CONSERVATIVE_KEEP" | "CONFIRMED_ABSENT";
   readonly reason: string;

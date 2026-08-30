@@ -14,6 +14,11 @@ import type {
   SourceVersionInput,
 } from "./types";
 
+type AvailableEvidenceInput = Extract<
+  CandidateEvidenceInput,
+  { readonly status: "AVAILABLE" }
+>;
+
 function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
@@ -81,7 +86,7 @@ export function candidateSourceVersion(
 }
 
 function evidenceInstance(
-  observation: CandidateEvidenceInput,
+  observation: AvailableEvidenceInput,
   subject: LogicalSourceSubject,
   version: CandidateSourceVersion,
 ): EvidenceInstance {
@@ -139,6 +144,7 @@ export class CandidateIdentityMapper {
   private readonly removalByTransition = new Map<string, RemovalRelation>();
   private readonly protectedSubjectKeys = new Set<string>();
   private readonly callIdentity = new Map<string, EvidenceInstance>();
+  private readonly callSubjectById = new Map<string, string>();
 
   protect(source: LogicalSourceInput): string {
     const subjectKey = logicalSourceSubject(source).subjectKey;
@@ -152,34 +158,40 @@ export class CandidateIdentityMapper {
     observation: CandidateEvidenceInput,
   ): IdentityDecision | ConservativeObservation {
     const subject = logicalSourceSubject(observation);
-    const version = candidateSourceVersion(subject, observation);
-    const instance = evidenceInstance(observation, subject, version);
-    const priorCall = this.callIdentity.get(instance.callId);
-    if (priorCall !== undefined && !sameEvidence(priorCall, instance)) {
-      throw new Error(`tool call id remapped: ${instance.callId}`);
+    const callId = nonEmpty(observation.callId, "tool call id");
+    const priorSubject = this.callSubjectById.get(callId);
+    if (priorSubject !== undefined && priorSubject !== subject.subjectKey) {
+      throw new Error(`tool call id remapped: ${callId}`);
     }
 
     if (observation.status === "UNAVAILABLE") {
       return {
         eventId,
-        callId: instance.callId,
+        callId,
         subjectKey: subject.subjectKey,
-        sourceVersionId: version.versionId,
+        sourceVersionId: null,
         status: "UNAVAILABLE",
         outcome: "CONSERVATIVE_KEEP",
-        reason: observation.unavailableReason ?? "UNAVAILABLE",
+        reason: observation.unavailableReason,
       };
     }
     if (observation.status === "ABSENT") {
       return {
         eventId,
-        callId: instance.callId,
+        callId,
         subjectKey: subject.subjectKey,
-        sourceVersionId: version.versionId,
+        sourceVersionId: null,
         status: "ABSENT",
         outcome: "CONFIRMED_ABSENT",
         reason: "explicit observer absence",
       };
+    }
+
+    const version = candidateSourceVersion(subject, observation);
+    const instance = evidenceInstance(observation, subject, version);
+    const priorCall = this.callIdentity.get(instance.callId);
+    if (priorCall !== undefined && !sameEvidence(priorCall, instance)) {
+      throw new Error(`tool call id remapped: ${instance.callId}`);
     }
 
     const activeInstance = this.activeById.get(instance.evidenceInstanceId);
@@ -211,6 +223,7 @@ export class CandidateIdentityMapper {
       )
       .at(-1);
 
+    this.callSubjectById.set(instance.callId, subject.subjectKey);
     this.callIdentity.set(instance.callId, instance);
     return {
       eventId,
@@ -440,7 +453,7 @@ export function decisionFor(
 }
 
 export function sourceVersionFor(
-  observation: CandidateEvidenceInput,
+  observation: AvailableEvidenceInput,
 ): CandidateSourceVersion {
   return candidateSourceVersion(logicalSourceSubject(observation), observation);
 }
@@ -449,17 +462,10 @@ export function subjectFor(input: LogicalSourceInput): LogicalSourceSubject {
   return logicalSourceSubject(input);
 }
 
-export function instanceIdFor(observation: CandidateEvidenceInput): string {
+export function instanceIdFor(observation: AvailableEvidenceInput): string {
   const subject = logicalSourceSubject(observation);
   const version = candidateSourceVersion(subject, observation);
   return evidenceInstance(observation, subject, version).evidenceInstanceId;
-}
-
-export function buildObservation(
-  base: CandidateEvidenceInput,
-  overrides: Partial<CandidateEvidenceInput> = {},
-): CandidateEvidenceInput {
-  return { ...base, ...overrides };
 }
 
 export function representationIsExact(

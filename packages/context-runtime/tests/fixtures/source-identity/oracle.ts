@@ -1,5 +1,4 @@
 import {
-  buildObservation,
   decisionFor,
   instanceIdFor,
   runIdentityTrace,
@@ -13,6 +12,11 @@ import type {
   IdentityTraceResult,
   LogicalSourceInput,
 } from "./types";
+
+type AvailableEvidenceInput = Extract<
+  CandidateEvidenceInput,
+  { readonly status: "AVAILABLE" }
+>;
 
 export const REPOSITORY = "synthetic-repo";
 export const NAMESPACE = "repository-file";
@@ -44,7 +48,7 @@ export const PROTECTED_SPEC: LogicalSourceInput = {
   path: "spec/task.md",
 };
 
-const REOPEN_A_V1: CandidateEvidenceInput = {
+const REOPEN_A_V1: AvailableEvidenceInput = {
   ...REOPEN_A,
   callId: "read-1",
   contentHash: "hash-reopen-a-v1",
@@ -53,22 +57,24 @@ const REOPEN_A_V1: CandidateEvidenceInput = {
   representationKind: "REFERENCE",
 };
 
-export const REOPEN_A_V1_LATER: CandidateEvidenceInput = {
+export const REOPEN_A_V1_LATER: AvailableEvidenceInput = {
   ...REOPEN_A_V1,
   callId: "read-2",
   representationKind: "FULL",
 };
 
-const REOPEN_A_V2: CandidateEvidenceInput = {
+const REOPEN_A_V2: AvailableEvidenceInput = {
   ...REOPEN_A_V1_LATER,
   callId: "read-3",
   contentHash: "hash-reopen-a-v2",
 };
 
 const UNAVAILABLE_REOPEN_A: CandidateEvidenceInput = {
-  ...REOPEN_A_V1_LATER,
+  ...REOPEN_A,
   callId: "read-unavailable",
+  universeRevision: "universe:r1",
   status: "UNAVAILABLE",
+  representationKind: "FULL",
   unavailableReason: "REVISION_MISMATCH",
 };
 
@@ -635,9 +641,12 @@ export function assertNoOracleFailures(
 }
 
 export function unavailableFixture(): CandidateEvidenceInput {
-  return buildObservation(REOPEN_A_V1, {
+  return {
+    ...REOPEN_A,
     callId: "read-unavailable-direct",
+    universeRevision: "universe:r1",
     status: "UNAVAILABLE",
+    representationKind: "REFERENCE",
     unavailableReason: "REVISION_MISMATCH",
-  });
+  };
 }
