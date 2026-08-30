@@ -255,6 +255,7 @@ export function validateIdentityTrace(
   const failures = [
     ...validateCompositeOracle(trace, result),
     ...validateObservationBindings(trace, result),
+    ...validateIdentitySafetyInvariants(trace, result),
   ];
   const uniqueCallIds = new Set<string>();
   for (const event of trace.events) {
@@ -266,6 +267,105 @@ export function validateIdentityTrace(
       });
     }
     uniqueCallIds.add(event.observation.callId);
+  }
+  return failures;
+}
+
+export function validateIdentitySafetyInvariants(
+  trace: IdentityTrace,
+  result: IdentityTraceResult,
+): readonly IdentityOracleFailure[] {
+  const failures: IdentityOracleFailure[] = [];
+  const removesByTransition = new Map<string, IdentityDecision>();
+  const consumedOrigins = new Set<string>();
+  const protectedSubjects = new Set(
+    trace.events
+      .filter((event) => event.kind === "PROTECT")
+      .map((event) => subjectFor(event.source).subjectKey),
+  );
+
+  for (const decision of result.decisions) {
+    if (decision.kind === "REMOVE") {
+      if (decision.reasonCodes.length === 0) {
+        failures.push({
+          eventId: decision.eventId,
+          message: "REMOVE requires a non-empty reason",
+        });
+      }
+      if (protectedSubjects.has(decision.subjectKey)) {
+        failures.push({
+          eventId: decision.eventId,
+          message: "protected source cannot be removed",
+        });
+      }
+      removesByTransition.set(decision.transitionId, decision);
+      continue;
+    }
+    if (decision.kind !== "REHYDRATE") continue;
+
+    const origin = decision.originatingRemoveTransitionId;
+    if (origin === null) continue;
+    const removal = removesByTransition.get(origin);
+    if (removal === undefined) {
+      failures.push({
+        eventId: decision.eventId,
+        message: "REHYDRATE origin must refer to a prior REMOVE",
+      });
+      continue;
+    }
+    if (consumedOrigins.has(origin)) {
+      failures.push({
+        eventId: decision.eventId,
+        message: "one REMOVE must be consumed exactly once",
+      });
+    }
+    consumedOrigins.add(origin);
+    if (decision.subjectKey !== removal.subjectKey) {
+      failures.push({
+        eventId: decision.eventId,
+        message: "REHYDRATE origin subject mismatch",
+      });
+    }
+    if (decision.sourceVersionId !== removal.sourceVersionId) {
+      failures.push({
+        eventId: decision.eventId,
+        message: "REHYDRATE origin SourceVersion mismatch",
+      });
+    }
+    if (decision.evidenceInstanceId === removal.evidenceInstanceId) {
+      failures.push({
+        eventId: decision.eventId,
+        message: "REHYDRATE must create a new evidence instance",
+      });
+    }
+  }
+
+  const activeIds = new Set(
+    result.activeEvidence.map((evidence) => evidence.evidenceInstanceId),
+  );
+  const coldIds = new Set(
+    result.coldEvidence.map((evidence) => evidence.evidenceInstanceId),
+  );
+  for (const id of activeIds) {
+    if (coldIds.has(id)) {
+      failures.push({
+        eventId: trace.id,
+        message: "an evidence instance cannot be active and cold",
+      });
+    }
+  }
+  const removedIds = new Set(
+    [...removesByTransition.values()]
+      .map((decision) => decision.evidenceInstanceId)
+      .filter((id): id is string => id !== null),
+  );
+  for (const evidence of result.coldEvidence) {
+    if (!removedIds.has(evidence.evidenceInstanceId)) {
+      failures.push({
+        eventId: trace.id,
+        message: "cold evidence must have a corresponding REMOVE",
+      });
+    }
   }
   return failures;
 }
@@ -369,6 +469,14 @@ export function runIdentityMutationTests(): readonly MutationCheck[] {
         originatingRemoveTransitionId: remove.transitionId,
       })),
       expectedMessage: "one REMOVE must be consumed exactly once",
+    },
+    {
+      name: "wrong-representation",
+      mutated: withDecisionMutation(baseline, "T4-LATER-NEED", (decision) => ({
+        ...decision,
+        representationKind: "REFERENCE",
+      })),
+      expectedMessage: "REHYDRATE must bind exact v1 and FULL representation",
     },
   ];
   const checks = mutations.map((mutation) => ({
