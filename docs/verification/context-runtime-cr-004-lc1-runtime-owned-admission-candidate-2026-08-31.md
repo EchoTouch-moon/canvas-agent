@@ -129,6 +129,13 @@ Diff check:                           PASS
 Changed-file credential-pattern scan: PASS / no findings
 ```
 
+GitHub CI run `33325574486` then verified implementation head `f0c515a`:
+
+```text
+Linux check:                    PASS
+macOS Electron Product MVP RC: PASS
+```
+
 ## Explicit boundaries
 
 1. Authority order remains per logical path, as frozen by the LC1 contract. The
@@ -154,7 +161,7 @@ Runtime-owned admission candidate: IMPLEMENTED / CREDENTIAL-FREE
 Frozen legacy gaps:                PRESERVED AS AUDIT EVIDENCE
 Targeted mechanism oracle:         PASS
 Local repository-wide verification: PASS
-Remote Linux/macOS CI:              PENDING
+Remote Linux/macOS CI:              PASS (run 33325574486 on f0c515a)
 Production composition selection:  NOT IMPLEMENTED
 Portable restart protocol:         NOT IMPLEMENTED
 Provider calls:                     0
