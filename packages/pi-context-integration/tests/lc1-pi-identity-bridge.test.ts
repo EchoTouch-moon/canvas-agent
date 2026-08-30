@@ -1,0 +1,264 @@
+import { describe, expect, it } from 'vitest'
+import { CandidateIdentityMapper } from '../../context-runtime/tests/fixtures/source-identity/candidate'
+import type {
+  ConservativeObservation,
+  IdentityDecision
+} from '../../context-runtime/tests/fixtures/source-identity/types'
+import { type PiMessageView } from '../src'
+import {
+  mapPiReadResultsToCandidateEvidence,
+  type PiReadAuthority
+} from './fixtures/lc1-pi-identity-bridge'
+
+const PATH = 'src/reopen-a.ts'
+const CONTENT = 'export const value = "reopen-a:v3"'
+
+const AVAILABLE_V3: PiReadAuthority = {
+  repositoryId: 'repo-a',
+  namespace: 'repository-file',
+  path: PATH,
+  universeRevision: 'universe:r3',
+  representationKind: 'FULL',
+  status: 'AVAILABLE',
+  contentHash: 'hash-reopen-a-v3'
+}
+
+function toolMessages(
+  callId: string,
+  toolName: string,
+  path = PATH,
+  content = CONTENT
+): PiMessageView[] {
+  return [
+    {
+      role: 'assistant',
+      content: [{ type: 'toolCall', id: callId, name: toolName, arguments: { path } }]
+    },
+    {
+      role: 'toolResult',
+      content: [{ type: 'text', text: content }],
+      toolCallId: callId,
+      toolName,
+      isError: false
+    }
+  ]
+}
+
+function readMessages(callId: string, path = PATH, content = CONTENT): PiMessageView[] {
+  return toolMessages(callId, 'read', path, content)
+}
+
+function decision(value: IdentityDecision | ConservativeObservation): IdentityDecision {
+  if ('outcome' in value) throw new Error(`expected decision, got ${value.outcome}`)
+  return value
+}
+
+describe('LC1 Pi-to-authority bridge candidate', () => {
+  it('provides enough authoritative metadata for ADD -> REMOVE -> REHYDRATE', () => {
+    const first = mapPiReadResultsToCandidateEvidence(
+      readMessages('call-1'),
+      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      [AVAILABLE_V3]
+    )
+    const later = mapPiReadResultsToCandidateEvidence(
+      readMessages('call-2', './src\\reopen-a.ts'),
+      { runtimeSessionId: 'session-a', modelCallSequence: 2 },
+      [AVAILABLE_V3]
+    )
+    expect(first.unmapped).toEqual([])
+    expect(later.unmapped).toEqual([])
+    expect(first.mapped[0]?.eventSourceKey).toBe('run/tool-result://call-1')
+    expect(later.mapped[0]?.eventSourceKey).toBe('run/tool-result://call-2')
+    expect(first.mapped[0]?.evidence).toMatchObject({
+      repositoryId: 'repo-a',
+      namespace: 'repository-file',
+      path: PATH,
+      contentHash: 'hash-reopen-a-v3',
+      callId: 'pi-evidence:v1:session-a:call-1'
+    })
+
+    const mapper = new CandidateIdentityMapper()
+    const initial = decision(mapper.observe('E1', 'T1', first.mapped[0]!.evidence))
+    expect(initial.kind).toBe('ADD')
+    mapper.commit(initial)
+    const removed = mapper.remove('T2', initial.evidenceInstanceId!, ['RULED_OUT'])
+    const rehydrated = decision(mapper.observe('E3', 'T3', later.mapped[0]!.evidence))
+
+    expect(removed.kind).toBe('REMOVE')
+    expect(rehydrated.kind).toBe('REHYDRATE')
+    expect(rehydrated.subjectKey).toBe(initial.subjectKey)
+    expect(rehydrated.sourceVersionId).toBe(initial.sourceVersionId)
+    expect(rehydrated.evidenceInstanceId).not.toBe(initial.evidenceInstanceId)
+    expect(rehydrated.originatingRemoveTransitionId).toBe('T2')
+    mapper.commit(rehydrated)
+  })
+
+  it('does not turn a changed authoritative version into REHYDRATE', () => {
+    const first = mapPiReadResultsToCandidateEvidence(
+      readMessages('call-1'),
+      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      [AVAILABLE_V3]
+    )
+    const changed = mapPiReadResultsToCandidateEvidence(
+      readMessages('call-2', PATH, 'export const value = "reopen-a:v4"'),
+      { runtimeSessionId: 'session-a', modelCallSequence: 2 },
+      [
+        {
+          ...AVAILABLE_V3,
+          universeRevision: 'universe:r4',
+          contentHash: 'hash-reopen-a-v4'
+        }
+      ]
+    )
+    const mapper = new CandidateIdentityMapper()
+    const initial = decision(mapper.observe('E1', 'T1', first.mapped[0]!.evidence))
+    mapper.commit(initial)
+    mapper.remove('T2', initial.evidenceInstanceId!, ['SUPERSEDED'])
+    const next = decision(mapper.observe('E3', 'T3', changed.mapped[0]!.evidence))
+
+    expect(next.kind).toBe('ADD')
+    expect(next.subjectKey).toBe(initial.subjectKey)
+    expect(next.sourceVersionId).not.toBe(initial.sourceVersionId)
+    expect(next.originatingRemoveTransitionId).toBeNull()
+    mapper.commit(next)
+  })
+
+  it('fails closed when authority is missing, ambiguous, unavailable, or unsafe', () => {
+    const missing = mapPiReadResultsToCandidateEvidence(
+      readMessages('missing-call'),
+      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      []
+    )
+    expect(missing.mapped).toEqual([])
+    expect(missing.unmapped[0]?.reason).toBe('NO_AUTHORITATIVE_SOURCE')
+
+    const ambiguous = mapPiReadResultsToCandidateEvidence(
+      readMessages('ambiguous-call'),
+      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      [AVAILABLE_V3, { ...AVAILABLE_V3, namespace: 'task-attachment' }]
+    )
+    expect(ambiguous.mapped).toEqual([])
+    expect(ambiguous.unmapped[0]?.reason).toBe('AMBIGUOUS_AUTHORITY')
+
+    const unavailable = mapPiReadResultsToCandidateEvidence(
+      readMessages('unavailable-call'),
+      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      [
+        {
+          repositoryId: 'repo-a',
+          namespace: 'repository-file',
+          path: PATH,
+          universeRevision: 'universe:r3',
+          representationKind: 'FULL',
+          status: 'UNAVAILABLE',
+          unavailableReason: 'REVISION_MISMATCH'
+        }
+      ]
+    )
+    expect(unavailable.unmapped).toEqual([])
+    const unavailableEvidence = unavailable.mapped[0]?.evidence
+    expect(unavailableEvidence?.status).toBe('UNAVAILABLE')
+    if (unavailableEvidence === undefined) throw new Error('expected unavailable evidence')
+    const mapper = new CandidateIdentityMapper()
+    const unavailableObservation = mapper.observe('E4', 'T4', unavailableEvidence)
+    expect(observation(unavailableObservation)).toMatchObject({
+      status: 'UNAVAILABLE',
+      outcome: 'CONSERVATIVE_KEEP',
+      sourceVersionId: null
+    })
+
+    const absent = mapPiReadResultsToCandidateEvidence(
+      readMessages('absent-call'),
+      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      [
+        {
+          repositoryId: 'repo-a',
+          namespace: 'repository-file',
+          path: PATH,
+          universeRevision: 'universe:r3',
+          representationKind: 'FULL',
+          status: 'ABSENT'
+        }
+      ]
+    )
+    expect(absent.unmapped).toEqual([])
+    const absentObservation = mapper.observe('E5', 'T5', absent.mapped[0]!.evidence)
+    expect(observation(absentObservation)).toMatchObject({
+      status: 'ABSENT',
+      outcome: 'CONFIRMED_ABSENT',
+      sourceVersionId: null
+    })
+
+    const unsupported = mapPiReadResultsToCandidateEvidence(
+      toolMessages('write-call', 'write'),
+      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      [AVAILABLE_V3]
+    )
+    expect(unsupported.mapped).toEqual([])
+    expect(unsupported.unmapped[0]?.reason).toBe('UNSUPPORTED_TOOL')
+
+    const unsafe = mapPiReadResultsToCandidateEvidence(
+      readMessages('unsafe-call', '../secret.ts'),
+      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      [AVAILABLE_V3]
+    )
+    expect(unsafe.mapped).toEqual([])
+    expect(unsafe.unmapped[0]?.reason).toBe('MISSING_PATH_HINT')
+
+    const noCallId = mapPiReadResultsToCandidateEvidence(
+      [{ role: 'toolResult', content: [{ type: 'text', text: CONTENT }], toolName: 'read' }],
+      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      [AVAILABLE_V3]
+    )
+    expect(noCallId.mapped).toEqual([])
+    expect(noCallId.unmapped[0]?.reason).toBe('MISSING_CALL_ID')
+  })
+
+  it('namespaces evidence instances by runtime session and rejects call-id remapping', () => {
+    const first = mapPiReadResultsToCandidateEvidence(
+      readMessages('same-call'),
+      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      [AVAILABLE_V3]
+    )
+    const second = mapPiReadResultsToCandidateEvidence(
+      readMessages('same-call'),
+      { runtimeSessionId: 'session-b', modelCallSequence: 1 },
+      [AVAILABLE_V3]
+    )
+    expect(first.mapped[0]?.evidence.callId).not.toBe(second.mapped[0]?.evidence.callId)
+
+    const remapped = mapPiReadResultsToCandidateEvidence(
+      [...readMessages('remapped-call', PATH), ...readMessages('remapped-call', 'src/other.ts')],
+      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      [AVAILABLE_V3]
+    )
+    expect(remapped.mapped).toEqual([])
+    expect(remapped.unmapped.map((item) => item.reason)).toEqual(['CALL_ID_REMAP', 'CALL_ID_REMAP'])
+  })
+
+  it('does not link the same path across repository identities', () => {
+    const first = mapPiReadResultsToCandidateEvidence(
+      readMessages('repo-a-call'),
+      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      [AVAILABLE_V3]
+    )
+    const second = mapPiReadResultsToCandidateEvidence(
+      readMessages('repo-b-call'),
+      { runtimeSessionId: 'session-a', modelCallSequence: 2 },
+      [{ ...AVAILABLE_V3, repositoryId: 'repo-b' }]
+    )
+    const mapper = new CandidateIdentityMapper()
+    const firstDecision = decision(mapper.observe('E1', 'T1', first.mapped[0]!.evidence))
+    mapper.commit(firstDecision)
+    const secondDecision = decision(mapper.observe('E2', 'T2', second.mapped[0]!.evidence))
+
+    expect(secondDecision.kind).toBe('ADD')
+    expect(secondDecision.subjectKey).not.toBe(firstDecision.subjectKey)
+    expect(secondDecision.originatingRemoveTransitionId).toBeNull()
+  })
+})
+
+function observation(value: IdentityDecision | ConservativeObservation): ConservativeObservation {
+  if (!('outcome' in value)) throw new Error(`expected observation, got ${value.kind}`)
+  return value
+}
