@@ -12,7 +12,11 @@ import {
   LC1_COMPOSITE_TRACE,
   REOPEN_A,
   REOPEN_A_DOT_PATH,
+  REOPEN_A_V1,
   REOPEN_A_V1_LATER,
+  REOPEN_A_V2,
+  OTHER_NAMESPACE_REOPEN_A,
+  OTHER_REPOSITORY_REOPEN_A,
   runIdentityMutationTests,
   unavailableFixture,
   validateCompositeOracle,
@@ -206,6 +210,130 @@ describe("CR-004 LC1 logical source identity candidate oracle", () => {
     );
   });
 
+  it("does not cross-link a removal across repositories or namespaces", () => {
+    const otherRepository = {
+      ...OTHER_REPOSITORY_REOPEN_A,
+      callId: "other-repository-read",
+      contentHash: REOPEN_A_V1.contentHash,
+      universeRevision: REOPEN_A_V1.universeRevision,
+      status: "AVAILABLE" as const,
+      representationKind: "REFERENCE" as const,
+    };
+    const otherNamespace = {
+      ...OTHER_NAMESPACE_REOPEN_A,
+      callId: "other-namespace-read",
+      contentHash: REOPEN_A_V1.contentHash,
+      universeRevision: REOPEN_A_V1.universeRevision,
+      status: "AVAILABLE" as const,
+      representationKind: "REFERENCE" as const,
+    };
+    const result = runIdentityTrace({
+      id: "LC1-SUBJECT-ISOLATION",
+      events: [
+        {
+          kind: "OBSERVE",
+          id: "I1",
+          transitionId: "I1",
+          observation: REOPEN_A_V1,
+        },
+        {
+          kind: "REMOVE",
+          id: "I2",
+          transitionId: "I2",
+          evidenceInstanceId: instanceIdFor(REOPEN_A_V1),
+          reasonCodes: ["RULED_OUT"],
+        },
+        {
+          kind: "OBSERVE",
+          id: "I3",
+          transitionId: "I3",
+          observation: otherRepository,
+        },
+        {
+          kind: "OBSERVE",
+          id: "I4",
+          transitionId: "I4",
+          observation: otherNamespace,
+        },
+      ],
+    });
+    expect(result.decisions.map((decision) => decision.kind)).toEqual([
+      "ADD",
+      "REMOVE",
+      "ADD",
+      "ADD",
+    ]);
+    expect(
+      result.decisions
+        .slice(2)
+        .every((decision) => decision.originatingRemoveTransitionId === null),
+    ).toBe(true);
+  });
+
+  it("supports two valid lifecycle cycles without reusing an origin or resurrecting cold evidence", () => {
+    const thirdRead = {
+      ...REOPEN_A_V1_LATER,
+      callId: "read-3-cycle",
+    };
+    const result = runIdentityTrace({
+      id: "LC1-REPEATED-LIFECYCLE",
+      events: [
+        {
+          kind: "OBSERVE",
+          id: "C1-ADD",
+          transitionId: "C1",
+          observation: REOPEN_A_V1,
+        },
+        {
+          kind: "REMOVE",
+          id: "C2-REMOVE",
+          transitionId: "C2",
+          evidenceInstanceId: instanceIdFor(REOPEN_A_V1),
+          reasonCodes: ["RULED_OUT"],
+        },
+        {
+          kind: "OBSERVE",
+          id: "C3-REHYDRATE",
+          transitionId: "C3",
+          observation: REOPEN_A_V1_LATER,
+        },
+        {
+          kind: "REMOVE",
+          id: "C4-REMOVE",
+          transitionId: "C4",
+          evidenceInstanceId: instanceIdFor(REOPEN_A_V1_LATER),
+          reasonCodes: ["PHASE_IRRELEVANT"],
+        },
+        {
+          kind: "OBSERVE",
+          id: "C5-REHYDRATE",
+          transitionId: "C5",
+          observation: thirdRead,
+        },
+      ],
+    });
+    expect(result.decisions.map((decision) => decision.kind)).toEqual([
+      "ADD",
+      "REMOVE",
+      "REHYDRATE",
+      "REMOVE",
+      "REHYDRATE",
+    ]);
+    expect(
+      result.decisions
+        .filter((decision) => decision.kind === "REHYDRATE")
+        .map((decision) => decision.originatingRemoveTransitionId),
+    ).toEqual(["C2", "C4"]);
+    expect(result.coldEvidence).toHaveLength(2);
+    expect(result.activeEvidence).toHaveLength(1);
+    expect(result.activeEvidence[0]?.evidenceInstanceId).toBe(
+      instanceIdFor(thirdRead),
+    );
+    expect(
+      result.removals.map((removal) => removal.consumedByTransitionId),
+    ).toEqual(["C3", "C5"]);
+  });
+
   it("rejects tool-call id remapping, cold-call reuse, and protected eviction", () => {
     const first = {
       ...REOPEN_A,
@@ -229,6 +357,26 @@ describe("CR-004 LC1 logical source identity candidate oracle", () => {
         ],
       }),
     ).toThrow("tool call id remapped");
+    expect(() =>
+      runIdentityTrace({
+        id: "LC1-EMPTY-REMOVE-REASON",
+        events: [
+          {
+            kind: "OBSERVE",
+            id: "E1",
+            transitionId: "E1",
+            observation: REOPEN_A_V1,
+          },
+          {
+            kind: "REMOVE",
+            id: "E2",
+            transitionId: "E2",
+            evidenceInstanceId: instanceIdFor(REOPEN_A_V1),
+            reasonCodes: [],
+          },
+        ],
+      }),
+    ).toThrow("REMOVE requires a reason");
     assertNoOracleFailures(validateIdentityNegativeCases());
   });
 

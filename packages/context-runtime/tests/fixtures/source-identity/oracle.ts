@@ -48,7 +48,7 @@ export const PROTECTED_SPEC: LogicalSourceInput = {
   path: "spec/task.md",
 };
 
-const REOPEN_A_V1: AvailableEvidenceInput = {
+export const REOPEN_A_V1: AvailableEvidenceInput = {
   ...REOPEN_A,
   callId: "read-1",
   contentHash: "hash-reopen-a-v1",
@@ -63,7 +63,7 @@ export const REOPEN_A_V1_LATER: AvailableEvidenceInput = {
   representationKind: "FULL",
 };
 
-const REOPEN_A_V2: AvailableEvidenceInput = {
+export const REOPEN_A_V2: AvailableEvidenceInput = {
   ...REOPEN_A_V1_LATER,
   callId: "read-3",
   contentHash: "hash-reopen-a-v2",
