@@ -56,6 +56,10 @@ evidence instance. The evidence call IDs are explicitly namespaced as
 `pi-evidence:v1:<runtime-session>:<tool-call-id>` so a repeated upstream call
 ID cannot silently alias evidence from another runtime session.
 
+The mapped evidence also passes the generic LC1 observation-binding and safety
+oracles as a complete replayable trace. Replaying the same Pi messages and
+authority metadata produces the same trace hash.
+
 ### Version boundary
 
 The same path with a changed authoritative content hash and Universe revision
@@ -85,12 +89,13 @@ established. The tests cover:
 ## Results
 
 ```text
-Bridge candidate lifecycle:       PASS (5/5 test cases)
+Bridge candidate lifecycle:       PASS (6/6 test cases)
 ADD → REMOVE → REHYDRATE:          PASS
 Changed version → not REHYDRATE:  PASS
 Authority and safety fail-closed: PASS
 Session evidence namespacing:     PASS
 Cross-repository isolation:       PASS
+LC1 safety-oracle replay:          PASS
 Provider calls:                    0
 Production files changed:         0
 Pi messages rewritten:             NO

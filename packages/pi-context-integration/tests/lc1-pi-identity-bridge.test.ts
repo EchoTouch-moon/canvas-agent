@@ -1,9 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { CandidateIdentityMapper } from '../../context-runtime/tests/fixtures/source-identity/candidate'
+import {
+  CandidateIdentityMapper,
+  instanceIdFor,
+  runIdentityTrace
+} from '../../context-runtime/tests/fixtures/source-identity/candidate'
 import type {
+  CandidateEvidenceInput,
   ConservativeObservation,
-  IdentityDecision
+  IdentityDecision,
+  IdentityTrace
 } from '../../context-runtime/tests/fixtures/source-identity/types'
+import {
+  assertNoOracleFailures,
+  validateIdentitySafetyInvariants,
+  validateObservationBindings
+} from '../../context-runtime/tests/fixtures/source-identity/oracle'
 import { type PiMessageView } from '../src'
 import {
   mapPiReadResultsToCandidateEvidence,
@@ -100,6 +111,55 @@ describe('LC1 Pi-to-authority bridge candidate', () => {
     expect(rehydrated.evidenceInstanceId).not.toBe(initial.evidenceInstanceId)
     expect(rehydrated.originatingRemoveTransitionId).toBe('T2')
     mapper.commit(rehydrated)
+  })
+
+  it('replays Pi-backed evidence through the generic LC1 safety oracles deterministically', () => {
+    const first = availableEvidence(
+      mapPiReadResultsToCandidateEvidence(
+        readMessages('replay-call-1'),
+        context('replay-session', 1),
+        [AVAILABLE_V3]
+      ).mapped[0]!.evidence
+    )
+    const later = availableEvidence(
+      mapPiReadResultsToCandidateEvidence(
+        readMessages('replay-call-2', './src\\reopen-a.ts'),
+        context('replay-session', 2),
+        [AVAILABLE_V3]
+      ).mapped[0]!.evidence
+    )
+    const firstInstanceId = instanceIdFor(first)
+    const laterInstanceId = instanceIdFor(later)
+    const trace: IdentityTrace = {
+      id: 'PI-BRIDGE-REPLAY',
+      events: [
+        { kind: 'OBSERVE', id: 'E1', transitionId: 'T1', observation: first },
+        { kind: 'KEEP', id: 'E2', transitionId: 'T2', evidenceInstanceId: firstInstanceId },
+        {
+          kind: 'REMOVE',
+          id: 'E3',
+          transitionId: 'T3',
+          evidenceInstanceId: firstInstanceId,
+          reasonCodes: ['RULED_OUT']
+        },
+        { kind: 'OBSERVE', id: 'E4', transitionId: 'T4', observation: later },
+        { kind: 'KEEP', id: 'E5', transitionId: 'T5', evidenceInstanceId: laterInstanceId }
+      ]
+    }
+    const result = runIdentityTrace(trace)
+    assertNoOracleFailures([
+      ...validateObservationBindings(trace, result),
+      ...validateIdentitySafetyInvariants(trace, result)
+    ])
+    expect(result.decisions.map((item) => item.kind)).toEqual([
+      'ADD',
+      'KEEP',
+      'REMOVE',
+      'REHYDRATE',
+      'KEEP'
+    ])
+    expect(result.decisions[3]?.originatingRemoveTransitionId).toBe('T3')
+    expect(result.traceHash).toBe(runIdentityTrace(trace).traceHash)
   })
 
   it('does not turn a changed authoritative version into REHYDRATE', () => {
@@ -277,5 +337,11 @@ describe('LC1 Pi-to-authority bridge candidate', () => {
 
 function observation(value: IdentityDecision | ConservativeObservation): ConservativeObservation {
   if (!('outcome' in value)) throw new Error(`expected observation, got ${value.kind}`)
+  return value
+}
+
+function availableEvidence(value: CandidateEvidenceInput) {
+  if (value.status !== 'AVAILABLE')
+    throw new Error(`expected available evidence, got ${value.status}`)
   return value
 }
