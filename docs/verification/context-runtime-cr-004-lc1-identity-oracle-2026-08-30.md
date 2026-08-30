@@ -55,6 +55,8 @@ The zero-provider suite covers:
 
 - equivalent path spellings map to one logical source subject;
 - repository and namespace changes produce distinct subjects;
+- a removal from one repository/namespace cannot rehydrate evidence from
+  another, and two valid lifecycle cycles consume distinct origins;
 - content-hash or admitted-Universe-revision changes produce a new version;
 - a new call id without a preceding valid `REMOVE` is `ADD`;
 - a same-version new call id becomes `REHYDRATE` only after an exact,
