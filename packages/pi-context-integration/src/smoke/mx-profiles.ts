@@ -14,7 +14,7 @@ import { join } from 'node:path'
 // tasks/arms, max repetitions, required arm-order mode) the series may run.
 // A run identity must match exactly one profile; the profile's contract must
 // EXIST on disk at startup (refuse otherwise); the env knobs are validated
-// against the profile's bounds; and an unknown series (M7+) is REFUSED until
+// against the profile's bounds; and an unknown series (M8+) is REFUSED until
 // a profile + contract are deliberately added here. The offline analyzer
 // additionally cross-checks every manifest against its run-id series and
 // emits `provenanceWarnings` without rewriting historical evidence.
@@ -188,7 +188,7 @@ export function isValidMxProfileRunId(runId: string | undefined): runId is strin
 
 /**
  * Resolve the profile a run identity binds to and REFUSE when the binding is
- * unsound: an unknown/unregistered series (M7+ must add a profile + contract
+ * unsound: an unknown/unregistered series (M8+ must add a profile + contract
  * first — a deliberate act), an ambiguous multi-match (registry defect), or a
  * contract file missing on disk (checked at startup, both runner modes).
  */

@@ -869,6 +869,9 @@ async function run(): Promise<void> {
       })),
       budgets: {
         ...MX_BUDGETS,
+        // Keep the recorded matrix ceiling aligned with the resolved design;
+        // MX_BUDGETS.maxLegs is only the historical default for older shapes.
+        maxLegs: totalLegs,
         maxProviderCallRecords: matrixMaxProviderCallRecords,
         runWallClockMs: matrixRunWallClockMs,
         perLeg: Object.fromEntries(
