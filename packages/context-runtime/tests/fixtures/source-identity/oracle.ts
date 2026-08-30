@@ -252,7 +252,10 @@ export function validateIdentityTrace(
   trace: IdentityTrace,
   result: IdentityTraceResult,
 ): readonly IdentityOracleFailure[] {
-  const failures = [...validateCompositeOracle(trace, result)];
+  const failures = [
+    ...validateCompositeOracle(trace, result),
+    ...validateObservationBindings(trace, result),
+  ];
   const uniqueCallIds = new Set<string>();
   for (const event of trace.events) {
     if (event.kind !== "OBSERVE") continue;
@@ -263,6 +266,38 @@ export function validateIdentityTrace(
       });
     }
     uniqueCallIds.add(event.observation.callId);
+  }
+  return failures;
+}
+
+export function validateObservationBindings(
+  trace: IdentityTrace,
+  result: IdentityTraceResult,
+): readonly IdentityOracleFailure[] {
+  const failures: IdentityOracleFailure[] = [];
+  for (const decision of result.decisions) {
+    const event = trace.events.find(
+      (candidate) =>
+        candidate.kind === "OBSERVE" && candidate.id === decision.eventId,
+    );
+    if (event?.kind !== "OBSERVE" || event.observation.status !== "AVAILABLE") {
+      continue;
+    }
+    const expectedSubject = subjectFor(event.observation).subjectKey;
+    const expectedVersion = sourceVersionFor(event.observation).versionId;
+    if (decision.subjectKey !== expectedSubject) {
+      failures.push({
+        eventId: event.id,
+        message: "decision subject must match observed logical source",
+      });
+    }
+    if (decision.sourceVersionId !== expectedVersion) {
+      failures.push({
+        eventId: event.id,
+        message:
+          "decision SourceVersion must match observed content and revision",
+      });
+    }
   }
   return failures;
 }
@@ -335,14 +370,6 @@ export function runIdentityMutationTests(): readonly MutationCheck[] {
       })),
       expectedMessage: "one REMOVE must be consumed exactly once",
     },
-    {
-      name: "changed-content-same-version",
-      mutated: withDecisionMutation(baseline, "T4-LATER-NEED", (decision) => ({
-        ...decision,
-        sourceVersionId: sourceVersionFor(REOPEN_A_V2).versionId,
-      })),
-      expectedMessage: "REHYDRATE must bind exact v1 and FULL representation",
-    },
   ];
   const checks = mutations.map((mutation) => ({
     name: mutation.name,
@@ -350,6 +377,57 @@ export function runIdentityMutationTests(): readonly MutationCheck[] {
       (failure) => failure.message === mutation.expectedMessage,
     ),
   }));
+
+  const changedContentTrace: IdentityTrace = {
+    id: "LC1-CHANGED-CONTENT-MUTATION",
+    events: [
+      {
+        kind: "OBSERVE",
+        id: "M1",
+        transitionId: "M1",
+        observation: REOPEN_A_V1,
+      },
+      {
+        kind: "REMOVE",
+        id: "M2",
+        transitionId: "M2",
+        evidenceInstanceId: instanceIdFor(REOPEN_A_V1),
+        reasonCodes: ["RULED_OUT"],
+      },
+      {
+        kind: "OBSERVE",
+        id: "M3",
+        transitionId: "M3",
+        observation: REOPEN_A_V2,
+      },
+    ],
+  };
+  const changedContentBaseline = runIdentityTrace(changedContentTrace);
+  const changedContentMutation: IdentityTraceResult = {
+    ...changedContentBaseline,
+    decisions: changedContentBaseline.decisions.map((decision) =>
+      decision.eventId === "M3"
+        ? {
+            ...decision,
+            kind: "REHYDRATE",
+            sourceVersionId: sourceVersionFor(REOPEN_A_V1).versionId,
+            originatingRemoveTransitionId: "M2",
+          }
+        : decision,
+    ),
+  };
+  checks.push({
+    name: "changed-content-same-version",
+    caught: validateObservationBindings(
+      changedContentTrace,
+      changedContentMutation,
+    ).some(
+      (failure) =>
+        failure.message ===
+        "decision SourceVersion must match observed content and revision",
+    ),
+  });
+
   let protectedCaught = false;
   try {
     runIdentityTrace({
