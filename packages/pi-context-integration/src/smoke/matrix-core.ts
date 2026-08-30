@@ -58,7 +58,7 @@ export {
 //     CANVAS_MX_REPS (1..8) so a targeted run (e.g. L2-only x 4 reps = 12
 //     legs) is possible; matrix totals are profile-bound (the historical
 //     defaults are 900 provider-call records / 180 minutes, while M6 binds
-//     1,400 records / 300 minutes);
+//     1,400 records / 300 minutes and M7 binds 1,800 records / 300 minutes);
 //   - the matrix state machine: leg-level failures mark ONE leg FAILED and the
 //     matrix CONTINUES; only matrix-level S-1 (binding) or S-7 (totals) stop
 //     everything, checked between legs, evidence always preserved;
@@ -82,10 +82,10 @@ export {
 // ---------------------------------------------------------------------------
 
 /**
- * Run identities of the REGISTERED series only (M1..M6; see
+ * Run identities of the REGISTERED series only (M1..M7; see
  * MX_EXPERIMENT_PROFILES): `cr004-m<N>-<ISO-date-undashed>-<8-hex>`, e.g.
  * cr004-m1-20260826-d23a992c / cr004-m2-20260827-4d7e9a1b /
- * cr004-m4-20260827-d0cec2f5. An M7+ identity is REFUSED until a profile +
+ * cr004-m4-20260827-d0cec2f5. An M8+ identity is REFUSED until a profile +
  * contract are deliberately added to the registry (the old open `m[1-9]`
  * pattern accepted series whose contracts do not exist).
  */
@@ -989,6 +989,12 @@ export interface MxLegAnalysisInput {
     readonly deferredSweeps: number
     /** Edit boundaries held below the fixed v4 batch threshold. */
     readonly batchDeferrals: number
+    /** Per-SENT rewrite measurements; legacy evidence may have no values. */
+    readonly rewriteMeasurement: {
+      readonly beforeTokenEstimates: readonly number[]
+      readonly afterTokenEstimates: readonly number[]
+      readonly netTokenReductions: readonly number[]
+    }
   }
 }
 
@@ -1029,6 +1035,16 @@ export interface MxCellAggregate {
     readonly deferredSweeps: number
     /** Edit boundaries held below the fixed v4 batch threshold. */
     readonly batchDeferrals: number
+    /** Direct before/after estimates for SENT model-visible rewrites. */
+    readonly rewriteMeasurement: {
+      readonly measuredSends: number
+      readonly beforeTokenEstimateMean: number | null
+      readonly afterTokenEstimateMean: number | null
+      readonly netTokenReductionMean: number | null
+      readonly netTokenReductionValues: readonly number[]
+      readonly positiveReductionCount: number
+      readonly nonPositiveReductionCount: number
+    }
   }
 }
 
@@ -1043,6 +1059,20 @@ export function mxLegAnalysisInputOf(record: MxLegRecord): MxLegAnalysisInput {
   const standIn = record.oracleResults.some((result) => result.standIn === true)
   const telemetry = record.interventionTelemetry
   const reReads = telemetry !== undefined ? detectReReads(telemetry.events) : null
+  const rewriteMeasurements =
+    telemetry?.interventions
+      .filter(
+        (attempt) =>
+          attempt.sentRewrite &&
+          attempt.modelVisibleBeforeTokenEstimate !== undefined &&
+          attempt.modelVisibleAfterTokenEstimate !== undefined &&
+          attempt.netModelVisibleTokenReduction !== undefined
+      )
+      .map((attempt) => ({
+        before: attempt.modelVisibleBeforeTokenEstimate!,
+        after: attempt.modelVisibleAfterTokenEstimate!,
+        net: attempt.netModelVisibleTokenReduction!
+      })) ?? []
   return {
     task: record.task,
     strategy: record.strategy,
@@ -1102,7 +1132,12 @@ export function mxLegAnalysisInputOf(record: MxLegRecord): MxLegAnalysisInput {
               (event) => event.deferredByBatchThreshold === true
             ).length,
             reReads: reReads.matches.length,
-            postFirstInterventionReads: reReads.postFirstInterventionReadCount
+            postFirstInterventionReads: reReads.postFirstInterventionReadCount,
+            rewriteMeasurement: {
+              beforeTokenEstimates: rewriteMeasurements.map((measurement) => measurement.before),
+              afterTokenEstimates: rewriteMeasurements.map((measurement) => measurement.after),
+              netTokenReductions: rewriteMeasurements.map((measurement) => measurement.net)
+            }
           }
         }
       : {})
@@ -1141,6 +1176,9 @@ export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonl
       let dedupRemovals = 0
       let deferredSweeps = 0
       let batchDeferrals = 0
+      const rewriteBeforeTokenEstimates: number[] = []
+      const rewriteAfterTokenEstimates: number[] = []
+      const rewriteNetTokenReductions: number[] = []
       let hasActive = false
       let activePolicy = 'v1-per-edit'
       for (const leg of legs) {
@@ -1166,6 +1204,11 @@ export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonl
         dedupRemovals += leg.interventions.dedupRemovals
         deferredSweeps += leg.interventions.deferredSweeps
         batchDeferrals += leg.interventions.batchDeferrals
+        rewriteBeforeTokenEstimates.push(
+          ...leg.interventions.rewriteMeasurement.beforeTokenEstimates
+        )
+        rewriteAfterTokenEstimates.push(...leg.interventions.rewriteMeasurement.afterTokenEstimates)
+        rewriteNetTokenReductions.push(...leg.interventions.rewriteMeasurement.netTokenReductions)
         const drop = dropAtBoundaryOf(leg.tokenSeries, leg.interventions.sentBoundarySequences)
         dropSent += drop.sent
         dropDrops += drop.drops
@@ -1227,7 +1270,18 @@ export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonl
                 postFirstInterventionReads,
                 dedupRemovals,
                 deferredSweeps,
-                batchDeferrals
+                batchDeferrals,
+                rewriteMeasurement: {
+                  measuredSends: rewriteNetTokenReductions.length,
+                  beforeTokenEstimateMean: meanOf(rewriteBeforeTokenEstimates),
+                  afterTokenEstimateMean: meanOf(rewriteAfterTokenEstimates),
+                  netTokenReductionMean: meanOf(rewriteNetTokenReductions),
+                  netTokenReductionValues: rewriteNetTokenReductions,
+                  positiveReductionCount: rewriteNetTokenReductions.filter((value) => value > 0)
+                    .length,
+                  nonPositiveReductionCount: rewriteNetTokenReductions.filter((value) => value <= 0)
+                    .length
+                }
               }
             }
           : {})
@@ -1798,7 +1852,10 @@ export function mxCellOneLiner(cell: MxCellAggregate): string {
     cell.active.dropAtBoundary.rate === null
       ? 'n/a'
       : `${(cell.active.dropAtBoundary.rate * 100).toFixed(0)}%`
-  return `${base} policy=${cell.active.policy} interventions=${cell.active.sends}/${cell.active.attempts}${fallbacks === '' ? '' : ` fallbacks=[${fallbacks}]`} removedBlocks=${cell.active.removedBlocks}${cell.active.candidateBlocks > cell.active.removedBlocks ? ` (capped from ${cell.active.candidateBlocks})` : ''} retainedLatest=${cell.active.retainedLatestReadTargets} dropAtBoundary=${cell.active.dropAtBoundary.drops}/${cell.active.dropAtBoundary.sent} (${dropRate}) reReads=${cell.active.reReads} postFirstReads=${cell.active.postFirstInterventionReads} dedupRemovals=${cell.active.dedupRemovals} deferredSweeps=${cell.active.deferredSweeps} batchDeferrals=${cell.active.batchDeferrals}`
+  const rewrite = cell.active.rewriteMeasurement
+  const rewriteReduction =
+    rewrite.netTokenReductionMean === null ? 'n/a' : rewrite.netTokenReductionMean.toFixed(0)
+  return `${base} policy=${cell.active.policy} interventions=${cell.active.sends}/${cell.active.attempts}${fallbacks === '' ? '' : ` fallbacks=[${fallbacks}]`} removedBlocks=${cell.active.removedBlocks}${cell.active.candidateBlocks > cell.active.removedBlocks ? ` (capped from ${cell.active.candidateBlocks})` : ''} retainedLatest=${cell.active.retainedLatestReadTargets} dropAtBoundary=${cell.active.dropAtBoundary.drops}/${cell.active.dropAtBoundary.sent} (${dropRate}) reReads=${cell.active.reReads} postFirstReads=${cell.active.postFirstInterventionReads} dedupRemovals=${cell.active.dedupRemovals} deferredSweeps=${cell.active.deferredSweeps} batchDeferrals=${cell.active.batchDeferrals} rewriteReduction~${rewriteReduction} (${rewrite.positiveReductionCount}/${rewrite.measuredSends} positive)`
 }
 
 // ---------------------------------------------------------------------------
@@ -1972,8 +2029,9 @@ export async function analyzeMatrix(reportDir: string): Promise<MxAnalysisOutput
   lines.push('')
   for (const cell of cells.filter((candidate) => candidate.active !== undefined)) {
     const active = cell.active!
+    const rewrite = active.rewriteMeasurement
     lines.push(
-      `- ${cell.task}/${cell.strategy}: policy=${active.policy}, sends=${active.sends}/${active.attempts} attempts, removedBlocks=${active.removedBlocks}${active.candidateBlocks > active.removedBlocks ? ` (capped from ${active.candidateBlocks} candidates)` : ` (candidates=${active.candidateBlocks})`}, retainedLatestReadTargets=${active.retainedLatestReadTargets}, dropAtBoundary=${active.dropAtBoundary.drops}/${active.dropAtBoundary.sent}${active.dropAtBoundary.rate === null ? '' : ` (${(active.dropAtBoundary.rate * 100).toFixed(0)}%)`}, reReadsOfRemovedTargets=${active.reReads}, postFirstInterventionReads=${active.postFirstInterventionReads}, dedupRemovals=${active.dedupRemovals}, deferredSweeps=${active.deferredSweeps}, batchDeferrals=${active.batchDeferrals}${Object.keys(active.fallbackReasons).length === 0 ? '' : `, fallbacks=${JSON.stringify(active.fallbackReasons)}`}`
+      `- ${cell.task}/${cell.strategy}: policy=${active.policy}, sends=${active.sends}/${active.attempts} attempts, removedBlocks=${active.removedBlocks}${active.candidateBlocks > active.removedBlocks ? ` (capped from ${active.candidateBlocks} candidates)` : ` (candidates=${active.candidateBlocks})`}, retainedLatestReadTargets=${active.retainedLatestReadTargets}, dropAtBoundary=${active.dropAtBoundary.drops}/${active.dropAtBoundary.sent}${active.dropAtBoundary.rate === null ? '' : ` (${(active.dropAtBoundary.rate * 100).toFixed(0)}%)`}, reReadsOfRemovedTargets=${active.reReads}, postFirstInterventionReads=${active.postFirstInterventionReads}, dedupRemovals=${active.dedupRemovals}, deferredSweeps=${active.deferredSweeps}, batchDeferrals=${active.batchDeferrals}, rewriteMeasured=${rewrite.measuredSends}, rewriteBeforeMean=${rewrite.beforeTokenEstimateMean ?? 'n/a'}, rewriteAfterMean=${rewrite.afterTokenEstimateMean ?? 'n/a'}, netRewriteReductionMean=${rewrite.netTokenReductionMean ?? 'n/a'}, positive/nonPositive=${rewrite.positiveReductionCount}/${rewrite.nonPositiveReductionCount}${Object.keys(active.fallbackReasons).length === 0 ? '' : `, fallbacks=${JSON.stringify(active.fallbackReasons)}`}`
     )
   }
   lines.push('')

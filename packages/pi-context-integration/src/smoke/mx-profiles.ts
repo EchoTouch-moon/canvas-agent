@@ -22,12 +22,12 @@ import { join } from 'node:path'
 // No provider, no network. The only fs use is the contract existence check +
 // hashing at runner startup and inside --analyze.
 
-export type MxSeriesId = 'M1' | 'M2' | 'M3' | 'M4' | 'M5' | 'M6'
+export type MxSeriesId = 'M1' | 'M2' | 'M3' | 'M4' | 'M5' | 'M6' | 'M7'
 export type MxTaskSlot = 'L1' | 'L2' | 'L3'
 export type MxArm = 'NATIVE' | 'ACTIVE' | 'ACTIVE_V2' | 'ACTIVE_V3' | 'ACTIVE_V4'
 
 /**
- * Within-block arm ordering mode (M5/M6 pre-registration). 'canonical' (default)
+ * Within-block arm ordering mode (M5/M6/M7 pre-registration). 'canonical' (default)
  * keeps the deterministic control-first order of every historical series;
  * 'randomized' shuffles the arm sequence inside every (task x rep) block with
  * a shuffle seeded from the run identity hash — the M4 exchangeability
@@ -56,7 +56,7 @@ export interface MxExperimentProfile {
   /** Optional matrix-wide wall-clock ceiling for this series. */
   readonly runWallClockMs?: number
   /**
-   * Arm-order mode runs of this series MUST use (M5/M6: 'randomized' — the
+   * Arm-order mode runs of this series MUST use (M5/M6/M7: 'randomized' — the
    * pre-registered design refuses the canonical control-first order).
    * Undefined for the historical series (canonical, unchanged).
    */
@@ -66,7 +66,7 @@ export interface MxExperimentProfile {
 const ALL_TASKS: readonly MxTaskSlot[] = ['L1', 'L2', 'L3']
 
 /**
- * The registry (read-only history M1..M5 + the authorized M6 mechanism screen).
+ * The registry (read-only history M1..M6 + the authorized M7 exposure screen).
  * M1 evidence embedded its design object instead of a string label, so
  * `M1-active-baseline` is the registry's canonical name for that series
  * (historical manifests are never rewritten).
@@ -137,6 +137,21 @@ export const MX_EXPERIMENT_PROFILES: readonly MxExperimentProfile[] = [
     allowedArms: ['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3', 'ACTIVE_V4'],
     maxReps: 4,
     maxProviderCallRecords: 1400,
+    runWallClockMs: 300 * 60 * 1000,
+    armOrder: 'randomized'
+  },
+  {
+    // M7 is a new exposure/measurement screen, not a continuation or retry
+    // of M6. It narrows to L1/L2 because M6 L3 supplied no V4 exposure and
+    // adds the direct before/after model-visible telemetry.
+    series: 'M7',
+    runIdPattern: /^cr004-m7-\d{8}-[0-9a-f]{8}$/,
+    contractPath: 'docs/plan/cr004-m7-exposure-measurement-run-contract-2026-08-30.md',
+    matrixDesign: 'M7-exposure-measurement',
+    allowedTasks: ['L1', 'L2'],
+    allowedArms: ['NATIVE', 'ACTIVE_V2', 'ACTIVE_V4'],
+    maxReps: 8,
+    maxProviderCallRecords: 1800,
     runWallClockMs: 300 * 60 * 1000,
     armOrder: 'randomized'
   }
@@ -223,7 +238,7 @@ export interface MxShapeLike {
  * Validate the resolved matrix shape (env knobs) against the profile's
  * bounds: every task and arm must be allowed for the series, the
  * repetition count must not exceed the series' maximum, and — for series
- * with a REQUIRED arm-order mode (M5/M6: randomized) — the shape must carry
+ * with a REQUIRED arm-order mode (M5/M6/M7: randomized) — the shape must carry
  * exactly that mode. Throws MxProfileError on the first violation.
  */
 export function validateMxShapeAgainstProfile(shape: MxShapeLike, profile: MxExperimentProfile): void {
@@ -258,7 +273,7 @@ export function validateMxShapeAgainstProfile(shape: MxShapeLike, profile: MxExp
 
 /**
  * Resolve the effective arm-order mode for a run: a profile with a REQUIRED
- * mode forces it (an explicit conflicting request is REFUSED — an M5/M6 run
+ * mode forces it (an explicit conflicting request is REFUSED — an M5/M6/M7 run
  * cannot opt into the canonical control-first order); otherwise the requested
  * mode applies, defaulting to 'canonical' (all historical behavior).
  */
@@ -372,7 +387,7 @@ export function mxProvenanceWarnings(
         `recorded design repetitions ${repetitions} exceed series ${profile.series} max ${profile.maxReps}`
       )
     }
-    // M5/M6: a required arm-order mode is cross-checked when the manifest
+    // M5/M6/M7: a required arm-order mode is cross-checked when the manifest
     // records one (absent => the canonical default, warned below).
     const armOrder = (design as { armOrder?: unknown }).armOrder
     if (profile.armOrder !== undefined && armOrder !== profile.armOrder) {

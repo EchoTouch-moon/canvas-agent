@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
+import { estimateTokens } from '@canvas-agent/context-runtime'
 import type { ContextEvent, ExtensionAPI, ExtensionFactory } from '@earendil-works/pi-coding-agent'
 import { createRunKillSwitch, type RunKillSwitch } from '../active/kill-switch'
 import {
@@ -12,7 +13,7 @@ import {
   type ActiveRewriteReady
 } from '../active/rewrite-composer'
 import type { C0PlanningSnapshot, C0ScenarioExecutor } from '../smoke/c0-scenarios'
-import type { PiContentBlockView, PiMessageView } from '../pi-message-mapper'
+import { mapPiMessages, type PiContentBlockView, type PiMessageView } from '../pi-message-mapper'
 
 // CR-004 — Active intervention extension (Pi-only, bounded repeated sends).
 //
@@ -245,6 +246,16 @@ export interface ActiveRewriteEventEvidence {
   readonly retainedLatestReadTargets?: readonly string[]
   /** Read-class toolCalls first observed at this event (privacy-safe hashes). */
   readonly readTargets?: readonly ReadTargetRecord[]
+  /** Internal estimate of the model-visible basis immediately before a rewrite. */
+  readonly modelVisibleBeforeTokenEstimate?: number
+  /** Internal estimate of the composed model-visible context after a SENT rewrite. */
+  readonly modelVisibleAfterTokenEstimate?: number
+  /** Signed internal estimate: before minus after; positive means a reduction. */
+  readonly netModelVisibleTokenReduction?: number
+  /** Message count of the model-visible basis immediately before a rewrite. */
+  readonly modelVisibleBeforeMessageCount?: number
+  /** Message count of the composed model-visible context after a SENT rewrite. */
+  readonly modelVisibleAfterMessageCount?: number
 }
 
 /** One intervention attempt summary (SENT or FALLBACK) for leg telemetry. */
@@ -283,6 +294,16 @@ export interface ActiveRewriteInterventionSummary {
   readonly removedBlocks: number
   /** readTargetHash of the retained LATEST read per swept (edited) path. */
   readonly retainedLatestReadTargets: readonly string[]
+  /** Internal estimate of the model-visible basis immediately before this send. */
+  readonly modelVisibleBeforeTokenEstimate?: number
+  /** Internal estimate of the composed model-visible context after this send. */
+  readonly modelVisibleAfterTokenEstimate?: number
+  /** Signed internal estimate: before minus after; positive means a reduction. */
+  readonly netModelVisibleTokenReduction?: number
+  /** Message count of the model-visible basis immediately before this send. */
+  readonly modelVisibleBeforeMessageCount?: number
+  /** Message count of the composed model-visible context after this send. */
+  readonly modelVisibleAfterMessageCount?: number
 }
 
 export interface ActiveRewriteEvidenceCollector {
@@ -348,8 +369,39 @@ function interventionSummaryFrom(
     trigger: event.trigger ?? 'edit',
     candidateBlocks: event.candidateBlocks ?? 0,
     removedBlocks: event.removedBlocks ?? 0,
-    retainedLatestReadTargets: [...(event.retainedLatestReadTargets ?? [])]
+    retainedLatestReadTargets: [...(event.retainedLatestReadTargets ?? [])],
+    ...(event.modelVisibleBeforeTokenEstimate !== undefined
+      ? {
+          modelVisibleBeforeTokenEstimate: event.modelVisibleBeforeTokenEstimate
+        }
+      : {}),
+    ...(event.modelVisibleAfterTokenEstimate !== undefined
+      ? { modelVisibleAfterTokenEstimate: event.modelVisibleAfterTokenEstimate }
+      : {}),
+    ...(event.netModelVisibleTokenReduction !== undefined
+      ? { netModelVisibleTokenReduction: event.netModelVisibleTokenReduction }
+      : {}),
+    ...(event.modelVisibleBeforeMessageCount !== undefined
+      ? { modelVisibleBeforeMessageCount: event.modelVisibleBeforeMessageCount }
+      : {}),
+    ...(event.modelVisibleAfterMessageCount !== undefined
+      ? { modelVisibleAfterMessageCount: event.modelVisibleAfterMessageCount }
+      : {})
   }
+}
+
+/**
+ * Estimate the Pi AgentMessage context with the same documented heuristic as
+ * the CR-001 observer. This is an internal, model-visible message estimate:
+ * it is not a provider token count and does not include system-prompt or
+ * provider request assembly. The helper is pure and intentionally reuses the
+ * canonical Pi mapper so before/after measurements are comparable.
+ */
+export function estimatePiMessagesTokenEstimate(messages: readonly PiMessageView[]): number {
+  return mapPiMessages(messages).reduce(
+    (sum, message) => sum + estimateTokens(message.fingerprintText),
+    0
+  )
 }
 
 export class InMemoryActiveRewriteEvidenceCollector implements ActiveRewriteEvidenceCollector {
@@ -1242,6 +1294,8 @@ export function createActiveRewriteExtension(
       const sequence = options.executor.observationCount
       const observedTokenEstimate =
         options.executor.base.inMemory.last()?.observedMessageTokenEstimate ?? 0
+      const modelVisibleBeforeTokenEstimate = estimatePiMessagesTokenEstimate(basis)
+      const modelVisibleBeforeMessageCount = basis.length
       const readTargetsPatch =
         newReadTargets.length > 0 ? { readTargets: newReadTargets } : {}
       const verifyWindowPatch = deferredByVerifyWindow
@@ -1259,6 +1313,8 @@ export function createActiveRewriteExtension(
           sentRewrite: false,
           killSwitchTripped: killSwitch.isTripped,
           toolBlocksRemoved: 0,
+          modelVisibleBeforeTokenEstimate,
+          modelVisibleBeforeMessageCount,
           ...(batchDeferral !== undefined
             ? {
                 interventionPath: batchDeferral.interventionPath,
@@ -1339,6 +1395,8 @@ export function createActiveRewriteExtension(
             : {}),
           killSwitchTripped: killSwitch.isTripped,
           toolBlocksRemoved: composition?.continuity.toolBlocksRemoved ?? 0,
+          modelVisibleBeforeTokenEstimate,
+          modelVisibleBeforeMessageCount,
           interventionPath: boundary.interventionPath,
           removedReadTargetHashes,
           ...policyTelemetry,
@@ -1389,6 +1447,9 @@ export function createActiveRewriteExtension(
       // (planned over the committed supersession), and the supersession joins
       // the live extension state — exactly one mutation per SENT attempt.
       sendsUsed += 1
+      const modelVisibleAfterTokenEstimate = estimatePiMessagesTokenEstimate(composition.messages)
+      const netModelVisibleTokenReduction =
+        modelVisibleBeforeTokenEstimate - modelVisibleAfterTokenEstimate
       for (const callId of boundary.readToolCallIds) {
         supersededReadCallIds.add(callId)
       }
@@ -1409,6 +1470,11 @@ export function createActiveRewriteExtension(
         },
         killSwitchTripped: killSwitch.isTripped,
         toolBlocksRemoved: composition.continuity.toolBlocksRemoved,
+        modelVisibleBeforeTokenEstimate,
+        modelVisibleAfterTokenEstimate,
+        netModelVisibleTokenReduction,
+        modelVisibleBeforeMessageCount,
+        modelVisibleAfterMessageCount: composition.messages.length,
         interventionPath: boundary.interventionPath,
         removedSourceKeys: composition.removedSourceKeys,
         composedMessageCount: composition.messages.length,
