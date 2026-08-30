@@ -387,6 +387,7 @@ describe("CR-004 LC1 logical source identity candidate oracle", () => {
       { name: "missing-origin", caught: true },
       { name: "invalid-origin", caught: true },
       { name: "reused-origin", caught: true },
+      { name: "wrong-representation", caught: true },
       { name: "changed-content-same-version", caught: true },
       { name: "protected-eviction", caught: true },
       { name: "unavailable-absence", caught: true },

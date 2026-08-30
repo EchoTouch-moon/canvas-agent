@@ -71,7 +71,7 @@ The zero-provider suite covers:
 
 ## Adversarial checks
 
-The mutation suite deliberately corrupts eight independent contracts:
+The mutation suite deliberately corrupts nine independent contracts:
 
 ```text
 REHYDRATE → ADD
@@ -79,6 +79,7 @@ wrong SourceVersion
 missing originating REMOVE
 invalid originating REMOVE
 reuse of one originating REMOVE
+wrong representation kind
 changed content labeled as the old version
 protected-source removal
 UNAVAILABLE → SOURCE_ABSENT
