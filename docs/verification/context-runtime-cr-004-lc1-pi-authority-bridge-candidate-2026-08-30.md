@@ -29,6 +29,10 @@ This separation is required because the current Pi seam exposes an event-bound
 source key and a path hint, but does not by itself prove repository version,
 absence, or rehydration.
 
+The bridge also requires a caller-bound repository and namespace scope. A path
+hint is never allowed to select an authority from a different repository or
+namespace; a scope mismatch produces no mapped evidence.
+
 ## Candidate behavior exercised
 
 ### Positive lifecycle

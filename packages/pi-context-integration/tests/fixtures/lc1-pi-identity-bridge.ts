@@ -73,7 +73,12 @@ const REPOSITORY_FILE_PREFIX = 'repository/file://'
  */
 export function mapPiReadResultsToCandidateEvidence(
   messages: readonly PiMessageView[],
-  ctx: { readonly runtimeSessionId: string; readonly modelCallSequence: number },
+  ctx: {
+    readonly runtimeSessionId: string
+    readonly modelCallSequence: number
+    readonly repositoryId: string
+    readonly namespace: string
+  },
   authorities: readonly PiReadAuthority[]
 ): PiIdentityBridgeResult {
   const callsById = new Map<string, ToolCallHint>()
@@ -141,7 +146,11 @@ export function mapPiReadResultsToCandidateEvidence(
     }
     const matches = authorities.filter((authority) => {
       try {
-        return normalizeSourcePath(authority.path) === normalizedPath
+        return (
+          authority.repositoryId === ctx.repositoryId &&
+          authority.namespace === ctx.namespace &&
+          normalizeSourcePath(authority.path) === normalizedPath
+        )
       } catch {
         return false
       }

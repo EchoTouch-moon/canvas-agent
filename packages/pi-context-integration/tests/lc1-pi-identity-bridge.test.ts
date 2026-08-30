@@ -48,6 +48,15 @@ function readMessages(callId: string, path = PATH, content = CONTENT): PiMessage
   return toolMessages(callId, 'read', path, content)
 }
 
+function context(
+  runtimeSessionId: string,
+  modelCallSequence: number,
+  repositoryId = 'repo-a',
+  namespace = 'repository-file'
+) {
+  return { runtimeSessionId, modelCallSequence, repositoryId, namespace }
+}
+
 function decision(value: IdentityDecision | ConservativeObservation): IdentityDecision {
   if ('outcome' in value) throw new Error(`expected decision, got ${value.outcome}`)
   return value
@@ -57,12 +66,12 @@ describe('LC1 Pi-to-authority bridge candidate', () => {
   it('provides enough authoritative metadata for ADD -> REMOVE -> REHYDRATE', () => {
     const first = mapPiReadResultsToCandidateEvidence(
       readMessages('call-1'),
-      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      context('session-a', 1),
       [AVAILABLE_V3]
     )
     const later = mapPiReadResultsToCandidateEvidence(
       readMessages('call-2', './src\\reopen-a.ts'),
-      { runtimeSessionId: 'session-a', modelCallSequence: 2 },
+      context('session-a', 2),
       [AVAILABLE_V3]
     )
     expect(first.unmapped).toEqual([])
@@ -96,12 +105,12 @@ describe('LC1 Pi-to-authority bridge candidate', () => {
   it('does not turn a changed authoritative version into REHYDRATE', () => {
     const first = mapPiReadResultsToCandidateEvidence(
       readMessages('call-1'),
-      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      context('session-a', 1),
       [AVAILABLE_V3]
     )
     const changed = mapPiReadResultsToCandidateEvidence(
       readMessages('call-2', PATH, 'export const value = "reopen-a:v4"'),
-      { runtimeSessionId: 'session-a', modelCallSequence: 2 },
+      context('session-a', 2),
       [
         {
           ...AVAILABLE_V3,
@@ -126,7 +135,7 @@ describe('LC1 Pi-to-authority bridge candidate', () => {
   it('fails closed when authority is missing, ambiguous, unavailable, or unsafe', () => {
     const missing = mapPiReadResultsToCandidateEvidence(
       readMessages('missing-call'),
-      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      context('session-a', 1),
       []
     )
     expect(missing.mapped).toEqual([])
@@ -134,15 +143,15 @@ describe('LC1 Pi-to-authority bridge candidate', () => {
 
     const ambiguous = mapPiReadResultsToCandidateEvidence(
       readMessages('ambiguous-call'),
-      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
-      [AVAILABLE_V3, { ...AVAILABLE_V3, namespace: 'task-attachment' }]
+      context('session-a', 1),
+      [AVAILABLE_V3, { ...AVAILABLE_V3, contentHash: 'hash-duplicate-v3' }]
     )
     expect(ambiguous.mapped).toEqual([])
     expect(ambiguous.unmapped[0]?.reason).toBe('AMBIGUOUS_AUTHORITY')
 
     const unavailable = mapPiReadResultsToCandidateEvidence(
       readMessages('unavailable-call'),
-      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      context('session-a', 1),
       [
         {
           repositoryId: 'repo-a',
@@ -169,7 +178,7 @@ describe('LC1 Pi-to-authority bridge candidate', () => {
 
     const absent = mapPiReadResultsToCandidateEvidence(
       readMessages('absent-call'),
-      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      context('session-a', 1),
       [
         {
           repositoryId: 'repo-a',
@@ -191,7 +200,7 @@ describe('LC1 Pi-to-authority bridge candidate', () => {
 
     const unsupported = mapPiReadResultsToCandidateEvidence(
       toolMessages('write-call', 'write'),
-      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      context('session-a', 1),
       [AVAILABLE_V3]
     )
     expect(unsupported.mapped).toEqual([])
@@ -199,7 +208,7 @@ describe('LC1 Pi-to-authority bridge candidate', () => {
 
     const unsafe = mapPiReadResultsToCandidateEvidence(
       readMessages('unsafe-call', '../secret.ts'),
-      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      context('session-a', 1),
       [AVAILABLE_V3]
     )
     expect(unsafe.mapped).toEqual([])
@@ -207,29 +216,37 @@ describe('LC1 Pi-to-authority bridge candidate', () => {
 
     const noCallId = mapPiReadResultsToCandidateEvidence(
       [{ role: 'toolResult', content: [{ type: 'text', text: CONTENT }], toolName: 'read' }],
-      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      context('session-a', 1),
       [AVAILABLE_V3]
     )
     expect(noCallId.mapped).toEqual([])
     expect(noCallId.unmapped[0]?.reason).toBe('MISSING_CALL_ID')
+
+    const wrongScope = mapPiReadResultsToCandidateEvidence(
+      readMessages('wrong-scope-call'),
+      context('session-a', 1, 'repo-b'),
+      [AVAILABLE_V3]
+    )
+    expect(wrongScope.mapped).toEqual([])
+    expect(wrongScope.unmapped[0]?.reason).toBe('NO_AUTHORITATIVE_SOURCE')
   })
 
   it('namespaces evidence instances by runtime session and rejects call-id remapping', () => {
     const first = mapPiReadResultsToCandidateEvidence(
       readMessages('same-call'),
-      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      context('session-a', 1),
       [AVAILABLE_V3]
     )
     const second = mapPiReadResultsToCandidateEvidence(
       readMessages('same-call'),
-      { runtimeSessionId: 'session-b', modelCallSequence: 1 },
+      context('session-b', 1),
       [AVAILABLE_V3]
     )
     expect(first.mapped[0]?.evidence.callId).not.toBe(second.mapped[0]?.evidence.callId)
 
     const remapped = mapPiReadResultsToCandidateEvidence(
       [...readMessages('remapped-call', PATH), ...readMessages('remapped-call', 'src/other.ts')],
-      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      context('session-a', 1),
       [AVAILABLE_V3]
     )
     expect(remapped.mapped).toEqual([])
@@ -239,12 +256,12 @@ describe('LC1 Pi-to-authority bridge candidate', () => {
   it('does not link the same path across repository identities', () => {
     const first = mapPiReadResultsToCandidateEvidence(
       readMessages('repo-a-call'),
-      { runtimeSessionId: 'session-a', modelCallSequence: 1 },
+      context('session-a', 1),
       [AVAILABLE_V3]
     )
     const second = mapPiReadResultsToCandidateEvidence(
       readMessages('repo-b-call'),
-      { runtimeSessionId: 'session-a', modelCallSequence: 2 },
+      context('session-a', 2, 'repo-b'),
       [{ ...AVAILABLE_V3, repositoryId: 'repo-b' }]
     )
     const mapper = new CandidateIdentityMapper()
