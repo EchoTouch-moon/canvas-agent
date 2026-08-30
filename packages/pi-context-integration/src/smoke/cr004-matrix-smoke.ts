@@ -87,7 +87,7 @@ import {
   type MxTaskId
 } from './matrix-core'
 
-// CR-004 Stage 1 MATRIX runner — M3 VERIFY-WINDOW-DEDUP edition
+// CR-004 Stage 1 MATRIX runner — M3/M6 experimental policy-screen edition
 // (docs/plan/cr004-m3-matrix-run-contract-2026-08-27.md; M2 sibling:
 // docs/plan/cr004-m2-matrix-run-contract-2026-08-27.md; M1:
 // docs/plan/cr004-matrix-run-contract-2026-08-27.md).
@@ -120,18 +120,15 @@ import {
 // Matrix (M3 design): tasks (CANVAS_MX_TASKS, default L1,L2,L3) x
 // {NATIVE, ACTIVE_V2, ACTIVE_V3} x CANVAS_MX_REPS repetitions — 27 legs by
 // default, 12 for the targeted L2 x 4 shape — deterministic interleaved order
-// (rep-major, per task NATIVE, ACTIVE_V2, ACTIVE_V3). NATIVE and ACTIVE_V2
-// keep their exact M1/M2 semantics; ACTIVE_V3 runs the same Active extension
-// with removalPolicy 'v3-verify-window-dedup' (v2 retain-latest coarse
-// sweeps + duplicate-read dedup + the verification-window deferral) and the
-// raised per-leg bounds (8 sends / 12 attempts, cap 12 blocks per
-// intervention, verify window 2 trailing tool events). ONE strict binding for
-// the whole matrix (prepareModelProvider once, step-plan, fallback 'none').
-// Per-leg budgets come from each task manifest; MATRIX totals hard-fail at
-// 600 provider-call records / 180 minutes (checked between legs; over =>
-// stop launching new legs, S-7, evidence preserved). A leg-level
-// provider/safety error marks THAT leg FAILED and the matrix CONTINUES; only
-// matrix-level S-1 (binding) or S-7 (totals) stop everything.
+// (rep-major, per task NATIVE, ACTIVE_V2, ACTIVE_V3). M6 adds ACTIVE_V4 and
+// requires seeded within-block randomization; its profile binds 3 tasks x 4
+// arms x 4 repetitions = 48 legs, with a 2-candidate batch threshold. ONE
+// strict binding for the whole matrix (prepareModelProvider once, step-plan,
+// fallback 'none'). Per-leg budgets come from each task manifest; matrix
+// totals are profile-bound (M3 defaults 900 records / 180 minutes; M6 binds
+// 1,400 records / 300 minutes). A leg-level provider/safety error marks THAT
+// leg FAILED and the matrix CONTINUES; only matrix-level S-1 (binding) or S-7
+// (totals) stop everything.
 //
 // INCREMENTAL EVIDENCE: after EACH leg the report files are written/rewritten
 // immediately (leg.json + observations.jsonl per leg; manifest.json and
@@ -296,9 +293,12 @@ function activeInterventionExtension(
   // M2 bounds (8 sends / 12 attempts, 12 blocks per intervention).
   // ACTIVE_V3 legs: removalPolicy 'v3-verify-window-dedup' with the same
   // raised bounds plus the 2-tool-event verification window.
+  // ACTIVE_V4 legs: removalPolicy 'v4-batched-retain-latest' with the same
+  // raised bounds plus the fixed two-candidate batch threshold.
   const v2 = removalPolicy === 'v2-retain-latest-coarse'
   const v3 = removalPolicy === 'v3-verify-window-dedup'
-  const raised = v2 || v3
+  const v4 = removalPolicy === 'v4-batched-retain-latest'
+  const raised = v2 || v3 || v4
   const factory = createActiveRewriteExtension({
     runId,
     systemInstruction: MX_SYSTEM_INSTRUCTION,
@@ -309,12 +309,16 @@ function activeInterventionExtension(
     maxInterventions: raised
       ? v3
         ? MX_BUDGETS.maxInterventionsPerLegV3
-        : MX_BUDGETS.maxInterventionsPerLegV2
+        : v4
+          ? MX_BUDGETS.maxInterventionsPerLegV4
+          : MX_BUDGETS.maxInterventionsPerLegV2
       : MX_BUDGETS.maxInterventionsPerLeg,
     maxAttempts: raised
       ? v3
         ? MX_BUDGETS.maxAttemptsPerLegV3
-        : MX_BUDGETS.maxAttemptsPerLegV2
+        : v4
+          ? MX_BUDGETS.maxAttemptsPerLegV4
+          : MX_BUDGETS.maxAttemptsPerLegV2
       : MX_BUDGETS.maxAttemptsPerLeg,
     removalPolicy,
     ...(v2 ? { maxBlocksPerIntervention: MX_BUDGETS.maxBlocksPerInterventionV2 } : {}),
@@ -323,7 +327,12 @@ function activeInterventionExtension(
           maxBlocksPerIntervention: MX_BUDGETS.maxBlocksPerInterventionV3,
           verifyWindowEvents: MX_BUDGETS.verifyWindowEventsV3
         }
-      : {})
+      : v4
+        ? {
+            maxBlocksPerIntervention: MX_BUDGETS.maxBlocksPerInterventionV4,
+            minCandidateBlocks: MX_BUDGETS.minCandidateBlocksV4
+          }
+        : {})
   })
   return (pi: ExtensionAPI): void => {
     pi.on('context', async (event: ContextEvent) => {
@@ -410,7 +419,9 @@ async function runLiveLeg(options: {
               ? 'v2-retain-latest-coarse'
               : plan.strategy === 'ACTIVE_V3'
                 ? 'v3-verify-window-dedup'
-                : 'v1-per-edit'
+                : plan.strategy === 'ACTIVE_V4'
+                  ? 'v4-batched-retain-latest'
+                  : 'v1-per-edit'
           )
         : observerOnlyExtension(executor, lastMessages)
 
@@ -683,8 +694,8 @@ async function run(): Promise<void> {
     console.error('MX_STATUS=FAILED')
     process.exit(1)
   }
-  // ---- Arm-order resolution (M5 pre-registration; BOTH modes) -------------
-  // A profile with a REQUIRED arm-order mode (M5: 'randomized') forces it —
+  // ---- Arm-order resolution (M5/M6 pre-registration; BOTH modes) ----------
+  // A profile with a REQUIRED arm-order mode (M5/M6: 'randomized') forces it —
   // an explicit conflicting CANVAS_MX_ARM_ORDER request is REFUSED; an unset
   // knob adopts the profile's mode. Historical series keep 'canonical'.
   let armOrder: MxArmOrderMode
@@ -753,7 +764,14 @@ async function run(): Promise<void> {
   await mkdir(join(reportDir, 'legs'), { recursive: true })
 
   const startedAt = new Date()
-  const machine = new MatrixStateMachine({ maxLegs: totalLegs })
+  const matrixMaxProviderCallRecords =
+    profile.maxProviderCallRecords ?? MX_BUDGETS.maxProviderCallRecords
+  const matrixRunWallClockMs = profile.runWallClockMs ?? MX_BUDGETS.runWallClockMs
+  const machine = new MatrixStateMachine({
+    maxLegs: totalLegs,
+    maxProviderCallRecords: matrixMaxProviderCallRecords,
+    runWallClockMs: matrixRunWallClockMs
+  })
   const killSwitch = createRunKillSwitch(runId, { now: () => new Date().toISOString() })
   const killSwitchFilePath = process.env['CANVAS_MX_KILL_SWITCH_FILE']
   const legIndexEntries: {
@@ -797,7 +815,9 @@ async function run(): Promise<void> {
         series: profile.series,
         allowedTasks: [...profile.allowedTasks],
         allowedArms: [...profile.allowedArms],
-        maxReps: profile.maxReps
+        maxReps: profile.maxReps,
+        maxProviderCallRecords: matrixMaxProviderCallRecords,
+        runWallClockMs: matrixRunWallClockMs
       },
       design: {
         tasks: [...shape.tasks],
@@ -819,6 +839,13 @@ async function run(): Promise<void> {
           maxBlocksPerIntervention: MX_BUDGETS.maxBlocksPerInterventionV3,
           verifyWindowEvents: MX_BUDGETS.verifyWindowEventsV3
         },
+        activeV4: {
+          removalPolicy: 'v4-batched-retain-latest',
+          maxInterventionsPerLeg: MX_BUDGETS.maxInterventionsPerLegV4,
+          maxAttemptsPerLeg: MX_BUDGETS.maxAttemptsPerLegV4,
+          maxBlocksPerIntervention: MX_BUDGETS.maxBlocksPerInterventionV4,
+          minCandidateBlocks: MX_BUDGETS.minCandidateBlocksV4
+        },
         repetitions: shape.repetitions,
         totalLegs,
         legOrder: mxLegOrder(shape, { runId }).map((plan) => `${mxLegDirName(plan)}#${plan.legIndex}`)
@@ -838,6 +865,8 @@ async function run(): Promise<void> {
       })),
       budgets: {
         ...MX_BUDGETS,
+        maxProviderCallRecords: matrixMaxProviderCallRecords,
+        runWallClockMs: matrixRunWallClockMs,
         perLeg: Object.fromEntries(
           tasks.map((task) => [task.taskId, task.budget])
         )
@@ -1158,6 +1187,7 @@ async function run(): Promise<void> {
   const nativeOracle = oraclePassOf('NATIVE')
   const activeV2Oracle = oraclePassOf('ACTIVE_V2')
   const activeV3Oracle = oraclePassOf('ACTIVE_V3')
+  const activeV4Oracle = oraclePassOf('ACTIVE_V4')
 
   log(`runId=${runId} mode=${mode} status=${status} legs=${ledgers.legsAttempted}/${totalLegs}`)
   log(`provider-call records=${providerCalls} wallClockMs=${ledgers.runElapsedMs}`)
@@ -1174,6 +1204,7 @@ async function run(): Promise<void> {
   console.log(`MX_ORACLE_PASS_NATIVE=${nativeOracle.pass}/${nativeOracle.evaluated}`)
   console.log(`MX_ORACLE_PASS_ACTIVE_V2=${activeV2Oracle.pass}/${activeV2Oracle.evaluated}`)
   console.log(`MX_ORACLE_PASS_ACTIVE_V3=${activeV3Oracle.pass}/${activeV3Oracle.evaluated}`)
+  console.log(`MX_ORACLE_PASS_ACTIVE_V4=${activeV4Oracle.pass}/${activeV4Oracle.evaluated}`)
   console.log(`MX_REPORT_DIR=${reportDir}`)
   if (status === 'STOPPED') {
     process.exit(1)

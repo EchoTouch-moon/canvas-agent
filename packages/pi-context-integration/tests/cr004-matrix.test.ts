@@ -36,6 +36,7 @@ import {
   mxTotalLegsOf,
   MX_TOTAL_LEGS,
   mxVerdictOf,
+  parseMxStrategiesEnv,
   parseMxRepetitionsEnv,
   parseMxTasksEnv,
   resolveMxTasks,
@@ -77,6 +78,14 @@ const M3_L2_SHAPE: MxMatrixShape = {
   tasks: ['L2'],
   strategies: ['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3'],
   repetitions: 4
+}
+
+/** The M6 four-arm mechanism-screen shape used by offline matrix tests. */
+const M6_SHAPE: MxMatrixShape = {
+  tasks: ['L1', 'L2', 'L3'],
+  strategies: ['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3', 'ACTIVE_V4'],
+  repetitions: 4,
+  armOrder: 'randomized'
 }
 
 // ---------------------------------------------------------------------------
@@ -341,27 +350,28 @@ describe('multi-intervention Active extension (real planner, offline)', () => {
 // ---------------------------------------------------------------------------
 
 describe('MX run identity and leg order', () => {
-  it('accepts exactly the REGISTERED series (m1..m5); unregistered m6+ are refused', () => {
+  it('accepts exactly the REGISTERED series (m1..m6); unregistered m7+ are refused', () => {
     expect(isValidMxRunId('cr004-m1-20260826-d23a992c')).toBe(true)
     expect(isValidMxRunId('cr004-m2-20260827-4d7e9a1b')).toBe(true)
     expect(isValidMxRunId('cr004-m3-20260827-4d7e9a1b')).toBe(true)
     expect(isValidMxRunId('cr004-m4-20260827-4d7e9a1b')).toBe(true)
     // The old open m[1-9] pattern accepted series with NO contract; the
-    // profile registry refuses them until one is deliberately added (M5
-    // became deliberate with the pre-registered replication contract).
+    // profile registry refuses them until one is deliberately added (M5 and
+    // M6 became deliberate with their pre-registered contracts).
     expect(isValidMxRunId('cr004-m5-20260828-4d7e9a1b')).toBe(true)
-    expect(isValidMxRunId('cr004-m6-20260901-4d7e9a1b')).toBe(false)
+    expect(isValidMxRunId('cr004-m6-20260830-4d7e9a1b')).toBe(true)
+    expect(isValidMxRunId('cr004-m7-20260901-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-m9-20260901-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-s1-20260827-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-m0-20260827-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-m3-2026-08-27-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-m3-20260827-4D7E9A1B')).toBe(false)
     expect(isValidMxRunId(undefined)).toBe(false)
-    // Suggestions come from the LATEST registered profile (M5 pre-registered replication).
+    // Suggestions come from the LATEST registered profile (M6 mechanism screen).
     for (let index = 0; index < 8; index += 1) {
       const suggested = suggestMxRunId()
       expect(MX_RUN_ID_PATTERN.test(suggested)).toBe(true)
-      expect(/^cr004-m5-\d{8}-[0-9a-f]{8}$/.test(suggested)).toBe(true)
+      expect(/^cr004-m6-\d{8}-[0-9a-f]{8}$/.test(suggested)).toBe(true)
     }
     expect(isM3MxRunId('cr004-m2-20260827-4d7e9a1b')).toBe(false)
   })
@@ -441,6 +451,7 @@ describe('MX run identity and leg order', () => {
     expect(() => parseMxTasksEnv('L2,L2')).toThrow(/duplicate/)
     expect(() => parseMxTasksEnv(' , ')).toThrow(/CANVAS_MX_TASKS/)
     expect(parseMxTasksEnv(undefined)).toEqual(['L1', 'L2', 'L3'])
+    expect(parseMxStrategiesEnv('ACTIVE_V4,NATIVE')).toEqual(['NATIVE', 'ACTIVE_V4'])
     expect(parseMxRepetitionsEnv(undefined)).toBe(3)
     expect(parseMxRepetitionsEnv('1')).toBe(1)
     expect(parseMxRepetitionsEnv('8')).toBe(8)
@@ -565,6 +576,24 @@ describe('MX matrix state machine', () => {
       expect(refused.stop.reason).toContain('wall-clock')
     }
     expect(machine.isTerminal).toBe(true)
+  })
+
+  it('supports a profile-specific matrix provider budget without changing defaults', () => {
+    const order: readonly MxLegPlan[] = [
+      { legIndex: 0, task: 'L1', strategy: 'NATIVE', rep: 1 },
+      { legIndex: 1, task: 'L1', strategy: 'ACTIVE_V4', rep: 1 }
+    ]
+    const machine = new MatrixStateMachine({
+      maxLegs: 2,
+      maxProviderCallRecords: 10,
+      runWallClockMs: 60_000
+    })
+    expect(machine.beginLeg(order[0]!).ok).toBe(true)
+    machine.endLeg(legLedger(0, 10, 'COMPLETED', order))
+    expect(machine.beginLeg(order[1]!).ok).toBe(true)
+    const end = machine.endLeg(legLedger(1, 1, 'COMPLETED', order))
+    expect(end.stop).toBe(true)
+    expect(machine.stopsFired[0]!.reason).toContain('11 > 10')
   })
 
   it('continues to the next leg after a leg-level failure (no matrix stop)', () => {
@@ -827,6 +856,24 @@ describe('MX aggregator', () => {
     expect(l1ActiveV3.tokenEstimateSum.mean).toBe(4850)
     expect(l1ActiveV3.trajectory.meanPeak).toBe(1400)
     expect(l1ActiveV3.trajectory.meanFinal).toBe(1300)
+  })
+
+  it('aggregates the M6 four-arm scripted shape and preserves v4 deferral telemetry', () => {
+    const scripted = scriptedMxLegRecords('cr004-m6-20260830-01234567', M6_SHAPE)
+    expect(scripted).toHaveLength(48)
+    const cells = aggregateMxCells(scripted.map(mxLegAnalysisInputOf))
+    expect(cells).toHaveLength(12)
+    const l1ActiveV4 = cells.find((cell) => cell.task === 'L1' && cell.strategy === 'ACTIVE_V4')!
+    expect(l1ActiveV4.active!.policy).toBe('v4-batched-retain-latest')
+    expect(l1ActiveV4.active!.sends).toBe(4)
+    expect(l1ActiveV4.active!.attempts).toBe(4)
+    expect(l1ActiveV4.active!.candidateBlocks).toBe(8)
+    expect(l1ActiveV4.active!.removedBlocks).toBe(8)
+    expect(l1ActiveV4.active!.batchDeferrals).toBe(4)
+    expect(l1ActiveV4.active!.dropAtBoundary).toEqual({ sent: 4, drops: 4, rate: 1 })
+    const v4Liner = mxCellOneLiner(l1ActiveV4)
+    expect(v4Liner).toContain('policy=v4-batched-retain-latest')
+    expect(v4Liner).toContain('batchDeferrals=4')
   })
 
   it('verdicts report raw arm reliability and context-efficiency direction for the arms present', () => {
@@ -1149,6 +1196,7 @@ describe('CANVAS_MX_ARMS arm selection (M4 confirmatory shape)', () => {
   it('defaults to all three arms and canonicalizes order', () => {
     expect(mxShapeFromEnv({}).strategies).toEqual(['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3'])
     expect(mxShapeFromEnv({ arms: 'ACTIVE_V2,NATIVE' }).strategies).toEqual(['NATIVE', 'ACTIVE_V2'])
+    expect(mxShapeFromEnv({ arms: 'ACTIVE_V4,NATIVE' }).strategies).toEqual(['NATIVE', 'ACTIVE_V4'])
   })
 
   it('refuses unknown, duplicate and empty arm lists', () => {

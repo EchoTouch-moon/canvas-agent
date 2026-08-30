@@ -146,11 +146,16 @@ export const ACTIVE_VERIFY_TOOLS = ['bash'] as const
  *   duplicates are superseded) and a verification-window deferral
  *   (edit-triggered sweeps defer while the last K tool events are bash-class;
  *   dedup still fires).
+ * - `v4-batched-retain-latest` — v2 coarse-sweep semantics, but an edit
+ *   boundary is deferred until at least `minCandidateBlocks` older read pairs
+ *   are eligible. This is an experimental mechanism-screen arm; it never
+ *   changes the default policy or the v2/v3 contracts.
  */
 export type ActiveRemovalPolicy =
   | 'v1-per-edit'
   | 'v2-retain-latest-coarse'
   | 'v3-verify-window-dedup'
+  | 'v4-batched-retain-latest'
 
 /** Default bound on SENT Active rewrites per leg (matrix contract). */
 export const ACTIVE_DEFAULT_MAX_INTERVENTIONS = 5
@@ -160,6 +165,8 @@ export const ACTIVE_DEFAULT_MAX_ATTEMPTS = 8
 export const ACTIVE_DEFAULT_MAX_BLOCKS_PER_INTERVENTION = 12
 /** Default v3 verification-window width in trailing tool events (M3 contract). */
 export const ACTIVE_DEFAULT_VERIFY_WINDOW_EVENTS = 2
+/** Fixed M6 batch threshold: at least two stale read pairs before a rewrite. */
+export const ACTIVE_V4_MIN_CANDIDATE_BLOCKS = 2
 
 export interface InterventionBoundary {
   /** Repository path the edit/write-class toolCall targets. */
@@ -217,6 +224,8 @@ export interface ActiveRewriteEventEvidence {
   readonly policy?: ActiveRemovalPolicy
   /** What opened the attempted boundary: an edit toolCall or a duplicate read. */
   readonly trigger?: 'edit' | 'dedup'
+  /** Privacy-safe toolCall identity for a deferred edit boundary. */
+  readonly triggerToolCallId?: string
   /**
    * True when this event's boundary evaluation DEFERRED an edit-triggered
    * sweep because a verification sequence was in flight (v3 only): the pending
@@ -224,6 +233,10 @@ export interface ActiveRewriteEventEvidence {
    * boundary. Reason: 'verification-window'.
    */
   readonly deferredByVerifyWindow?: boolean
+  /** True when v4 held an edit boundary below its fixed batch threshold. */
+  readonly deferredByBatchThreshold?: boolean
+  /** Fixed v4 threshold recorded with a batch deferral. */
+  readonly batchThreshold?: number
   /** Eligible candidate read pairs the sweep found this boundary (pre-cap). */
   readonly candidateBlocks?: number
   /** Read pairs this intervention marks superseded (post-cap). */
@@ -387,6 +400,11 @@ export class InMemoryActiveRewriteEvidenceCollector implements ActiveRewriteEvid
   get deferredSweeps(): number {
     return this.evidence.filter((event) => event.deferredByVerifyWindow === true).length
   }
+
+  /** v4 edit boundaries held below the fixed batch threshold. */
+  get batchDeferrals(): number {
+    return this.evidence.filter((event) => event.deferredByBatchThreshold === true).length
+  }
 }
 
 export interface ActiveRewriteExtensionOptions {
@@ -426,6 +444,8 @@ export interface ActiveRewriteExtensionOptions {
   readonly verifyWindowEvents?: number
   /** v3 verification-class (bash-class) tool names. Default ['bash']. */
   readonly verifyToolNames?: readonly string[]
+  /** v4-only minimum eligible stale read pairs before sending a rewrite. */
+  readonly minCandidateBlocks?: number
 }
 
 function normalizePath(value: string): string {
@@ -841,6 +861,10 @@ export function createActiveRewriteExtension(
   const removalPolicy: ActiveRemovalPolicy = options.removalPolicy ?? 'v1-per-edit'
   const maxBlocksPerIntervention =
     options.maxBlocksPerIntervention ?? ACTIVE_DEFAULT_MAX_BLOCKS_PER_INTERVENTION
+  const minCandidateBlocks = options.minCandidateBlocks ?? ACTIVE_V4_MIN_CANDIDATE_BLOCKS
+  if (!Number.isInteger(minCandidateBlocks) || minCandidateBlocks < 1) {
+    throw new Error(`minCandidateBlocks must be a positive integer (got ${minCandidateBlocks})`)
+  }
   const verifyWindowOptions = {
     ...(options.verifyToolNames !== undefined
       ? { verifyToolNames: options.verifyToolNames }
@@ -860,6 +884,8 @@ export function createActiveRewriteExtension(
    * the newer copy whose arrival opened the boundary) — never retried.
    */
   const attemptedDedupTriggerCallIds = new Set<string>()
+  /** Edit boundaries already recorded as below-threshold v4 deferrals. */
+  const batchDeferredEditToolCallIds = new Set<string>()
   /** Read pairs already superseded by an attempt — never removed twice. */
   const supersededReadCallIds = new Set<string>()
   /** Accumulated exclusion keys so earlier interventions stay excluded. */
@@ -941,6 +967,15 @@ export function createActiveRewriteExtension(
       let fire: PlannedIntervention | undefined
       /** True when THIS event's boundary evaluation deferred an edit sweep. */
       let deferredByVerifyWindow = false
+      /** v4 detail for a below-threshold edit boundary (no attempt consumed). */
+      let batchDeferral:
+        | {
+            readonly triggerToolCallId: string
+            readonly interventionPath: string
+            readonly candidateBlocks: number
+            readonly retainedLatestReadTargets: readonly string[]
+          }
+        | undefined
       if (
         attemptsUsed < maxAttempts &&
         sendsUsed < maxInterventions &&
@@ -1060,22 +1095,41 @@ export function createActiveRewriteExtension(
               retainedLatestReadTargets: editSweep.retainedLatestReadTargets
             }
           }
-        } else if (removalPolicy === 'v2-retain-latest-coarse') {
+        } else if (
+          removalPolicy === 'v2-retain-latest-coarse' ||
+          removalPolicy === 'v4-batched-retain-latest'
+        ) {
           const view = scanEditReadStructure(basis, toolNameOptions)
           const trigger = view.edits.find(
             (edit) => !attemptedEditToolCallIds.has(edit.toolCallId)
           )
           if (trigger !== undefined) {
             const { candidates, retainedLatestReadTargets } = coarseSweep(view)
-            if (candidates.length > 0) {
+            if (
+              candidates.length > 0 &&
+              (removalPolicy === 'v2-retain-latest-coarse' ||
+                candidates.length >= minCandidateBlocks)
+            ) {
               const sorted = [...candidates].sort((a, b) => a.order - b.order)
               const capped = sorted.slice(0, maxBlocksPerIntervention)
               fire = {
-                policy: 'v2-retain-latest-coarse',
+                policy: removalPolicy,
                 trigger: 'edit',
                 triggerToolCallId: trigger.toolCallId,
                 interventionPath: trigger.path,
                 readToolCallIds: capped.map((candidate) => candidate.callId),
+                candidateBlocks: candidates.length,
+                retainedLatestReadTargets
+              }
+            } else if (
+              removalPolicy === 'v4-batched-retain-latest' &&
+              candidates.length > 0 &&
+              !batchDeferredEditToolCallIds.has(trigger.toolCallId)
+            ) {
+              batchDeferredEditToolCallIds.add(trigger.toolCallId)
+              batchDeferral = {
+                triggerToolCallId: trigger.toolCallId,
+                interventionPath: trigger.path,
                 candidateBlocks: candidates.length,
                 retainedLatestReadTargets
               }
@@ -1136,6 +1190,9 @@ export function createActiveRewriteExtension(
           if (fire.policy === 'v3-verify-window-dedup') {
             return `active-intervention-v3${fire.trigger === 'dedup' ? '-dedup' : ''}:${fire.interventionPath}`
           }
+          if (fire.policy === 'v4-batched-retain-latest') {
+            return `active-intervention-v4-batched:${fire.interventionPath}`
+          }
           return fire.policy === 'v2-retain-latest-coarse'
             ? `active-intervention-v2:${fire.interventionPath}`
             : `active-intervention:${fire.interventionPath}`
@@ -1143,6 +1200,9 @@ export function createActiveRewriteExtension(
         const evidenceRef = (() => {
           if (fire.policy === 'v3-verify-window-dedup') {
             return `cr004:intervention-v3:${fire.trigger}:${fire.triggerToolCallId}:${fire.interventionPath}`
+          }
+          if (fire.policy === 'v4-batched-retain-latest') {
+            return `cr004:intervention-v4:${fire.trigger}:${fire.triggerToolCallId}:${fire.interventionPath}`
           }
           return `cr004:intervention${
             fire.policy === 'v2-retain-latest-coarse' ? '-v2' : ''
@@ -1192,13 +1252,26 @@ export function createActiveRewriteExtension(
         options.evidence.record({
           sequence,
           observedTokenEstimate,
-          boundaryReached: false,
+          boundaryReached: batchDeferral !== undefined,
           interventionAttempted: false,
           compositionVerdict: 'NOT_ATTEMPTED',
           guardVerdict: 'NOT_ATTEMPTED',
           sentRewrite: false,
           killSwitchTripped: killSwitch.isTripped,
           toolBlocksRemoved: 0,
+          ...(batchDeferral !== undefined
+            ? {
+                interventionPath: batchDeferral.interventionPath,
+                policy: 'v4-batched-retain-latest' as const,
+                trigger: 'edit' as const,
+                triggerToolCallId: batchDeferral.triggerToolCallId,
+                candidateBlocks: batchDeferral.candidateBlocks,
+                removedBlocks: 0,
+                retainedLatestReadTargets: [...batchDeferral.retainedLatestReadTargets],
+                deferredByBatchThreshold: true as const,
+                batchThreshold: minCandidateBlocks
+              }
+            : {}),
           ...verifyWindowPatch,
           ...readTargetsPatch
         })
