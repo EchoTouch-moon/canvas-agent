@@ -8,11 +8,18 @@ import {
   REPOSITORY_SOURCE_PROVENANCE,
   repositorySourceKey,
   RepositoryObserver,
-  type RepositoryFileObservation,
-  type RepositoryObservationRequest
+  type RepositoryFileObservation
 } from '@canvas-agent/repository-observer'
 import { decomposePiMessage } from '../element-decomposition'
 import type { PiMessageView } from '../pi-message-mapper'
+import {
+  createLc1MapperAuthorityCandidate,
+  type Lc1RuntimeAuthorityOrder,
+  type Lc1RuntimeRepositoryAdmissionCandidate,
+  type Lc1RuntimeRepositoryAdmissionSink,
+  type Lc1RuntimeRepositoryRevision,
+  type Lc1RuntimeRepositoryScope
+} from './lc1-runtime-repository-admission'
 
 // CR-004 LC1 production-boundary candidate. This module is deliberately
 // exported only from the experimental package surface. It binds Pi read-event
@@ -20,14 +27,9 @@ import type { PiMessageView } from '../pi-message-mapper'
 // per-session authority ordering before using the existing provider-neutral
 // external-observation queue. It never rewrites Pi messages or calls a model.
 
-export type Lc1RepositoryRevision = RepositoryObservationRequest['expectedRevision']
+export type Lc1RepositoryRevision = Lc1RuntimeRepositoryRevision
 
-export interface Lc1AuthorityOrder {
-  /** Adapter-owned serialized stream/epoch. Git SHAs are not ordered values. */
-  readonly streamId: string
-  /** Monotonic within streamId and runtime session. */
-  readonly sequence: number
-}
+export type Lc1AuthorityOrder = Lc1RuntimeAuthorityOrder
 
 export interface Lc1RepositoryMappingRequest {
   readonly messages: readonly PiMessageView[]
@@ -40,10 +42,7 @@ export interface Lc1RepositoryMappingRequest {
   readonly observedAt: string
 }
 
-export interface Lc1RepositoryScope {
-  readonly repositoryId: string
-  readonly namespace: string
-}
+export type Lc1RepositoryScope = Lc1RuntimeRepositoryScope
 
 export interface Lc1RepositoryPathResolver {
   /** Resolves a caller-bound repository identity; the request supplies no raw path. */
@@ -59,6 +58,9 @@ export interface Lc1ExternalObservationSink {
   queueExternalObservations(observations: readonly Lc1ExternalObservation[]): void
 }
 
+export type Lc1ProductionMappingSink =
+  Lc1ExternalObservationSink | Lc1RuntimeRepositoryAdmissionSink
+
 export const LC1_MAPPING_REJECTION_REASONS = [
   'INVALID_REQUEST',
   'MISSING_CALL_ID',
@@ -70,7 +72,8 @@ export const LC1_MAPPING_REJECTION_REASONS = [
   'UNSUPPORTED_TOOL',
   'CALL_TOOL_NAME_MISMATCH',
   'STALE_AUTHORITY',
-  'IDEMPOTENT_DUPLICATE'
+  'IDEMPOTENT_DUPLICATE',
+  'BATCH_REJECTED'
 ] as const
 export type Lc1MappingRejectionReason = (typeof LC1_MAPPING_REJECTION_REASONS)[number]
 
@@ -94,19 +97,7 @@ export interface Lc1MappingIssue {
   readonly detail?: string
 }
 
-export interface Lc1AcceptedRepositoryObservation {
-  readonly repositoryId: string
-  readonly namespace: string
-  readonly sourceKey: string
-  readonly canonicalPath: string
-  readonly callIds: readonly string[]
-  readonly namespacedCallIds: readonly string[]
-  readonly observation: SourceObservation
-  readonly descriptor: ContextSourceDescriptor
-  readonly authorityRevision: Lc1RepositoryRevision
-  readonly authorityOrder: Lc1AuthorityOrder
-  readonly representationKind: 'FULL'
-}
+export interface Lc1AcceptedRepositoryObservation extends Lc1RuntimeRepositoryAdmissionCandidate {}
 
 export interface Lc1ProductionMappingResult {
   readonly accepted: readonly Lc1AcceptedRepositoryObservation[]
@@ -236,13 +227,28 @@ function isMappingRequest(value: unknown): value is Lc1RepositoryMappingRequest 
   )
 }
 
-function isMappingSink(value: unknown): value is Lc1ExternalObservationSink {
+function isExternalObservationSink(value: unknown): value is Lc1ExternalObservationSink {
   return (
     typeof value === 'object' &&
     value !== null &&
     typeof (value as { queueExternalObservations?: unknown }).queueExternalObservations ===
       'function'
   )
+}
+
+function isRuntimeAdmissionSink(value: unknown): value is Lc1RuntimeRepositoryAdmissionSink {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { lc1RepositoryAdmissionMode?: unknown }).lc1RepositoryAdmissionMode ===
+      'RUNTIME_OWNED' &&
+    typeof (value as { admitLc1RepositoryObservations?: unknown })
+      .admitLc1RepositoryObservations === 'function'
+  )
+}
+
+function isMappingSink(value: unknown): value is Lc1ProductionMappingSink {
+  return isExternalObservationSink(value) || isRuntimeAdmissionSink(value)
 }
 
 /** Normalize a Pi path hint without ever treating the hint as repository truth. */
@@ -525,7 +531,8 @@ function toAcceptedObservation(
       namespace: request.namespace
     })
   }
-  return {
+  return createLc1MapperAuthorityCandidate({
+    runtimeSessionId: request.runtimeSessionId,
     repositoryId: request.repositoryId,
     namespace: request.namespace,
     sourceKey: observed.sourceKey,
@@ -539,7 +546,7 @@ function toAcceptedObservation(
     authorityRevision: request.expectedRevision,
     authorityOrder: request.authorityOrder,
     representationKind: 'FULL'
-  }
+  })
 }
 
 function acceptedEnvelopeFingerprint(item: Lc1AcceptedRepositoryObservation): string {
@@ -624,7 +631,7 @@ export class Lc1ProductionRepositoryMapper {
 
   async observeAndQueue(
     request: Lc1RepositoryMappingRequest,
-    sink: Lc1ExternalObservationSink
+    sink: Lc1ProductionMappingSink
   ): Promise<Lc1ProductionMappingResult> {
     const rejected: Lc1MappingIssue[] = []
     const quarantined: Lc1MappingIssue[] = []
@@ -636,6 +643,7 @@ export class Lc1ProductionRepositoryMapper {
         authoritativeObservations: []
       }
     }
+    const runtimeAdmissionSink = isRuntimeAdmissionSink(sink) ? sink : null
 
     let repositoryPath: string | undefined
     try {
@@ -732,6 +740,10 @@ export class Lc1ProductionRepositoryMapper {
       }
 
       const accepted = toAcceptedObservation(observed, candidate, request)
+      if (runtimeAdmissionSink !== null) {
+        staged.push(accepted)
+        continue
+      }
       const sourceScope = {
         repositoryId: request.repositoryId,
         namespace: request.namespace
@@ -840,7 +852,33 @@ export class Lc1ProductionRepositoryMapper {
       return { accepted: [], rejected, quarantined, authoritativeObservations }
     }
 
+    if (runtimeAdmissionSink !== null) {
+      if (rejected.length > 0 || quarantined.length > 0) {
+        rejected.push(
+          ...staged.map((item) => ({
+            callIds: [...item.callIds],
+            sourceKey: item.sourceKey,
+            reason: 'BATCH_REJECTED' as const
+          }))
+        )
+        return {
+          accepted: [],
+          rejected,
+          quarantined,
+          authoritativeObservations
+        }
+      }
+      const admission = runtimeAdmissionSink.admitLc1RepositoryObservations(staged)
+      return {
+        accepted: admission.accepted,
+        rejected: [...rejected, ...admission.rejected],
+        quarantined: [...quarantined, ...admission.quarantined],
+        authoritativeObservations
+      }
+    }
+
     try {
+      if (!isExternalObservationSink(sink)) throw new Error('invalid external observation sink')
       sink.queueExternalObservations(staged.map(toExternalObservation))
     } catch {
       return {
