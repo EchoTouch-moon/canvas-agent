@@ -143,6 +143,13 @@ export {
   type Lc1RuntimeRepositoryScope
 } from './active/lc1-runtime-repository-admission'
 export {
+  createLc1RuntimeAdmissionComposition,
+  createLc1RuntimeAdmissionExtension,
+  type Lc1RuntimeAdmissionComposition,
+  type Lc1RuntimeAdmissionCompositionMode,
+  type Lc1RuntimeAdmissionCompositionOptions
+} from './active/lc1-runtime-admission-composition'
+export {
   MX_EVIDENCE_ROOT_FILENAME,
   computeMxEvidenceRoot,
   findRepoRoot,
