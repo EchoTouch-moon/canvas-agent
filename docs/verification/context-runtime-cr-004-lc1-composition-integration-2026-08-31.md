@@ -18,7 +18,7 @@ session, CR-005 manifest, or Active rewrite.
 
 ## Covered boundaries
 
-The integration suite covers four paths:
+The integration suite covers eight paths:
 
 1. A real temporary Git repository is authoritative over forged Pi tool-result
    text; the mapper admits the verified `FULL` observation through the guarded
@@ -33,6 +33,16 @@ The integration suite covers four paths:
 4. An authoritative repository-observer failure is quarantined before it can
    reach the runtime-owned host; the host remains without a universe revision
    or model-call result.
+5. A replacement mapper in the same runtime session advances the existing
+   authority head from `v3` to `v4` without transferring mapper-local state.
+6. A replacement mapper bound to a different repository scope is quarantined
+   without mutating the already admitted state; the guarded sink's first-trip
+   reason remains authoritative.
+7. The same canonical path can be admitted after a repository switch only by a
+   new runtime session identity; the new session starts with an independent
+   host and scope.
+8. Two mapper completions delivered out of order retain the newer authority
+   version and reject the late older result as `STALE_AUTHORITY`.
 
 The composition's default-disabled, configuration, sink-surface, observer
 failure, mapper failure, and extension-registration behavior remains covered by
@@ -41,7 +51,7 @@ the dedicated composition suite and its mutation audit in the parent PR.
 ## Verification result
 
 ```text
-Dedicated integration suite: 4 tests PASS
+Dedicated integration suite: 8 tests PASS
 Pi integration package:       342 tests / 27 files PASS
 Pi integration typecheck:     PASS
 git diff --check:              PASS
@@ -65,18 +75,24 @@ killed:
 | Remove observer-boundary snapshot rollback                          | KILLED          |
 | Drop authority-observer failure quarantine                          | KILLED          |
 | Remove runtime-admission batch atomicity                            | KILLED          |
+| Remove the runtime-owned cross-scope quarantine                     | KILLED          |
+| Remove the stale-authority ordering guard                           | KILLED          |
 
-The audit left no mutated production source in the branch. It covers the
-in-process integration guards only; it does not establish cryptographic
-isolation, cross-process enforcement, or live model behavior.
+The cross-scope mutant changed the observed outcome to `DESCRIPTOR_DRIFT`
+instead of the required `CROSS_SCOPE_COLLISION`, so the suite still failed but
+also showed that descriptor drift is a secondary defense. The audit left no
+mutated production source in the branch. It covers the in-process integration
+guards only; it does not establish cryptographic isolation, cross-process
+enforcement, or live model behavior.
 
 ## Interpretation and limits
 
 This evidence establishes the in-process composition path and its fail-closed
-behavior under the tested authority, batch, and rollback failures. It does not
-establish cryptographic isolation, cross-process enforcement, durable portable
-snapshots, or model behavior. The composition remains observational-only and
-returns Pi's original messages unchanged.
+behavior under the tested authority, batch, rollback, lifecycle, and
+out-of-order completion cases. It does not establish cryptographic isolation,
+cross-process enforcement, durable portable snapshots, or model behavior. The
+composition remains observational-only and returns Pi's original messages
+unchanged.
 
 ```text
 Composition integration:      CREDENTIAL-FREE PASS
