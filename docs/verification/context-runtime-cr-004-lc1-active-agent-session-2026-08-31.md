@@ -43,12 +43,17 @@ LC1 admission → Active rewrite
    runner remains unable to send a new rewrite after shutdown, while the new
    runner can complete an independent read-to-edit rewrite with sequences
    1, 2, and 3.
+4. When a later context event trips LC1 while an earlier event is paused in
+   repository mapping, the shared switch prevents the delayed event from
+   reaching Active with a live rewrite path. Both concurrent results remain
+   native and no additional host admission or rewrite is committed.
 
 ```text
-Dedicated AgentSession tests:       3 PASS
+Dedicated AgentSession tests:       4 PASS
 Loader extension errors:            0
 Healthy composed rewrites:          2
 Mid-run LC1 failure rewrites:        0 additional
+Concurrent delayed-stage rewrites:  0
 Old-run post-reload rewrites:       0
 Fresh-run post-reload rewrites:     1
 Provider / Step Plan calls:         0

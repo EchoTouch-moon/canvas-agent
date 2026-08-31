@@ -117,10 +117,32 @@ function successfulMapper(calls: number[]): Lc1ProductionRepositoryMapper {
   } as unknown as Lc1ProductionRepositoryMapper;
 }
 
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T | PromiseLike<T>) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+interface MapperGate {
+  readonly sequence: number;
+  readonly entered: () => void;
+  readonly release: Promise<void>;
+}
+
 function composedFactoryFor(
   runs: RunState[],
   identityPrefix: string,
-  options: { readonly failRevisionAt?: number } = {},
+  options: {
+    readonly failRevisionAt?: number;
+    readonly mapperGate?: MapperGate;
+  } = {},
 ): ExtensionFactory {
   return async (pi) => {
     const runNumber = runs.length + 1;
@@ -141,6 +163,24 @@ function composedFactoryFor(
     });
     const evidence = new InMemoryActiveRewriteEvidenceCollector();
     const mapperCalls: number[] = [];
+    const mapper =
+      options.mapperGate === undefined
+        ? successfulMapper(mapperCalls)
+        : ({
+            observeAndQueue: async (request: Lc1RepositoryMappingRequest) => {
+              mapperCalls.push(request.modelCallSequence);
+              if (request.modelCallSequence === options.mapperGate?.sequence) {
+                options.mapperGate.entered();
+                await options.mapperGate.release;
+              }
+              return {
+                accepted: [],
+                rejected: [],
+                quarantined: [],
+                authoritativeObservations: [],
+              };
+            },
+          } as unknown as Lc1ProductionRepositoryMapper);
     let revisionReads = 0;
     runs.push({
       runId,
@@ -154,7 +194,7 @@ function composedFactoryFor(
     const composed = createLc1ActiveRewriteExtension({
       lc1: {
         composition,
-        mapper: successfulMapper(mapperCalls),
+        mapper,
         runtimeSessionId,
         repositoryId: "repo-a",
         namespace: "workspace",
@@ -427,6 +467,74 @@ describe("LC1-before-Active composition through AgentSession", () => {
         sentRewrite: false,
         killSwitchTripped: true,
       });
+    } finally {
+      session.dispose();
+    }
+  });
+
+  it("keeps a concurrent LC1 failure fail-closed before a delayed Active stage", async () => {
+    const cwd = await mkdtemp(
+      join(tmpdir(), "canvas-lc1-active-agent-session-concurrent-failure-cwd-"),
+    );
+    temporaryDirectories.push(cwd);
+    const mapperEntered = deferred<void>();
+    const mapperRelease = deferred<void>();
+    const runs: RunState[] = [];
+    const { created, session } = await createSession(
+      cwd,
+      composedFactoryFor(runs, "lc1-active-agent-session-concurrent-failure", {
+        failRevisionAt: 4,
+        mapperGate: {
+          sequence: 3,
+          entered: () => mapperEntered.resolve(),
+          release: mapperRelease.promise,
+        },
+      }),
+    );
+
+    try {
+      expect(created.extensionsResult.errors).toHaveLength(0);
+      const run = runs[0];
+      if (run === undefined)
+        throw new Error("concurrent-failure composed run unavailable");
+      const firstMessages = [userMessage("Start the repository task.")];
+      const firstRead = [...firstMessages, ...readPair("read-concurrent")];
+      const delayedEdit = [...firstRead, ...editPair("edit-concurrent-old")];
+
+      await session.extensionRunner.emitContext(firstMessages as never);
+      await session.extensionRunner.emitContext(firstRead as never);
+
+      const delayedResult = session.extensionRunner.emitContext(
+        delayedEdit as never,
+      );
+      await mapperEntered.promise;
+
+      const failureMessages = [
+        ...firstRead,
+        ...editPair("edit-concurrent-failure"),
+      ];
+      expect(
+        await session.extensionRunner.emitContext(failureMessages as never),
+      ).toEqual(failureMessages);
+      expect(run.killSwitch.tripRecord).toEqual({
+        reason: "LC1_RUNTIME_ADMISSION_REVISION_READ_FAILURE",
+        trippedAt: T0,
+      });
+
+      mapperRelease.resolve();
+      expect(await delayedResult).toEqual(delayedEdit);
+      expect(run.mapperCalls).toEqual([1, 2, 3]);
+      expect(run.host.callCount).toBe(2);
+      expect(run.evidence.events).toHaveLength(4);
+      expect(
+        run.evidence.events.filter((event) => event.sentRewrite),
+      ).toHaveLength(0);
+      expect(
+        run.evidence.events.every((event) => event.killSwitchTripped),
+      ).toBe(false);
+      expect(
+        run.evidence.events.slice(2).every((event) => event.killSwitchTripped),
+      ).toBe(true);
     } finally {
       session.dispose();
     }
