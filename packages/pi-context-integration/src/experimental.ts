@@ -150,6 +150,10 @@ export {
   type Lc1RuntimeAdmissionCompositionOptions
 } from './active/lc1-runtime-admission-composition'
 export {
+  createLc1RuntimeAdmissionPiExtension,
+  type Lc1RuntimeAdmissionPiExtensionOptions
+} from './active/lc1-runtime-admission-pi-extension'
+export {
   MX_EVIDENCE_ROOT_FILENAME,
   computeMxEvidenceRoot,
   findRepoRoot,

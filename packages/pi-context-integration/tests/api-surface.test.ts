@@ -18,6 +18,7 @@ const MOVED_VALUE_SYMBOLS = [
   'composeActiveRewrite',
   'assertRewriteSafe',
   'createRunKillSwitch',
+  'createLc1RuntimeAdmissionPiExtension',
   'checkCapability',
   'PiCommittedContextAdapter',
   'analyzeNativeMessages',
