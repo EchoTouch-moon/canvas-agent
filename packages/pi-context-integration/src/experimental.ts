@@ -74,6 +74,7 @@ export {
   InMemoryActiveRewriteEvidenceCollector,
   applyCarriedRemovals,
   createActiveRewriteExtension,
+  estimatePiMessagesTokenEstimate,
   detectInterventionBoundaries,
   detectInterventionBoundary,
   idleInterventionSummary,

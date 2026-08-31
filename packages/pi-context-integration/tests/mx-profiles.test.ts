@@ -19,7 +19,7 @@ import { analyzeMatrix, scriptedMxLegRecords, writeMxLegEvidence } from '../src/
 // CR-004 hardening — EXPERIMENT PROFILE / CONTRACT BINDING tests.
 //
 // The registry binds every M-series to its contract file, design label and
-// shape bounds; an unknown series (M7+) is REFUSED until a profile + contract
+// shape bounds; an unknown series (M8+) is REFUSED until a profile + contract
 // are deliberately added, the contract file must EXIST at startup, env-knob
 // shapes are validated against the bounds, and the analyzer cross-checks
 // manifests against the run-id series (the historical M4 mislabel — contract
@@ -28,12 +28,20 @@ import { analyzeMatrix, scriptedMxLegRecords, writeMxLegEvidence } from '../src/
 const M4_RUN_ID = 'cr004-m4-20260827-d0cec2f5'
 
 describe('MX_EXPERIMENT_PROFILES registry', () => {
-  it('registers M1..M6 (history, M5 replication, and the M6 mechanism screen) with distinct contracts and designs', () => {
-    expect(MX_EXPERIMENT_PROFILES.map((profile) => profile.series)).toEqual(['M1', 'M2', 'M3', 'M4', 'M5', 'M6'])
+  it('registers M1..M7 with distinct contracts and designs', () => {
+    expect(MX_EXPERIMENT_PROFILES.map((profile) => profile.series)).toEqual([
+      'M1',
+      'M2',
+      'M3',
+      'M4',
+      'M5',
+      'M6',
+      'M7'
+    ])
     const contracts = new Set(MX_EXPERIMENT_PROFILES.map((profile) => profile.contractPath))
     const designs = new Set(MX_EXPERIMENT_PROFILES.map((profile) => profile.matrixDesign))
-    expect(contracts.size).toBe(6)
-    expect(designs.size).toBe(6)
+    expect(contracts.size).toBe(7)
+    expect(designs.size).toBe(7)
     // The registry records the shapes history actually ran.
     const m4 = mxProfileForRunId(M4_RUN_ID)!
     expect(m4.contractPath).toBe('docs/plan/cr004-m4-confirmatory-run-contract-2026-08-27.md')
@@ -41,23 +49,34 @@ describe('MX_EXPERIMENT_PROFILES registry', () => {
     expect(m4.allowedTasks).toEqual(['L1', 'L2'])
     expect(m4.allowedArms).toEqual(['NATIVE', 'ACTIVE_V2'])
     expect(m4.maxReps).toBe(8)
-    expect(MX_LATEST_PROFILE.series).toBe('M6')
+    expect(MX_LATEST_PROFILE.series).toBe('M7')
     const m6 = mxProfileForRunId('cr004-m6-20260830-01234567')!
     expect(m6.matrixDesign).toBe('M6-mechanism-screen')
     expect(m6.allowedArms).toEqual(['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3', 'ACTIVE_V4'])
     expect(m6.maxReps).toBe(4)
     expect(m6.maxProviderCallRecords).toBe(1400)
     expect(m6.runWallClockMs).toBe(18_000_000)
+    const m7 = mxProfileForRunId('cr004-m7-20260830-01234567')!
+    expect(m7.matrixDesign).toBe('M7-exposure-measurement')
+    expect(m7.allowedTasks).toEqual(['L1', 'L2'])
+    expect(m7.allowedArms).toEqual(['NATIVE', 'ACTIVE_V2', 'ACTIVE_V4'])
+    expect(m7.maxReps).toBe(8)
+    expect(m7.maxProviderCallRecords).toBe(1800)
+    expect(m7.runWallClockMs).toBe(18_000_000)
     expect(mxRunIdSeriesOf(M4_RUN_ID)).toBe('M4')
     expect(mxRunIdSeriesOf('cr004-m5-20260901-00000000')).toBe('M5')
   })
 
   it('assertMxProfileBindable refuses unregistered series with a deliberate-act message', () => {
     expect(() =>
-      assertMxProfileBindable('cr004-m7-20260901-00000000', { repoRoot: '/tmp' })
+      assertMxProfileBindable('cr004-m8-20260901-00000000', {
+        repoRoot: '/tmp'
+      })
     ).toThrow(MxProfileError)
     expect(() =>
-      assertMxProfileBindable('cr004-m7-20260901-00000000', { repoRoot: '/tmp' })
+      assertMxProfileBindable('cr004-m8-20260901-00000000', {
+        repoRoot: '/tmp'
+      })
     ).toThrow(/no experiment profile registered.*deliberate act/)
   })
 
@@ -162,8 +181,8 @@ describe('mxProvenanceWarnings (manifest vs run-id series)', () => {
   })
 
   it('warns on unknown series, missing contract, and out-of-bounds recorded shapes', () => {
-    expect(mxProvenanceWarnings({ runId: 'cr004-m7-20260901-00000000' })).toEqual([
-      'runId series M7 has no experiment profile registered'
+    expect(mxProvenanceWarnings({ runId: 'cr004-m8-20260901-00000000' })).toEqual([
+      'runId series M8 has no experiment profile registered'
     ])
     expect(mxProvenanceWarnings({ runId: M4_RUN_ID })).toEqual([
       "manifest records no contract path; series M4 expects 'docs/plan/cr004-m4-confirmatory-run-contract-2026-08-27.md'"
@@ -189,6 +208,43 @@ describe('mxProvenanceWarnings (manifest vs run-id series)', () => {
         }
       })
     ).toEqual([])
+  })
+
+  it('accepts the M7 exposure profile shape and rejects L3/V3 expansion', () => {
+    const m7 = mxProfileForRunId('cr004-m7-20260830-01234567')!
+    expect(() =>
+      validateMxShapeAgainstProfile(
+        {
+          tasks: ['L1', 'L2'],
+          strategies: ['NATIVE', 'ACTIVE_V2', 'ACTIVE_V4'],
+          repetitions: 8,
+          armOrder: 'randomized'
+        },
+        m7
+      )
+    ).not.toThrow()
+    expect(() =>
+      validateMxShapeAgainstProfile(
+        {
+          tasks: ['L3'],
+          strategies: ['NATIVE'],
+          repetitions: 1,
+          armOrder: 'randomized'
+        },
+        m7
+      )
+    ).toThrow(/task slot 'L3' is outside experiment profile M7 bounds/)
+    expect(() =>
+      validateMxShapeAgainstProfile(
+        {
+          tasks: ['L1'],
+          strategies: ['ACTIVE_V3'],
+          repetitions: 1,
+          armOrder: 'randomized'
+        },
+        m7
+      )
+    ).toThrow(/arm 'ACTIVE_V3' is outside experiment profile M7 bounds/)
   })
 })
 

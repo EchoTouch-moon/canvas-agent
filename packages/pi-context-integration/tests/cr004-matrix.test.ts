@@ -350,28 +350,29 @@ describe('multi-intervention Active extension (real planner, offline)', () => {
 // ---------------------------------------------------------------------------
 
 describe('MX run identity and leg order', () => {
-  it('accepts exactly the REGISTERED series (m1..m6); unregistered m7+ are refused', () => {
+  it('accepts exactly the REGISTERED series (m1..m7); unregistered m8+ are refused', () => {
     expect(isValidMxRunId('cr004-m1-20260826-d23a992c')).toBe(true)
     expect(isValidMxRunId('cr004-m2-20260827-4d7e9a1b')).toBe(true)
     expect(isValidMxRunId('cr004-m3-20260827-4d7e9a1b')).toBe(true)
     expect(isValidMxRunId('cr004-m4-20260827-4d7e9a1b')).toBe(true)
     // The old open m[1-9] pattern accepted series with NO contract; the
     // profile registry refuses them until one is deliberately added (M5 and
-    // M6 became deliberate with their pre-registered contracts).
+    // M6 and M7 became deliberate with their pre-registered contracts).
     expect(isValidMxRunId('cr004-m5-20260828-4d7e9a1b')).toBe(true)
     expect(isValidMxRunId('cr004-m6-20260830-4d7e9a1b')).toBe(true)
-    expect(isValidMxRunId('cr004-m7-20260901-4d7e9a1b')).toBe(false)
+    expect(isValidMxRunId('cr004-m7-20260830-4d7e9a1b')).toBe(true)
+    expect(isValidMxRunId('cr004-m8-20260901-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-m9-20260901-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-s1-20260827-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-m0-20260827-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-m3-2026-08-27-4d7e9a1b')).toBe(false)
     expect(isValidMxRunId('cr004-m3-20260827-4D7E9A1B')).toBe(false)
     expect(isValidMxRunId(undefined)).toBe(false)
-    // Suggestions come from the LATEST registered profile (M6 mechanism screen).
+    // Suggestions come from the LATEST registered profile (M7 exposure screen).
     for (let index = 0; index < 8; index += 1) {
       const suggested = suggestMxRunId()
       expect(MX_RUN_ID_PATTERN.test(suggested)).toBe(true)
-      expect(/^cr004-m6-\d{8}-[0-9a-f]{8}$/.test(suggested)).toBe(true)
+      expect(/^cr004-m7-\d{8}-[0-9a-f]{8}$/.test(suggested)).toBe(true)
     }
     expect(isM3MxRunId('cr004-m2-20260827-4d7e9a1b')).toBe(false)
   })

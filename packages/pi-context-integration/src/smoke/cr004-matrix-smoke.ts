@@ -87,7 +87,7 @@ import {
   type MxTaskId
 } from './matrix-core'
 
-// CR-004 Stage 1 MATRIX runner — M3/M6 experimental policy-screen edition
+// CR-004 Stage 1 MATRIX runner — M3/M6/M7 experimental policy-screen edition
 // (docs/plan/cr004-m3-matrix-run-contract-2026-08-27.md; M2 sibling:
 // docs/plan/cr004-m2-matrix-run-contract-2026-08-27.md; M1:
 // docs/plan/cr004-matrix-run-contract-2026-08-27.md).
@@ -126,7 +126,8 @@ import {
 // strict binding for the whole matrix (prepareModelProvider once, step-plan,
 // fallback 'none'). Per-leg budgets come from each task manifest; matrix
 // totals are profile-bound (M3 defaults 900 records / 180 minutes; M6 binds
-// 1,400 records / 300 minutes). A leg-level provider/safety error marks THAT
+// 1,400 records / 300 minutes; M7 binds 1,800 records / 300 minutes). A
+// leg-level provider/safety error marks THAT
 // leg FAILED and the matrix CONTINUES; only matrix-level S-1 (binding) or S-7
 // (totals) stop everything.
 //
@@ -694,8 +695,8 @@ async function run(): Promise<void> {
     console.error('MX_STATUS=FAILED')
     process.exit(1)
   }
-  // ---- Arm-order resolution (M5/M6 pre-registration; BOTH modes) ----------
-  // A profile with a REQUIRED arm-order mode (M5/M6: 'randomized') forces it —
+  // ---- Arm-order resolution (M5/M6/M7 pre-registration; BOTH modes) ----------
+  // A profile with a REQUIRED arm-order mode (M5/M6/M7: 'randomized') forces it —
   // an explicit conflicting CANVAS_MX_ARM_ORDER request is REFUSED; an unset
   // knob adopts the profile's mode. Historical series keep 'canonical'.
   let armOrder: MxArmOrderMode
@@ -868,6 +869,9 @@ async function run(): Promise<void> {
       })),
       budgets: {
         ...MX_BUDGETS,
+        // Keep the recorded matrix ceiling aligned with the resolved design;
+        // MX_BUDGETS.maxLegs is only the historical default for older shapes.
+        maxLegs: totalLegs,
         maxProviderCallRecords: matrixMaxProviderCallRecords,
         runWallClockMs: matrixRunWallClockMs,
         perLeg: Object.fromEntries(

@@ -5,6 +5,7 @@ import { type PiMessageView } from '../src'
 import {
   createRunKillSwitch,
   createActiveRewriteExtension,
+  estimatePiMessagesTokenEstimate,
   InMemoryActiveRewriteEvidenceCollector,
   isVerificationWindowOpen,
   readContentHashOf,
@@ -614,11 +615,12 @@ describe('removal policy v3 (verify-window dedup, real planner, offline)', () =>
 
     // A third read makes r1 and r2 eligible while retaining r3. The same edit
     // trigger now fires; the earlier deferral did not consume an attempt.
-    const fired = await harness.dispatch([
+    const firedInput: readonly PiMessageView[] = [
       ...base,
       textMessage('Continuing.'),
       ...readPair('r3', P1, 'alpha content v3 latest', 'Reading alpha latest.')
-    ])
+    ]
+    const fired = await harness.dispatch(firedInput)
     const attempt = harness.collector.interventions[0]!
     expect(attempt.policy).toBe('v4-batched-retain-latest')
     expect(attempt.trigger).toBe('edit')
@@ -631,5 +633,22 @@ describe('removal policy v3 (verify-window dedup, real planner, offline)', () =>
     expect(textsOf(fired!.messages as readonly PiMessageView[])).not.toContain('alpha content v1')
     expect(textsOf(fired!.messages as readonly PiMessageView[])).not.toContain('alpha content v2')
     expect(textsOf(fired!.messages as readonly PiMessageView[])).toContain('alpha content v3 latest')
+
+    // M7 measurement repair: the same canonical estimator used by the CR-001
+    // observer is recorded on both sides of the SENT rewrite. This proves the
+    // rewrite had a measurable model-visible effect at THIS boundary; it does
+    // not turn the value into a provider-token or price measurement.
+    const firedMessages = fired!.messages as readonly PiMessageView[]
+    const sentEvent = harness.collector.events.find((event) => event.sentRewrite)!
+    const before = estimatePiMessagesTokenEstimate(firedInput)
+    const after = estimatePiMessagesTokenEstimate(firedMessages)
+    expect(sentEvent.modelVisibleBeforeTokenEstimate).toBe(before)
+    expect(sentEvent.modelVisibleAfterTokenEstimate).toBe(after)
+    expect(sentEvent.netModelVisibleTokenReduction).toBe(before - after)
+    expect(sentEvent.modelVisibleBeforeMessageCount).toBe(firedInput.length)
+    expect(sentEvent.modelVisibleAfterMessageCount).toBe(firedMessages.length)
+    expect(attempt.modelVisibleBeforeTokenEstimate).toBe(before)
+    expect(attempt.modelVisibleAfterTokenEstimate).toBe(after)
+    expect(attempt.netModelVisibleTokenReduction).toBeGreaterThan(0)
   })
 })
