@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import {
@@ -48,6 +48,7 @@ import {
   writeMxEvidenceRoot,
   MX_EVIDENCE_ROOT_FILENAME
 } from './mx-evidence-root'
+import { claimSingleUseMxReportDir } from './mx-report-directory'
 import type { S1OracleResult } from './s1-pair-core'
 import {
   aggregateMxCells,
@@ -711,11 +712,11 @@ async function run(): Promise<void> {
   }
   shape = { ...shape, armOrder }
   log(`armOrder=${armOrder}${armOrder === 'randomized' ? ' (seeded per task x rep block from the run identity)' : ''}`)
-  // LIVE runs are bound to the profile's shape bounds (allowed tasks/arms,
-  // max repetitions, required arm-order mode). DRY_RUN scripted stand-ins
-  // legitimately replay historical shapes, so the bounds gate applies to
-  // LIVE only.
-  if (!dryRun) {
+  // Fixed M6-M9 screens are bound to their exact pre-registered shape in both
+  // modes. Older M1-M5 dry-run analysis remains able to replay historical
+  // partial shapes, but a fixed-screen identity may not be reduced to a
+  // cheaper stand-in matrix.
+  if (!dryRun || profile.requiredShape !== undefined) {
     try {
       validateMxShapeAgainstProfile(shape, profile)
     } catch (error) {
@@ -762,8 +763,15 @@ async function run(): Promise<void> {
     return task
   }
 
-  const reportDir = join(REPORTS_ROOT, runId)
-  await mkdir(join(reportDir, 'legs'), { recursive: true })
+  let reportDir: string
+  try {
+    reportDir = await claimSingleUseMxReportDir(REPORTS_ROOT, runId)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`[cr004-mx] REFUSED: ${message}`)
+    console.error('MX_STATUS=FAILED')
+    process.exit(1)
+  }
 
   const startedAt = new Date()
   const matrixMaxProviderCallRecords =
@@ -818,6 +826,15 @@ async function run(): Promise<void> {
         allowedTasks: [...profile.allowedTasks],
         allowedArms: [...profile.allowedArms],
         maxReps: profile.maxReps,
+        armOrder: profile.armOrder ?? null,
+        requiredShape:
+          profile.requiredShape === undefined
+            ? null
+            : {
+                tasks: [...profile.requiredShape.tasks],
+                strategies: [...profile.requiredShape.strategies],
+                repetitions: profile.requiredShape.repetitions
+              },
         maxProviderCallRecords: matrixMaxProviderCallRecords,
         runWallClockMs: matrixRunWallClockMs
       },
