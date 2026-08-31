@@ -10,11 +10,12 @@ import { join } from 'node:path'
 // the M3 contract + design in its manifest (verified mislabel; the evidence
 // itself was never rewritten). This registry closes that: every M-series is
 // a READ-ONLY history entry binding the run-identity pattern to the exact
-// contract file, the matrix design label, and the shape bounds (allowed
-// tasks/arms, max repetitions, required arm-order mode) the series may run.
+// contract file, the matrix design label, and the shape contract (exact
+// tasks/arms/repetitions for fixed screens, plus required arm-order mode) the
+// series may run.
 // A run identity must match exactly one profile; the profile's contract must
 // EXIST on disk at startup (refuse otherwise); the env knobs are validated
-// against the profile's bounds; and an unknown series (M10+) is REFUSED until
+// against the profile's shape contract; and an unknown series (M10+) is REFUSED until
 // a profile + contract are deliberately added here. The offline analyzer
 // additionally cross-checks every manifest against its run-id series and
 // emits `provenanceWarnings` without rewriting historical evidence.
@@ -64,6 +65,16 @@ export interface MxExperimentProfile {
   readonly maxProviderCallRecords?: number
   /** Optional matrix-wide wall-clock ceiling for this series. */
   readonly runWallClockMs?: number
+  /**
+   * Exact pre-registered shape for a fixed screen. When present, a run must
+   * use every listed task and arm with exactly this repetition count; the
+   * profile is not merely a set of env-knob bounds.
+   */
+  readonly requiredShape?: {
+    readonly tasks: readonly MxTaskSlot[]
+    readonly strategies: readonly MxArm[]
+    readonly repetitions: number
+  }
   /**
    * Arm-order mode runs of this series MUST use (M5/M6/M7/M8/M9: 'randomized' — the
    * pre-registered design refuses the canonical control-first order).
@@ -147,7 +158,12 @@ export const MX_EXPERIMENT_PROFILES: readonly MxExperimentProfile[] = [
     maxReps: 4,
     maxProviderCallRecords: 1400,
     runWallClockMs: 300 * 60 * 1000,
-    armOrder: 'randomized'
+    armOrder: 'randomized',
+    requiredShape: {
+      tasks: ALL_TASKS,
+      strategies: ['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3', 'ACTIVE_V4'],
+      repetitions: 4
+    }
   },
   {
     // M7 is a new exposure/measurement screen, not a continuation or retry
@@ -162,7 +178,12 @@ export const MX_EXPERIMENT_PROFILES: readonly MxExperimentProfile[] = [
     maxReps: 8,
     maxProviderCallRecords: 1800,
     runWallClockMs: 300 * 60 * 1000,
-    armOrder: 'randomized'
+    armOrder: 'randomized',
+    requiredShape: {
+      tasks: ['L1', 'L2'],
+      strategies: ['NATIVE', 'ACTIVE_V2', 'ACTIVE_V4'],
+      repetitions: 8
+    }
   },
   {
     // M8 is an independent L3 lifecycle screen. It expands direct rewrite
@@ -177,7 +198,12 @@ export const MX_EXPERIMENT_PROFILES: readonly MxExperimentProfile[] = [
     maxReps: 8,
     maxProviderCallRecords: 1800,
     runWallClockMs: 300 * 60 * 1000,
-    armOrder: 'randomized'
+    armOrder: 'randomized',
+    requiredShape: {
+      tasks: ['L3'],
+      strategies: ['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3', 'ACTIVE_V4'],
+      repetitions: 8
+    }
   },
   {
     // M9 is an independent V3 measurement screen. M6 observed V3 sends on
@@ -192,7 +218,12 @@ export const MX_EXPERIMENT_PROFILES: readonly MxExperimentProfile[] = [
     maxReps: 8,
     maxProviderCallRecords: 1400,
     runWallClockMs: 300 * 60 * 1000,
-    armOrder: 'randomized'
+    armOrder: 'randomized',
+    requiredShape: {
+      tasks: ['L1', 'L2'],
+      strategies: ['NATIVE', 'ACTIVE_V3'],
+      repetitions: 8
+    }
   }
 ]
 
@@ -273,11 +304,24 @@ export interface MxShapeLike {
   readonly armOrder?: unknown
 }
 
+function sameOrderedValues(left: readonly unknown[], right: readonly unknown[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function formatShape(shape: {
+  readonly tasks: readonly string[]
+  readonly strategies: readonly string[]
+  readonly repetitions: number
+}): string {
+  return `tasks=[${shape.tasks.join(',')}], arms=[${shape.strategies.join(',')}], repetitions=${shape.repetitions}`
+}
+
 /**
  * Validate the resolved matrix shape (env knobs) against the profile's
  * bounds: every task and arm must be allowed for the series, the
- * repetition count must not exceed the series' maximum, and — for series
- * with a REQUIRED arm-order mode (M5/M6/M7/M8/M9: randomized) — the shape must carry
+ * repetition count must not exceed the series' maximum, and — for fixed
+ * screens — the exact pre-registered shape must be used. For series with a
+ * REQUIRED arm-order mode (M5/M6/M7/M8/M9: randomized), the shape must carry
  * exactly that mode. Throws MxProfileError on the first violation.
  */
 export function validateMxShapeAgainstProfile(shape: MxShapeLike, profile: MxExperimentProfile): void {
@@ -305,6 +349,24 @@ export function validateMxShapeAgainstProfile(shape: MxShapeLike, profile: MxExp
     if (shape.armOrder !== profile.armOrder) {
       throw new MxProfileError(
         `experiment profile ${profile.series} requires armOrder '${profile.armOrder}' (the pre-registered design); refusing '${mode}'`
+      )
+    }
+  }
+  if (profile.requiredShape !== undefined) {
+    const required = profile.requiredShape
+    if (!sameOrderedValues(shape.tasks, required.tasks)) {
+      throw new MxProfileError(
+        `experiment profile ${profile.series} requires exact shape ${formatShape(required)}; received tasks=[${shape.tasks.join(',')}]`
+      )
+    }
+    if (!sameOrderedValues(shape.strategies, required.strategies)) {
+      throw new MxProfileError(
+        `experiment profile ${profile.series} requires exact shape ${formatShape(required)}; received arms=[${shape.strategies.join(',')}]`
+      )
+    }
+    if (shape.repetitions !== required.repetitions) {
+      throw new MxProfileError(
+        `experiment profile ${profile.series} requires exact shape ${formatShape(required)}; received repetitions=${shape.repetitions}`
       )
     }
   }
@@ -425,6 +487,24 @@ export function mxProvenanceWarnings(
       warnings.push(
         `recorded design repetitions ${repetitions} exceed series ${profile.series} max ${profile.maxReps}`
       )
+    }
+    if (profile.requiredShape !== undefined) {
+      const required = profile.requiredShape
+      if (!sameOrderedValues(tasks, required.tasks)) {
+        warnings.push(
+          `recorded design tasks [${tasks.join(',')}] violate series ${profile.series} exact pre-registered tasks [${required.tasks.join(',')}]`
+        )
+      }
+      if (!sameOrderedValues(strategies, required.strategies)) {
+        warnings.push(
+          `recorded design arms [${strategies.join(',')}] violate series ${profile.series} exact pre-registered arms [${required.strategies.join(',')}]`
+        )
+      }
+      if (repetitions !== required.repetitions) {
+        warnings.push(
+          `recorded design repetitions ${repetitions} violate series ${profile.series} exact pre-registered repetitions ${required.repetitions}`
+        )
+      }
     }
     // M5/M6/M7/M8/M9: a required arm-order mode is cross-checked when the manifest
     // records one (absent => the canonical default, warned below).
