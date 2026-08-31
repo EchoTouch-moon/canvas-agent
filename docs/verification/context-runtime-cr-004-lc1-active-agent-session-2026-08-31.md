@@ -47,13 +47,18 @@ LC1 admission → Active rewrite
    repository mapping, the shared switch prevents the delayed event from
    reaching Active with a live rewrite path. Both concurrent results remain
    native and no additional host admission or rewrite is committed.
+5. When `AgentSession.reload()` occurs while an old Run is paused in mapping,
+   shutdown trips the old switch before the loader builds the fresh safety
+   domain. Releasing the old mapper afterwards still produces no old-Run
+   rewrite and no additional old-Run host admission.
 
 ```text
-Dedicated AgentSession tests:       4 PASS
+Dedicated AgentSession tests:       5 PASS
 Loader extension errors:            0
 Healthy composed rewrites:          2
 Mid-run LC1 failure rewrites:        0 additional
 Concurrent delayed-stage rewrites:  0
+In-flight reload old-run rewrites:  0
 Old-run post-reload rewrites:       0
 Fresh-run post-reload rewrites:     1
 Provider / Step Plan calls:         0

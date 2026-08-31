@@ -539,4 +539,63 @@ describe("LC1-before-Active composition through AgentSession", () => {
       session.dispose();
     }
   });
+
+  it("cuts off an in-flight old Run before reload can rebuild the safety domain", async () => {
+    const cwd = await mkdtemp(
+      join(tmpdir(), "canvas-lc1-active-agent-session-reload-inflight-cwd-"),
+    );
+    temporaryDirectories.push(cwd);
+    const mapperEntered = deferred<void>();
+    const mapperRelease = deferred<void>();
+    const runs: RunState[] = [];
+    const { created, session } = await createSession(
+      cwd,
+      composedFactoryFor(runs, "lc1-active-agent-session-reload-inflight", {
+        mapperGate: {
+          sequence: 3,
+          entered: () => mapperEntered.resolve(),
+          release: mapperRelease.promise,
+        },
+      }),
+    );
+
+    try {
+      expect(created.extensionsResult.errors).toHaveLength(0);
+      const firstRun = runs[0];
+      if (firstRun === undefined)
+        throw new Error("in-flight reload first run unavailable");
+      const firstMessages = [userMessage("Start the repository task.")];
+      const firstRead = [...firstMessages, ...readPair("read-reload-inflight")];
+      const delayedEdit = [
+        ...firstRead,
+        ...editPair("edit-reload-inflight-old"),
+      ];
+
+      await session.extensionRunner.emitContext(firstMessages as never);
+      await session.extensionRunner.emitContext(firstRead as never);
+      const delayedResult = session.extensionRunner.emitContext(
+        delayedEdit as never,
+      );
+      await mapperEntered.promise;
+
+      await session.reload();
+      expect(runs).toHaveLength(2);
+      expect(firstRun.killSwitch.tripRecord).toEqual({
+        reason: "LC1_RUNTIME_ADMISSION_PI_SESSION_SHUTDOWN:reload",
+        trippedAt: T0,
+      });
+
+      mapperRelease.resolve();
+      expect(await delayedResult).toEqual(delayedEdit);
+      expect(firstRun.host.callCount).toBe(2);
+      expect(firstRun.evidence.events).toHaveLength(3);
+      expect(firstRun.evidence.events[2]).toMatchObject({
+        interventionAttempted: false,
+        sentRewrite: false,
+        killSwitchTripped: true,
+      });
+    } finally {
+      session.dispose();
+    }
+  });
 });
