@@ -34,16 +34,21 @@ LC1 admission → Active rewrite
    The real AgentSession runner dispatches a three-event read-to-edit sequence;
    LC1 receives model-call sequences 1, 2, and 3, and the guarded Active
    rewrite is sent once on the edit boundary.
-2. `AgentSession.reload()` shuts down the first composed Run and constructs a
+2. A later LC1 revision-read failure after an earlier Active rewrite trips the
+   same switch before a second rewrite. The previously committed carried basis
+   remains preserved, while the later event is returned without a new Active
+   send.
+3. `AgentSession.reload()` shuts down the first composed Run and constructs a
    fresh LC1 host, executor, evidence collector, and kill switch. The old
    runner remains unable to send a new rewrite after shutdown, while the new
    runner can complete an independent read-to-edit rewrite with sequences
    1, 2, and 3.
 
 ```text
-Dedicated AgentSession tests:       2 PASS
+Dedicated AgentSession tests:       3 PASS
 Loader extension errors:            0
 Healthy composed rewrites:          2
+Mid-run LC1 failure rewrites:        0 additional
 Old-run post-reload rewrites:       0
 Fresh-run post-reload rewrites:     1
 Provider / Step Plan calls:         0

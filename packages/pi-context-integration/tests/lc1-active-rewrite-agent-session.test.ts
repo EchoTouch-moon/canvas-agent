@@ -120,6 +120,7 @@ function successfulMapper(calls: number[]): Lc1ProductionRepositoryMapper {
 function composedFactoryFor(
   runs: RunState[],
   identityPrefix: string,
+  options: { readonly failRevisionAt?: number } = {},
 ): ExtensionFactory {
   return async (pi) => {
     const runNumber = runs.length + 1;
@@ -140,6 +141,7 @@ function composedFactoryFor(
     });
     const evidence = new InMemoryActiveRewriteEvidenceCollector();
     const mapperCalls: number[] = [];
+    let revisionReads = 0;
     runs.push({
       runId,
       host,
@@ -157,7 +159,13 @@ function composedFactoryFor(
         repositoryId: "repo-a",
         namespace: "workspace",
         authorityStreamId: `${runtimeSessionId}:authority`,
-        getExpectedRevision: () => REVISION,
+        getExpectedRevision: () => {
+          revisionReads += 1;
+          if (options.failRevisionAt === revisionReads) {
+            throw new Error("synthetic mid-run revision read failure");
+          }
+          return REVISION;
+        },
         observedAt: () => T0,
       },
       active: {
@@ -352,6 +360,73 @@ describe("LC1-before-Active composition through AgentSession", () => {
       expect(secondRun.killSwitch.isTripped).toBe(false);
       expect(secondRun.evidence.intervention?.sentRewrite).toBe(true);
       expect(rewritten).toHaveLength(3);
+    } finally {
+      session.dispose();
+    }
+  });
+
+  it("blocks a later Active rewrite when LC1 fails after a prior rewrite", async () => {
+    const cwd = await mkdtemp(
+      join(tmpdir(), "canvas-lc1-active-agent-session-midrun-failure-cwd-"),
+    );
+    temporaryDirectories.push(cwd);
+    const runs: RunState[] = [];
+    const { created, session } = await createSession(
+      cwd,
+      composedFactoryFor(runs, "lc1-active-agent-session-midrun-failure", {
+        failRevisionAt: 4,
+      }),
+    );
+
+    try {
+      expect(created.extensionsResult.errors).toHaveLength(0);
+      const run = runs[0];
+      if (run === undefined)
+        throw new Error("mid-run composed run unavailable");
+      const firstMessages = [userMessage("Start the repository task.")];
+      const firstRead = [...firstMessages, ...readPair("read-midrun-first")];
+      const firstEdit = [...firstRead, ...editPair("edit-midrun-first")];
+
+      await session.extensionRunner.emitContext(firstMessages as never);
+      await session.extensionRunner.emitContext(firstRead as never);
+      const firstRewrite = await session.extensionRunner.emitContext(
+        firstEdit as never,
+      );
+      expect(firstRewrite).toHaveLength(3);
+      expect(run.evidence.events[2]?.sentRewrite).toBe(true);
+
+      const laterMessages = [
+        ...firstEdit,
+        ...readPair("read-midrun-second"),
+        ...editPair("edit-midrun-second"),
+      ];
+      const stopped = await session.extensionRunner.emitContext(
+        laterMessages as never,
+      );
+
+      // The first committed removal remains carried, but the LC1 failure
+      // prevents a second Active attempt and leaves the later evidence native.
+      expect(stopped).toEqual([
+        ...firstMessages,
+        ...editPair("edit-midrun-first"),
+        ...readPair("read-midrun-second"),
+        ...editPair("edit-midrun-second"),
+      ]);
+      expect(run.mapperCalls).toEqual([1, 2, 3]);
+      expect(run.host.callCount).toBe(3);
+      expect(run.killSwitch.tripRecord).toEqual({
+        reason: "LC1_RUNTIME_ADMISSION_REVISION_READ_FAILURE",
+        trippedAt: T0,
+      });
+      expect(run.evidence.events).toHaveLength(4);
+      expect(
+        run.evidence.events.filter((event) => event.sentRewrite),
+      ).toHaveLength(1);
+      expect(run.evidence.events[3]).toMatchObject({
+        interventionAttempted: false,
+        sentRewrite: false,
+        killSwitchTripped: true,
+      });
     } finally {
       session.dispose();
     }
