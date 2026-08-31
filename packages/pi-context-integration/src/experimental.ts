@@ -126,6 +126,23 @@ export {
   type Lc1RepositoryScope
 } from './active/lc1-production-mapping'
 export {
+  LC1_RUNTIME_ADMISSION_QUARANTINE_REASONS,
+  LC1_RUNTIME_ADMISSION_REJECTION_REASONS,
+  Lc1RuntimeRepositoryAdmissionHost,
+  type Lc1RuntimeAdmissionQuarantineReason,
+  type Lc1RuntimeAdmissionRejectionReason,
+  type Lc1RuntimeAuthorityOrder,
+  type Lc1RuntimeRepositoryAdmissionCandidate,
+  type Lc1RuntimeRepositoryAdmissionHostOptions,
+  type Lc1RuntimeRepositoryAdmissionHostSnapshot,
+  type Lc1RuntimeRepositoryAdmissionIssue,
+  type Lc1RuntimeRepositoryAdmissionResult,
+  type Lc1RuntimeRepositoryAdmissionSink,
+  type Lc1RuntimeRepositoryAdmissionSnapshot,
+  type Lc1RuntimeRepositoryRevision,
+  type Lc1RuntimeRepositoryScope
+} from './active/lc1-runtime-repository-admission'
+export {
   MX_EVIDENCE_ROOT_FILENAME,
   computeMxEvidenceRoot,
   findRepoRoot,
