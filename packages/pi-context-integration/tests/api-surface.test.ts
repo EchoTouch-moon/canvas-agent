@@ -19,6 +19,7 @@ const MOVED_VALUE_SYMBOLS = [
   'assertRewriteSafe',
   'createRunKillSwitch',
   'createLc1RuntimeAdmissionPiExtension',
+  'createLc1ActiveRewriteExtension',
   'checkCapability',
   'PiCommittedContextAdapter',
   'analyzeNativeMessages',
