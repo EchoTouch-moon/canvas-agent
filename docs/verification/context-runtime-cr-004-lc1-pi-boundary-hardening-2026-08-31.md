@@ -54,6 +54,7 @@ after each focused test. Every expected mutant was killed:
 | Temporary mutation | Expected result |
 | --- | --- |
 | Remove first-party composition identity validation | forged-composition test fails |
+| Remove first-party validation from the legacy convenience factory | forged-composition test fails |
 | Read `options.getExpectedRevision()` at event time instead of the captured supplier | post-registration configuration mutation test fails |
 | Read `options.composition.handleContext()` at event time instead of the captured handler | post-registration configuration mutation test fails |
 
@@ -77,7 +78,7 @@ separately gated.
 ```text
 Composition authenticity:     VERIFIED IN PROCESS
 Registration snapshot:        VERIFIED
-Mutation audit:               3 / 3 KILLED
+Mutation audit:               4 / 4 KILLED
 Live Shadow / Step Plan:      NO_GO
 CR-004 Active Rewrite:        NO_GO
 ```
