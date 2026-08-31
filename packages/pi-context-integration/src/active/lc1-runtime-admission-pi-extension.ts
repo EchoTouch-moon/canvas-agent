@@ -10,7 +10,10 @@ import {
   type Lc1RepositoryMappingRequest,
   type Lc1RepositoryRevision
 } from './lc1-production-mapping'
-import type { Lc1RuntimeAdmissionComposition as Lc1RuntimeAdmissionCompositionContract } from './lc1-runtime-admission-composition'
+import {
+  isTrustedLc1RuntimeAdmissionComposition,
+  type Lc1RuntimeAdmissionComposition as Lc1RuntimeAdmissionCompositionContract
+} from './lc1-runtime-admission-composition'
 
 export interface Lc1RuntimeAdmissionPiExtensionOptions {
   /** Must be the explicitly enabled runtime-owned composition. */
@@ -48,6 +51,11 @@ function validateOptions(options: Lc1RuntimeAdmissionPiExtensionOptions): void {
   if (
     typeof composition !== 'object' ||
     composition === null ||
+    !isTrustedLc1RuntimeAdmissionComposition(composition)
+  ) {
+    throw new Error('lc1_runtime_admission_pi_extension_requires_first_party_runtime_owned')
+  }
+  if (
     !composition.enabled ||
     composition.mode !== 'RUNTIME_OWNED' ||
     typeof composition.mapRepositoryObservations !== 'function' ||
@@ -93,9 +101,18 @@ export function createLc1RuntimeAdmissionPiExtension(
   options: Lc1RuntimeAdmissionPiExtensionOptions
 ): ExtensionFactory {
   validateOptions(options)
-  let nextModelCallSequence = 1
+  const composition = options.composition
+  const mapper = options.mapper
+  const runtimeSessionId = options.runtimeSessionId
+  const repositoryId = options.repositoryId
+  const namespace = options.namespace
+  const authorityStreamId = options.authorityStreamId
+  const getExpectedRevision = options.getExpectedRevision
   const observedAt = options.observedAt ?? (() => new Date().toISOString())
-  const killSwitch = options.composition.killSwitch!
+  const mapRepositoryObservations = composition.mapRepositoryObservations.bind(composition)
+  const handleContext = composition.handleContext.bind(composition)
+  let nextModelCallSequence = 1
+  const killSwitch = composition.killSwitch!
 
   return (pi: ExtensionAPI) => {
     pi.on('session_shutdown', (event: SessionShutdownEvent) => {
@@ -110,7 +127,7 @@ export function createLc1RuntimeAdmissionPiExtension(
       const modelCallSequence = nextModelCallSequence++
       let expectedRevision: Lc1RepositoryRevision
       try {
-        expectedRevision = await options.getExpectedRevision()
+        expectedRevision = await getExpectedRevision()
       } catch {
         killSwitch.trip(PI_EXTENSION_STOP_REASONS.revisionFailure)
         return { messages: event.messages }
@@ -130,24 +147,24 @@ export function createLc1RuntimeAdmissionPiExtension(
 
       const request: Lc1RepositoryMappingRequest = {
         messages,
-        runtimeSessionId: options.runtimeSessionId,
+        runtimeSessionId,
         modelCallSequence,
-        repositoryId: options.repositoryId,
-        namespace: options.namespace,
+        repositoryId,
+        namespace,
         expectedRevision,
         authorityOrder: {
-          streamId: options.authorityStreamId,
+          streamId: authorityStreamId,
           sequence: modelCallSequence
         },
         observedAt: timestamp
       }
       try {
-        const mapped = await options.composition.mapRepositoryObservations(options.mapper, request)
+        const mapped = await mapRepositoryObservations(mapper, request)
         if (mapped.rejected.length > 0 || mapped.quarantined.length > 0) {
           killSwitch.trip(PI_EXTENSION_STOP_REASONS.mappingRejected)
           return { messages: event.messages }
         }
-        const result = options.composition.handleContext(messages)
+        const result = handleContext(messages)
         return { messages: result.messages as ContextEvent['messages'] }
       } catch {
         killSwitch.trip(PI_EXTENSION_STOP_REASONS.compositionFailure)
