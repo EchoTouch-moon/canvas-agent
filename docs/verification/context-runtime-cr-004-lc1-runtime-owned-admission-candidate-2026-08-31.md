@@ -100,6 +100,34 @@ adds adversarial coverage:
 The audit file contains 27 tests: five frozen legacy/audit cases and 22
 runtime-owned cases.
 
+## Guard mutation audit
+
+The implementation head was also checked with temporary, one-at-a-time source
+mutations. Each mutation disabled one runtime-owner guard, ran the corresponding
+focused oracle case, and was then reverted before the next mutation. Every
+mutant was killed by an expected non-zero test result:
+
+| Temporarily removed guard | Oracle outcome |
+| ------------------------- | -------------- |
+| mapper-created `WeakSet` provenance | `KILLED` |
+| unique in-process runtime-session claim | `KILLED` |
+| repository-seed bypass rejection | `KILLED` |
+| cross-scope quarantine | `KILLED` |
+| descriptor-drift quarantine | `KILLED` |
+| incomparable authority-stream quarantine | `KILLED` |
+| stale-authority rejection | `KILLED` |
+| equal-order duplicate/conflict branch | `KILLED` |
+| call-id remap rejection | `KILLED` |
+| mixed-batch fail-closed branch | `KILLED` |
+| admission-snapshot integrity check | `KILLED` |
+| host-snapshot integrity check | `KILLED` |
+| same-host transaction-owner check | `KILLED` |
+
+After restoring the source, the complete targeted audit returned to `27/27`
+passing and the worktree diff contained only this evidence update. This audit
+shows that the stateful safety outcomes are discriminating; it does not turn
+the experimental host into a cryptographic or cross-process trust boundary.
+
 ## Verification
 
 ```text
