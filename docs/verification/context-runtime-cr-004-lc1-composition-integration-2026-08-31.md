@@ -1,0 +1,104 @@
+# CR-004 LC1 — Runtime-Owned Composition Integration Evidence
+
+**Classification:** core active-safety prerequisite
+
+**Status:** `IMPLEMENTED / CREDENTIAL-FREE / LIVE NOT AUTHORIZED`
+
+**Date:** 2026-08-31
+
+**Baseline:** `codex/cr004-lc1-composition@b5a7207`
+
+## Purpose
+
+This follow-up verifies the complete credential-free path from a real Pi read
+message through the authoritative repository mapper, the runtime-owned LC1
+admission sink, and the enriched observer's next model-call boundary. It adds
+no production behavior and does not invoke a provider, Planner, Pi live
+session, CR-005 manifest, or Active rewrite.
+
+## Covered boundaries
+
+The integration suite covers eight paths:
+
+1. A real temporary Git repository is authoritative over forged Pi tool-result
+   text; the mapper admits the verified `FULL` observation through the guarded
+   runtime-owned sink, and the next observer boundary materializes it with the
+   expected content hash while preserving the original message list.
+2. A batch containing one valid read and one unsupported tool is atomic: no
+   candidate is admitted, the composition kill switch trips, and a later
+   mapping attempt is rejected as stopped.
+3. A previously admitted pending observation is preserved by the host snapshot
+   when the next context observation fails; the failing boundary trips the
+   sticky switch and does not advance the observer state.
+4. An authoritative repository-observer failure is quarantined before it can
+   reach the runtime-owned host; the host remains without a universe revision
+   or model-call result.
+5. A replacement mapper in the same runtime session advances the existing
+   authority head from `v3` to `v4` without transferring mapper-local state.
+6. A replacement mapper bound to a different repository scope is quarantined
+   without mutating the already admitted state; the guarded sink's first-trip
+   reason remains authoritative.
+7. The same canonical path can be admitted after a repository switch only by a
+   new runtime session identity; the new session starts with an independent
+   host and scope.
+8. Two mapper completions delivered out of order retain the newer authority
+   version and reject the late older result as `STALE_AUTHORITY`.
+
+The composition's default-disabled, configuration, sink-surface, observer
+failure, mapper failure, and extension-registration behavior remains covered by
+the dedicated composition suite and its mutation audit in the parent PR.
+
+## Verification result
+
+```text
+Dedicated integration suite: 8 tests PASS
+Pi integration package:       342 tests / 27 files PASS
+Pi integration typecheck:     PASS
+git diff --check:              PASS
+Provider calls:                0
+```
+
+The initial local red test was a fixture error: the rollback case used a
+different host session than the mapping request. The request helper was then
+made explicitly session-bound; the corrected test passed without any
+production-source change.
+
+## Integration guard mutation audit
+
+Four temporary one-at-a-time source mutations were applied locally and
+reverted immediately after the focused suite failed. Every expected mutant was
+killed:
+
+| Temporary mutation                                                  | Expected result |
+| ------------------------------------------------------------------- | --------------- |
+| Remove the composition's sticky stop on mapper rejection/quarantine | KILLED          |
+| Remove observer-boundary snapshot rollback                          | KILLED          |
+| Drop authority-observer failure quarantine                          | KILLED          |
+| Remove runtime-admission batch atomicity                            | KILLED          |
+| Remove the runtime-owned cross-scope quarantine                     | KILLED          |
+| Remove the stale-authority ordering guard                           | KILLED          |
+
+The cross-scope mutant changed the observed outcome to `DESCRIPTOR_DRIFT`
+instead of the required `CROSS_SCOPE_COLLISION`, so the suite still failed but
+also showed that descriptor drift is a secondary defense. The audit left no
+mutated production source in the branch. It covers the in-process integration
+guards only; it does not establish cryptographic isolation, cross-process
+enforcement, or live model behavior.
+
+## Interpretation and limits
+
+This evidence establishes the in-process composition path and its fail-closed
+behavior under the tested authority, batch, rollback, lifecycle, and
+out-of-order completion cases. It does not establish cryptographic isolation,
+cross-process enforcement, durable portable snapshots, or model behavior. The
+composition remains observational-only and returns Pi's original messages
+unchanged.
+
+```text
+Composition integration:      CREDENTIAL-FREE PASS
+Runtime-owned admission:      exercised through real mapper
+Message rewriting:             NONE
+Planner / Active rewrite:      NONE
+Live Shadow / Step Plan:       NO_GO pending separate authorization
+CR-004 Active Rewrite:         NO_GO
+```
