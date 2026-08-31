@@ -1,7 +1,8 @@
 import type {
   ContextEvent,
   ExtensionAPI,
-  ExtensionFactory
+  ExtensionFactory,
+  SessionShutdownEvent
 } from '@earendil-works/pi-coding-agent'
 import type { PiMessageView } from '../pi-message-mapper'
 import {
@@ -230,5 +231,18 @@ export function createLc1RuntimeAdmissionComposition(
 export function createLc1RuntimeAdmissionExtension(
   composition: Lc1RuntimeAdmissionComposition
 ): ExtensionFactory {
-  return composition.createExtension()
+  if (
+    !isTrustedLc1RuntimeAdmissionComposition(composition) ||
+    !composition.enabled ||
+    composition.mode !== 'RUNTIME_OWNED'
+  ) {
+    throw new Error('lc1_runtime_admission_extension_requires_first_party_runtime_owned')
+  }
+  const contextExtension = composition.createExtension()
+  return (pi: ExtensionAPI) => {
+    pi.on('session_shutdown', (event: SessionShutdownEvent) => {
+      composition.killSwitch!.trip(`LC1_RUNTIME_ADMISSION_PI_SESSION_SHUTDOWN:${event.reason}`)
+    })
+    contextExtension(pi)
+  }
 }

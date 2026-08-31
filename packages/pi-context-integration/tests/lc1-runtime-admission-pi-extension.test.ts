@@ -22,6 +22,7 @@ import {
 import type { PiMessageView } from '../src'
 import {
   createLc1RuntimeAdmissionComposition,
+  createLc1RuntimeAdmissionExtension,
   createLc1RuntimeAdmissionPiExtension,
   createRunKillSwitch,
   Lc1ProductionRepositoryMapper,
@@ -331,6 +332,9 @@ describe('LC1 runtime-owned Pi composition extension', () => {
         })
       })
     ).toThrow('lc1_runtime_admission_pi_extension_requires_first_party_runtime_owned')
+    expect(() => createLc1RuntimeAdmissionExtension(forgedComposition)).toThrow(
+      'lc1_runtime_admission_extension_requires_first_party_runtime_owned'
+    )
   })
 
   it('freezes first-party composition state after construction', () => {
@@ -345,6 +349,36 @@ describe('LC1 runtime-owned Pi composition extension', () => {
     })
 
     expect(Object.isFrozen(composition)).toBe(true)
+  })
+
+  it('keeps the legacy context-only factory lifecycle-guarded', async () => {
+    const sessionId = 'pi-legacy-factory-lifecycle-session'
+    const host = new Lc1RuntimeRepositoryAdmissionHost({
+      observer: { runtimeSessionId: sessionId, now: () => T0 }
+    })
+    const killSwitch = createRunKillSwitch('pi-legacy-factory-lifecycle-run', { now: () => T0 })
+    const composition = createLc1RuntimeAdmissionComposition({
+      mode: 'RUNTIME_OWNED',
+      host,
+      killSwitch
+    })
+    const { dispatch, shutdown } = registerWithSessionShutdown(
+      createLc1RuntimeAdmissionExtension(composition)
+    )
+    const firstMessages = userMessages('legacy factory before shutdown')
+
+    expect((await dispatch(firstMessages)).messages).toBe(firstMessages)
+    expect(host.callCount).toBe(1)
+
+    await shutdown('reload')
+    expect(killSwitch.tripRecord).toEqual({
+      reason: 'LC1_RUNTIME_ADMISSION_PI_SESSION_SHUTDOWN:reload',
+      trippedAt: T0
+    })
+
+    const lateMessages = userMessages('legacy factory after shutdown')
+    expect((await dispatch(lateMessages)).messages).toBe(lateMessages)
+    expect(host.callCount).toBe(1)
   })
 
   it('maps authority before the Pi boundary and returns the exact original messages', async () => {

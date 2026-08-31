@@ -14,9 +14,11 @@ This follow-up hardens the explicit LC1 Pi composition boundary before any live
 canary. The adapter now accepts only a first-party runtime-owned composition,
 captures the validated composition and configuration dependencies when the
 factory is created, and uses those captured references for every later Pi event.
-The composition object itself is frozen after construction. These measures keep
-post-registration option mutation and structurally forged composition objects
-from changing the safety behavior after validation.
+The composition object itself is frozen after construction, and the legacy
+context-only convenience factory applies the same first-party check and session
+shutdown stop. These measures keep post-registration option mutation and
+structurally forged composition objects from changing the safety behavior after
+validation.
 
 The hardening remains observational-only. It does not call a provider, rewrite
 Pi messages, change Planner policy, modify CR-005 fixtures or manifests, or
@@ -25,7 +27,7 @@ enable CR-004 Active Rewrite.
 ## Covered boundaries
 
 1. A structurally matching but non-first-party composition is rejected before
-   any Pi handler can be registered.
+   any Pi handler can be registered, through both LC1 Pi factory entry points.
 2. A caller that mutates the composition, mapper, identity fields, revision
    supplier, timestamp supplier, and authority stream after factory creation
    cannot change the validated execution path.
@@ -35,8 +37,8 @@ enable CR-004 Active Rewrite.
 ## Verification result
 
 ```text
-Dedicated Pi hook suite:       19 tests PASS
-Pi integration package:        365 tests / 28 files PASS
+Dedicated Pi hook suite:       20 tests PASS
+Pi integration package:        366 tests / 28 files PASS
 Pi integration typecheck:      PASS
 git diff --check:              PASS
 Provider calls:                0
