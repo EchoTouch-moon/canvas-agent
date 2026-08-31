@@ -19,9 +19,9 @@ import { analyzeMatrix, scriptedMxLegRecords, writeMxLegEvidence } from '../src/
 // CR-004 hardening — EXPERIMENT PROFILE / CONTRACT BINDING tests.
 //
 // The registry binds every M-series to its contract file, design label and
-// shape bounds; an unknown series (M10+) is REFUSED until a profile + contract
+// shape contract; an unknown series (M10+) is REFUSED until a profile + contract
 // are deliberately added, the contract file must EXIST at startup, env-knob
-// shapes are validated against the bounds, and the analyzer cross-checks
+// shapes are validated against the contract, and the analyzer cross-checks
 // manifests against the run-id series (the historical M4 mislabel — contract
 // says M3, run id says M4 — must surface WITHOUT rewriting evidence).
 
@@ -160,6 +160,65 @@ describe('MX_EXPERIMENT_PROFILES registry', () => {
       validateMxShapeAgainstProfile({ tasks: ['L1'], strategies: ['NATIVE'], repetitions: 9 }, m4)
     ).toThrow(/repetitions 9 exceed experiment profile M4 max 8/)
   })
+
+  it('requires the complete pre-registered shape for every fixed M6-M9 screen', () => {
+    const cases = [
+      {
+        runId: 'cr004-m6-20260830-01234567',
+        shape: {
+          tasks: ['L1'],
+          strategies: ['NATIVE'],
+          repetitions: 1,
+          armOrder: 'randomized'
+        }
+      },
+      {
+        runId: 'cr004-m7-20260830-01234567',
+        shape: {
+          tasks: ['L1'],
+          strategies: ['NATIVE'],
+          repetitions: 1,
+          armOrder: 'randomized'
+        }
+      },
+      {
+        runId: 'cr004-m8-20260830-01234567',
+        shape: {
+          tasks: ['L3'],
+          strategies: ['NATIVE'],
+          repetitions: 1,
+          armOrder: 'randomized'
+        }
+      },
+      {
+        runId: 'cr004-m9-20260830-01234567',
+        shape: {
+          tasks: ['L1', 'L2'],
+          strategies: ['NATIVE', 'ACTIVE_V3'],
+          repetitions: 1,
+          armOrder: 'randomized'
+        }
+      }
+    ] as const
+
+    expect(() =>
+      validateMxShapeAgainstProfile(
+        {
+          tasks: ['L1', 'L2', 'L3'],
+          strategies: ['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3', 'ACTIVE_V4'],
+          repetitions: 4,
+          armOrder: 'randomized'
+        },
+        mxProfileForRunId('cr004-m6-20260830-01234567')!
+      )
+    ).not.toThrow()
+
+    for (const testCase of cases) {
+      expect(() =>
+        validateMxShapeAgainstProfile(testCase.shape, mxProfileForRunId(testCase.runId)!)
+      ).toThrow(/requires exact shape/)
+    }
+  })
 })
 
 describe('mxProvenanceWarnings (manifest vs run-id series)', () => {
@@ -230,6 +289,25 @@ describe('mxProvenanceWarnings (manifest vs run-id series)', () => {
         }
       })
     ).toEqual([])
+  })
+
+  it('warns when a fixed-screen manifest records a partial shape within bounds', () => {
+    const warnings = mxProvenanceWarnings({
+      runId: 'cr004-m6-20260830-01234567',
+      contract: 'docs/plan/cr004-m6-mechanism-screen-run-contract-2026-08-30.md',
+      matrixDesign: 'M6-mechanism-screen',
+      design: {
+        tasks: ['L1'],
+        strategies: ['NATIVE'],
+        repetitions: 1,
+        armOrder: 'randomized'
+      }
+    })
+    expect(warnings).toEqual([
+      expect.stringContaining('exact pre-registered tasks'),
+      expect.stringContaining('exact pre-registered arms'),
+      expect.stringContaining('exact pre-registered repetitions')
+    ])
   })
 
   it('accepts the M7 exposure profile shape and rejects L3/V3 expansion', () => {
