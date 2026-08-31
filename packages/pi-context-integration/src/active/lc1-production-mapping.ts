@@ -69,7 +69,6 @@ export const LC1_MAPPING_REJECTION_REASONS = [
   'UNMATCHED_CALL_ID',
   'MISSING_PATH_HINT',
   'INVALID_PATH_HINT',
-  'UNSUPPORTED_TOOL',
   'CALL_TOOL_NAME_MISMATCH',
   'STALE_AUTHORITY',
   'IDEMPOTENT_DUPLICATE',
@@ -372,17 +371,27 @@ function collectReadCandidates(
   readonly rejected: readonly Lc1MappingIssue[]
 } {
   const callsById = new Map<string, ToolCallRecord>()
+  const readCallIds = new Set<string>()
   const remappedCallIds = new Set<string>()
   const resultRecords: ToolResultRecord[] = []
   const resultCallIds = new Set<string>()
   const rejected: Lc1MappingIssue[] = []
 
-  messages.forEach((message, messagePosition) => {
-    const entries = decomposePiMessage(message, {
+  const decomposedMessages = messages.map((message, messagePosition) => ({
+    message,
+    entries: decomposePiMessage(message, {
       runtimeSessionId,
       modelCallSequence,
       messagePosition
     })
+  }))
+
+  // First collect the complete call index. A Pi context boundary contains
+  // cumulative messages, and normal non-read tool calls (edit, bash, etc.)
+  // are deliberately outside LC1's repository read projection. Indexing all
+  // calls before examining results lets the projection ignore those calls
+  // regardless of their position in the cumulative message list.
+  for (const { entries } of decomposedMessages) {
     for (const entry of entries) {
       if (entry.element.elementKind === 'TOOL_CALL') {
         const callId = entry.element.toolCallId
@@ -395,6 +404,7 @@ function collectReadCandidates(
           path: hint?.status === 'VALID' ? hint.path : null,
           pathStatus: hint === undefined ? 'MISSING' : hint.status
         }
+        if (next.toolName === 'read') readCallIds.add(callId)
         const previous = callsById.get(callId)
         if (
           previous !== undefined &&
@@ -407,18 +417,32 @@ function collectReadCandidates(
         callsById.set(callId, next)
       }
     }
+  }
 
-    if (message.role !== 'toolResult') return
+  // Only read calls/results can contribute repository evidence. Non-read
+  // tool traffic remains part of the original Pi message stream but must not
+  // become an LC1 rejection that trips the runtime kill switch at a normal
+  // read -> edit/bash boundary.
+  for (const { message, entries } of decomposedMessages) {
+    if (message.role !== 'toolResult') continue
     const callId = message.toolCallId
     const eventSourceKey = entries.find((entry) => entry.element.elementKind === 'TOOL_RESULT')
       ?.attribution.sourceKey
+
+    const call = callId === undefined ? undefined : callsById.get(callId)
+    const hasReadBinding = callId !== undefined && readCallIds.has(callId)
+    const nonReadResult =
+      (call !== undefined && call.toolName !== 'read' && !hasReadBinding) ||
+      (call === undefined && message.toolName !== undefined && message.toolName !== 'read')
+    if (nonReadResult) continue
+
     if (callId === undefined) {
       rejected.push({
         callIds: [],
         reason: 'MISSING_CALL_ID',
         ...(eventSourceKey === undefined ? {} : { detail: eventSourceKey })
       })
-      return
+      continue
     }
     if (resultCallIds.has(callId)) {
       rejected.push({
@@ -426,11 +450,11 @@ function collectReadCandidates(
         reason: 'DUPLICATE_CALL_RESULT',
         ...(eventSourceKey === undefined ? {} : { detail: eventSourceKey })
       })
-      return
+      continue
     }
     resultCallIds.add(callId)
     resultRecords.push({ callId, toolName: message.toolName, eventSourceKey })
-  })
+  }
 
   const candidatesByPath = new Map<string, string[]>()
   for (const result of resultRecords) {
@@ -451,19 +475,14 @@ function collectReadCandidates(
       })
       continue
     }
+    // Defensive assertion for the read-only projection. Non-read results
+    // are filtered above and therefore never reach repository mapping.
+    if (call.toolName !== 'read') continue
     if (result.toolName !== undefined && result.toolName !== call.toolName) {
       rejected.push({
         callIds: [result.callId],
         reason: 'CALL_TOOL_NAME_MISMATCH',
         detail: `${call.toolName} != ${result.toolName}`
-      })
-      continue
-    }
-    if (call.toolName !== 'read') {
-      rejected.push({
-        callIds: [result.callId],
-        reason: 'UNSUPPORTED_TOOL',
-        detail: call.toolName
       })
       continue
     }

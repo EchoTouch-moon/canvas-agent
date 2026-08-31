@@ -243,7 +243,7 @@ describe("LC1 runtime-owned composition integration", () => {
     expect(host.callCount).toBe(1);
   });
 
-  it("treats a mixed valid-and-invalid batch as atomic and trips the composition switch", async () => {
+  it("projects a mixed read-and-edit batch without tripping the composition switch", async () => {
     const repository = await createRepository();
     const revision = await repository.revision();
     const host = new Lc1RuntimeRepositoryAdmissionHost({
@@ -261,8 +261,8 @@ describe("LC1 runtime-owned composition integration", () => {
       killSwitch,
     });
     const validRead = readMessages("batch-valid");
-    const invalidTool = readMessages("batch-invalid", "grep");
-    const messages = [...validRead, ...invalidTool];
+    const editTool = readMessages("batch-edit", "edit");
+    const messages = [...validRead, ...editTool];
 
     const result = await composition.mapRepositoryObservations(
       mapperFor(repository),
@@ -271,28 +271,34 @@ describe("LC1 runtime-owned composition integration", () => {
       }),
     );
 
-    expect(result.accepted).toEqual([]);
-    expect(result.rejected).toEqual([
-      expect.objectContaining({ reason: "UNSUPPORTED_TOOL" }),
-      expect.objectContaining({ reason: "BATCH_REJECTED" }),
-    ]);
-    expect(result.quarantined).toEqual([]);
-    expect(killSwitch.tripRecord).toEqual({
-      reason: "LC1_RUNTIME_ADMISSION_MAPPING_GUARD_REJECTED",
-      trippedAt: T0,
+    expect(result.accepted).toHaveLength(1);
+    expect(result.accepted[0]).toMatchObject({
+      sourceKey: FILE_KEY,
+      canonicalPath: PATH,
     });
+    expect(result.rejected).toEqual([]);
+    expect(result.quarantined).toEqual([]);
+    expect(killSwitch.isTripped).toBe(false);
     expect(host.universeRevision).toBeNull();
     expect(host.callCount).toBe(0);
 
-    const stopped = await composition.mapRepositoryObservations(
+    const observed = host.observeModelCall(messages);
+    expect(
+      observed.universeRevision.entries.find((entry) => entry.source.sourceKey === FILE_KEY)
+    ).toBeDefined();
+    expect(host.callCount).toBe(1);
+
+    const next = await composition.mapRepositoryObservations(
       mapperFor(repository),
-      mappingRequest(readMessages("after-batch-stop"), revision, 2, {
+      mappingRequest(readMessages("after-batch-read"), revision, 2, {
         runtimeSessionId: "composition-batch-session",
       }),
     );
-    expect(stopped.rejected).toEqual([
-      expect.objectContaining({ reason: "KILL_SWITCH_TRIPPED" }),
-    ]);
+    expect(next.accepted).toHaveLength(1);
+    expect(next.rejected).toEqual([]);
+    expect(next.quarantined).toEqual([]);
+    expect(killSwitch.isTripped).toBe(false);
+    expect(host.callCount).toBe(1);
   });
 
   it("rolls back an existing admitted pending observation when the next context boundary fails", async () => {

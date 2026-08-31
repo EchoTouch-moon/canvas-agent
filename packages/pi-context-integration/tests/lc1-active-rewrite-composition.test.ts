@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type {
   Extension,
@@ -8,6 +11,11 @@ import {
   createExtensionRuntime,
   ExtensionRunner,
 } from "@earendil-works/pi-coding-agent";
+import {
+  readRepositoryRevision,
+  runGitCommand,
+  type GitRunOptions,
+} from "@canvas-agent/worker-runtime";
 import type { PiMessageView } from "../src";
 import {
   C0ScenarioExecutor,
@@ -16,7 +24,7 @@ import {
   createRunKillSwitch,
   detectInterventionBoundary,
   InMemoryActiveRewriteEvidenceCollector,
-  type Lc1ProductionRepositoryMapper,
+  Lc1ProductionRepositoryMapper,
   type Lc1RepositoryMappingRequest,
   Lc1RuntimeRepositoryAdmissionHost,
   type Lc1RepositoryRevision,
@@ -25,10 +33,10 @@ import {
 // CR-004 explicit LC1-before-Active composition.
 //
 // This suite is credential-free. It uses Pi's real ExtensionRunner dispatcher
-// and the production LC1/Active factories, but a local mapper stub so the
-// wrapper's ordering and shared-switch contract can be isolated from repository
-// authority I/O. Repository mapping itself is covered by the adjacent LC1
-// production-mapping and active-composition suites.
+// and the production LC1/Active factories. Most cases use a local mapper stub
+// to isolate wrapper ordering and shared-switch behavior from repository
+// authority I/O; one regression also wires the production mapper through a
+// temporary Git repository to cover the real read -> edit boundary.
 
 const T0 = "2026-08-31T00:00:00.000Z";
 const PATH = "src/reopen-a.ts";
@@ -41,6 +49,68 @@ const REVISION: Lc1RepositoryRevision = {
 };
 
 const temporaryKillSwitches: ReturnType<typeof createRunKillSwitch>[] = [];
+const temporaryRepositories: string[] = [];
+
+interface RealRepository {
+  readonly directory: string;
+  readonly revision: () => Promise<Lc1RepositoryRevision>;
+}
+
+function gitOptions(cwd: string): GitRunOptions {
+  return {
+    cwd,
+    timeoutMs: 30_000,
+    maxOutputBytes: 2 * 1024 * 1024,
+    commandAllowlist: ["git"],
+    signal: undefined,
+  };
+}
+
+async function createRealRepository(): Promise<RealRepository> {
+  const directory = await mkdtemp(join(tmpdir(), "canvas-lc1-composed-real-repo-"));
+  temporaryRepositories.push(directory);
+  const git = async (args: readonly string[]): Promise<string> => {
+    const result = await runGitCommand(args, gitOptions(directory));
+    if (result.exitCode !== 0) {
+      throw new Error(`git failed: ${args.join(" ")}\n${result.stderr}`);
+    }
+    return result.stdout.trim();
+  };
+
+  await git(["init", "-q", "-b", "main"]);
+  await git(["config", "user.email", "lc1-composition@canvas.local"]);
+  await git(["config", "user.name", "LC1 Composition"]);
+  await mkdir(join(directory, "src"), { recursive: true });
+  await writeFile(join(directory, PATH), 'export const value = "reopen-a:v3"\n', "utf8");
+  await git(["add", "-A"]);
+  await git(["commit", "-q", "-m", "fixture"]);
+
+  return {
+    directory,
+    revision: async () => {
+      const revision = await readRepositoryRevision(directory, gitOptions(directory));
+      if (revision.baseCommit === null || revision.treeHash === null) {
+        throw new Error("expected committed repository revision");
+      }
+      return {
+        baseCommit: revision.baseCommit,
+        treeHash: revision.treeHash,
+        workingTreePatchHash: revision.workingTreePatchHash,
+      };
+    },
+  };
+}
+
+function realMapperFor(repository: RealRepository): Lc1ProductionRepositoryMapper {
+  return new Lc1ProductionRepositoryMapper({
+    pathResolver: {
+      resolve: ({ repositoryId, namespace }) =>
+        repositoryId === "repo-a" && namespace === "workspace"
+          ? repository.directory
+          : undefined,
+    },
+  });
+}
 
 function userMessage(text: string): PiMessageView {
   return { role: "user", content: [{ type: "text", text }] };
@@ -186,8 +256,13 @@ function createFixture(options: {
   return { extension, host, killSwitch, executor, evidence };
 }
 
-afterEach(() => {
+afterEach(async () => {
   temporaryKillSwitches.splice(0);
+  await Promise.all(
+    temporaryRepositories
+      .splice(0)
+      .map((directory) => rm(directory, { recursive: true, force: true })),
+  );
 });
 
 describe("explicit LC1-before-Active Pi composition", () => {
@@ -224,6 +299,37 @@ describe("explicit LC1-before-Active Pi composition", () => {
     expect(rewritten).toHaveLength(3);
     expect(rewritten).not.toContain(thirdMessages[2]);
     expect(fixture.executor.observationCount).toBe(3);
+  });
+
+  it("keeps a real mapper healthy across a read-to-edit Active boundary", async () => {
+    const repository = await createRealRepository();
+    const revision = await repository.revision();
+    const runId = "lc1-active-composed-real-mapper-run";
+    const fixture = createFixture({
+      runId,
+      runtimeSessionId: "lc1-active-composed-real-mapper-session",
+      mapper: realMapperFor(repository),
+      getExpectedRevision: () => revision,
+    });
+    const runner = await loadRealPiRunner(fixture.extension);
+
+    const firstMessages = [userMessage("Start the repository task.")];
+    const secondMessages = [...firstMessages, ...readPair("real-read-1")];
+    const thirdMessages = [...secondMessages, ...editPair("real-edit-1")];
+
+    expect(await runner.emitContext(firstMessages as never)).toEqual(firstMessages);
+    expect(await runner.emitContext(secondMessages as never)).toEqual(secondMessages);
+    const rewritten = await runner.emitContext(thirdMessages as never);
+
+    expect(fixture.killSwitch.isTripped).toBe(false);
+    expect(fixture.host.callCount).toBe(3);
+    expect(fixture.evidence.intervention).toMatchObject({
+      compositionVerdict: "REWRITE_READY",
+      guardVerdict: "PASS",
+      sentRewrite: true,
+    });
+    expect(rewritten).toHaveLength(3);
+    expect(rewritten).not.toContain(thirdMessages[2]);
   });
 
   it("trips the shared switch before Active and blocks a qualifying rewrite boundary", async () => {
