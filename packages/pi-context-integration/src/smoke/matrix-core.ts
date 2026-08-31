@@ -56,8 +56,9 @@ export {
 //     (rep-major, per task NATIVE, ACTIVE_V2, ACTIVE_V3) — now CONFIGURABLE
 //     via the validated env knobs CANVAS_MX_TASKS (subset of L1/L2/L3) and
 //     CANVAS_MX_REPS (1..8) so a targeted run (e.g. L2-only x 4 reps = 12
-//     legs) is possible; the matrix totals stay 600 provider-call records /
-//     180 minutes;
+//     legs) is possible; matrix totals are profile-bound (the historical
+//     defaults are 900 provider-call records / 180 minutes, while M6 binds
+//     1,400 records / 300 minutes);
 //   - the matrix state machine: leg-level failures mark ONE leg FAILED and the
 //     matrix CONTINUES; only matrix-level S-1 (binding) or S-7 (totals) stop
 //     everything, checked between legs, evidence always preserved;
@@ -81,10 +82,10 @@ export {
 // ---------------------------------------------------------------------------
 
 /**
- * Run identities of the REGISTERED series only (M1..M4; see
+ * Run identities of the REGISTERED series only (M1..M6; see
  * MX_EXPERIMENT_PROFILES): `cr004-m<N>-<ISO-date-undashed>-<8-hex>`, e.g.
  * cr004-m1-20260826-d23a992c / cr004-m2-20260827-4d7e9a1b /
- * cr004-m4-20260827-d0cec2f5. An M5+ identity is REFUSED until a profile +
+ * cr004-m4-20260827-d0cec2f5. An M7+ identity is REFUSED until a profile +
  * contract are deliberately added to the registry (the old open `m[1-9]`
  * pattern accepted series whose contracts do not exist).
  */
@@ -132,15 +133,29 @@ export type MxTaskId = (typeof MX_TASK_IDS)[number]
  */
 export const MX_STRATEGIES = ['NATIVE', 'ACTIVE_V2', 'ACTIVE_V3'] as const
 
+/** Configurable arms; the M3 default remains unchanged for history safety. */
+export const MX_CONFIGURABLE_STRATEGIES = [
+  'NATIVE',
+  'ACTIVE_V2',
+  'ACTIVE_V3',
+  'ACTIVE_V4'
+] as const
+
 /**
  * Every strategy the analyzer understands, in canonical order — including the
  * historical v1 ACTIVE arm so M1/M2 evidence dirs still analyze correctly.
  */
-export const MX_ALL_STRATEGIES = ['NATIVE', 'ACTIVE', 'ACTIVE_V2', 'ACTIVE_V3'] as const
+export const MX_ALL_STRATEGIES = [
+  'NATIVE',
+  'ACTIVE',
+  'ACTIVE_V2',
+  'ACTIVE_V3',
+  'ACTIVE_V4'
+] as const
 export type MxStrategy = (typeof MX_ALL_STRATEGIES)[number]
 
 /** Strategies that run the Active rewrite extension (treatment arms). */
-export const MX_ACTIVE_STRATEGIES = ['ACTIVE', 'ACTIVE_V2', 'ACTIVE_V3'] as const
+export const MX_ACTIVE_STRATEGIES = ['ACTIVE', 'ACTIVE_V2', 'ACTIVE_V3', 'ACTIVE_V4'] as const
 export type MxActiveStrategy = (typeof MX_ACTIVE_STRATEGIES)[number]
 
 export const MX_REPETITIONS = 3
@@ -226,7 +241,8 @@ export function parseMxRepetitionsEnv(raw: string | undefined): number {
 }
 
 /**
- * Parse CANVAS_MX_ARMS: a comma list from {NATIVE, ACTIVE_V2, ACTIVE_V3};
+ * Parse CANVAS_MX_ARMS: a comma list from {NATIVE, ACTIVE_V2, ACTIVE_V3,
+ * ACTIVE_V4};
  * default all three. Refuses empty tokens, duplicates and unknown arms; the
  * canonical order (control first) applies regardless of the env listing.
  */
@@ -237,19 +253,19 @@ export function parseMxStrategiesEnv(raw: string | undefined): readonly MxStrate
     .map((token) => token.trim())
     .filter((token) => token !== '')
   if (tokens.length === 0) {
-    throw new MxConfigError('CANVAS_MX_ARMS must be a comma list from {NATIVE,ACTIVE_V2,ACTIVE_V3} (got an empty list)')
+    throw new MxConfigError('CANVAS_MX_ARMS must be a comma list from {NATIVE,ACTIVE_V2,ACTIVE_V3,ACTIVE_V4} (got an empty list)')
   }
   const arms: MxStrategy[] = []
   for (const token of tokens) {
-    if (!(MX_STRATEGIES as readonly string[]).includes(token)) {
-      throw new MxConfigError(`CANVAS_MX_ARMS: unknown arm '${token}' (allowed: NATIVE,ACTIVE_V2,ACTIVE_V3)`)
+    if (!(MX_CONFIGURABLE_STRATEGIES as readonly string[]).includes(token)) {
+      throw new MxConfigError(`CANVAS_MX_ARMS: unknown arm '${token}' (allowed: NATIVE,ACTIVE_V2,ACTIVE_V3,ACTIVE_V4)`)
     }
     if (arms.includes(token as MxStrategy)) {
       throw new MxConfigError(`CANVAS_MX_ARMS: duplicate arm '${token}'`)
     }
     arms.push(token as MxStrategy)
   }
-  return MX_STRATEGIES.filter((strategy) => arms.includes(strategy))
+  return MX_CONFIGURABLE_STRATEGIES.filter((strategy) => arms.includes(strategy))
 }
 
 /**
@@ -419,7 +435,8 @@ const MX_STRATEGY_DIR_SEGMENT: Readonly<Record<MxStrategy, string>> = {
   NATIVE: 'NATIVE',
   ACTIVE: 'ACTIVE',
   ACTIVE_V2: 'ACTIVE2',
-  ACTIVE_V3: 'ACTIVE3'
+  ACTIVE_V3: 'ACTIVE3',
+  ACTIVE_V4: 'ACTIVE4'
 }
 
 export function mxLegDirName(plan: MxLegPlan): string {
@@ -454,7 +471,15 @@ export const MX_BUDGETS = {
   /** Policy-v3 cap on read pairs removed by ONE intervention (oldest-first). */
   maxBlocksPerInterventionV3: 12,
   /** Policy-v3 verification-window width in trailing tool events. */
-  verifyWindowEventsV3: 2
+  verifyWindowEventsV3: 2,
+  /** Raised multi-intervention bound per ACTIVE_V4 leg (sends, policy v4). */
+  maxInterventionsPerLegV4: 8,
+  /** Raised multi-intervention bound per ACTIVE_V4 leg (attempts, policy v4). */
+  maxAttemptsPerLegV4: 12,
+  /** Policy-v4 cap on read pairs removed by ONE intervention. */
+  maxBlocksPerInterventionV4: 12,
+  /** Fixed policy-v4 batch threshold, frozen by the M6 contract. */
+  minCandidateBlocksV4: 2
 } as const
 
 /** Per-leg budget measures checked post-hoc at leg end. */
@@ -533,15 +558,18 @@ export interface MxMatrixLedgers {
   readonly oraclePassActiveV2: number
   /** M3 third arm (policy v3); 0 for M1/M2-era evidence. */
   readonly oraclePassActiveV3: number
+  /** M6 fourth arm (policy v4); 0 for pre-M6 evidence. */
+  readonly oraclePassActiveV4: number
   readonly runElapsedMs: number
 }
 
 /**
  * Matrix state machine. Leg-level failures NEVER stop the matrix; only the
- * matrix-level totals (S-7: 600 provider-call records / 180 minutes, checked
- * between legs) or a strict binding failure (S-1) are terminal. The leg-count
- * bound defaults to the 27-leg M3 design and scales with a configured shape
- * (passed by the runner). Deterministic under an injected clock; no I/O.
+ * matrix-level totals (S-7: profile-bound provider-call and wall-clock
+ * ceilings, checked between legs) or a strict binding failure (S-1) are
+ * terminal. The leg-count bound defaults to the 27-leg M3 design and scales
+ * with a configured shape (passed by the runner). Deterministic under an
+ * injected clock; no I/O.
  */
 export class MatrixStateMachine {
   private readonly ledgersByLeg: MxLegLedger[] = []
@@ -551,6 +579,8 @@ export class MatrixStateMachine {
   private readonly now: () => number
   private readonly nowIso: () => string
   private readonly maxLegs: number
+  private readonly maxProviderCallRecords: number
+  private readonly runWallClockMs: number
 
   constructor(
     options: {
@@ -558,12 +588,19 @@ export class MatrixStateMachine {
       readonly nowIso?: () => string
       /** Leg-count bound for the configured shape. Default: MX_TOTAL_LEGS. */
       readonly maxLegs?: number
+      /** Matrix provider-call ceiling. Default: MX_BUDGETS.maxProviderCallRecords. */
+      readonly maxProviderCallRecords?: number
+      /** Matrix wall-clock ceiling. Default: MX_BUDGETS.runWallClockMs. */
+      readonly runWallClockMs?: number
     } = {}
   ) {
     this.now = options.now ?? Date.now
     this.nowIso = options.nowIso ?? (() => new Date().toISOString())
     this.startedAtMs = this.now()
     this.maxLegs = options.maxLegs ?? MX_BUDGETS.maxLegs
+    this.maxProviderCallRecords =
+      options.maxProviderCallRecords ?? MX_BUDGETS.maxProviderCallRecords
+    this.runWallClockMs = options.runWallClockMs ?? MX_BUDGETS.runWallClockMs
   }
 
   get isTerminal(): boolean {
@@ -588,6 +625,7 @@ export class MatrixStateMachine {
     let oraclePassActive = 0
     let oraclePassActiveV2 = 0
     let oraclePassActiveV3 = 0
+    let oraclePassActiveV4 = 0
     for (const leg of this.ledgersByLeg) {
       providerCallRecordsTotal += leg.providerCallRecords
       toolCallsTotal += leg.toolCalls
@@ -598,7 +636,8 @@ export class MatrixStateMachine {
         if (leg.strategy === 'NATIVE') oraclePassNative += 1
         else if (leg.strategy === 'ACTIVE') oraclePassActive += 1
         else if (leg.strategy === 'ACTIVE_V2') oraclePassActiveV2 += 1
-        else oraclePassActiveV3 += 1
+        else if (leg.strategy === 'ACTIVE_V3') oraclePassActiveV3 += 1
+        else oraclePassActiveV4 += 1
       }
     }
     return {
@@ -612,6 +651,7 @@ export class MatrixStateMachine {
       oraclePassActive,
       oraclePassActiveV2,
       oraclePassActiveV3,
+      oraclePassActiveV4,
       runElapsedMs: this.now() - this.startedAtMs
     }
   }
@@ -629,16 +669,16 @@ export class MatrixStateMachine {
 
   private evaluateTotalsStop(): { readonly stop: false } | { readonly stop: true; readonly reason: string } {
     const ledgers = this.ledgers()
-    if (ledgers.providerCallRecordsTotal > MX_BUDGETS.maxProviderCallRecords) {
+    if (ledgers.providerCallRecordsTotal > this.maxProviderCallRecords) {
       return {
         stop: true,
-        reason: `matrix provider-call budget breached: ${ledgers.providerCallRecordsTotal} > ${MX_BUDGETS.maxProviderCallRecords}`
+        reason: `matrix provider-call budget breached: ${ledgers.providerCallRecordsTotal} > ${this.maxProviderCallRecords}`
       }
     }
-    if (ledgers.runElapsedMs > MX_BUDGETS.runWallClockMs) {
+    if (ledgers.runElapsedMs > this.runWallClockMs) {
       return {
         stop: true,
-        reason: `matrix wall-clock budget breached: ${ledgers.runElapsedMs}ms > ${MX_BUDGETS.runWallClockMs}ms`
+        reason: `matrix wall-clock budget breached: ${ledgers.runElapsedMs}ms > ${this.runWallClockMs}ms`
       }
     }
     return { stop: false }
@@ -933,7 +973,7 @@ export interface MxLegAnalysisInput {
     readonly toolBlocksRemoved: number
     readonly reReads: number
     readonly postFirstInterventionReads: number
-    /** Removal policy of this leg's arm ('v1-per-edit' | 'v2-retain-latest-coarse' | 'v3-verify-window-dedup'). */
+    /** Removal policy of this leg's arm, including the exploratory v4 batch arm. */
     readonly policy: string
     /** Eligible candidate read pairs found across interventions (pre-cap). */
     readonly candidateBlocks: number
@@ -947,6 +987,8 @@ export interface MxLegAnalysisInput {
     readonly dedupRemovals: number
     /** Boundary evaluations that deferred an edit sweep (v3 legs; 0 otherwise). */
     readonly deferredSweeps: number
+    /** Edit boundaries held below the fixed v4 batch threshold. */
+    readonly batchDeferrals: number
   }
 }
 
@@ -985,6 +1027,8 @@ export interface MxCellAggregate {
     readonly dedupRemovals: number
     /** Boundary evaluations that deferred an edit sweep (v3 legs; 0 otherwise). */
     readonly deferredSweeps: number
+    /** Edit boundaries held below the fixed v4 batch threshold. */
+    readonly batchDeferrals: number
   }
 }
 
@@ -1054,6 +1098,9 @@ export function mxLegAnalysisInputOf(record: MxLegRecord): MxLegAnalysisInput {
             deferredSweeps: telemetry.events.filter(
               (event) => event.deferredByVerifyWindow === true
             ).length,
+            batchDeferrals: telemetry.events.filter(
+              (event) => event.deferredByBatchThreshold === true
+            ).length,
             reReads: reReads.matches.length,
             postFirstInterventionReads: reReads.postFirstInterventionReadCount
           }
@@ -1093,6 +1140,7 @@ export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonl
       let postFirstInterventionReads = 0
       let dedupRemovals = 0
       let deferredSweeps = 0
+      let batchDeferrals = 0
       let hasActive = false
       let activePolicy = 'v1-per-edit'
       for (const leg of legs) {
@@ -1104,6 +1152,8 @@ export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonl
           activePolicy = 'v2-retain-latest-coarse'
         } else if (leg.strategy === 'ACTIVE_V3') {
           activePolicy = 'v3-verify-window-dedup'
+        } else if (leg.strategy === 'ACTIVE_V4') {
+          activePolicy = 'v4-batched-retain-latest'
         } else if (leg.interventions.policy !== 'v1-per-edit') {
           activePolicy = leg.interventions.policy
         }
@@ -1115,6 +1165,7 @@ export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonl
         retainedLatestReadTargets += leg.interventions.retainedLatestReadTargets
         dedupRemovals += leg.interventions.dedupRemovals
         deferredSweeps += leg.interventions.deferredSweeps
+        batchDeferrals += leg.interventions.batchDeferrals
         const drop = dropAtBoundaryOf(leg.tokenSeries, leg.interventions.sentBoundarySequences)
         dropSent += drop.sent
         dropDrops += drop.drops
@@ -1175,7 +1226,8 @@ export function aggregateMxCells(inputs: readonly MxLegAnalysisInput[]): readonl
                 reReads,
                 postFirstInterventionReads,
                 dedupRemovals,
-                deferredSweeps
+                deferredSweeps,
+                batchDeferrals
               }
             }
           : {})
@@ -1746,7 +1798,7 @@ export function mxCellOneLiner(cell: MxCellAggregate): string {
     cell.active.dropAtBoundary.rate === null
       ? 'n/a'
       : `${(cell.active.dropAtBoundary.rate * 100).toFixed(0)}%`
-  return `${base} policy=${cell.active.policy} interventions=${cell.active.sends}/${cell.active.attempts}${fallbacks === '' ? '' : ` fallbacks=[${fallbacks}]`} removedBlocks=${cell.active.removedBlocks}${cell.active.candidateBlocks > cell.active.removedBlocks ? ` (capped from ${cell.active.candidateBlocks})` : ''} retainedLatest=${cell.active.retainedLatestReadTargets} dropAtBoundary=${cell.active.dropAtBoundary.drops}/${cell.active.dropAtBoundary.sent} (${dropRate}) reReads=${cell.active.reReads} postFirstReads=${cell.active.postFirstInterventionReads} dedupRemovals=${cell.active.dedupRemovals} deferredSweeps=${cell.active.deferredSweeps}`
+  return `${base} policy=${cell.active.policy} interventions=${cell.active.sends}/${cell.active.attempts}${fallbacks === '' ? '' : ` fallbacks=[${fallbacks}]`} removedBlocks=${cell.active.removedBlocks}${cell.active.candidateBlocks > cell.active.removedBlocks ? ` (capped from ${cell.active.candidateBlocks})` : ''} retainedLatest=${cell.active.retainedLatestReadTargets} dropAtBoundary=${cell.active.dropAtBoundary.drops}/${cell.active.dropAtBoundary.sent} (${dropRate}) reReads=${cell.active.reReads} postFirstReads=${cell.active.postFirstInterventionReads} dedupRemovals=${cell.active.dedupRemovals} deferredSweeps=${cell.active.deferredSweeps} batchDeferrals=${cell.active.batchDeferrals}`
 }
 
 // ---------------------------------------------------------------------------
@@ -1921,7 +1973,7 @@ export async function analyzeMatrix(reportDir: string): Promise<MxAnalysisOutput
   for (const cell of cells.filter((candidate) => candidate.active !== undefined)) {
     const active = cell.active!
     lines.push(
-      `- ${cell.task}/${cell.strategy}: policy=${active.policy}, sends=${active.sends}/${active.attempts} attempts, removedBlocks=${active.removedBlocks}${active.candidateBlocks > active.removedBlocks ? ` (capped from ${active.candidateBlocks} candidates)` : ` (candidates=${active.candidateBlocks})`}, retainedLatestReadTargets=${active.retainedLatestReadTargets}, dropAtBoundary=${active.dropAtBoundary.drops}/${active.dropAtBoundary.sent}${active.dropAtBoundary.rate === null ? '' : ` (${(active.dropAtBoundary.rate * 100).toFixed(0)}%)`}, reReadsOfRemovedTargets=${active.reReads}, postFirstInterventionReads=${active.postFirstInterventionReads}, dedupRemovals=${active.dedupRemovals}, deferredSweeps=${active.deferredSweeps}${Object.keys(active.fallbackReasons).length === 0 ? '' : `, fallbacks=${JSON.stringify(active.fallbackReasons)}`}`
+      `- ${cell.task}/${cell.strategy}: policy=${active.policy}, sends=${active.sends}/${active.attempts} attempts, removedBlocks=${active.removedBlocks}${active.candidateBlocks > active.removedBlocks ? ` (capped from ${active.candidateBlocks} candidates)` : ` (candidates=${active.candidateBlocks})`}, retainedLatestReadTargets=${active.retainedLatestReadTargets}, dropAtBoundary=${active.dropAtBoundary.drops}/${active.dropAtBoundary.sent}${active.dropAtBoundary.rate === null ? '' : ` (${(active.dropAtBoundary.rate * 100).toFixed(0)}%)`}, reReadsOfRemovedTargets=${active.reReads}, postFirstInterventionReads=${active.postFirstInterventionReads}, dedupRemovals=${active.dedupRemovals}, deferredSweeps=${active.deferredSweeps}, batchDeferrals=${active.batchDeferrals}${Object.keys(active.fallbackReasons).length === 0 ? '' : `, fallbacks=${JSON.stringify(active.fallbackReasons)}`}`
     )
   }
   lines.push('')
@@ -2223,7 +2275,7 @@ export function scriptedMxLegRecords(
           killSwitchTripped: false
         }
       })
-    } else {
+    } else if (plan.strategy === 'ACTIVE_V3') {
       // ACTIVE_V3: the L2 verification pattern. Path A is read twice with
       // IDENTICAL content and NO edit boundary in flight -> a DEDUP
       // intervention removes the older duplicate. Then an edit of path B
@@ -2343,6 +2395,96 @@ export function scriptedMxLegRecords(
           interventions: v3Interventions,
           attemptsUsed: v3Interventions.length,
           sendsUsed: v3Interventions.length,
+          killSwitchTripped: false
+        }
+      })
+    } else {
+      // ACTIVE_V4: the batch-threshold pattern. One stale candidate is held
+      // at the first edit boundary; a later read makes two older pairs
+      // eligible, after which one batched rewrite removes both. This is only
+      // a DRY_RUN stand-in for the telemetry shape; it never authorizes a
+      // provider call or substitutes for the live M6 evidence.
+      const activeV4Series = [400, 900, 850, 1400, 1200]
+      const batchHashV4 = 'feed0000feed0008'
+      const v4Events: ActiveRewriteEventEvidence[] = [
+        scriptedEvent(1, activeV4Series[0]!, {
+          readTargets: [{ toolCallId: 'scripted-v4-a1', readTargetHash: batchHashV4 }]
+        }),
+        scriptedEvent(2, activeV4Series[1]!, {
+          readTargets: [{ toolCallId: 'scripted-v4-a2', readTargetHash: batchHashV4 }]
+        }),
+        scriptedEvent(3, activeV4Series[2]!, {
+          boundaryReached: true,
+          policy: 'v4-batched-retain-latest',
+          trigger: 'edit',
+          triggerToolCallId: 'scripted-v4-edit',
+          interventionPath: 'src/scripted-batch.ts',
+          candidateBlocks: 1,
+          removedBlocks: 0,
+          retainedLatestReadTargets: [batchHashV4],
+          deferredByBatchThreshold: true,
+          batchThreshold: 2
+        }),
+        scriptedEvent(4, activeV4Series[3]!, {
+          readTargets: [{ toolCallId: 'scripted-v4-a3', readTargetHash: batchHashV4 }]
+        }),
+        scriptedEvent(5, activeV4Series[4]!, {
+          boundaryReached: true,
+          interventionAttempted: true,
+          interventionIndex: 1,
+          compositionVerdict: 'REWRITE_READY',
+          guardVerdict: 'PASS',
+          sentRewrite: true,
+          toolBlocksRemoved: 2,
+          interventionPath: 'src/scripted-batch.ts',
+          composedMessageCount: 4,
+          removedReadTargetHashes: [batchHashV4, batchHashV4],
+          policy: 'v4-batched-retain-latest',
+          trigger: 'edit',
+          candidateBlocks: 2,
+          removedBlocks: 2,
+          retainedLatestReadTargets: [batchHashV4]
+        })
+      ]
+      const v4Interventions: ActiveRewriteInterventionSummary[] = [
+        {
+          boundarySequence: 5,
+          interventionPath: 'src/scripted-batch.ts',
+          interventionIndex: 1,
+          attemptOutcome: 'SENT' as const,
+          compositionVerdict: 'REWRITE_READY' as const,
+          guardVerdict: 'PASS' as const,
+          sentRewrite: true,
+          killSwitchTripped: false,
+          toolBlocksRemoved: 2,
+          removedSourceKeys: [
+            'run/tool-call://scripted-v4-a1',
+            'run/tool-result://scripted-v4-a1',
+            'run/tool-call://scripted-v4-a2',
+            'run/tool-result://scripted-v4-a2'
+          ],
+          composedMessageCount: 4,
+          latchSetAtSequence: 5,
+          removedReadTargetHashes: [batchHashV4, batchHashV4],
+          policy: 'v4-batched-retain-latest',
+          trigger: 'edit',
+          candidateBlocks: 2,
+          removedBlocks: 2,
+          retainedLatestReadTargets: [batchHashV4]
+        }
+      ]
+      records.push({
+        ...common,
+        recordCount: activeV4Series.length,
+        toolCallCount: 8,
+        observedTokenEstimateSum: activeV4Series.reduce((a, b) => a + b, 0),
+        wallClockMs: 0,
+        trajectory: trajectorySummaryOf(activeV4Series),
+        interventionTelemetry: {
+          events: v4Events,
+          interventions: v4Interventions,
+          attemptsUsed: v4Interventions.length,
+          sendsUsed: v4Interventions.length,
           killSwitchTripped: false
         }
       })

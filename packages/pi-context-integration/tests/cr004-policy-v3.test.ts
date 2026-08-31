@@ -148,6 +148,7 @@ function createHarness(options: {
   readonly maxInterventions?: number
   readonly maxAttempts?: number
   readonly verifyWindowEvents?: number
+  readonly minCandidateBlocks?: number
 }) {
   const executor = new C0ScenarioExecutor({
     runtimeSessionId: `${RUN_ID}:policy-v3-test`,
@@ -169,6 +170,9 @@ function createHarness(options: {
     ...(options.maxAttempts !== undefined ? { maxAttempts: options.maxAttempts } : {}),
     ...(options.verifyWindowEvents !== undefined
       ? { verifyWindowEvents: options.verifyWindowEvents }
+      : {}),
+    ...(options.minCandidateBlocks !== undefined
+      ? { minCandidateBlocks: options.minCandidateBlocks }
       : {})
   })
   return { dispatch: register(factory).dispatch, collector, killSwitch }
@@ -570,5 +574,62 @@ describe('removal policy v3 (verify-window dedup, real planner, offline)', () =>
     expect(harness.collector.interventions).toHaveLength(1)
     expect(harness.collector.attemptsUsed).toBe(1)
     expect((idle!.messages as readonly PiMessageView[]).length).toBe(9)
+  })
+
+  it('(f) v4 defers a one-candidate edit boundary, then sends one batched rewrite once two stale pairs are eligible', async () => {
+    const harness = createHarness({ removalPolicy: 'v4-batched-retain-latest' })
+    const base: readonly PiMessageView[] = [
+      userMessage(PROMPT),
+      ...readPair('r1', P1, 'alpha content v1', 'Reading alpha first.'),
+      ...readPair('r2', P1, 'alpha content v2', 'Reading alpha second.'),
+      ...editPair('e1', P1, 'Editing alpha.')
+    ]
+    await harness.dispatch(base.slice(0, 1))
+    await harness.dispatch(base)
+
+    // Only r1 is supersedeable while r2 is retained as the latest read, so the
+    // fixed v4 threshold of two candidates holds the pending edit boundary.
+    const deferred = await harness.dispatch([...base, textMessage('Continuing.')])
+    const deferredEvent = harness.collector.events[2] as ActiveRewriteEventEvidence
+    expect(deferredEvent.boundaryReached).toBe(true)
+    expect(deferredEvent.interventionAttempted).toBe(false)
+    expect(deferredEvent.policy).toBe('v4-batched-retain-latest')
+    expect(deferredEvent.trigger).toBe('edit')
+    expect(deferredEvent.triggerToolCallId).toBe('e1')
+    expect(deferredEvent.candidateBlocks).toBe(1)
+    expect(deferredEvent.removedBlocks).toBe(0)
+    expect(deferredEvent.deferredByBatchThreshold).toBe(true)
+    expect(deferredEvent.batchThreshold).toBe(2)
+    expect(harness.collector.batchDeferrals).toBe(1)
+    expect(harness.collector.interventions).toHaveLength(0)
+    expect(deferred!.messages).toHaveLength(base.length + 1)
+
+    // Re-observing the same boundary while it is still below threshold must
+    // not create duplicate deferral evidence or consume an attempt.
+    const stillWaiting = await harness.dispatch([...base, textMessage('Still waiting.')])
+    expect(stillWaiting!.messages).toHaveLength(base.length + 1)
+    expect(harness.collector.batchDeferrals).toBe(1)
+    expect(harness.collector.interventions).toHaveLength(0)
+    expect(harness.collector.attemptsUsed).toBe(0)
+
+    // A third read makes r1 and r2 eligible while retaining r3. The same edit
+    // trigger now fires; the earlier deferral did not consume an attempt.
+    const fired = await harness.dispatch([
+      ...base,
+      textMessage('Continuing.'),
+      ...readPair('r3', P1, 'alpha content v3 latest', 'Reading alpha latest.')
+    ])
+    const attempt = harness.collector.interventions[0]!
+    expect(attempt.policy).toBe('v4-batched-retain-latest')
+    expect(attempt.trigger).toBe('edit')
+    expect(attempt.candidateBlocks).toBe(2)
+    expect(attempt.removedBlocks).toBe(2)
+    expect(attempt.sentRewrite).toBe(true)
+    expect(harness.collector.attemptsUsed).toBe(1)
+    expect(harness.collector.sendsUsed).toBe(1)
+    expect(attempt.removedReadTargetHashes).toEqual([readTargetHashOf(P1), readTargetHashOf(P1)])
+    expect(textsOf(fired!.messages as readonly PiMessageView[])).not.toContain('alpha content v1')
+    expect(textsOf(fired!.messages as readonly PiMessageView[])).not.toContain('alpha content v2')
+    expect(textsOf(fired!.messages as readonly PiMessageView[])).toContain('alpha content v3 latest')
   })
 })
