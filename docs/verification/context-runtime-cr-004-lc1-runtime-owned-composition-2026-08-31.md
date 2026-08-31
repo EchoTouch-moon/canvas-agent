@@ -65,6 +65,24 @@ The existing LC1 runtime-owned admission suite remains unchanged and continues
 to pass alongside the new suite. No model runtime, provider credential, Pi live
 session, CR-005 manifest, or Active rewrite path is invoked.
 
+## Composition guard mutation audit
+
+The composition guards were also checked with one temporary source mutation at
+a time. Each mutation was reverted immediately after the focused test failed;
+no mutated source was committed. Every expected guard mutant was killed:
+
+| Temporary mutation                                          | Expected result |
+| ----------------------------------------------------------- | --------------- |
+| Remove the default `DISABLED` fallback                      | KILLED          |
+| Bypass the `handleContext()` kill-switch check              | KILLED          |
+| Remove observer failure handling and rollback               | KILLED          |
+| Remove the guarded sink kill-switch gate                    | KILLED          |
+| Remove the sticky trip on an admission rejection            | KILLED          |
+| Return a cloned message array instead of the original array | KILLED          |
+
+This audit is limited to the composition safety contract. It does not establish
+cryptographic isolation, cross-process enforcement, or live model behavior.
+
 ## Gate state
 
 ```text
