@@ -5,6 +5,11 @@ import type {
 } from '@earendil-works/pi-coding-agent'
 import type { PiMessageView } from '../pi-message-mapper'
 import {
+  Lc1ProductionRepositoryMapper,
+  type Lc1ProductionMappingResult,
+  type Lc1RepositoryMappingRequest
+} from './lc1-production-mapping'
+import {
   Lc1RuntimeRepositoryAdmissionHost,
   type Lc1RuntimeRepositoryAdmissionCandidate,
   type Lc1RuntimeRepositoryAdmissionResult,
@@ -34,6 +39,11 @@ export interface Lc1RuntimeAdmissionComposition {
   handleContext(messages: readonly PiMessageView[]): {
     readonly messages: readonly PiMessageView[]
   }
+  /** Run the repository mapper through this composition's guarded sink. */
+  mapRepositoryObservations(
+    mapper: Lc1ProductionRepositoryMapper,
+    request: Lc1RepositoryMappingRequest
+  ): Promise<Lc1ProductionMappingResult>
   /** Register the guarded, observational-only composition with Pi. */
   createExtension(): ExtensionFactory
 }
@@ -45,7 +55,7 @@ class Lc1RuntimeAdmissionCompositionImpl implements Lc1RuntimeAdmissionCompositi
   readonly enabled: boolean
   readonly repositoryAdmissionSink: Lc1RuntimeRepositoryAdmissionSink | null
   readonly killSwitch: RunKillSwitch | null
-  private readonly host: Lc1RuntimeRepositoryAdmissionHost | null
+  readonly #host: Lc1RuntimeRepositoryAdmissionHost | null
 
   constructor(options: Lc1RuntimeAdmissionCompositionOptions) {
     const mode = options.mode ?? 'DISABLED'
@@ -58,7 +68,7 @@ class Lc1RuntimeAdmissionCompositionImpl implements Lc1RuntimeAdmissionCompositi
         throw new Error('lc1_runtime_admission_disabled_options_present')
       }
       this.enabled = false
-      this.host = null
+      this.#host = null
       this.killSwitch = null
       this.repositoryAdmissionSink = null
       return
@@ -71,9 +81,11 @@ class Lc1RuntimeAdmissionCompositionImpl implements Lc1RuntimeAdmissionCompositi
       throw new Error('lc1_runtime_admission_kill_switch_required')
     }
     this.enabled = true
-    this.host = options.host
+    this.#host = options.host
     this.killSwitch = options.killSwitch
-    this.repositoryAdmissionSink = new KillSwitchAdmissionSink(options.host, options.killSwitch)
+    this.repositoryAdmissionSink = Object.freeze(
+      new KillSwitchAdmissionSink(options.host, options.killSwitch)
+    )
   }
 
   handleContext(messages: readonly PiMessageView[]): {
@@ -81,12 +93,12 @@ class Lc1RuntimeAdmissionCompositionImpl implements Lc1RuntimeAdmissionCompositi
   } {
     if (!this.enabled || this.killSwitch?.isTripped === true) return { messages }
 
-    const snapshot = this.host!.snapshotForTransaction()
+    const snapshot = this.#host!.snapshotForTransaction()
     try {
-      this.host!.observeModelCall(messages)
+      this.#host!.observeModelCall(messages)
     } catch {
       try {
-        this.host!.restoreTransaction(snapshot)
+        this.#host!.restoreTransaction(snapshot)
       } catch {
         // The switch remains the fail-closed control even if rollback itself
         // cannot be completed. Pi still receives the untouched messages.
@@ -94,6 +106,25 @@ class Lc1RuntimeAdmissionCompositionImpl implements Lc1RuntimeAdmissionCompositi
       this.killSwitch!.trip('LC1_RUNTIME_ADMISSION_OBSERVER_FAILURE')
     }
     return { messages }
+  }
+
+  async mapRepositoryObservations(
+    mapper: Lc1ProductionRepositoryMapper,
+    request: Lc1RepositoryMappingRequest
+  ): Promise<Lc1ProductionMappingResult> {
+    if (!this.enabled) throw new Error('lc1_runtime_admission_disabled')
+    if (this.killSwitch!.isTripped) return killSwitchedMappingResult()
+
+    try {
+      const result = await mapper.observeAndQueue(request, this.repositoryAdmissionSink!)
+      if (result.rejected.length > 0 || result.quarantined.length > 0) {
+        this.killSwitch!.trip('LC1_RUNTIME_ADMISSION_MAPPING_GUARD_REJECTED')
+      }
+      return result
+    } catch {
+      this.killSwitch!.trip('LC1_RUNTIME_ADMISSION_MAPPING_FAILURE')
+      return killSwitchedMappingResult()
+    }
   }
 
   createExtension(): ExtensionFactory {
@@ -106,20 +137,35 @@ class Lc1RuntimeAdmissionCompositionImpl implements Lc1RuntimeAdmissionCompositi
   }
 }
 
+function killSwitchedMappingResult(): Lc1ProductionMappingResult {
+  return {
+    accepted: [],
+    rejected: [
+      {
+        callIds: [],
+        reason: 'KILL_SWITCH_TRIPPED',
+        detail: KILL_SWITCHED_RESULT_DETAIL
+      }
+    ],
+    quarantined: [],
+    authoritativeObservations: []
+  }
+}
+
 class KillSwitchAdmissionSink implements Lc1RuntimeRepositoryAdmissionSink {
   readonly lc1RepositoryAdmissionMode = 'RUNTIME_OWNED' as const
-  private readonly host: Lc1RuntimeRepositoryAdmissionHost
-  private readonly killSwitch: RunKillSwitch
+  readonly #host: Lc1RuntimeRepositoryAdmissionHost
+  readonly #killSwitch: RunKillSwitch
 
   constructor(host: Lc1RuntimeRepositoryAdmissionHost, killSwitch: RunKillSwitch) {
-    this.host = host
-    this.killSwitch = killSwitch
+    this.#host = host
+    this.#killSwitch = killSwitch
   }
 
   admitLc1RepositoryObservations(
     candidates: readonly Lc1RuntimeRepositoryAdmissionCandidate[]
   ): Lc1RuntimeRepositoryAdmissionResult {
-    if (this.killSwitch.isTripped) {
+    if (this.#killSwitch.isTripped) {
       return {
         accepted: [],
         rejected: candidates.map((candidate) => ({
@@ -134,9 +180,9 @@ class KillSwitchAdmissionSink implements Lc1RuntimeRepositoryAdmissionSink {
 
     let result: Lc1RuntimeRepositoryAdmissionResult
     try {
-      result = this.host.admitLc1RepositoryObservations(candidates)
+      result = this.#host.admitLc1RepositoryObservations(candidates)
     } catch {
-      this.killSwitch.trip('LC1_RUNTIME_ADMISSION_SINK_FAILURE')
+      this.#killSwitch.trip('LC1_RUNTIME_ADMISSION_SINK_FAILURE')
       return {
         accepted: [],
         rejected: candidates.map((candidate) => ({
@@ -149,7 +195,7 @@ class KillSwitchAdmissionSink implements Lc1RuntimeRepositoryAdmissionSink {
       }
     }
     if (result.rejected.length > 0 || result.quarantined.length > 0) {
-      this.killSwitch.trip('LC1_RUNTIME_ADMISSION_GUARD_REJECTED')
+      this.#killSwitch.trip('LC1_RUNTIME_ADMISSION_GUARD_REJECTED')
     }
     return result
   }

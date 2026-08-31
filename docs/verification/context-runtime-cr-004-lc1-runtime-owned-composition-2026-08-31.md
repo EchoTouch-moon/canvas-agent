@@ -41,20 +41,25 @@ observer/admission error or rejection
 ```
 
 The composition is observational-only. It does not select a Planner working
-set and does not rewrite or reorder the messages returned to Pi. The kill
-switch is a programmatic in-process control for this Run, not a cryptographic
-or cross-process trust boundary.
+set and does not rewrite or reorder the messages returned to Pi. The guarded
+sink uses ECMAScript private state and is frozen before exposure, so the
+underlying host is not an ordinary property that callers can use as a bypass.
+The kill switch remains a programmatic in-process control for this Run, not a
+cryptographic or cross-process trust boundary.
 
 ## Credential-free verification
 
-The dedicated composition suite has six tests covering:
+The dedicated composition suite has nine tests covering:
 
 1. default-disabled identity-preserving behavior;
 2. invalid, partial, and contradictory configuration;
 3. explicit runtime-owned selection and Pi extension registration;
 4. absence of the legacy queue surface;
 5. operator trip permanently bypassing both observation and admission; and
-6. observer failure rollback plus admission-guard trip behavior.
+6. observer failure rollback plus admission-guard trip behavior;
+7. mapper-side failures entering the same sticky stop;
+8. unexpected mapper exceptions becoming a stopped result; and
+9. disabled compositions rejecting repository mapping attempts.
 
 The existing LC1 runtime-owned admission suite remains unchanged and continues
 to pass alongside the new suite. No model runtime, provider credential, Pi live

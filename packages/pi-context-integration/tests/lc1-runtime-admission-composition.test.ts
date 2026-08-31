@@ -4,7 +4,9 @@ import type { PiMessageView } from '../src'
 import {
   createLc1RuntimeAdmissionComposition,
   createRunKillSwitch,
+  Lc1ProductionRepositoryMapper,
   Lc1RuntimeRepositoryAdmissionHost,
+  type Lc1RepositoryMappingRequest,
   type Lc1RuntimeRepositoryAdmissionCandidate
 } from '../src/experimental'
 
@@ -88,6 +90,8 @@ describe('LC1 runtime-owned admission composition', () => {
 
     expect(composition.enabled).toBe(true)
     expect(composition.repositoryAdmissionSink?.lc1RepositoryAdmissionMode).toBe('RUNTIME_OWNED')
+    expect(Object.isFrozen(composition.repositoryAdmissionSink)).toBe(true)
+    expect('host' in composition.repositoryAdmissionSink!).toBe(false)
     expect('queueExternalObservations' in composition.repositoryAdmissionSink!).toBe(false)
     expect('admitLc1RepositoryObservations' in composition.repositoryAdmissionSink!).toBe(true)
     expect(composition.handleContext(messages).messages).toBe(messages)
@@ -178,5 +182,68 @@ describe('LC1 runtime-owned admission composition', () => {
     expect(second.rejected).toEqual([
       expect.objectContaining({ reason: 'KILL_SWITCH_TRIPPED' })
     ])
+  })
+
+  it('routes mapper-side failures through the same sticky stop', async () => {
+    const runtimeHost = host('composition-mapper-failure')
+    const killSwitch = createRunKillSwitch('composition-mapper-failure-run', {
+      now: () => FIXED_NOW
+    })
+    const composition = createLc1RuntimeAdmissionComposition({
+      mode: 'RUNTIME_OWNED',
+      host: runtimeHost,
+      killSwitch
+    })
+    const mapper = new Lc1ProductionRepositoryMapper({
+      pathResolver: { resolve: () => undefined }
+    })
+    const request = {} as Lc1RepositoryMappingRequest
+
+    const result = await composition.mapRepositoryObservations(mapper, request)
+    expect(result.rejected).toEqual([expect.objectContaining({ reason: 'INVALID_REQUEST' })])
+    expect(killSwitch.tripRecord).toEqual({
+      reason: 'LC1_RUNTIME_ADMISSION_MAPPING_GUARD_REJECTED',
+      trippedAt: FIXED_NOW
+    })
+    expect(
+      await composition.mapRepositoryObservations(mapper, request)
+    ).toEqual({
+      accepted: [],
+      rejected: [expect.objectContaining({ reason: 'KILL_SWITCH_TRIPPED' })],
+      quarantined: [],
+      authoritativeObservations: []
+    })
+  })
+
+  it('trips and converts an unexpected mapper exception into a stopped result', async () => {
+    const runtimeHost = host('composition-mapper-throw')
+    const killSwitch = createRunKillSwitch('composition-mapper-throw-run', {
+      now: () => FIXED_NOW
+    })
+    const composition = createLc1RuntimeAdmissionComposition({
+      mode: 'RUNTIME_OWNED',
+      host: runtimeHost,
+      killSwitch
+    })
+    const mapper = {
+      observeAndQueue: async () => {
+        throw new Error('unexpected mapper failure')
+      }
+    } as unknown as Lc1ProductionRepositoryMapper
+
+    const result = await composition.mapRepositoryObservations(mapper, {} as Lc1RepositoryMappingRequest)
+    expect(result.rejected).toEqual([expect.objectContaining({ reason: 'KILL_SWITCH_TRIPPED' })])
+    expect(killSwitch.tripRecord).toEqual({
+      reason: 'LC1_RUNTIME_ADMISSION_MAPPING_FAILURE',
+      trippedAt: FIXED_NOW
+    })
+  })
+
+  it('does not permit repository mapping through a disabled composition', async () => {
+    const composition = createLc1RuntimeAdmissionComposition()
+    const mapper = {} as Lc1ProductionRepositoryMapper
+    await expect(
+      composition.mapRepositoryObservations(mapper, {} as Lc1RepositoryMappingRequest)
+    ).rejects.toThrow('lc1_runtime_admission_disabled')
   })
 })
