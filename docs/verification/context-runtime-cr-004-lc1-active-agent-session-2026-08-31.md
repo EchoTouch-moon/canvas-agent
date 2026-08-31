@@ -59,6 +59,26 @@ kill-switch trip; the test distinguishes that preserved basis from a new
 Active rewrite. This is consistent with the existing carried-removal contract
 and does not re-admit the old Run.
 
+## Construction mutation audit
+
+The composed-factory safety boundary was also checked with five one-at-a-time
+temporary mutations of the companion composition implementation. Each broken
+variant was caught by an existing credential-free regression, and every
+mutation was reverted before the clean-source verification:
+
+```text
+reverse LC1/Active registration order       caught by LC1-failure test
+omit the shared kill-switch binding         caught by LC1-failure test
+remove independent-switch rejection         caught by construction test
+remove Run-ID mismatch rejection             caught by construction test
+remove malformed Active-config rejection     caught by construction test
+```
+
+The audit therefore supplies negative evidence for registration order, shared
+switch identity, Run-ID isolation, and fail-closed configuration validation.
+No mutation was committed. The restored source passed the dedicated
+composition suite with 3/3 tests, and the audit used zero Provider calls.
+
 ## Scope and limits
 
 ```text
