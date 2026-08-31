@@ -58,7 +58,8 @@ export {
 //     CANVAS_MX_REPS (1..8) so a targeted run (e.g. L2-only x 4 reps = 12
 //     legs) is possible; matrix totals are profile-bound (the historical
 //     defaults are 900 provider-call records / 180 minutes, while M6 binds
-//     1,400 records / 300 minutes and M7/M8 bind 1,800 records / 300 minutes);
+//     1,400 records / 300 minutes, M7/M8 bind 1,800 records / 300 minutes, and
+//     M9 binds 1,400 records / 300 minutes);
 //   - the matrix state machine: leg-level failures mark ONE leg FAILED and the
 //     matrix CONTINUES; only matrix-level S-1 (binding) or S-7 (totals) stop
 //     everything, checked between legs, evidence always preserved;
@@ -82,10 +83,10 @@ export {
 // ---------------------------------------------------------------------------
 
 /**
- * Run identities of the REGISTERED series only (M1..M8; see
+ * Run identities of the REGISTERED series only (M1..M9; see
  * MX_EXPERIMENT_PROFILES): `cr004-m<N>-<ISO-date-undashed>-<8-hex>`, e.g.
  * cr004-m1-20260826-d23a992c / cr004-m2-20260827-4d7e9a1b /
- * cr004-m4-20260827-d0cec2f5. An M9+ identity is REFUSED until a profile +
+ * cr004-m4-20260827-d0cec2f5. An M10+ identity is REFUSED until a profile +
  * contract are deliberately added to the registry (the old open `m[1-9]`
  * pattern accepted series whose contracts do not exist).
  */
