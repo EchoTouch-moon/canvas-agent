@@ -53,6 +53,23 @@ different host session than the mapping request. The request helper was then
 made explicitly session-bound; the corrected test passed without any
 production-source change.
 
+## Integration guard mutation audit
+
+Four temporary one-at-a-time source mutations were applied locally and
+reverted immediately after the focused suite failed. Every expected mutant was
+killed:
+
+| Temporary mutation                                                  | Expected result |
+| ------------------------------------------------------------------- | --------------- |
+| Remove the composition's sticky stop on mapper rejection/quarantine | KILLED          |
+| Remove observer-boundary snapshot rollback                          | KILLED          |
+| Drop authority-observer failure quarantine                          | KILLED          |
+| Remove runtime-admission batch atomicity                            | KILLED          |
+
+The audit left no mutated production source in the branch. It covers the
+in-process integration guards only; it does not establish cryptographic
+isolation, cross-process enforcement, or live model behavior.
+
 ## Interpretation and limits
 
 This evidence establishes the in-process composition path and its fail-closed
