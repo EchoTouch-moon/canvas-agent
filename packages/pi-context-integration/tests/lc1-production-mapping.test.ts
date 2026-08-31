@@ -398,11 +398,50 @@ describe('LC1 production read-only mapping candidate', () => {
     expect(missingPath.rejected).toEqual([expect.objectContaining({ reason: 'MISSING_PATH_HINT' })])
     expect(authorityCalls).toBe(0)
 
-    const unsupported = await mapper.observeAndQueue(
+    const ignoredNonRead = await mapper.observeAndQueue(
       request(readMessages('grep-call', PATH, CONTENT_V3, 'grep'), revision, 2),
       runtime
     )
-    expect(unsupported.rejected).toEqual([expect.objectContaining({ reason: 'UNSUPPORTED_TOOL' })])
+    expect(ignoredNonRead).toEqual({
+      accepted: [],
+      rejected: [],
+      quarantined: [],
+      authoritativeObservations: []
+    })
+    expect(authorityCalls).toBe(0)
+
+    const ignoredEdit = await mapper.observeAndQueue(
+      request(readMessages('edit-call', PATH, CONTENT_V3, 'edit'), revision, 2),
+      runtime
+    )
+    const ignoredBash = await mapper.observeAndQueue(
+      request(readMessages('bash-call', PATH, CONTENT_V3, 'bash'), revision, 2),
+      runtime
+    )
+    expect(ignoredEdit.rejected).toEqual([])
+    expect(ignoredEdit.accepted).toEqual([])
+    expect(ignoredBash.rejected).toEqual([])
+    expect(ignoredBash.accepted).toEqual([])
+    expect(authorityCalls).toBe(0)
+
+    // A non-read call is outside the projection, but reusing an id that was
+    // previously bound to a read must remain a strict identity failure.
+    const readCall = readMessages('read-id-reused-for-edit')[0]!
+    const editPair = readMessages(
+      'read-id-reused-for-edit',
+      PATH,
+      CONTENT_V3,
+      'edit',
+      'edit'
+    )
+    const remappedReadId = await mapper.observeAndQueue(
+      request([readCall, editPair[0]!, editPair[1]!], revision, 2),
+      runtime
+    )
+    expect(remappedReadId.accepted).toEqual([])
+    expect(remappedReadId.rejected).toEqual([
+      expect.objectContaining({ reason: 'CALL_ID_REMAP', callIds: ['read-id-reused-for-edit'] })
+    ])
     expect(authorityCalls).toBe(0)
 
     const traversal = await mapper.observeAndQueue(
