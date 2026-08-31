@@ -22,6 +22,7 @@ import {
 import type { PiMessageView } from '../src'
 import {
   createLc1RuntimeAdmissionComposition,
+  createLc1RuntimeAdmissionExtension,
   createLc1RuntimeAdmissionPiExtension,
   createRunKillSwitch,
   Lc1ProductionRepositoryMapper,
@@ -298,6 +299,86 @@ describe('LC1 runtime-owned Pi composition extension', () => {
         })
       })
     ).toThrow('LC1_RUNTIME_ADMISSION_PI_EXTENSION_CONFIGURATION_INVALID')
+  })
+
+  it('rejects a structurally matching composition that is not first-party', () => {
+    const killSwitch = createRunKillSwitch('pi-forged-composition-run', { now: () => T0 })
+    const forgedComposition = {
+      mode: 'RUNTIME_OWNED' as const,
+      enabled: true,
+      repositoryAdmissionSink: null,
+      killSwitch,
+      mapRepositoryObservations: async () => ({
+        accepted: [],
+        rejected: [],
+        quarantined: [],
+        authoritativeObservations: []
+      }),
+      handleContext: (messages: readonly PiMessageView[]) => ({ messages })
+    } as unknown as Lc1RuntimeAdmissionComposition
+
+    expect(() =>
+      createLc1RuntimeAdmissionPiExtension({
+        composition: forgedComposition,
+        mapper: {} as Lc1ProductionRepositoryMapper,
+        runtimeSessionId: 'pi-forged-composition-session',
+        repositoryId: 'repo-a',
+        namespace: 'workspace',
+        authorityStreamId: 'pi-forged-composition-stream',
+        getExpectedRevision: () => ({
+          baseCommit: 'a'.repeat(40),
+          treeHash: 'b'.repeat(40),
+          workingTreePatchHash: null
+        })
+      })
+    ).toThrow('lc1_runtime_admission_pi_extension_requires_first_party_runtime_owned')
+    expect(() => createLc1RuntimeAdmissionExtension(forgedComposition)).toThrow(
+      'lc1_runtime_admission_extension_requires_first_party_runtime_owned'
+    )
+  })
+
+  it('freezes first-party composition state after construction', () => {
+    const sessionId = 'pi-frozen-composition-session'
+    const host = new Lc1RuntimeRepositoryAdmissionHost({
+      observer: { runtimeSessionId: sessionId, now: () => T0 }
+    })
+    const composition = createLc1RuntimeAdmissionComposition({
+      mode: 'RUNTIME_OWNED',
+      host,
+      killSwitch: createRunKillSwitch('pi-frozen-composition-run', { now: () => T0 })
+    })
+
+    expect(Object.isFrozen(composition)).toBe(true)
+  })
+
+  it('keeps the legacy context-only factory lifecycle-guarded', async () => {
+    const sessionId = 'pi-legacy-factory-lifecycle-session'
+    const host = new Lc1RuntimeRepositoryAdmissionHost({
+      observer: { runtimeSessionId: sessionId, now: () => T0 }
+    })
+    const killSwitch = createRunKillSwitch('pi-legacy-factory-lifecycle-run', { now: () => T0 })
+    const composition = createLc1RuntimeAdmissionComposition({
+      mode: 'RUNTIME_OWNED',
+      host,
+      killSwitch
+    })
+    const { dispatch, shutdown } = registerWithSessionShutdown(
+      createLc1RuntimeAdmissionExtension(composition)
+    )
+    const firstMessages = userMessages('legacy factory before shutdown')
+
+    expect((await dispatch(firstMessages)).messages).toBe(firstMessages)
+    expect(host.callCount).toBe(1)
+
+    await shutdown('reload')
+    expect(killSwitch.tripRecord).toEqual({
+      reason: 'LC1_RUNTIME_ADMISSION_PI_SESSION_SHUTDOWN:reload',
+      trippedAt: T0
+    })
+
+    const lateMessages = userMessages('legacy factory after shutdown')
+    expect((await dispatch(lateMessages)).messages).toBe(lateMessages)
+    expect(host.callCount).toBe(1)
   })
 
   it('maps authority before the Pi boundary and returns the exact original messages', async () => {
@@ -776,31 +857,30 @@ describe('LC1 runtime-owned Pi composition extension', () => {
   })
 
   it('does not observe when a composition reports a mapping rejection', async () => {
-    const repository = await createRepository()
+    const sessionId = 'pi-composition-map-rejection-session'
+    const host = new Lc1RuntimeRepositoryAdmissionHost({
+      observer: { runtimeSessionId: sessionId, now: () => T0 }
+    })
     const killSwitch = createRunKillSwitch('pi-composition-map-rejection-run', { now: () => T0 })
-    let handleContextCalls = 0
-    const composition = {
+    const composition = createLc1RuntimeAdmissionComposition({
       mode: 'RUNTIME_OWNED',
-      enabled: true,
-      repositoryAdmissionSink: null,
-      killSwitch,
-      mapRepositoryObservations: async () => ({
+      host,
+      killSwitch
+    })
+    const mapper = {
+      observeAndQueue: async () => ({
         accepted: [],
-        rejected: [{ callIds: ['pi-map-rejection'], reason: 'INVALID_REQUEST' }],
+        rejected: [{ callIds: ['pi-map-rejection'], reason: 'INVALID_REQUEST' as const }],
         quarantined: [],
         authoritativeObservations: []
-      }),
-      handleContext: (messages: readonly PiMessageView[]) => {
-        handleContextCalls += 1
-        return { messages }
-      }
-    } as unknown as Lc1RuntimeAdmissionComposition
+      })
+    } as unknown as Lc1ProductionRepositoryMapper
     const messages = readMessages('pi-map-rejection')
     const dispatch = register(
       createLc1RuntimeAdmissionPiExtension({
         composition,
-        mapper: mapperFor(repository),
-        ...mappingOptions('pi-composition-map-rejection-session'),
+        mapper,
+        ...mappingOptions(sessionId),
         namespace: 'workspace',
         authorityStreamId: 'pi-map-rejection-stream',
         getExpectedRevision: async () => ({
@@ -813,7 +893,7 @@ describe('LC1 runtime-owned Pi composition extension', () => {
     )
 
     expect((await dispatch(messages)).messages).toBe(messages)
-    expect(handleContextCalls).toBe(0)
+    expect(host.callCount).toBe(0)
     expect(killSwitch.tripRecord).toEqual({
       reason: 'LC1_RUNTIME_ADMISSION_MAPPING_GUARD_REJECTED',
       trippedAt: T0
@@ -821,24 +901,27 @@ describe('LC1 runtime-owned Pi composition extension', () => {
   })
 
   it('fails closed when the composition boundary itself throws', async () => {
-    const repository = await createRepository()
+    const sessionId = 'pi-composition-boundary-failure-session'
+    const host = new Lc1RuntimeRepositoryAdmissionHost({
+      observer: { runtimeSessionId: sessionId, now: () => T0 }
+    })
     const killSwitch = createRunKillSwitch('pi-composition-boundary-failure-run', { now: () => T0 })
-    const composition = {
+    const composition = createLc1RuntimeAdmissionComposition({
       mode: 'RUNTIME_OWNED',
-      enabled: true,
-      repositoryAdmissionSink: null,
-      killSwitch,
-      mapRepositoryObservations: async () => {
-        throw new Error('composition failure')
-      },
-      handleContext: (messages: readonly PiMessageView[]) => ({ messages })
-    } as unknown as Lc1RuntimeAdmissionComposition
+      host,
+      killSwitch
+    })
+    const mapper = {
+      observeAndQueue: async () => {
+        throw new Error('mapper failure')
+      }
+    } as unknown as Lc1ProductionRepositoryMapper
     const messages = readMessages('pi-composition-boundary-failure')
     const dispatch = register(
       createLc1RuntimeAdmissionPiExtension({
         composition,
-        mapper: mapperFor(repository),
-        ...mappingOptions('pi-composition-boundary-failure-session'),
+        mapper,
+        ...mappingOptions(sessionId),
         namespace: 'workspace',
         authorityStreamId: 'pi-composition-boundary-failure-stream',
         getExpectedRevision: async () => ({
@@ -851,10 +934,83 @@ describe('LC1 runtime-owned Pi composition extension', () => {
     )
 
     expect((await dispatch(messages)).messages).toBe(messages)
+    expect(host.callCount).toBe(0)
     expect(killSwitch.tripRecord).toEqual({
-      reason: 'LC1_RUNTIME_ADMISSION_PI_COMPOSITION_FAILURE',
+      reason: 'LC1_RUNTIME_ADMISSION_MAPPING_FAILURE',
       trippedAt: T0
     })
+  })
+
+  it('uses the validated dependency snapshot after caller configuration mutates', async () => {
+    const repository = await createRepository()
+    const revision = await repository.revision()
+    const sessionId = 'pi-composition-config-snapshot-session'
+    const host = new Lc1RuntimeRepositoryAdmissionHost({
+      observer: { runtimeSessionId: sessionId, now: () => T0 }
+    })
+    const killSwitch = createRunKillSwitch('pi-composition-config-snapshot-run', {
+      now: () => T0
+    })
+    const composition = createLc1RuntimeAdmissionComposition({
+      mode: 'RUNTIME_OWNED',
+      host,
+      killSwitch
+    })
+    const options = {
+      composition,
+      mapper: mapperFor(repository),
+      ...mappingOptions(sessionId),
+      namespace: 'workspace',
+      authorityStreamId: 'pi-config-snapshot-stream',
+      getExpectedRevision: () => revision,
+      observedAt: () => T0
+    }
+    const factory = createLc1RuntimeAdmissionPiExtension(options)
+    const forgedComposition = {
+      mode: 'RUNTIME_OWNED' as const,
+      enabled: true,
+      repositoryAdmissionSink: null,
+      killSwitch: createRunKillSwitch('pi-forged-replacement-run', { now: () => T0 }),
+      mapRepositoryObservations: async () => ({
+        accepted: [],
+        rejected: [],
+        quarantined: [],
+        authoritativeObservations: []
+      }),
+      handleContext: () => ({ messages: userMessages('forged replacement') })
+    } as unknown as Lc1RuntimeAdmissionComposition
+    const replacementMapper = {
+      observeAndQueue: async () => {
+        throw new Error('replacement mapper must not run')
+      }
+    } as unknown as Lc1ProductionRepositoryMapper
+    const mutableOptions = options as unknown as {
+      -readonly [K in keyof Lc1RuntimeAdmissionPiExtensionOptions]:
+        Lc1RuntimeAdmissionPiExtensionOptions[K]
+    }
+    mutableOptions.composition = forgedComposition
+    mutableOptions.mapper = replacementMapper
+    mutableOptions.runtimeSessionId = 'pi-config-snapshot-wrong-session'
+    mutableOptions.repositoryId = 'repo-wrong'
+    mutableOptions.namespace = 'wrong-namespace'
+    mutableOptions.authorityStreamId = 'wrong-stream'
+    mutableOptions.getExpectedRevision = () => {
+      throw new Error('replacement revision supplier must not run')
+    }
+    mutableOptions.observedAt = () => {
+      throw new Error('replacement timestamp supplier must not run')
+    }
+
+    const messages = readMessages('pi-config-snapshot')
+    const dispatch = register(factory)
+
+    expect((await dispatch(messages)).messages).toBe(messages)
+    expect(killSwitch.isTripped).toBe(false)
+    expect(host.callCount).toBe(1)
+    const entry = host.universeRevision?.entries.find(
+      (candidate) => candidate.source.sourceKey === FILE_KEY
+    )
+    expect(entry?.admittedVersion?.contentHash).toBe(sha256Hex(CONTENT_V3))
   })
 
   it('rolls back an admitted pending observation when the observer boundary fails', async () => {

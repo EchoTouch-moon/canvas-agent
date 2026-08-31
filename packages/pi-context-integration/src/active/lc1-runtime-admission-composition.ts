@@ -1,7 +1,8 @@
 import type {
   ContextEvent,
   ExtensionAPI,
-  ExtensionFactory
+  ExtensionFactory,
+  SessionShutdownEvent
 } from '@earendil-works/pi-coding-agent'
 import type { PiMessageView } from '../pi-message-mapper'
 import {
@@ -16,6 +17,17 @@ import {
   type Lc1RuntimeRepositoryAdmissionSink
 } from './lc1-runtime-repository-admission'
 import type { RunKillSwitch } from './kill-switch'
+
+// The Pi adapter is a safety boundary, so structural compatibility alone is
+// insufficient. Keep first-party composition identity private to this module;
+// the symbol is deliberately not part of the experimental public surface.
+const trustedCompositions = new WeakSet<object>()
+
+export function isTrustedLc1RuntimeAdmissionComposition(
+  value: unknown
+): value is Lc1RuntimeAdmissionComposition {
+  return typeof value === 'object' && value !== null && trustedCompositions.has(value)
+}
 
 /** Explicit opt-in state for the runtime-owned LC1 production composition. */
 export type Lc1RuntimeAdmissionCompositionMode = 'DISABLED' | 'RUNTIME_OWNED'
@@ -71,6 +83,8 @@ class Lc1RuntimeAdmissionCompositionImpl implements Lc1RuntimeAdmissionCompositi
       this.#host = null
       this.killSwitch = null
       this.repositoryAdmissionSink = null
+      trustedCompositions.add(this)
+      Object.freeze(this)
       return
     }
 
@@ -86,6 +100,8 @@ class Lc1RuntimeAdmissionCompositionImpl implements Lc1RuntimeAdmissionCompositi
     this.repositoryAdmissionSink = Object.freeze(
       new KillSwitchAdmissionSink(options.host, options.killSwitch)
     )
+    trustedCompositions.add(this)
+    Object.freeze(this)
   }
 
   handleContext(messages: readonly PiMessageView[]): {
@@ -215,5 +231,18 @@ export function createLc1RuntimeAdmissionComposition(
 export function createLc1RuntimeAdmissionExtension(
   composition: Lc1RuntimeAdmissionComposition
 ): ExtensionFactory {
-  return composition.createExtension()
+  if (
+    !isTrustedLc1RuntimeAdmissionComposition(composition) ||
+    !composition.enabled ||
+    composition.mode !== 'RUNTIME_OWNED'
+  ) {
+    throw new Error('lc1_runtime_admission_extension_requires_first_party_runtime_owned')
+  }
+  const contextExtension = composition.createExtension()
+  return (pi: ExtensionAPI) => {
+    pi.on('session_shutdown', (event: SessionShutdownEvent) => {
+      composition.killSwitch!.trip(`LC1_RUNTIME_ADMISSION_PI_SESSION_SHUTDOWN:${event.reason}`)
+    })
+    contextExtension(pi)
+  }
 }
