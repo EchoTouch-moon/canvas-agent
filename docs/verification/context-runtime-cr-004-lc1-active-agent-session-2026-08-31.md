@@ -86,8 +86,12 @@ remove malformed Active-config rejection     caught by construction test
 
 The audit therefore supplies negative evidence for registration order, shared
 switch identity, Run-ID isolation, and fail-closed configuration validation.
-No mutation was committed. The restored source passed the dedicated
-composition suite with 3/3 tests, and the audit used zero Provider calls.
+As a separate lifecycle mutation, temporarily removing the LC1
+`session_shutdown` trip caused the AgentSession suite to fail its shutdown
+registration and both reload-isolation assertions; restoring the handler
+returned the suite to green. No mutation was committed. The restored source
+passed the dedicated composition suite with 3/3 tests, and the audit used zero
+Provider calls.
 
 ## Scope and limits
 
