@@ -154,6 +154,10 @@ export {
   type Lc1RuntimeAdmissionPiExtensionOptions
 } from './active/lc1-runtime-admission-pi-extension'
 export {
+  createLc1ActiveRewriteExtension,
+  type Lc1ActiveRewriteExtensionOptions
+} from './active/lc1-active-rewrite-composition'
+export {
   MX_EVIDENCE_ROOT_FILENAME,
   computeMxEvidenceRoot,
   findRepoRoot,
