@@ -8,7 +8,17 @@ import {
   runGitCommand,
   type GitRunOptions
 } from '@canvas-agent/worker-runtime'
-import type { ContextEvent, ExtensionAPI, ExtensionFactory } from '@earendil-works/pi-coding-agent'
+import type {
+  ContextEvent,
+  ExtensionAPI,
+  ExtensionFactory,
+  Extension,
+  SessionShutdownEvent
+} from '@earendil-works/pi-coding-agent'
+import {
+  createExtensionRuntime,
+  ExtensionRunner
+} from '@earendil-works/pi-coding-agent'
 import type { PiMessageView } from '../src'
 import {
   createLc1RuntimeAdmissionComposition,
@@ -146,6 +156,75 @@ function register(factory: ExtensionFactory): (
   }
 }
 
+function registerWithSessionShutdown(factory: ExtensionFactory): {
+  readonly dispatch: (
+    messages: readonly PiMessageView[]
+  ) => Promise<{ readonly messages: readonly PiMessageView[] }>
+  readonly shutdown: (reason: SessionShutdownEvent['reason']) => Promise<void>
+} {
+  let contextHandler:
+    | ((event: ContextEvent) => Promise<{ messages: ContextEvent['messages'] } | undefined>)
+    | undefined
+  let shutdownHandler: ((event: SessionShutdownEvent) => Promise<void> | void) | undefined
+  const pi = {
+    on: (event: 'context' | 'session_shutdown', registered: unknown) => {
+      if (event === 'context') {
+        contextHandler = registered as typeof contextHandler
+      } else {
+        shutdownHandler = registered as typeof shutdownHandler
+      }
+    }
+  } as unknown as ExtensionAPI
+  factory(pi)
+  if (contextHandler === undefined || shutdownHandler === undefined) {
+    throw new Error('factory did not register context and shutdown handlers')
+  }
+  return {
+    dispatch: async (messages) => {
+      const result = await contextHandler!({
+        type: 'context',
+        messages: messages as ContextEvent['messages']
+      })
+      if (result === undefined) throw new Error('context handler returned no result')
+      return { messages: result.messages as readonly PiMessageView[] }
+    },
+    shutdown: async (reason) => {
+      await shutdownHandler!({ type: 'session_shutdown', reason })
+    }
+  }
+}
+
+async function loadRealPiRunner(factory: ExtensionFactory): Promise<ExtensionRunner> {
+  const runtime = createExtensionRuntime()
+  const handlers = new Map<string, unknown[]>()
+  const pi = {
+    on: (event: string, handler: unknown) => {
+      const registered = handlers.get(event) ?? []
+      registered.push(handler)
+      handlers.set(event, registered)
+    }
+  } as unknown as ExtensionAPI
+  await factory(pi)
+  const extension = {
+    path: '<lc1-pi-hook-test>',
+    resolvedPath: '<lc1-pi-hook-test>',
+    sourceInfo: {} as Extension['sourceInfo'],
+    handlers,
+    tools: new Map(),
+    messageRenderers: new Map(),
+    commands: new Map(),
+    flags: new Map(),
+    shortcuts: new Map()
+  } as unknown as Extension
+  return new ExtensionRunner(
+    [extension],
+    runtime,
+    process.cwd(),
+    undefined as never,
+    undefined as never
+  )
+}
+
 function mapperFor(
   repository: TempRepository,
   repositoryId = 'repo-a',
@@ -256,6 +335,58 @@ describe('LC1 runtime-owned Pi composition extension', () => {
       (candidate) => candidate.source.sourceKey === FILE_KEY
     )
     expect(entry?.admittedVersion?.contentHash).toBe(sha256Hex(CONTENT_V3))
+  })
+
+  it('runs through the real Pi ExtensionRunner context dispatcher without rewriting input', async () => {
+    const repository = await createRepository()
+    const revision = await repository.revision()
+    const sessionId = 'pi-composition-real-runner-session'
+    const host = new Lc1RuntimeRepositoryAdmissionHost({
+      observer: { runtimeSessionId: sessionId, now: () => T0 }
+    })
+    const killSwitch = createRunKillSwitch('pi-composition-real-runner-run', { now: () => T0 })
+    const composition = createLc1RuntimeAdmissionComposition({
+      mode: 'RUNTIME_OWNED',
+      host,
+      killSwitch
+    })
+    const runner = await loadRealPiRunner(
+      createLc1RuntimeAdmissionPiExtension({
+        composition,
+        mapper: mapperFor(repository),
+        ...mappingOptions(sessionId),
+        namespace: 'workspace',
+        authorityStreamId: 'pi-real-runner-stream',
+        getExpectedRevision: () => revision,
+        observedAt: () => T0
+      })
+    )
+    const messages = readMessages('pi-real-runner')
+
+    const result = await runner.emitContext(
+      messages as unknown as Parameters<ExtensionRunner['emitContext']>[0]
+    )
+
+    expect(result).toEqual(messages)
+    expect(result).not.toBe(messages)
+    expect(killSwitch.isTripped).toBe(false)
+    expect(host.callCount).toBe(1)
+    const entry = host.universeRevision?.entries.find(
+      (candidate) => candidate.source.sourceKey === FILE_KEY
+    )
+    expect(entry?.admittedVersion?.contentHash).toBe(sha256Hex(CONTENT_V3))
+
+    await runner.emit({ type: 'session_shutdown', reason: 'fork' })
+    expect(killSwitch.tripRecord).toEqual({
+      reason: 'LC1_RUNTIME_ADMISSION_PI_SESSION_SHUTDOWN:fork',
+      trippedAt: T0
+    })
+    const lateMessages = readMessages('pi-real-runner-after-shutdown')
+    const lateResult = await runner.emitContext(
+      lateMessages as unknown as Parameters<ExtensionRunner['emitContext']>[0]
+    )
+    expect(lateResult).toEqual(lateMessages)
+    expect(host.callCount).toBe(1)
   })
 
   it('binds a fresh revision and monotonic authority order for each context event', async () => {
@@ -522,6 +653,54 @@ describe('LC1 runtime-owned Pi composition extension', () => {
     expect(timestampCalls).toBe(0)
     expect(host.callCount).toBe(0)
     expect(killSwitch.tripRecord).toEqual({ reason: 'operator stop', trippedAt: T0 })
+  })
+
+  it('stops the old runtime when Pi shuts down the session for replacement', async () => {
+    const repository = await createRepository()
+    const revision = await repository.revision()
+    const sessionId = 'pi-composition-session-shutdown-session'
+    const host = new Lc1RuntimeRepositoryAdmissionHost({
+      observer: { runtimeSessionId: sessionId, now: () => T0 }
+    })
+    const killSwitch = createRunKillSwitch('pi-composition-session-shutdown-run', {
+      now: () => T0
+    })
+    const composition = createLc1RuntimeAdmissionComposition({
+      mode: 'RUNTIME_OWNED',
+      host,
+      killSwitch
+    })
+    let revisionCalls = 0
+    const { dispatch, shutdown } = registerWithSessionShutdown(
+      createLc1RuntimeAdmissionPiExtension({
+        composition,
+        mapper: mapperFor(repository),
+        ...mappingOptions(sessionId),
+        namespace: 'workspace',
+        authorityStreamId: 'pi-session-shutdown-stream',
+        getExpectedRevision: () => {
+          revisionCalls += 1
+          return revision
+        },
+        observedAt: () => T0
+      })
+    )
+
+    const firstMessages = readMessages('pi-session-shutdown-before')
+    expect((await dispatch(firstMessages)).messages).toBe(firstMessages)
+    expect(revisionCalls).toBe(1)
+    expect(host.callCount).toBe(1)
+
+    await shutdown('fork')
+    expect(killSwitch.tripRecord).toEqual({
+      reason: 'LC1_RUNTIME_ADMISSION_PI_SESSION_SHUTDOWN:fork',
+      trippedAt: T0
+    })
+
+    const lateMessages = readMessages('pi-session-shutdown-after')
+    expect((await dispatch(lateMessages)).messages).toBe(lateMessages)
+    expect(revisionCalls).toBe(1)
+    expect(host.callCount).toBe(1)
   })
 
   it('trips and bypasses observation when mapping cannot bind repository scope', async () => {

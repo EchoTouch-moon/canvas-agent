@@ -15,14 +15,16 @@ explicit Pi `context` hook. It is a credential-free integration adapter, not a
 production-default selection and not an Active rewrite. For each context event
 it reads the caller-bound repository revision, maps authoritative repository
 observations through the guarded runtime-owned admission sink, then observes
-the boundary while returning Pi's original message list unchanged.
+the boundary while returning Pi's original message list unchanged. A focused
+test also dispatches the hook through Pi's actual `ExtensionRunner` context
+dispatcher.
 
 The adapter does not call a provider, modify Planner behavior, alter CR-005
 manifests or fixtures, or rewrite model-facing context.
 
 ## Covered boundaries
 
-The dedicated suite covers fourteen paths:
+The dedicated suite covers sixteen paths:
 
 1. Disabled composition is rejected before a Pi hook can be registered.
 2. Malformed adapter configuration is rejected before registration.
@@ -47,12 +49,17 @@ The dedicated suite covers fourteen paths:
     observation.
 14. Concurrent context events that complete out of order are rejected by the
     authority guard; the late event cannot create a second observer result.
+15. A Pi session-shutdown event trips the old Run before a replacement/fork,
+    and late context events bypass all repository and observer work.
+16. Pi's actual `ExtensionRunner.emitContext` dispatcher invokes the hook with
+    its cloned context and receives semantically unchanged messages without a
+    provider call.
 
 ## Verification result
 
 ```text
-Dedicated Pi hook suite:       14 tests PASS
-Pi integration package:        360 tests / 28 files PASS
+Dedicated Pi hook suite:       16 tests PASS
+Pi integration package:        362 tests / 28 files PASS
 Pi integration typecheck:      PASS
 git diff --check:              PASS
 Provider calls:                0
@@ -76,6 +83,7 @@ timestamp supplier failure      → stop before mapper/observer
 mapping rejection/quarantine    → stop before observer
 composition exception            → stop and return original messages
 observer exception               → composition rollback + stop
+session shutdown                 → stop old runtime before replacement
 pre-existing stop                → bypass all work
 ```
 
@@ -104,7 +112,11 @@ the submitted source.
 
 This evidence verifies the in-process Pi hook composition and its tested
 fail-closed sequencing. It does not establish cryptographic isolation,
-cross-process enforcement, durable portable snapshots, or model behavior. The
+cross-process enforcement, durable portable snapshots, full AgentSession
+startup/teardown, or model behavior. The actual `ExtensionRunner` test uses a
+deterministic synthetic extension object to exercise the runner dispatcher; it
+does not claim that the full AgentSession loader or provider path has been
+executed. The
 out-of-order test verifies fail-closed authority handling; it does not claim
 that Pi serializes concurrent hooks. The composition remains
 observational-only: it does not replace, filter, remove, or rehydrate context

@@ -1,4 +1,9 @@
-import type { ContextEvent, ExtensionAPI, ExtensionFactory } from '@earendil-works/pi-coding-agent'
+import type {
+  ContextEvent,
+  ExtensionAPI,
+  ExtensionFactory,
+  SessionShutdownEvent
+} from '@earendil-works/pi-coding-agent'
 import type { PiMessageView } from '../pi-message-mapper'
 import {
   Lc1ProductionRepositoryMapper,
@@ -26,7 +31,8 @@ const PI_EXTENSION_STOP_REASONS = {
   revisionFailure: 'LC1_RUNTIME_ADMISSION_REVISION_READ_FAILURE',
   timestampFailure: 'LC1_RUNTIME_ADMISSION_TIMESTAMP_FAILURE',
   mappingRejected: 'LC1_RUNTIME_ADMISSION_MAPPING_GUARD_REJECTED',
-  compositionFailure: 'LC1_RUNTIME_ADMISSION_PI_COMPOSITION_FAILURE'
+  compositionFailure: 'LC1_RUNTIME_ADMISSION_PI_COMPOSITION_FAILURE',
+  sessionShutdown: 'LC1_RUNTIME_ADMISSION_PI_SESSION_SHUTDOWN'
 } as const
 
 function requireNonEmpty(value: string, code: string): string {
@@ -92,6 +98,9 @@ export function createLc1RuntimeAdmissionPiExtension(
   const killSwitch = options.composition.killSwitch!
 
   return (pi: ExtensionAPI) => {
+    pi.on('session_shutdown', (event: SessionShutdownEvent) => {
+      killSwitch.trip(`${PI_EXTENSION_STOP_REASONS.sessionShutdown}:${event.reason}`)
+    })
     pi.on('context', async (event: ContextEvent) => {
       const messages = event.messages as readonly PiMessageView[]
       if (killSwitch.isTripped) {
