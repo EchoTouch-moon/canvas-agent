@@ -107,7 +107,7 @@ describe('budget stop logic (contract sections 7-8)', () => {
     }
   })
 
-  it('keeps all four scenarios within the 12-record provider-call budget', () => {
+  it('keeps all four scenarios within the current provider-call budget', () => {
     let records = 0
     for (const scenario of C0_SCENARIOS) {
       const result = runScenarioOnScriptedMessages(scenario)
