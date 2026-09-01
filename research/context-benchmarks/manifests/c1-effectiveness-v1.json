@@ -1,0 +1,432 @@
+{
+  "manifestId": "c1-effectiveness-v1",
+  "schemaVersion": 1,
+  "status": "DRAFT_LEAD_REVIEW_REQUIRED",
+  "protocol": "C1_PROTOCOL_V1",
+  "baseRevision": "e6763734934f3b6cac6bf65df3dbd94d57f2dc59",
+  "providerExecution": "NO_GO",
+  "priorEvidencePolicy": "Prior CR-005, C0, and other non-C1 observations are not admissible as C1 comparative outcomes; only the new C1 run contract may create C1 observations.",
+  "taskCount": 4,
+  "strata": [
+    "localized_investigation_distractors",
+    "multi_file_multi_source",
+    "failure_diagnosis_recovery",
+    "phase_transition_delayed_context"
+  ],
+  "fixtureBinding": {
+    "reusePolicy": "Existing immutable repository fixture snapshots may be reused as source material; no C0 live evidence, queued lifecycle adapter, or prior run identity is reused.",
+    "treeHashAlgorithm": "Git tree object id at baseRevision for the fixture directory",
+    "contentHashAlgorithm": "SHA-256 of the sorted newline-delimited list '<file SHA-256>  <fixture-relative path>'",
+    "promptHashAlgorithm": "SHA-256 of the exact UTF-8 prompt bytes with no trailing newline"
+  },
+  "tasks": [
+    {
+      "taskId": "c1-t1-localized-distractor-v1",
+      "stratum": "localized_investigation_distractors",
+      "title": "Find and fix the single pagination-window defect in a noisy scheduler repository",
+      "fixtureVersion": "c1-t1-v1",
+      "fixturePath": "research/context-benchmarks/corpus/L3-noisy-bug-hunt/fixture",
+      "referencePath": "research/context-benchmarks/corpus/L3-noisy-bug-hunt/reference",
+      "fixtureRevision": {
+        "baseRevision": "e6763734934f3b6cac6bf65df3dbd94d57f2dc59",
+        "fixtureTreeObjectId": "860da37c32e15ba749b106a0187dde5a36a161a9",
+        "referenceTreeObjectId": "70620a986b0255d32cd5498601b9904acb96b0b5",
+        "fixtureContentSha256": "09d921c46e6a7c524d8992f7ec87753efbcc69e5bd1470d5873f53f72927d8d5",
+        "referenceContentSha256": "1461525e58b85024c9843620736a3f2f68144ee941f590b600945d37a81f51cd"
+      },
+      "prompt": "Exactly one real defect causes the primary test failure. Find it and fix it. Do not change unrelated behavior.",
+      "promptSha256": "7ede05ac9f2f5d77771ad72ca2b83d652bf26b8dcc61dbba03aa4f6978068615",
+      "objectiveOracle": {
+        "command": "node",
+        "args": ["--test", "test/pagination.test.js"],
+        "expectedExitCode": 0,
+        "timeoutMs": 30000
+      },
+      "regressionOracle": {
+        "command": "node",
+        "args": ["--test", "test/regression.test.js"],
+        "expectedExitCode": 0,
+        "timeoutMs": 30000
+      },
+      "expectedWritablePaths": ["src/scheduler/paginator.js"],
+      "relevantSources": [
+        "src/scheduler/paginator.js",
+        "src/scheduler/scheduler.js",
+        "src/scheduler/job.js",
+        "test/pagination.test.js",
+        "test/regression.test.js"
+      ],
+      "distractorSources": [
+        "src/scheduler/backoff.js",
+        "src/scheduler/priority-queue.js",
+        "src/scheduler/sliding-window.js",
+        "src/utils/recurrence.js",
+        "src/utils/hash-bucket.js",
+        "src/queue/dead-letter.js",
+        "src/legacy/old-scheduler.js"
+      ],
+      "requiredLaterSources": [],
+      "phaseBoundaries": [
+        {
+          "phaseId": "REPRODUCE",
+          "definition": "The primary pagination oracle has been run and its failure is recorded."
+        },
+        {
+          "phaseId": "LOCALIZE",
+          "definition": "The scheduler-to-paginator call path has been established and the pagination implementation is the remaining candidate."
+        },
+        {
+          "phaseId": "PATCH_VERIFY",
+          "definition": "The expected writable path has been edited and both objective and regression oracles are invoked."
+        }
+      ],
+      "removalGroundTruth": {
+        "eligibleRemovalSources": [
+          "src/scheduler/backoff.js",
+          "src/scheduler/priority-queue.js",
+          "src/scheduler/sliding-window.js",
+          "src/utils/recurrence.js",
+          "src/utils/hash-bucket.js",
+          "src/queue/dead-letter.js",
+          "src/legacy/old-scheduler.js"
+        ],
+        "mustRetainForObjectivePath": [
+          "src/scheduler/paginator.js",
+          "src/scheduler/scheduler.js",
+          "src/scheduler/job.js",
+          "test/pagination.test.js"
+        ],
+        "nominalLaterNeed": [],
+        "eligibleAfterPhase": "LOCALIZE",
+        "basis": "The primary task path has one localized implementation defect; the listed decoys are not needed to diagnose or repair it."
+      },
+      "coldContext": {
+        "eligibility": "NOT_APPLICABLE",
+        "reason": "No nominal later-needed source is declared after removal; no A/B cold interval may be invented for this task."
+      },
+      "outcomeRubric": {
+        "success": "Objective and regression oracles pass; only the expected writable path is changed.",
+        "quality": "The paginator uses the pinned half-open window behavior and unrelated scheduler utilities retain their regression behavior."
+      },
+      "endpointEligibility": {
+        "taskOutcome": "ELIGIBLE",
+        "providerUsage": "ELIGIBLE",
+        "agentBehavior": "ELIGIBLE",
+        "removalPrecision": "ELIGIBLE",
+        "rehydrationRecoveryRate": "NOT_ESTIMABLE",
+        "coldContextPenalty": "NOT_APPLICABLE"
+      },
+      "exclusions": [
+        "fixture or reference hash mismatch",
+        "objective or regression oracle unavailable because of fixture failure",
+        "attempted change outside src/scheduler/paginator.js"
+      ]
+    },
+    {
+      "taskId": "c1-t2-multi-file-migration-v1",
+      "stratum": "multi_file_multi_source",
+      "title": "Migrate the inventory/order system to the options-based price-format contract",
+      "fixtureVersion": "c1-t2-v1",
+      "fixturePath": "research/context-benchmarks/corpus/L1-multi-file-refactor/fixture",
+      "referencePath": "research/context-benchmarks/corpus/L1-multi-file-refactor/reference",
+      "fixtureRevision": {
+        "baseRevision": "e6763734934f3b6cac6bf65df3dbd94d57f2dc59",
+        "fixtureTreeObjectId": "d0ac86afcc7bb76b19e0f6d6e052ce642d25e784",
+        "referenceTreeObjectId": "c7b9da927abe9c2729fb2f523d851421eb7e59e9",
+        "fixtureContentSha256": "1a9ecd5bc168568ce9285c405257d7c2875090411fd8f594dc5849d1f868ede3",
+        "referenceContentSha256": "6ebdc89ff3076a017c64a0ad3ea0632be7e61e784536e159dc36bb39be84a027"
+      },
+      "prompt": "Refactor formatPrice in utils/format.js to the new contract used by test/. Migrate every call site. Make the tests pass.",
+      "promptSha256": "1c09fb86ab5e4cfde9a9cf1ba05282b5007081b5c468df2fe3c9b44eff084a03",
+      "objectiveOracle": {
+        "command": "node",
+        "args": ["--test", "test/format-price.test.js"],
+        "expectedExitCode": 0,
+        "timeoutMs": 30000
+      },
+      "regressionOracle": {
+        "command": "node",
+        "args": ["--test", "test/regression.test.js"],
+        "expectedExitCode": 0,
+        "timeoutMs": 30000
+      },
+      "expectedWritablePaths": [
+        "utils/format.js",
+        "models/product.js",
+        "models/order.js",
+        "models/shipment.js",
+        "services/cart.js",
+        "services/pricing.js",
+        "services/inventory.js",
+        "services/billing.js",
+        "index.js"
+      ],
+      "relevantSources": [
+        "utils/format.js",
+        "utils/money.js",
+        "models/product.js",
+        "models/order.js",
+        "models/shipment.js",
+        "services/cart.js",
+        "services/pricing.js",
+        "services/inventory.js",
+        "services/billing.js",
+        "index.js",
+        "test/format-price.test.js",
+        "test/regression.test.js"
+      ],
+      "distractorSources": [
+        "reports/legacy-csv-export.js",
+        "reports/audit-trail-writer.js",
+        "utils/deprecated-tax-table.js",
+        "services/xml-adapter.js"
+      ],
+      "requiredLaterSources": ["utils/money.js", "test/regression.test.js"],
+      "requiredLaterSourcePhases": {
+        "utils/money.js": "VERIFY",
+        "test/regression.test.js": "VERIFY"
+      },
+      "phaseBoundaries": [
+        {
+          "phaseId": "CONTRACT",
+          "definition": "The new options-based formatPrice behavior is established from the primary test and shared formatter."
+        },
+        {
+          "phaseId": "MIGRATE",
+          "definition": "All expected call sites across models, services, and the public facade are inspected and updated."
+        },
+        {
+          "phaseId": "VERIFY",
+          "definition": "The primary and regression oracles are invoked after the call-site migration."
+        }
+      ],
+      "removalGroundTruth": {
+        "eligibleRemovalSources": [
+          "reports/legacy-csv-export.js",
+          "reports/audit-trail-writer.js",
+          "utils/deprecated-tax-table.js",
+          "services/xml-adapter.js"
+        ],
+        "mustRetainForObjectivePath": [
+          "utils/format.js",
+          "models/product.js",
+          "models/order.js",
+          "models/shipment.js",
+          "services/cart.js",
+          "services/pricing.js",
+          "services/inventory.js",
+          "services/billing.js",
+          "index.js"
+        ],
+        "nominalLaterNeed": ["utils/money.js", "test/regression.test.js"],
+        "eligibleAfterPhase": "MIGRATE",
+        "basis": "The migration spans nine writable call-site files; the report/export and deprecated-tax modules are explicit unrelated candidates."
+      },
+      "coldContext": {
+        "eligibility": "NOT_APPLICABLE",
+        "reason": "The delayed regression sources are verification context, not a pre-registered REMOVE-to-later-need recovery interval."
+      },
+      "outcomeRubric": {
+        "success": "Primary and regression oracles pass; every required call site is migrated; no out-of-scope file changes occur.",
+        "quality": "The options object and locale rules are preserved across the facade, models, and services without changing unrelated numeric behavior."
+      },
+      "endpointEligibility": {
+        "taskOutcome": "ELIGIBLE",
+        "providerUsage": "ELIGIBLE",
+        "agentBehavior": "ELIGIBLE",
+        "removalPrecision": "ELIGIBLE",
+        "rehydrationRecoveryRate": "NOT_ESTIMABLE",
+        "coldContextPenalty": "NOT_APPLICABLE"
+      },
+      "exclusions": [
+        "fixture or reference hash mismatch",
+        "missing migration of any expected call site",
+        "regression-only source treated as a writable target",
+        "attempted change in a listed unrelated module"
+      ]
+    },
+    {
+      "taskId": "c1-t3-failure-recovery-v1",
+      "stratum": "failure_diagnosis_recovery",
+      "title": "Diagnose and repair a cache hit that incorrectly re-runs its factory",
+      "fixtureVersion": "c1-t3-v1",
+      "fixturePath": "research/context-benchmarks/corpus/C3-failing-test-diagnosis/fixture",
+      "referencePath": "research/context-benchmarks/corpus/C3-failing-test-diagnosis/reference",
+      "fixtureRevision": {
+        "baseRevision": "e6763734934f3b6cac6bf65df3dbd94d57f2dc59",
+        "fixtureTreeObjectId": "c90cda0e5faf1beb44abebbd012669921a3e6569",
+        "referenceTreeObjectId": "f668a70d2f394d7932dafb15065f7bbff68378fc",
+        "fixtureContentSha256": "7c3ba6c5699eff6c3258bfe047355a4d5640fd9bdb35f57b7ef058d2043cec9f",
+        "referenceContentSha256": "72c474fd394c5fac8ff9e8cb4d91a64f8bfb4d5df66686ef75c757f218a388b5"
+      },
+      "prompt": "Fix the cache behavior reported by the failing test. Diagnose why a cache hit invokes the factory again, make the smallest correct fix, and preserve clear behavior. Run the oracle and regression test.",
+      "promptSha256": "df920b0e7467c7be2ebbc8b4a2ef210e2d4b636fd8a9fe43e94851fb65f78ab3",
+      "objectiveOracle": {
+        "command": "node",
+        "args": ["--test", "test/cache.test.js"],
+        "expectedExitCode": 0,
+        "timeoutMs": 30000
+      },
+      "regressionOracle": {
+        "command": "node",
+        "args": ["--test", "test/regression.test.js"],
+        "expectedExitCode": 0,
+        "timeoutMs": 30000
+      },
+      "expectedWritablePaths": ["src/cache.js"],
+      "relevantSources": ["src/cache.js", "test/cache.test.js", "test/regression.test.js"],
+      "distractorSources": [],
+      "requiredLaterSources": ["test/regression.test.js"],
+      "requiredLaterSourcePhases": {
+        "test/regression.test.js": "VERIFY"
+      },
+      "phaseBoundaries": [
+        {
+          "phaseId": "REPRODUCE",
+          "definition": "The failing cache-hit test is run and the extra factory invocation is observed."
+        },
+        {
+          "phaseId": "DIAGNOSE",
+          "definition": "The cache-hit branch and its stored-value contract are inspected."
+        },
+        {
+          "phaseId": "PATCH",
+          "definition": "The expected cache implementation path is edited with the smallest behavior-preserving fix."
+        },
+        {
+          "phaseId": "VERIFY",
+          "definition": "The primary and regression oracles are invoked after the patch."
+        }
+      ],
+      "removalGroundTruth": {
+        "eligibleRemovalSources": [],
+        "mustRetainForObjectivePath": ["src/cache.js", "test/cache.test.js"],
+        "nominalLaterNeed": ["test/regression.test.js"],
+        "eligibleAfterPhase": null,
+        "basis": "This narrow failure-diagnosis task has no source-level distractor whose removal can be adjudicated without inventing relevance."
+      },
+      "coldContext": {
+        "eligibility": "NOT_APPLICABLE",
+        "reason": "No valid REMOVE-to-later-need source relation is declared; lifecycle metrics remain non-estimable rather than zero."
+      },
+      "outcomeRubric": {
+        "success": "The factory runs once on a cache miss, cached values are returned on hits, clear invalidates the entry, and both oracles pass.",
+        "quality": "The implementation changes only src/cache.js and preserves the clear and regression contracts."
+      },
+      "endpointEligibility": {
+        "taskOutcome": "ELIGIBLE",
+        "providerUsage": "ELIGIBLE",
+        "agentBehavior": "ELIGIBLE",
+        "removalPrecision": "NOT_ESTIMABLE",
+        "rehydrationRecoveryRate": "NOT_ESTIMABLE",
+        "coldContextPenalty": "NOT_APPLICABLE"
+      },
+      "exclusions": [
+        "fixture or reference hash mismatch",
+        "missing regression verification",
+        "attempted change outside src/cache.js",
+        "any claim about removal quality from this task alone"
+      ]
+    },
+    {
+      "taskId": "c1-t4-delayed-context-recovery-v1",
+      "stratum": "phase_transition_delayed_context",
+      "title": "Recover from a plausible wrong path to the nested-expression parser defect",
+      "fixtureVersion": "c1-t4-v1",
+      "fixturePath": "research/context-benchmarks/corpus/C6-wrong-path-rehydration/fixture",
+      "referencePath": "research/context-benchmarks/corpus/C6-wrong-path-rehydration/reference",
+      "fixtureRevision": {
+        "baseRevision": "e6763734934f3b6cac6bf65df3dbd94d57f2dc59",
+        "fixtureTreeObjectId": "695020a1deef724d43efd85c0b74187020b0a3fe",
+        "referenceTreeObjectId": "c8376572973abe3078ff042f932466ca8ba99768",
+        "fixtureContentSha256": "c142ae86a186bd34b365a275de3accce0b87a08f14e6cc121a127be8a10a5825",
+        "referenceContentSha256": "44f08201c9ac78855677417c519866ee701855254078de77b3e79455aaae69d0"
+      },
+      "prompt": "Diagnose the arithmetic failure through the public API. Investigate the repository, follow evidence from the failing oracle to the responsible implementation, and make the smallest correct fix. Run the oracle and regression test.",
+      "promptSha256": "a5d24a0039e7ad566e01806ac08abc632e4031180443e1b1f6945855e61b983b",
+      "objectiveOracle": {
+        "command": "node",
+        "args": ["--test", "test/evaluate.test.js"],
+        "expectedExitCode": 0,
+        "timeoutMs": 30000
+      },
+      "regressionOracle": {
+        "command": "node",
+        "args": ["--test", "test/regression.test.js"],
+        "expectedExitCode": 0,
+        "timeoutMs": 30000
+      },
+      "expectedWritablePaths": ["src/parser/evaluate.js"],
+      "relevantSources": [
+        "src/runtime/public-api.js",
+        "src/parser/evaluate.js",
+        "src/parser/tokenize.js",
+        "test/evaluate.test.js",
+        "test/regression.test.js"
+      ],
+      "distractorSources": ["src/search/cache.js"],
+      "requiredLaterSources": ["src/parser/evaluate.js", "test/regression.test.js"],
+      "requiredLaterSourcePhases": {
+        "src/parser/evaluate.js": "RECOVERY",
+        "test/regression.test.js": "VERIFY"
+      },
+      "phaseBoundaries": [
+        {
+          "phaseId": "INVESTIGATE",
+          "definition": "The public API failure is reproduced and the public-api-to-parser call path is mapped."
+        },
+        {
+          "phaseId": "WRONG_PATH_TRIAGE",
+          "definition": "The plausible search-cache candidate is inspected and ruled out using task evidence."
+        },
+        {
+          "phaseId": "RECOVERY",
+          "definition": "The parser evaluator is identified as the responsible implementation and is restored to the reference parenthesis behavior."
+        },
+        {
+          "phaseId": "VERIFY",
+          "definition": "The focused and regression oracles are invoked after the parser fix."
+        }
+      ],
+      "removalGroundTruth": {
+        "eligibleRemovalSources": ["src/search/cache.js"],
+        "mustRetainForRecovery": [
+          "src/runtime/public-api.js",
+          "src/parser/evaluate.js",
+          "src/parser/tokenize.js",
+          "test/evaluate.test.js"
+        ],
+        "requiredRehydrateSource": "src/parser/evaluate.js",
+        "nominalLaterNeed": ["src/parser/evaluate.js", "test/regression.test.js"],
+        "eligibleAfterPhase": "WRONG_PATH_TRIAGE",
+        "basis": "The search cache is a plausible but unrelated path. The evaluator becomes required after wrong-path triage and must not be permanently evicted before recovery."
+      },
+      "coldContext": {
+        "eligibility": "ELIGIBLE",
+        "anchorA": "After WRONG_PATH_TRIAGE establishes that src/search/cache.js is unrelated and immediately before parser implementation diagnosis.",
+        "anchorB": "The first post-edit invocation of the focused oracle after a write to src/parser/evaluate.js; earliest invocation is the tie-break.",
+        "nativeAlignment": "Use the same task-semantic WRONG_PATH_TRIAGE and VERIFY milestones; Native has no REMOVE or REHYDRATE events.",
+        "unavailableRule": "If either arm cannot identify A and B, or more than one candidate remains without the frozen tie-break, Cold Context Penalty is NOT_ESTIMABLE."
+      },
+      "outcomeRubric": {
+        "success": "The nested expression oracle and regression oracle pass; the public API remains the entry point; only src/parser/evaluate.js is changed.",
+        "quality": "The fix restores parenthesis evaluation without changing tokenization, public API wiring, or unrelated search-cache behavior."
+      },
+      "endpointEligibility": {
+        "taskOutcome": "ELIGIBLE",
+        "providerUsage": "ELIGIBLE",
+        "agentBehavior": "ELIGIBLE",
+        "removalPrecision": "ELIGIBLE",
+        "rehydrationRecoveryRate": "ELIGIBLE",
+        "coldContextPenalty": "ELIGIBLE"
+      },
+      "exclusions": [
+        "fixture or reference hash mismatch",
+        "no evidence that the wrong-path candidate was triaged before recovery",
+        "A/B anchor unavailable in either arm",
+        "attempted change outside src/parser/evaluate.js",
+        "REHYDRATE inferred from a first-time ADD without an originating REMOVE"
+      ]
+    }
+  ]
+}
