@@ -87,7 +87,7 @@ export type C0StopConditionId =
   | 'S-8'
 
 export interface C0StopLedgers {
-  /** Observer model-call records. Provider calls are counted at this seam. */
+  /** Actual provider transport calls in LIVE mode; DRY_RUN keeps this at zero. */
   readonly providerCallRecords: number
   readonly scenarioRunsCompleted: number
   readonly elapsedMs: number
@@ -818,6 +818,30 @@ export class C0ScenarioExecutor {
 
   get replayMismatchCount(): number {
     return this.boundaries.filter((boundary) => !boundary.replayVerified).length
+  }
+
+  /**
+   * Evaluate safety stops against the executor's current records.
+   *
+   * The live runner calls this from the Pi context hook itself, before the
+   * current prompt can proceed to another provider boundary. This is separate
+   * from `finalizeScenarioRun`: a terminal safety decision must abort the live
+   * session even when the prompt emits several context events in one turn.
+   */
+  currentSafetyStop(): C0StopDecision {
+    const evaluator = evaluateC0Scenario({
+      records: this.records,
+      universeVersionIds: [...this.universeVersionIds]
+    })
+    return evaluateC0StopConditions({
+      providerCallRecords: 0,
+      scenarioRunsCompleted: 0,
+      elapsedMs: 0,
+      replayMismatches: this.replayMismatchCount,
+      mandatoryEvictions: evaluator.counts.mandatoryEvictions,
+      unexplainedDecisions: evaluator.counts.unexplainedDecisions,
+      orphanRehydrates: evaluator.counts.orphanRehydrates
+    })
   }
 
   finalActiveSourceKeys(): readonly string[] {

@@ -11,6 +11,7 @@ import {
   type ExtensionAPI
 } from '@earendil-works/pi-coding-agent'
 import { JsonlObservationSink } from '@canvas-agent/context-runtime'
+import { runC0PromptWithDeadline } from './c0-prompt-deadline'
 import {
   C0_BUDGETS,
   C0_POLICY_VERSION,
@@ -35,6 +36,8 @@ import {
   safeProviderSelection,
   type PreparedModelProvider
 } from '../index'
+import { handleC0ContextBoundary } from './c0-boundary-guard'
+import { C0ProviderTransportGuard } from './c0-provider-transport'
 import { claimSingleUseC0ReportDir } from './c0-report-directory'
 
 // CSPV-C0 canary runner (docs/plan/cspv-c0-run-contract-2026-08-27.md).
@@ -47,11 +50,11 @@ import { claimSingleUseC0ReportDir } from './c0-report-directory'
 //
 // Strict binding to step-plan/step-3.7-flash with NO fallback happens before
 // the first model call; any provider failure after execution starts is
-// terminal. Provider calls are counted as observer model-call records, not
-// prompts (one prompt can yield multiple records). Four hard budgets
-// (4 scenario runs / 48 provider-call records / 60 min wall clock; token cost is
-// Lead-tracked) fail closed via S-1..S-8, and evidence collected so far is
-// always preserved. Output is metadata-only.
+// terminal. Live provider calls are counted at the outbound transport seam,
+// while observer model-call records remain separate (one prompt can yield
+// multiple records). Four hard budgets (4 scenario runs / 48 provider calls /
+// 60 min wall clock; token cost is Lead-tracked) fail closed via S-1..S-8, and
+// evidence collected so far is always preserved. Output is metadata-only.
 //
 // DRY_RUN mode (CANVAS_C0_DRY_RUN=1) proves the whole pipeline with ZERO
 // provider calls: no ModelRuntime, no prepareModelProvider, no session.
@@ -90,16 +93,6 @@ interface RunLedgers {
   orphanRehydrates: number
 }
 
-// Wraps executor failures so a planner/validation error inside the Pi context
-// callback is distinguishable from a provider transport failure (S-2 vs S-1).
-class C0BoundaryFailure extends Error {
-  constructor(cause: unknown) {
-    const message = cause instanceof Error ? cause.message : String(cause)
-    super(`C0 boundary failure: ${message}`)
-    this.name = 'C0BoundaryFailure'
-  }
-}
-
 function log(message: string): void {
   console.log(`[c0] ${message}`)
 }
@@ -128,15 +121,17 @@ function ledgersOf(state: {
   }
 }
 
-function c0ExtensionFactory(executor: C0ScenarioExecutor) {
+function c0ExtensionFactory(
+  executor: C0ScenarioExecutor,
+  fireStop: (condition: C0StopConditionId, reason: string) => void,
+  shouldStop: () => boolean
+) {
   return (pi: ExtensionAPI): void => {
-    pi.on('context', async (event: ContextEvent) => {
-      try {
-        executor.observeBoundary(event.messages)
-      } catch (error) {
-        throw new C0BoundaryFailure(error)
-      }
-      return { messages: event.messages }
+    pi.on('context', async (event: ContextEvent, context) => {
+      // The boundary helper explicitly calls context.abort(): Pi's extension
+      // runner records and swallows handler exceptions, so throwing here would
+      // not stop a prompt burst before another provider request.
+      return handleC0ContextBoundary(executor, event.messages, context, fireStop, shouldStop)
     })
   }
 }
@@ -152,9 +147,11 @@ async function runLiveScenario(
     replayMismatches: number
   },
   fireStop: (condition: C0StopConditionId, reason: string) => void,
-  shouldStop: () => boolean
+  shouldStop: () => boolean,
+  transport: C0ProviderTransportGuard
 ): Promise<C0ScenarioExecutor | null> {
   const fixtureDir = await mkdtemp(join(tmpdir(), `canvas-c0-${scenario.id.toLowerCase()}-`))
+  let disposeSession: (() => void) | undefined
   try {
     for (const file of scenario.fixtureFiles ?? []) {
       const path = join(fixtureDir, file.path)
@@ -173,7 +170,10 @@ async function runLiveScenario(
       agentDir: join(fixtureDir, '.pi-agent'),
       settingsManager,
       extensionFactories: [
-        { name: 'canvas-c0-canary', factory: c0ExtensionFactory(executor) }
+        {
+          name: 'canvas-c0-canary',
+          factory: c0ExtensionFactory(executor, fireStop, shouldStop)
+        }
       ]
     })
     await loader.reload()
@@ -186,13 +186,34 @@ async function runLiveScenario(
       settingsManager,
       tools: ['read']
     })
+    disposeSession = () => session.dispose()
+
+    let reportedReplayMismatches = 0
+    const syncLiveLedgers = (): void => {
+      state.providerCallRecords = transport.providerCalls
+      const currentReplayMismatches = executor.replayMismatchCount
+      const newReplayMismatches = currentReplayMismatches - reportedReplayMismatches
+      if (newReplayMismatches > 0) {
+        state.replayMismatches += newReplayMismatches
+      }
+      reportedReplayMismatches = currentReplayMismatches
+    }
 
     for (const turn of scenario.turns) {
       if (shouldStop()) return executor
+      syncLiveLedgers()
       if (providerCallBudgetExhausted(state.providerCallRecords)) {
         fireStop(
           'S-7',
           `provider-call budget exhausted before turn ${turn.label}: ${state.providerCallRecords} records`
+        )
+        return executor
+      }
+      const remainingWallClockMs = C0_BUDGETS.maxWallClockMs - (Date.now() - state.startedAtMs)
+      if (remainingWallClockMs <= 0) {
+        fireStop(
+          'S-7',
+          `wall-clock budget exhausted before turn ${turn.label}: ${C0_BUDGETS.maxWallClockMs}ms`
         )
         return executor
       }
@@ -202,23 +223,52 @@ async function runLiveScenario(
       const recordsBefore = executor.observationCount
       log(`scenario=${scenario.id} turn=${turn.label} prompt issued`)
       try {
-        await session.prompt(turn.prompt)
+        const promptOutcome = await runC0PromptWithDeadline(
+          session,
+          turn.prompt,
+          remainingWallClockMs,
+          () =>
+            fireStop(
+              'S-7',
+              `wall-clock budget exhausted during turn ${turn.label}: ${C0_BUDGETS.maxWallClockMs}ms`
+            )
+        )
+        if (promptOutcome.status === 'TIMED_OUT') {
+          if (promptOutcome.abortErrorMessage !== undefined) {
+            log(
+              `scenario=${scenario.id} turn=${turn.label} deadline abort error=${promptOutcome.abortErrorMessage}`
+            )
+          }
+          syncLiveLedgers()
+          return executor
+        }
       } catch (error) {
-        if (error instanceof C0BoundaryFailure) {
-          fireStop('S-2', error.message)
-        } else {
+        syncLiveLedgers()
+        if (!shouldStop()) {
           const message = error instanceof Error ? error.message : String(error)
           fireStop('S-1', `provider failure after execution started: ${message}`)
         }
         return executor
       }
+      syncLiveLedgers()
       const newRecords = executor.observationCount - recordsBefore
-      state.providerCallRecords += newRecords
-      state.replayMismatches += executor.replayMismatchCount
       log(
-        `scenario=${scenario.id} turn=${turn.label} model-call records=${newRecords} total=${state.providerCallRecords}`
+        `scenario=${scenario.id} turn=${turn.label} observer-records=${newRecords} providerCalls=${state.providerCallRecords}`
       )
-      const stop = evaluateC0StopConditions(ledgersOf({ ...state, scenarioRunsCompleted: 0, mandatoryEvictions: 0, unexplainedDecisions: 0, orphanRehydrates: 0 }))
+      const safetyStop = executor.currentSafetyStop()
+      if (safetyStop.stop) {
+        fireStop(safetyStop.condition, safetyStop.reason)
+        return executor
+      }
+      const stop = evaluateC0StopConditions(
+        ledgersOf({
+          ...state,
+          scenarioRunsCompleted: 0,
+          mandatoryEvictions: 0,
+          unexplainedDecisions: 0,
+          orphanRehydrates: 0
+        })
+      )
       if (stop.stop) {
         fireStop(stop.condition, stop.reason)
         return executor
@@ -226,6 +276,7 @@ async function runLiveScenario(
     }
     return executor
   } finally {
+    disposeSession?.()
     await rm(fixtureDir, { recursive: true, force: true })
   }
 }
@@ -285,7 +336,10 @@ async function run(): Promise<void> {
     console.error('C0_STATUS=FAILED')
     process.exit(1)
   }
-  const sink = new JsonlObservationSink({ directory: reportDir, sessionId: 'observations' })
+  const sink = new JsonlObservationSink({
+    directory: reportDir,
+    sessionId: 'observations'
+  })
 
   const startedAt = new Date()
   const state = {
@@ -317,6 +371,7 @@ async function run(): Promise<void> {
   let prepared: PreparedModelProvider | null = null
   let runtime: ModelRuntime | null = null
   let bindingEvidence: Record<string, unknown> | null = null
+  let transport: C0ProviderTransportGuard | null = null
 
   if (mode === 'LIVE') {
     try {
@@ -335,16 +390,28 @@ async function run(): Promise<void> {
         experimentBinding: prepared.experimentBinding,
         sourceDerivation: 'queued-external-script + live-pi-messages'
       }
+      try {
+        transport = new C0ProviderTransportGuard({
+          providerBaseUrl: prepared.model.baseUrl,
+          maxCalls: C0_BUDGETS.maxProviderCalls,
+          shouldBlock: shouldStop,
+          onBudgetExhausted: (attemptedCall) => {
+            fireStop(
+              'S-7',
+              `provider-call budget exhausted before outbound request ${attemptedCall}; maximum is ${C0_BUDGETS.maxProviderCalls}`
+            )
+          }
+        })
+        transport.install()
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        fireStop('S-1', `provider transport guard setup failed: ${message}`)
+      }
       log(`binding=${JSON.stringify(bindingEvidence)}`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       const isBindingFailure = error instanceof ProviderBindingError
-      fireStop(
-        'S-1',
-        isBindingFailure
-          ? message
-          : `strict provider preparation failed: ${message}`
-      )
+      fireStop('S-1', isBindingFailure ? message : `strict provider preparation failed: ${message}`)
     }
   }
 
@@ -374,8 +441,9 @@ async function run(): Promise<void> {
     }
 
     let executor: C0ScenarioExecutor | null = null
+    const providerCallsBeforeScenario = transport?.providerCalls ?? state.providerCallRecords
     try {
-      if (mode === 'LIVE' && prepared !== null && runtime !== null) {
+      if (mode === 'LIVE' && prepared !== null && runtime !== null && transport !== null) {
         executor = await runLiveScenario(
           scenario,
           runId,
@@ -383,14 +451,14 @@ async function run(): Promise<void> {
           runtime,
           state,
           fireStop,
-          shouldStop
+          shouldStop,
+          transport
         )
       } else if (mode === 'DRY_RUN') {
         executor = new C0ScenarioExecutor({
           runtimeSessionId: `${runId}:${scenario.id.toLowerCase()}-dry`
         })
         runScriptedTurns(scenario, executor)
-        state.providerCallRecords += executor.observationCount
         state.replayMismatches += executor.replayMismatchCount
       } else {
         fireStop('S-1', 'live scenario requested without a prepared provider binding')
@@ -409,7 +477,9 @@ async function run(): Promise<void> {
     scenarioResults.set(scenario.id, result)
     providerCallsByScenario.set(
       scenario.id,
-      mode === 'LIVE' ? executor.observationCount : 0
+      mode === 'LIVE' && transport !== null
+        ? transport.providerCalls - providerCallsBeforeScenario
+        : 0
     )
     state.scenarioRunsCompleted += 1
     state.mandatoryEvictions += result.evaluator.counts.mandatoryEvictions
@@ -432,15 +502,14 @@ async function run(): Promise<void> {
     }
   }
 
+  transport?.restore()
+
   const finishedAt = new Date()
   const wallClockMs = finishedAt.getTime() - startedAt.getTime()
   const providerCalls = mode === 'LIVE' ? state.providerCallRecords : 0
-  const verdictOf = (id: C0ScenarioId): string => scenarioResults.get(id)?.scenarioVerdict ?? 'NOT_OBSERVED'
-  let status: C0Status = terminal
-    ? 'STOPPED'
-    : mode === 'DRY_RUN'
-      ? 'DRY_RUN_COMPLETE'
-      : 'EXECUTED'
+  const verdictOf = (id: C0ScenarioId): string =>
+    scenarioResults.get(id)?.scenarioVerdict ?? 'NOT_OBSERVED'
+  let status: C0Status = terminal ? 'STOPPED' : mode === 'DRY_RUN' ? 'DRY_RUN_COMPLETE' : 'EXECUTED'
   let evidenceWriteFailed = false
 
   try {
@@ -460,8 +529,10 @@ async function run(): Promise<void> {
       runId,
       mode,
       overall: {
-        scenariosPass: [...scenarioResults.values()].filter((r) => r.scenarioVerdict === 'PASS').length,
-        scenariosFail: [...scenarioResults.values()].filter((r) => r.scenarioVerdict === 'FAIL').length,
+        scenariosPass: [...scenarioResults.values()].filter((r) => r.scenarioVerdict === 'PASS')
+          .length,
+        scenariosFail: [...scenarioResults.values()].filter((r) => r.scenarioVerdict === 'FAIL')
+          .length,
         scenariosNotObserved: scenarios.length - scenarioResults.size,
         providerCalls,
         stopConditionsFired: firedStops
@@ -469,7 +540,12 @@ async function run(): Promise<void> {
       scenarios: C0_SCENARIOS.map((scenario) => {
         const result = scenarioResults.get(scenario.id)
         if (result === undefined) {
-          return { scenarioId: scenario.id, name: scenario.name, scenarioVerdict: 'NOT_OBSERVED' as const, reason: 'scenario not reached before terminal stop' }
+          return {
+            scenarioId: scenario.id,
+            name: scenario.name,
+            scenarioVerdict: 'NOT_OBSERVED' as const,
+            reason: 'scenario not reached before terminal stop'
+          }
         }
         return {
           scenarioId: scenario.id,
@@ -524,7 +600,7 @@ async function run(): Promise<void> {
     console.error(`[c0] evidence write FAILED: ${message}`)
   }
 
-  log(`runId=${runId} mode=${mode} scenarios=${scenarioResults.size}/${C0_SCENARIOS.length}`)
+  log(`runId=${runId} mode=${mode} scenarios=${scenarioResults.size}/${scenarios.length}`)
   log(
     `provider-call records=${state.providerCallRecords} providerCalls=${providerCalls} wallClockMs=${wallClockMs}`
   )
