@@ -83,3 +83,23 @@ export {
   type WaveAChecks,
   type WaveAGateResult
 } from './wave-a'
+export {
+  C1_C_ASSIGNMENT_MATRIX_SHA256,
+  C1_C_CONTRACT_SHA256,
+  C1_C_FAILURE_INJECTIONS,
+  C1_C_PARENT_REVISION,
+  C1_C_READINESS_ID,
+  C1_C_REQUIRED_GATES,
+  C1_C_TASK_MANIFEST_SHA256,
+  C1_C_TREATMENT_REVISION,
+  runC1TreatmentFailureProbes,
+  runC1TreatmentReadiness,
+  type C1ReadinessFailureCode,
+  type C1ReadinessFailureInjection,
+  type C1ReadinessGateId,
+  type C1ReadinessGate,
+  type C1ReadinessProviderUsage,
+  type C1ReadinessVerdict,
+  type C1TreatmentFailureProbeResult,
+  type C1TreatmentReadinessReport
+} from './c1-treatment-readiness'

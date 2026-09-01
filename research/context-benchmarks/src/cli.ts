@@ -13,6 +13,7 @@ import {
   isWaveAExecutionAuthorized,
   selectWaveAManifests
 } from './wave-a'
+import { runC1TreatmentReadiness } from './c1-treatment-readiness'
 
 async function main(): Promise<void> {
   const command = process.argv[2] ?? 'validate'
@@ -151,6 +152,13 @@ async function main(): Promise<void> {
     console.log(`CR-005 Wave A output: ${live.outputPath ?? 'none'}`)
     console.log(`WAVE_A_STATUS=${live.status}`)
     if (live.status !== 'PASS') process.exitCode = 1
+    return
+  }
+  if (command === 'c1-readiness') {
+    const report = runC1TreatmentReadiness()
+    console.log(JSON.stringify(report, null, 2))
+    console.log(`C1_C_READINESS_STATUS=${report.overallVerdict}`)
+    if (report.overallVerdict !== 'PASS') process.exitCode = 1
     return
   }
   throw new Error(`unknown benchmark command: ${command}`)
