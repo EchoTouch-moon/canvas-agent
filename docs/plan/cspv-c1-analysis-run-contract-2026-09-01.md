@@ -58,6 +58,30 @@ estimate is not a substitute for provider-reported usage, and no credential,
 prompt, response, raw provider payload, or authorization header is a durable
 evidence field.
 
+### Canonical identity hashes
+
+The hashes in the machine-readable companion use one explicit canonicalization
+rule. Canonical JSON bytes are UTF-8, object keys are sorted lexicographically
+by Unicode code point at every depth, array order is preserved, JSON strings
+use the standard JSON escaping, numbers use their JSON/ECMAScript numeric
+serialization, insignificant whitespace is omitted, and no trailing newline
+is included.
+
+`contractSha256` is not a naïve hash of a file containing its own final hash.
+At freeze time, the canonical contract representation replaces
+`protocolBinding.contractSha256` with the literal string `SELF`, retains the
+frozen assignment-matrix hash, serializes with the rule above, and hashes those
+bytes. The resulting digest is then written into the visible
+`contractSha256` field. Recomputing the hash applies the same `SELF`
+replacement, so the field is not self-referential.
+
+`assignmentMatrixSha256` / `assignmentMatrixHash` is the SHA-256 of the
+canonical JSON serialization of the exact `randomization.assignmentMatrix`
+array only, using the same UTF-8, key-order, array-order, whitespace, and
+newline rules. Both fields must carry the same digest at freeze time. The
+assignment hash is computed first; the contract hash is computed second with
+that assignment digest included.
+
 ## 2. Feasibility design
 
 | Parameter | Value |
@@ -246,26 +270,38 @@ The proposed primary endpoint is:
 providerReported.inputTokens
 ```
 
-The pair-level benefit delta is:
+Keep the statistical test quantity separate from the percentage effect size.
+The arm-swap-antisymmetric paired test statistic is:
 
 ```text
-d_i = (Native input tokens - Runtime input tokens)
-      / Native input tokens
+delta_i = Native input tokens - Runtime input tokens
 ```
 
-Lower Runtime input usage is favorable. A pair is eligible for the percentage
-endpoint only when both usage rows are `PROVIDER_REPORTED`, finite and
+The percentage effect size, used only for practical magnitude, is:
+
+```text
+reduction_i = (Native input tokens - Runtime input tokens)
+              / Native input tokens
+```
+
+Positive values favor Runtime in both expressions. Swapping the arm labels
+maps `delta_i` to `-delta_i`, which is the required symmetry for an exact
+sign-flip test; the percentage effect size is not used as that test statistic.
+A pair is eligible for the primary comparison only when both usage rows are
+`PROVIDER_REPORTED`, finite and
 non-negative, and the Native input-token denominator is positive. Raw token
 values remain reportable when a percentage denominator is zero, but the
-percentage endpoint is `NOT_ESTIMABLE` for that pair.
+percentage effect size is `NOT_ESTIMABLE` for that pair.
 
 The following test and practical threshold are proposed for Lead freeze:
 
 1. Report every eligible pair delta and each stratum's median delta.
 2. Within each stratum, use a one-sided exact paired sign-flip test on the
-   percentage deltas. With all eight pairs valid, enumerate all `2^8 = 256`
-   sign assignments; with six or seven valid pairs, enumerate `2^n` for the
-   valid pairs rather than silently imputing missing values.
+   absolute `delta_i` values. With all eight pairs valid, enumerate all
+   `2^8 = 256` sign assignments; with six or seven valid pairs, enumerate
+   `2^n` for the valid pairs rather than silently imputing missing values.
+   The test statistic is the sum of signed absolute token differences, not the
+   percentage effect size.
 3. Combine the four stratum p-values with Fisher's method as one pre-registered
    primary test, with `alpha = 0.05`.
 4. Require every eligible stratum median to be non-negative, the pooled median
@@ -358,6 +394,15 @@ Lifecycle denominators are reported by task and arm before any aggregate. T1,
 T2, T3, and T4 must not be collapsed into a 32-pair lifecycle denominator when
 the manifest does not make the endpoint eligible.
 
+An eligible lifecycle opportunity that does not occur only makes that
+lifecycle endpoint `NOT_ESTIMABLE` (or `NOT_APPLICABLE` where specified); it
+does not force the overall C1 decision to `INCONCLUSIVE`. If a lifecycle event
+does occur and the contract requires an anchor, lineage, or evidence join but
+that required evidence is missing or ambiguous, classify the affected evidence
+as a harness/infrastructure problem and apply the endpoint/overall
+`INCONCLUSIVE` rule. This separates a policy that conservatively avoided a
+premature removal from an observed event whose evidence was broken.
+
 ## 9. Coverage and operational reliability
 
 The following values are proposed for Lead freeze:
@@ -367,12 +412,18 @@ The following values are proposed for Lead freeze:
 | Minimum valid primary pairs per stratum | 6 of 8 |
 | Minimum valid pooled primary pairs | 24 of 32 |
 | Minimum valid key-secondary pairs per stratum | 6 of 8 |
-| Runtime invalid legs permitted while retaining `BETTER` eligibility | 1 of 32 |
+| Minimum valid primary pairs per stratum for `BETTER` | 7 of 8 |
+| Minimum valid pooled primary pairs for `BETTER` | 30 of 32 |
+| Invalid legs permitted in either arm while retaining `BETTER` eligibility | 1 of 32 per arm |
 | Runtime operational success required for `BETTER` eligibility | 31/32 = 96.875% |
 
 Runtime infrastructure/evidence attrition is tracked across all attempted
 Runtime legs, not only successful task outcomes. Native attrition is reported
-for symmetry, but the treatment-specific threshold is the gate on `BETTER`.
+for symmetry. The treatment-specific Runtime threshold remains necessary, and
+`BETTER` additionally requires the same maximum of one invalid leg in the
+Native arm, at least seven valid paired observations in every stratum, and at
+least thirty valid paired observations pooled. This prevents the 6/8 and 24/32
+estimability floors from being mistaken for sufficient comparative coverage.
 
 The proposed interpretation is:
 
@@ -382,6 +433,11 @@ The proposed interpretation is:
 - 3 or more treatment-specific Runtime invalid legs: `WORSE`, unless the
   evidence demonstrates a shared external failure, in which case
   `INCONCLUSIVE` is required.
+
+The Native arm follows the same `BETTER` eligibility ceiling: more than one
+Native invalid leg forbids `BETTER`, even if the Runtime arm has no invalid
+legs. This is an arm-symmetry guard, not a claim that Native and Runtime have
+identical infrastructure risk.
 
 Missing provider usage invalidates the affected arm/pair for the usage
 endpoint and is counted in evidence attrition. It does not automatically
@@ -400,10 +456,13 @@ The following feasibility budgets are proposed for Lead freeze:
 | Entire study | 1,536 | 6,144 | 43,200,000 ms (12 h) |
 
 The study is sequential (`maxConcurrency = 1`) in assignment-matrix order.
-The total values are the arithmetic maximum for 64 legs and are hard caps;
-setup/finalization time is included in the 12-hour study budget. Provider calls
-count outbound model calls at the provider transport seam. Assistant response
-count and usage rows are evidence fields, not substitutes for the call ledger.
+The 64 leg wall-clock maxima sum to `64 × 600,000 = 38,400,000 ms` (10 h).
+The study cap intentionally adds a `4,800,000 ms` (80 min) orchestration
+allowance for clone/materialization setup, checkpointing, and artifact
+finalization, giving `38,400,000 + 4,800,000 = 43,200,000 ms` (12 h).
+Provider calls count outbound model calls at the provider transport seam.
+Assistant response count and usage rows are evidence fields, not substitutes
+for the call ledger.
 
 Any per-leg or study budget breach is terminal for that run/study: preserve the
 partial evidence, write the failure state, and do not resume or start the next
@@ -482,10 +541,10 @@ The adjudicator applies gates in this order:
 
 | Overall decision | Required conditions |
 | --- | --- |
-| `BETTER` | Outcome NI passes; lifecycle/evidence safety passes; Runtime invalid legs ≤1; primary input-token test and ≥10% practical threshold pass; no material protected-secondary regression; no additional Runtime task failure |
+| `BETTER` | Outcome NI passes; lifecycle/evidence safety passes; Runtime invalid legs ≤1; Native invalid legs ≤1; at least 7 valid primary pairs per stratum and 30 pooled; primary input-token test and ≥10% practical threshold pass; no material protected-secondary regression; no additional Runtime task failure |
 | `WORSE` | Outcome NI fails; or safety/evidence invariant fails; or a material resource/recovery regression occurs without an outcome benefit; or treatment-specific Runtime attrition reaches ≥3 under the proposed rule |
 | `TRADE_OFF` | Outcome NI passes and primary efficiency gain is qualifying, but a meaningful protected secondary regression or tolerated additional task failure forbids `BETTER` |
-| `INCONCLUSIVE` | Treatment inactive; primary/key endpoint coverage is insufficient; Runtime attrition reaches 2; a shared external failure prevents attribution; required lifecycle anchors are not estimable; or the frozen decision bounds do not select a class |
+| `INCONCLUSIVE` | Treatment inactive; primary/key endpoint coverage is insufficient; Runtime attrition reaches 2; a shared external failure prevents attribution; an observed lifecycle event lacks required anchor/evidence; or the frozen decision bounds do not select a class |
 
 Token reduction alone never produces `BETTER`. A lower input-token volume with
 task regression, recovery cost, redundant tools, or latency regression is a

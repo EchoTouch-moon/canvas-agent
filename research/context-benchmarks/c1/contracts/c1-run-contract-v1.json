@@ -23,7 +23,27 @@
     "taskManifestSha256": "2bfcad11078758c21a9ca799357553d08beb08065cea2efd179eade7e0a04e38",
     "manifestBaseRevision": "e6763734934f3b6cac6bf65df3dbd94d57f2dc59",
     "contractSha256": "PENDING_C1_B_FREEZE",
-    "assignmentMatrixSha256": "PENDING_C1_B_FREEZE"
+    "assignmentMatrixSha256": "PENDING_C1_B_FREEZE",
+    "hashing": {
+      "encoding": "UTF-8",
+      "objectKeyOrder": "LEXICOGRAPHIC_UNICODE_CODE_POINT_AT_EVERY_DEPTH",
+      "arrayOrder": "PRESERVED",
+      "stringEscaping": "STANDARD_JSON",
+      "numberSerialization": "JSON_ECMASCRIPT_NUMERIC_SERIALIZATION",
+      "whitespace": "NONE",
+      "trailingNewline": false,
+      "contractHashInput": "CANONICAL_JSON_OF_WHOLE_CONTRACT_WITH_protocolBinding.contractSha256_REPLACED_BY_LITERAL_SELF",
+      "assignmentMatrixHashInput": "CANONICAL_JSON_OF_EXACT_randomization.assignmentMatrix_ARRAY_ONLY",
+      "hashOrder": [
+        "COMPUTE_ASSIGNMENT_MATRIX_SHA256_FIRST",
+        "WRITE_ASSIGNMENT_MATRIX_HASH_FIELDS",
+        "COMPUTE_CONTRACT_SHA256_WITH_SELF_PLACEHOLDER"
+      ],
+      "assignmentMatrixHashFieldsMustMatch": [
+        "protocolBinding.assignmentMatrixSha256",
+        "randomization.assignmentMatrixHash"
+      ]
+    }
   },
   "executionBinding": {
     "codeRevision": "PENDING_C1_C",
@@ -69,6 +89,7 @@
     "seedMayChangeQuota": false,
     "matrixFrozenBeforeFirstProviderCall": true,
     "assignmentMatrixHash": "PENDING_C1_B_FREEZE",
+    "assignmentMatrixHashAlgorithm": "SHA-256 of canonical UTF-8 JSON bytes for the exact assignmentMatrix array; object keys sorted lexicographically by Unicode code point, arrays preserved, standard JSON string escaping, JSON/ECMAScript numeric serialization, no whitespace, no trailing newline",
     "assignmentMatrix": [
       {
         "taskId": "c1-t1-localized-distractor-v1",
@@ -455,14 +476,17 @@
     "id": "provider_input_tokens",
     "path": "providerReported.inputTokens",
     "direction": "LOWER_IS_BETTER",
-    "pairDelta": "(nativeInputTokens - runtimeInputTokens) / nativeInputTokens",
+    "statisticalPairDelta": "nativeInputTokens - runtimeInputTokens",
+    "practicalEffectSize": "(nativeInputTokens - runtimeInputTokens) / nativeInputTokens",
+    "statisticalDeltaIsArmSwapAntisymmetric": true,
     "nativeDenominatorMustBePositive": true,
     "practicalThreshold": 0.1,
     "practicalThresholdLabel": "PROPOSED_FOR_LEAD_FREEZE",
     "test": {
       "type": "STRATUM_BLOCKED_EXACT_PAIRED_SIGN_FLIP",
       "tail": "ONE_SIDED_FAVORING_RUNTIME",
-      "statistic": "SUM_OF_VALID_PAIR_PERCENTAGE_DELTAS",
+      "statistic": "SUM_OF_VALID_ABSOLUTE_TOKEN_DELTAS",
+      "armSwapMapsDeltaToNegative": true,
       "fullStratumAssignments": 256,
       "incompleteStratumAssignments": "2^n_FOR_n_VALID_PAIRS",
       "combination": "FISHER_METHOD_ACROSS_FOUR_STRATUM_P_VALUES",
@@ -577,6 +601,8 @@
     },
     "notEstimableIsNotZero": true,
     "notApplicableIsNotZero": true,
+    "opportunityAbsenceAffectsOnlyLifecycleEndpoint": true,
+    "observedEventMissingRequiredAnchorOrEvidence": "HARNESS_OR_INFRASTRUCTURE_FAILURE_AND_ENDPOINT_OVERALL_INCONCLUSIVE_RULE",
     "firstAddIsNeverRehydrate": true,
     "t4OriginatingRemoveRequired": true,
     "t4ExactSourceVersionAndRepresentationRequired": true,
@@ -610,10 +636,14 @@
       "totalLegs": 32,
       "fraction": 0.96875
     },
+    "nativeInvalidLegsPermittedForBetter": 1,
+    "invalidLegsPermittedInEitherArmForBetter": 1,
+    "betterArmInvalidLegImbalanceMaximum": 1,
     "runtimeInvalidLegs2Decision": "INCONCLUSIVE",
     "runtimeInvalidLegsAtLeast3Decision": "WORSE_IF_TREATMENT_SPECIFIC_ELSE_INCONCLUSIVE",
     "nativeAttritionReported": true,
-    "nativeThresholdTriggersTreatmentGate": false,
+    "nativeThresholdTriggersTreatmentGate": true,
+    "nativeThresholdScope": "BETTER_ELIGIBILITY_ONLY",
     "taskFailureWithCompleteEvidenceCountsAsAttrition": false
   },
   "minimumCoverage": {
@@ -621,7 +651,11 @@
     "primaryValidPairsPerStratum": 6,
     "primaryValidPairsPooled": 24,
     "keySecondaryValidPairsPerStratum": 6,
+    "betterValidPrimaryPairsPerStratum": 7,
+    "betterValidPrimaryPairsPooled": 30,
+    "betterInvalidLegsPerArmMaximum": 1,
     "belowMinimumDecision": "NOT_ESTIMABLE_AND_OVERALL_BETTER_FORBIDDEN",
+    "betterCoverageDecision": "BETTER_FORBIDDEN_BELOW_7_PER_STRATUM_OR_30_POOLED_OR_ABOVE_1_INVALID_LEG_IN_EITHER_ARM",
     "noSilentStratumOmission": true,
     "lifecycleCoverage": "USE_TASK_SPECIFIC_C1_A_DENOMINATORS"
   },
@@ -636,8 +670,10 @@
       "maxProviderCalls": 1536,
       "maxToolCalls": 6144,
       "maxWallClockMs": 43200000,
+      "legWallClockMaximumTotalMs": 38400000,
+      "orchestrationAllowanceMs": 4800000,
       "maxConcurrency": 1,
-      "arithmeticBasis": "64 legs x per-leg maxima"
+      "arithmeticBasis": "64 x 600000ms = 38400000ms leg budget + 4800000ms orchestration allowance = 43200000ms study cap"
     },
     "breachAction": "TERMINAL_PRESERVE_EVIDENCE_NO_RESUME_NO_NEXT_LEG",
     "providerCallCounterSeam": "OUTBOUND_PROVIDER_TRANSPORT",
@@ -720,6 +756,9 @@
         "outcome_non_inferiority_pass",
         "lifecycle_and_evidence_safety_pass",
         "runtime_invalid_legs_at_most_1",
+        "native_invalid_legs_at_most_1",
+        "at_least_7_valid_primary_pairs_per_stratum",
+        "at_least_30_valid_primary_pairs_pooled",
         "primary_input_token_test_pass",
         "primary_median_reduction_at_least_10_percent",
         "no_material_protected_secondary_regression",
@@ -747,7 +786,7 @@
         "primary_or_key_endpoint_coverage_insufficient",
         "runtime_attrition_equals_2",
         "shared_external_failure_prevents_attribution",
-        "required_lifecycle_anchor_not_estimable",
+        "observed_lifecycle_event_missing_required_anchor_or_evidence",
         "frozen_decision_region_not_selected"
       ]
     },
