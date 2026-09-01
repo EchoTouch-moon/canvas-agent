@@ -103,11 +103,15 @@ same frozen task + same fixture snapshot + same model/provider
         └── RUNTIME leg
 ```
 
-Arm order is randomized within each pair using a pre-registered seed. The
-seed, generated order, task hash, fixture hash, and runtime fingerprint are
-recorded in metadata. If a task's execution is stateful, the two legs use
-independent isolated copies of the same snapshot; the analysis must not treat
-cross-leg filesystem state as a treatment effect.
+For each task stratum with planned `N_pairs`, arm order MUST be balanced. If
+`N_pairs` is even, `N_pairs / 2` pairs use `NATIVE → RUNTIME` and
+`N_pairs / 2` pairs use `RUNTIME → NATIVE`; if `N_pairs` is odd, the two order
+counts MUST differ by at most one. A pre-registered seed randomizes which
+repetition receives each order within those quotas; the seed does not create
+the balance. The seed, generated order, task hash, fixture hash, and runtime
+fingerprint are recorded in metadata. If a task's execution is stateful, the
+two legs use independent isolated copies of the same snapshot; the analysis
+must not treat cross-leg filesystem state as a treatment effect.
 
 If the provider exposes sampling parameters, they are fixed and recorded. If
 it does not expose or honor a parameter, that fact is recorded as a nuisance
@@ -191,25 +195,67 @@ recovery condition. A normal first `ADD` is not a rehydrate.
 
 #### Cold Context Penalty
 
-For matched post-removal segments, compare the treatment's additional
-provider tokens, tool calls, latency, or failures required to recover context
-against the paired Native segment. If no matched cold-context segment exists,
-the metric is `NOT_ESTIMABLE`, not zero.
+The run contract MUST pre-register a cross-arm alignment anchor for every
+eligible cold-context comparison. In the treatment arm, anchor `A` is the
+task/model boundary immediately before the eligible `REMOVE`, and anchor `B`
+is a predefined downstream recovery or task-phase boundary. The Native arm
+uses the same task-semantic `A` and `B` anchors; it does not invent
+Native-side `REMOVE` or `REHYDRATE` events. Anchor detection and any tie-break
+rule MUST be frozen before live execution.
+
+For each matched pair with a valid `A:B` interval in both arms, calculate the
+same interval delta, for example:
+
+```text
+Cold Context Penalty_tokens
+  = RUNTIME tokens[A:B] - NATIVE tokens[A:B]
+
+Cold Context Penalty_tools
+  = RUNTIME tool calls[A:B] - NATIVE tool calls[A:B]
+
+Cold Context Penalty_latency
+  = RUNTIME latency[A:B] - NATIVE latency[A:B]
+```
+
+The interval may also report recovery failures and recovery actions under the
+pre-registered endpoint definitions. If `A` or `B` cannot be identified in
+both arms, or the interval is ambiguous without a frozen tie-breaker, the
+metric is `NOT_ESTIMABLE`, not zero. No trajectory segment may be selected
+post hoc merely to make the metric computable.
 
 ## 5. Repetition, randomization, and statistics
 
-The minimum confirmatory design is **8 matched repetitions per task stratum
-and arm**, unless a separately reviewed power/feasibility analysis freezes a
-different number. This is a design target, not live authorization.
+Throughout this protocol, `N_pairs` means matched pairs, not per-arm runs;
+each pair contains exactly one `NATIVE` leg and one `RUNTIME` leg. The default
+minimum design / feasibility floor is **8 matched pairs per task stratum**,
+i.e. 8 `NATIVE` legs and 8 `RUNTIME` legs. A confirmatory sample size, if
+claimed, MUST instead be frozen in the run contract using a pre-registered
+power, sensitivity, or feasibility analysis. This floor is a design target,
+not live authorization.
 
 - Repetition count is fixed before execution; no retry-until-PASS behavior.
-- Arm order is counterbalanced by the committed randomization seed.
+- The committed seed randomizes arm assignments within the pre-registered
+  AB/BA quotas; balance is a quota, not a consequence of the seed.
 - A task failure with complete evidence remains a valid outcome observation.
 - An infrastructure/evidence failure invalidates that matched pair for the
   affected endpoint, is reported in attrition, and is never relabeled as a
   task failure.
 - No outlier is silently deleted. Raw pair values, exclusions, and reasons
   are reported.
+
+The analysis MUST report two distinct quantities:
+
+- **Conditional effectiveness:** the paired treatment difference among matched
+  pairs whose required evidence is valid for that endpoint.
+- **Operational reliability:** execution success and infrastructure/evidence
+  attrition for each arm across all attempted pairs.
+
+The run contract MUST pre-register a treatment-specific attrition threshold.
+If `RUNTIME` infrastructure attrition exceeds that threshold, the overall
+adjudication MUST NOT be `BETTER`, even when conditional effectiveness looks
+favorable. The frozen rule may classify that result as `WORSE` or
+`INCONCLUSIVE`, but it must not hide the attrition by reporting only the
+conditional estimate.
 
 The analysis must report paired deltas, not only arm-level means:
 
@@ -220,6 +266,14 @@ The analysis must report paired deltas, not only arm-level means:
 - task-stratified results first, followed by any pooled result with the
   stratification rule stated in advance;
 - effect size and uncertainty, not only a p-value.
+
+Before live execution, the run contract MUST pre-register either (a) one
+primary efficiency endpoint with an ordered secondary hierarchy, or (b) a
+multiple-endpoint multiplicity-control rule, such as gatekeeping, Holm, or a
+predefined family-wise paired permutation rule. The endpoint family, direction,
+threshold, test, and decision rule are frozen before observing outcomes.
+Exploratory endpoints cannot independently trigger `BETTER`, and no endpoint
+may be selected after the fact because it produced the most favorable result.
 
 No single repetition, cache pattern, provider burst, or latency observation
 is sufficient to establish effectiveness. Failure to reject no difference is
@@ -236,9 +290,10 @@ The run contract must apply these decision classes in order:
    beyond the pre-registered non-inferiority margin, or the treatment incurs a
    material resource/recovery regression without an outcome benefit.
 3. `BETTER` — task outcome is non-inferior, lifecycle safety/evidence gates
-   pass, and at least one pre-registered efficiency endpoint improves by its
+   pass, treatment operational reliability meets its pre-registered threshold,
+   and at least one confirmatory efficiency endpoint improves by its frozen
    threshold without an unacceptable regression in the other primary
-   endpoints.
+   endpoints. The endpoint hierarchy or multiplicity rule above applies.
 4. `TRADE-OFF` — outcome is non-inferior but gains and losses coexist, such as
    lower input tokens with materially higher recovery latency or tool cost.
 5. `INCONCLUSIVE` — matched evidence is insufficient, treatment is inactive,
