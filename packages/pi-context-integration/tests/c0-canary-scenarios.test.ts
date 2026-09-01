@@ -74,7 +74,10 @@ describe('budget stop logic (contract sections 7-8)', () => {
   })
 
   it('trips S-7 on scenario-run and wall-clock breaches', () => {
-    const scenarios = evaluateC0StopConditions({ ...ZERO_LEDGERS, scenarioRunsCompleted: 5 })
+    const scenarios = evaluateC0StopConditions({
+      ...ZERO_LEDGERS,
+      scenarioRunsCompleted: 5
+    })
     expect(scenarios.stop).toBe(true)
     if (scenarios.stop) expect(scenarios.condition).toBe('S-7')
 
@@ -87,19 +90,31 @@ describe('budget stop logic (contract sections 7-8)', () => {
   })
 
   it('trips evidence stop conditions S-3, S-4 and S-6', () => {
-    const replay = evaluateC0StopConditions({ ...ZERO_LEDGERS, replayMismatches: 1 })
+    const replay = evaluateC0StopConditions({
+      ...ZERO_LEDGERS,
+      replayMismatches: 1
+    })
     expect(replay.stop).toBe(true)
     if (replay.stop) expect(replay.condition).toBe('S-3')
 
-    const eviction = evaluateC0StopConditions({ ...ZERO_LEDGERS, mandatoryEvictions: 1 })
+    const eviction = evaluateC0StopConditions({
+      ...ZERO_LEDGERS,
+      mandatoryEvictions: 1
+    })
     expect(eviction.stop).toBe(true)
     if (eviction.stop) expect(eviction.condition).toBe('S-4')
 
-    const unexplained = evaluateC0StopConditions({ ...ZERO_LEDGERS, unexplainedDecisions: 1 })
+    const unexplained = evaluateC0StopConditions({
+      ...ZERO_LEDGERS,
+      unexplainedDecisions: 1
+    })
     expect(unexplained.stop).toBe(true)
     if (unexplained.stop) expect(unexplained.condition).toBe('S-6')
 
-    const orphan = evaluateC0StopConditions({ ...ZERO_LEDGERS, orphanRehydrates: 1 })
+    const orphan = evaluateC0StopConditions({
+      ...ZERO_LEDGERS,
+      orphanRehydrates: 1
+    })
     expect(orphan.stop).toBe(true)
     if (orphan.stop) {
       expect(orphan.condition).toBe('S-6')
@@ -119,6 +134,69 @@ describe('budget stop logic (contract sections 7-8)', () => {
   })
 })
 
+describe('live boundary safety stop evaluation', () => {
+  it('detects a protected eviction from the executor records', () => {
+    const executor = new C0ScenarioExecutor({
+      runtimeSessionId: 'c0-test:safety-eviction'
+    })
+    executor.records.push({
+      decisionId: 'decision-protected',
+      kind: 'REMOVE',
+      sourceKey: 'repo://mandatory',
+      sourceVersionId: 'repo://mandatory:v1',
+      representationId: 'repr-protected',
+      reasonCodes: ['MANDATORY_INSTRUCTION'] as const,
+      transitionSequence: 1,
+      replayVerified: true
+    })
+
+    const stop = executor.currentSafetyStop()
+    expect(stop.stop).toBe(true)
+    if (stop.stop) expect(stop.condition).toBe('S-4')
+  })
+
+  it('detects an unexplained decision before prompt completion', () => {
+    const executor = new C0ScenarioExecutor({
+      runtimeSessionId: 'c0-test:safety-unexplained'
+    })
+    executor.records.push({
+      decisionId: 'decision-unexplained',
+      kind: 'KEEP',
+      sourceKey: 'repo://candidate',
+      sourceVersionId: 'repo://candidate:v1',
+      representationId: 'repr-candidate',
+      reasonCodes: [],
+      transitionSequence: 1,
+      replayVerified: true
+    })
+
+    const stop = executor.currentSafetyStop()
+    expect(stop.stop).toBe(true)
+    if (stop.stop) expect(stop.condition).toBe('S-6')
+  })
+
+  it('detects a replay mismatch from the current boundary history', () => {
+    const executor = new C0ScenarioExecutor({
+      runtimeSessionId: 'c0-test:safety-replay'
+    })
+    executor.boundaries.push({
+      turnLabel: 'safety',
+      modelCallSequence: 1,
+      transitionSequence: 1,
+      transitionId: 'transition-1',
+      transitionLogicalHash: 'hash-1',
+      fromWorkingSetId: null,
+      toWorkingSetId: 'working-set-1',
+      replayVerified: false,
+      decisionCount: 0
+    })
+
+    const stop = executor.currentSafetyStop()
+    expect(stop.stop).toBe(true)
+    if (stop.stop) expect(stop.condition).toBe('S-3')
+  })
+})
+
 describe('E1 Distractor Elimination', () => {
   const result = runScenarioOnScriptedMessages(C0_E1_DISTRACTOR_ELIMINATION)
 
@@ -129,9 +207,9 @@ describe('E1 Distractor Elimination', () => {
       (decision) => decision.kind === 'REMOVE' && decision.reasonCodes.includes('RULED_OUT')
     )
     expect(removes).toHaveLength(2)
-    expect(
-      removes.every((decision) => decision.sourceKey.includes('c0-e1-distractor-a'))
-    ).toBe(true)
+    expect(removes.every((decision) => decision.sourceKey.includes('c0-e1-distractor-a'))).toBe(
+      true
+    )
   })
 
   it('keeps the ruled-out distractor out of the final working set', () => {
@@ -222,7 +300,8 @@ describe('E3 Phase Shift', () => {
     )
     expect(removes).toHaveLength(2)
     const rehydrates = result.chain.filter(
-      (decision) => decision.kind === 'REHYDRATE' && decision.reasonCodes.includes('DETAIL_REQUIRED')
+      (decision) =>
+        decision.kind === 'REHYDRATE' && decision.reasonCodes.includes('DETAIL_REQUIRED')
     )
     expect(rehydrates).toHaveLength(2)
     expect(
