@@ -415,7 +415,8 @@ Captured per run:
 | Working-set transitions | `LifecycleTransitionRecord` fields: decision kind, source/version/representation IDs, reason codes, originating REMOVE and later-need refs, from/to working-set hashes, transition hash (`types.ts:83-100`) | planner output records |
 | Admission / decision records | every active-set change with reason codes; `FalseRemovalCandidate` records per §5 | planner + runner |
 | Provider binding | `providerConfigHash`, requested/actual provider/model, `fallbackUsed=false`, run identity — no credential | `safeProviderSelection` record (`provider-layer:44-45`, `provider-layer:66-70`) |
-| Run manifest | run identity, ISO timestamps, corpus manifest hash, this contract's identity/hash, §7 budget ledgers, §8 stop conditions fired, per-scenario verdicts | C0 runner |
+| Provider usage | per-assistant-response token fields, explicit usage source, and independent cost availability state; no message content | C0-L1 usage contract amendment (`docs/plan/cspv-c0-provider-usage-contract-2026-09-01.md`) |
+| Run manifest | run identity, ISO timestamps, corpus manifest hash, this contract's identity/hash, provider-usage amendment identity/hash, §7 budget ledgers, §8 stop conditions fired, per-scenario verdicts | C0 runner |
 
 Storage location — reports directory pattern, following the CR-005
 research-only boundary (`cr-005-task:598-614`):
@@ -425,6 +426,7 @@ research/context-benchmarks/reports/cspv-c0/<run-identity>/
   observations.jsonl
   transitions.jsonl
   decisions.jsonl
+  usage.jsonl
   binding.json
   manifest.json
 ```

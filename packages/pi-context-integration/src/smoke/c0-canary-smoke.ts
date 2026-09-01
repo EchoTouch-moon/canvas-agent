@@ -49,6 +49,7 @@ import {
 } from './c0-kill-switch'
 import { C0ProviderTransportGuard } from './c0-provider-transport'
 import { claimSingleUseC0ReportDir } from './c0-report-directory'
+import { C0ProviderUsageLedger, type C0ProviderUsageSummary } from './c0-provider-usage'
 
 // CSPV-C0 canary runner (docs/plan/cspv-c0-run-contract-2026-08-27.md).
 //
@@ -74,7 +75,7 @@ import { claimSingleUseC0ReportDir } from './c0-report-directory'
 // the SAME observation seam; providerCalls is exactly 0.
 //
 // Evidence: research/context-benchmarks/reports/cspv-c0/<runId>/
-//   observations.jsonl  transitions.jsonl  decisions.jsonl  binding.json
+//   observations.jsonl  transitions.jsonl  decisions.jsonl  usage.jsonl  binding.json
 //   manifest.json (transitions.json and verdicts.json remain supplementary
 //   human-readable summaries for backwards-compatible local inspection.)
 
@@ -89,6 +90,7 @@ const REPORTS_ROOT = resolve(
 )
 const STEP_PLAN_PROVIDER_ID = 'step-plan'
 const C0_CONTRACT_PATH = 'docs/plan/cspv-c0-run-contract-2026-08-27.md'
+const C0_USAGE_CONTRACT_PATH = 'docs/plan/cspv-c0-provider-usage-contract-2026-09-01.md'
 const REPO_ROOT = resolve(process.cwd(), '..', '..')
 
 type C0Status = 'EXECUTED' | 'DRY_RUN_COMPLETE' | 'STOPPED' | 'FAILED'
@@ -142,6 +144,8 @@ interface C0FinalEvidenceInput {
   readonly operatorAbortOutcome: C0AbortOutcome | null
   readonly runnerFailureMessage: string | null
   readonly identityEvidence: C0IdentityEvidence
+  readonly providerUsageRecords: readonly Record<string, unknown>[]
+  readonly providerUsageSummary: C0ProviderUsageSummary
 }
 
 interface C0FinalEvidenceResult {
@@ -153,15 +157,24 @@ interface C0IdentityEvidence {
   readonly corpusManifestHash: string
   readonly contractPath: string
   readonly contractSha256: string
+  readonly providerUsageContractPath: string
+  readonly providerUsageContractSha256: string
 }
 
 async function loadC0IdentityEvidence(): Promise<C0IdentityEvidence> {
-  const contractContent = await readFile(join(REPO_ROOT, C0_CONTRACT_PATH), 'utf8')
+  const [contractContent, providerUsageContractContent] = await Promise.all([
+    readFile(join(REPO_ROOT, C0_CONTRACT_PATH), 'utf8'),
+    readFile(join(REPO_ROOT, C0_USAGE_CONTRACT_PATH), 'utf8')
+  ])
   return {
     corpusManifestId: C0_CORPUS_MANIFEST_ID,
     corpusManifestHash: c0CorpusManifestHash(),
     contractPath: C0_CONTRACT_PATH,
-    contractSha256: createHash('sha256').update(contractContent, 'utf8').digest('hex')
+    contractSha256: createHash('sha256').update(contractContent, 'utf8').digest('hex'),
+    providerUsageContractPath: C0_USAGE_CONTRACT_PATH,
+    providerUsageContractSha256: createHash('sha256')
+      .update(providerUsageContractContent, 'utf8')
+      .digest('hex')
   }
 }
 
@@ -215,6 +228,7 @@ async function writeC0FinalEvidence(input: C0FinalEvidenceInput): Promise<C0Fina
 
   await writeJsonLines('transitions.jsonl', transitionRows)
   await writeJsonLines('decisions.jsonl', decisionRows)
+  await writeJsonLines('usage.jsonl', input.providerUsageRecords)
 
   await writeArtifact('binding.json', () =>
     input.mode === 'LIVE'
@@ -293,6 +307,8 @@ async function writeC0FinalEvidence(input: C0FinalEvidenceInput): Promise<C0Fina
     status: manifestStatus,
     contract: input.identityEvidence.contractPath,
     contractSha256: input.identityEvidence.contractSha256,
+    providerUsageContract: input.identityEvidence.providerUsageContractPath,
+    providerUsageContractSha256: input.identityEvidence.providerUsageContractSha256,
     corpusManifestId: input.identityEvidence.corpusManifestId,
     corpusManifestHash: input.identityEvidence.corpusManifestHash,
     policyVersion: C0_POLICY_VERSION,
@@ -314,6 +330,7 @@ async function writeC0FinalEvidence(input: C0FinalEvidenceInput): Promise<C0Fina
             note: 'DRY_RUN: no ModelRuntime, no prepareModelProvider, no session; scripted deterministic messages',
             sourceDerivation: 'scripted-messages'
           },
+    providerUsage: input.providerUsageSummary,
     stopConditionsFired: input.firedStops,
     ...(input.operatorAbortOutcome !== null ? { operatorAbort: input.operatorAbortOutcome } : {}),
     ...(input.runnerFailureMessage !== null
@@ -379,7 +396,8 @@ async function runLiveScenario(
   transport: C0ProviderTransportGuard,
   setActiveSession: (session: C0ActiveSession) => void,
   clearActiveSession: (session: C0ActiveSession) => void,
-  operatorKillPromise: Promise<C0OperatorSignal>
+  operatorKillPromise: Promise<C0OperatorSignal>,
+  usageLedger: C0ProviderUsageLedger
 ): Promise<C0ScenarioExecutor | null> {
   const fixtureDir = await mkdtemp(join(tmpdir(), `canvas-c0-${scenario.id.toLowerCase()}-`))
   let disposeSession: (() => void) | undefined
@@ -418,7 +436,18 @@ async function runLiveScenario(
       tools: ['read']
     })
     setActiveSession(session)
+    let currentTurnLabel = 'unstarted'
+    const unsubscribeUsage = session.subscribe((event) => {
+      if (event.type !== 'message_end' || event.message.role !== 'assistant') return
+      usageLedger.recordAssistantMessage({
+        runId,
+        scenarioId: scenario.id,
+        turnLabel: currentTurnLabel,
+        message: event.message
+      })
+    })
     disposeSession = () => {
+      unsubscribeUsage()
       clearActiveSession(session)
       session.dispose()
     }
@@ -452,6 +481,7 @@ async function runLiveScenario(
         )
         return executor
       }
+      currentTurnLabel = turn.label
       executor.beginTurn(turn)
       const scripted = turnScriptedObservations(scenario, turn, new Date().toISOString())
       if (scripted.length > 0) executor.queueExternalObservations(scripted)
@@ -620,6 +650,7 @@ async function run(): Promise<void> {
   const firedStops: FiredStopCondition[] = []
   const scenarioResults = new Map<C0ScenarioId, C0ScenarioRunResult>()
   const providerCallsByScenario = new Map<C0ScenarioId, number>()
+  const providerUsageLedger = new C0ProviderUsageLedger()
   let terminal = false
   const fireStop = (condition: C0StopConditionId, reason: string): void => {
     terminal = true
@@ -757,7 +788,8 @@ async function run(): Promise<void> {
             transport,
             setActiveSession,
             clearActiveSession,
-            operatorKillSwitch.whenKilled
+            operatorKillSwitch.whenKilled,
+            providerUsageLedger
           )
         } else if (mode === 'DRY_RUN') {
           executor = new C0ScenarioExecutor({
@@ -854,6 +886,7 @@ async function run(): Promise<void> {
     const providerCalls = mode === 'LIVE' ? state.providerCallRecords : 0
     let finalEvidence: C0FinalEvidenceResult = { failedArtifacts: [] }
     try {
+      const usageSummary = providerUsageLedger.summary()
       finalEvidence = await writeC0FinalEvidence({
         reportDir,
         runId,
@@ -871,7 +904,12 @@ async function run(): Promise<void> {
         providerCallsByScenario,
         operatorAbortOutcome,
         runnerFailureMessage,
-        identityEvidence
+        identityEvidence,
+        providerUsageRecords: providerUsageLedger.records.map((record) => ({
+          ...record
+        })),
+        providerUsageSummary:
+          mode === 'DRY_RUN' ? { ...usageSummary, status: 'NOT_APPLICABLE' } : usageSummary
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
