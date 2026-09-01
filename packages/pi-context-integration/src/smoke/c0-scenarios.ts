@@ -783,6 +783,33 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(value) ?? 'null'
 }
 
+/**
+ * Canonical identity for the frozen C0 scenario corpus.
+ *
+ * The live runner records this digest in its manifest so an evidence
+ * directory can be checked against the exact prompts, scripted tool traffic,
+ * lifecycle events, fixtures and expected decision chain used by the run.
+ * This is deliberately derived from plain JSON data only; no provider or
+ * filesystem access is involved.
+ */
+export const C0_CORPUS_MANIFEST_ID = 'cspv-c0-corpus-v1'
+
+export function c0CorpusManifest(): {
+  readonly manifestId: string
+  readonly policyVersion: string
+  readonly scenarios: readonly C0ScenarioDefinition[]
+} {
+  return {
+    manifestId: C0_CORPUS_MANIFEST_ID,
+    policyVersion: C0_POLICY_VERSION,
+    scenarios: C0_SCENARIOS
+  }
+}
+
+export function c0CorpusManifestHash(): string {
+  return sha256Hex(stableStringify(c0CorpusManifest()))
+}
+
 export class C0ScenarioExecutor {
   readonly base: PiContextShadowObserver
   readonly enriched: EnrichedPiShadowObserver

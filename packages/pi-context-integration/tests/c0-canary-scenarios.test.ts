@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   C0_BUDGETS,
+  C0_CORPUS_MANIFEST_ID,
   C0_E1_DISTRACTOR_ELIMINATION,
   C0_E2_WRONG_PATH_RECOVERY,
   C0_E3_PHASE_SHIFT,
@@ -9,6 +10,8 @@ import {
   C0_RUN_ID_PATTERN,
   C0_SCENARIOS,
   C0ScenarioExecutor,
+  c0CorpusManifest,
+  c0CorpusManifestHash,
   evaluateC0StopConditions,
   finalizeScenarioRun,
   isValidC0RunId,
@@ -52,6 +55,21 @@ describe('run identity (contract section 2)', () => {
       const suggestion = suggestC0RunId()
       expect(isValidC0RunId(suggestion)).toBe(true)
     }
+  })
+})
+
+describe('frozen C0 corpus identity (contract sections 2 and 9)', () => {
+  it('exposes a stable non-empty manifest identity and digest', () => {
+    const manifest = c0CorpusManifest()
+
+    expect(manifest.manifestId).toBe(C0_CORPUS_MANIFEST_ID)
+    expect(manifest.policyVersion).toBe(C0_POLICY_VERSION)
+    expect(manifest.scenarios.map((scenario) => scenario.id)).toEqual(['E1', 'E2', 'E3', 'E4'])
+
+    const first = c0CorpusManifestHash()
+    const second = c0CorpusManifestHash()
+    expect(first).toMatch(/^[0-9a-f]{64}$/)
+    expect(second).toBe(first)
   })
 })
 
