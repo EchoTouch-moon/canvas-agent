@@ -4,11 +4,11 @@
 
 | Field | Value |
 | --- | --- |
-| Status | `DRAFT / LEAD REVIEW REQUIRED` |
+| Status | `ACCEPTED / FROZEN — C1_RUN_CONTRACT_V1` |
 | Design | `C1_FEASIBILITY_V1` |
 | Protocol | `C1_PROTOCOL_V1` |
 | Task manifest | `C1_A_MANIFEST_V1` |
-| Provider execution while drafting | `0` |
+| Provider calls during C1-B design and freeze | `0` |
 | C1 live execution | `NO_GO` pending treatment readiness and separate authorization |
 | C1-C treatment implementation | Not specified by this contract; exact revision remains pending |
 | CR-004 Active Rewrite | `NO_GO` |
@@ -24,9 +24,10 @@ companion is
 The contract is intentionally a feasibility design. It freezes what would be
 run and how results would be adjudicated before any result is observed; it does
 not claim confirmatory statistical power, general effectiveness, token savings,
-cost savings, or a causal benefit. The numeric parameters marked
-`PROPOSED_FOR_LEAD_FREEZE` require Lead approval before they can become live
-constraints.
+cost savings, or a causal benefit. The numeric parameters in this contract were
+accepted by Lead as the `C1_FEASIBILITY_V1` decision region. They become live
+constraints only when a separately authorized run binds an exact C1-C treatment
+revision.
 
 ## 1. Exact identity and execution binding
 
@@ -140,7 +141,8 @@ last four   → RUNTIME_THEN_NATIVE
 
 The resulting assignment matrix is part of the JSON companion. The matrix is
 not regenerated after the first Provider call. Its hash is a required
-pre-live identity field and is currently `PENDING_C1_B_FREEZE`.
+pre-live identity field and is frozen as
+`630d2f6a66d8ceb414533040052a96bf20566a7ddef33edc7236b6e4ecc711e7`.
 
 | Task | Pair IDs assigned `NATIVE → RUNTIME` | Pair IDs assigned `RUNTIME → NATIVE` |
 | --- | --- | --- |
@@ -321,7 +323,8 @@ The following test and practical threshold are proposed for Lead freeze:
    `BETTER`.
 
 The 10% practical threshold, the exact sign-flip statistic, and alpha are
-`PROPOSED_FOR_LEAD_FREEZE`; they are not inherited facts from C1_PROTOCOL_V1.
+frozen `C1_FEASIBILITY_V1` parameters; they are not inherited facts from
+C1_PROTOCOL_V1.
 The primary endpoint is the only endpoint allowed to trigger an efficiency
 `BETTER` finding. The analysis cannot select a different endpoint after seeing
 the results.
@@ -414,7 +417,7 @@ premature removal from an observed event whose evidence was broken.
 
 ## 9. Coverage and operational reliability
 
-The following values are proposed for Lead freeze:
+The following values are frozen for `C1_FEASIBILITY_V1`:
 
 | Gate | Proposed value |
 | --- | --- |
@@ -476,7 +479,7 @@ for the call ledger.
 Any per-leg or study budget breach is terminal for that run/study: preserve the
 partial evidence, write the failure state, and do not resume or start the next
 leg under the same identity. These budget values are
-`PROPOSED_FOR_LEAD_FREEZE` and are not a live authorization.
+These frozen budget values are not a live authorization.
 
 ## 11. Evidence, replay, and failure classification
 
@@ -575,7 +578,7 @@ The required sequence is:
 ```text
 C1_PROTOCOL_V1 + C1_A_MANIFEST_V1
         ↓
-C1_RUN_CONTRACT_V1 Lead review and freeze
+C1_RUN_CONTRACT_V1 FROZEN
         ↓
 C1-C credential-free treatment readiness
         ↓
@@ -592,13 +595,13 @@ Current state:
 C0-L1                    CLOSED
 C1_PROTOCOL_V1           FROZEN
 C1_A_MANIFEST_V1         FROZEN
-C1_RUN_CONTRACT_V1       DRAFT / LEAD REVIEW REQUIRED
-C1-C treatment readiness NOT STARTED
+C1_RUN_CONTRACT_V1       ACCEPTED / FROZEN
+C1-C treatment readiness GO / ZERO PROVIDER
 C1 live                  NO_GO
 CR-004                   NO_GO
-Provider calls           0 during C1-B drafting
+Provider calls           0 during C1-B design and freeze
 ```
 
-The next decision is Lead review of the four proposed numeric groups and the
-machine-readable assignment artifact. C1-B does not implement the runner,
-modify `policy-v0`, change C1-A fixtures, or authorize Provider execution.
+C1-B is frozen. The next decision is the zero-provider C1-C treatment-readiness
+gate. C1-B does not implement the runner, modify `policy-v0`, change C1-A
+fixtures, or authorize Provider execution.

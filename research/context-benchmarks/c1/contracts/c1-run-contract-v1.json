@@ -1,7 +1,7 @@
 {
   "contractId": "C1_RUN_CONTRACT_V1",
   "schemaVersion": 1,
-  "status": "DRAFT_LEAD_REVIEW_REQUIRED",
+  "status": "FROZEN",
   "design": {
     "designId": "C1_FEASIBILITY_V1",
     "kind": "FEASIBILITY",
@@ -22,8 +22,8 @@
     "taskManifestPath": "research/context-benchmarks/c1/manifests/c1-effectiveness-v1.json",
     "taskManifestSha256": "2bfcad11078758c21a9ca799357553d08beb08065cea2efd179eade7e0a04e38",
     "manifestBaseRevision": "e6763734934f3b6cac6bf65df3dbd94d57f2dc59",
-    "contractSha256": "PENDING_C1_B_FREEZE",
-    "assignmentMatrixSha256": "PENDING_C1_B_FREEZE",
+    "contractSha256": "1c82e095973b5cf9b47787f99a6ad41dccfd50d3f68379c68c02e8bd36d6f9f4",
+    "assignmentMatrixSha256": "630d2f6a66d8ceb414533040052a96bf20566a7ddef33edc7236b6e4ecc711e7",
     "hashing": {
       "encoding": "UTF-8",
       "objectKeyOrder": "LEXICOGRAPHIC_UNICODE_CODE_POINT_AT_EVERY_DEPTH",
@@ -88,7 +88,7 @@
     },
     "seedMayChangeQuota": false,
     "matrixFrozenBeforeFirstProviderCall": true,
-    "assignmentMatrixHash": "PENDING_C1_B_FREEZE",
+    "assignmentMatrixHash": "630d2f6a66d8ceb414533040052a96bf20566a7ddef33edc7236b6e4ecc711e7",
     "assignmentMatrixHashAlgorithm": "SHA-256 of canonical UTF-8 JSON bytes for the exact assignmentMatrix array; object keys sorted lexicographically by Unicode code point, arrays preserved, standard JSON string escaping, JSON/ECMAScript numeric serialization, no whitespace, no trailing newline",
     "assignmentMatrix": [
       {
@@ -481,7 +481,7 @@
     "statisticalDeltaIsArmSwapAntisymmetric": true,
     "nativeDenominatorMustBePositive": true,
     "practicalThreshold": 0.1,
-    "practicalThresholdLabel": "PROPOSED_FOR_LEAD_FREEZE",
+    "practicalThresholdLabel": "FROZEN_C1_FEASIBILITY_V1",
     "test": {
       "type": "STRATUM_BLOCKED_EXACT_PAIRED_SIGN_FLIP",
       "tail": "ONE_SIDED_FAVORING_RUNTIME",
@@ -499,7 +499,7 @@
       "incompleteStratumAssignments": "2^n_FOR_n_VALID_PAIRS",
       "combination": "FISHER_METHOD_ACROSS_FOUR_STRATUM_P_VALUES",
       "alpha": 0.05,
-      "alphaLabel": "PROPOSED_FOR_LEAD_FREEZE"
+      "alphaLabel": "FROZEN_C1_FEASIBILITY_V1"
     },
     "requirements": {
       "eachEligibleStratumMedianNonNegative": true,
@@ -564,7 +564,7 @@
     }
   ],
   "materialRegressionThresholds": {
-    "status": "PROPOSED_FOR_LEAD_FREEZE",
+    "status": "FROZEN",
     "totalTokens": {
       "metric": "paired_median_relative_increase",
       "threshold": 0.1,
@@ -622,7 +622,7 @@
     }
   },
   "nonInferiority": {
-    "status": "PROPOSED_FOR_LEAD_FREEZE",
+    "status": "FROZEN",
     "additionalRuntimeFailures": "max(0, runtimeFailures - nativeFailures)",
     "perStratum": {
       "toleratedAdditionalFailures": 1,
@@ -636,7 +636,7 @@
     "failureWithinToleratedBandMayYield": "TRADE_OFF_IF_PRIMARY_GAIN_AND_OTHER_GATES_PASS"
   },
   "operationalReliability": {
-    "status": "PROPOSED_FOR_LEAD_FREEZE",
+    "status": "FROZEN",
     "attemptedRuntimeLegs": 32,
     "runtimeInvalidLegsPermittedForBetter": 1,
     "runtimeOperationalSuccessMinimum": {
@@ -655,7 +655,7 @@
     "taskFailureWithCompleteEvidenceCountsAsAttrition": false
   },
   "minimumCoverage": {
-    "status": "PROPOSED_FOR_LEAD_FREEZE",
+    "status": "FROZEN",
     "primaryValidPairsPerStratum": 6,
     "primaryValidPairsPooled": 24,
     "keySecondaryValidPairsPerStratum": 6,
@@ -668,7 +668,7 @@
     "lifecycleCoverage": "USE_TASK_SPECIFIC_C1_A_DENOMINATORS"
   },
   "budgets": {
-    "status": "PROPOSED_FOR_LEAD_FREEZE",
+    "status": "FROZEN",
     "perLeg": {
       "maxProviderCalls": 24,
       "maxToolCalls": 96,
@@ -820,17 +820,19 @@
     ],
     "exploratoryEndpointsCannotTriggerDecision": true
   },
-  "draftParametersPendingLeadFreeze": [
+  "draftParametersPendingLeadFreeze": [],
+  "frozenParameterGroups": [
     "non_inferiority_failure_margin",
     "primary_10_percent_practical_threshold_and_alpha_0_05_exact_test",
     "protected_secondary_material_regression_thresholds",
-    "runtime_attrition_and_minimum_coverage_thresholds",
+    "runtime_and_native_attrition_and_coverage_thresholds",
     "per_leg_and_study_hard_budgets"
   ],
   "authorization": {
-    "providerCallsDuringDrafting": 0,
+    "providerCallsDuringC1BDesignAndFreeze": 0,
     "c1LiveAuthorized": false,
     "c1CReadinessRequired": true,
+    "c1CReadinessStatus": "GO_ZERO_PROVIDER",
     "separateLeadAuthorizationRequired": true,
     "cr004Authorized": false,
     "waveAAuthorized": false,
