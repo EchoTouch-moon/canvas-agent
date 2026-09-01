@@ -44,16 +44,28 @@ The correction is limited to the C0 live runner's safety boundary:
 5. **Session cleanup is explicit.** A live scenario disposes its AgentSession
    before its temporary fixture directory is removed.
 
+6. **Operator termination enters the same terminal path.** The runner captures
+   `SIGINT` and `SIGTERM` as S-8, marks the run terminal before attempting a
+   bounded session abort, and then finalizes the claimed run identity. `SIGKILL`
+   remains intentionally unsupported because it cannot be handled by the
+   process.
+
+7. **Run finalization is exception-safe at the runner boundary.** Transport
+   restoration, active-session cleanup, and each final evidence artifact are
+   attempted from the run-level `finally` path. If one artifact fails, the
+   remaining artifacts are still attempted and the manifest records the
+   failure when it can be written.
+
 ## Credential-free verification
 
-| Check                                      | Result                                                            |
-| ------------------------------------------ | ----------------------------------------------------------------- |
-| Pi integration typecheck                   | PASS                                                              |
-| Pi integration test suite                  | PASS — 38 files, 402 tests                                        |
-| C0 transport, boundary, and deadline tests | PASS                                                              |
-| C0 dry run, all four scenarios             | PASS — `DRY_RUN_COMPLETE`, provider calls `0`                     |
-| C0 dry-run manifest                        | PASS — 4/4 scenarios requested and completed, provider ledger `0` |
-| `git diff --check`                         | PASS                                                              |
+| Check                                                   | Result                                                            |
+| ------------------------------------------------------- | ----------------------------------------------------------------- |
+| Pi integration typecheck                                | PASS                                                              |
+| Pi integration test suite                               | PASS — 39 files, 405 tests                                        |
+| C0 transport, boundary, deadline, and kill-switch tests | PASS                                                              |
+| C0 dry run, all four scenarios                          | PASS — `DRY_RUN_COMPLETE`, provider calls `0`                     |
+| C0 dry-run manifest                                     | PASS — 4/4 scenarios requested and completed, provider ledger `0` |
+| `git diff --check`                                      | PASS                                                              |
 
 The dry run used a fresh generated identity and was retained outside the
 repository as disposable audit evidence. It instantiated no `ModelRuntime`,
@@ -83,7 +95,13 @@ contract-level evidence gaps already identified:
   manifest, while the current runner records the contract path and policy
   version but not those hashes;
 - Appendix A still contains `TBD` adapter mappings, and §6 says unresolved
-  mappings block execution.
+  mappings block execution;
+- the §7 token/cost ceiling remains a `PLACEHOLDER` requiring Lead confirmation.
+  The runner has no provider-reported usage/cost ledger or cost-ceiling
+  enforcement yet, so live mode now refuses to start while this item is
+  unresolved. It must be resolved by an explicit contract amendment or a
+  separately reviewed enforcement implementation; a Lead-tracked estimate is
+  not treated as a hard budget.
 
 Until those items are separately resolved or explicitly amended, the C0 live
 state remains:
