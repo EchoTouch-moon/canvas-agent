@@ -1,10 +1,10 @@
-# C1-A Task / Fixture Manifest — Draft
+# C1-A Task / Fixture Manifest — Frozen
 
 ## Decision boundary
 
 | Field | Value |
 | --- | --- |
-| Status | `DRAFT — LEAD REVIEW REQUIRED` |
+| Status | `ACCEPTED / FROZEN — C1_A_MANIFEST_V1` |
 | Package | `C1-A — Task / Fixture Manifest` |
 | Protocol | `C1_PROTOCOL_V1` |
 | Base revision | `main@e6763734934f3b6cac6bf65df3dbd94d57f2dc59` |
@@ -240,8 +240,8 @@ manifest does not authorize retry-until-success behavior.
 ## 6. Next gate
 
 ```text
-C1-A manifest review              PENDING
-C1-A frozen corpus                NOT YET
+C1-A manifest review              PASS
+C1-A frozen corpus                FROZEN
 C1-B analysis/run contract        NOT STARTED
 C1-C treatment readiness          HOLD
 C1 live                          NO_GO

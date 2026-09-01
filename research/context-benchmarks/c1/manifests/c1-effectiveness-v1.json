@@ -1,7 +1,7 @@
 {
   "manifestId": "c1-effectiveness-v1",
   "schemaVersion": 1,
-  "status": "DRAFT_LEAD_REVIEW_REQUIRED",
+  "status": "FROZEN",
   "protocol": "C1_PROTOCOL_V1",
   "baseRevision": "e6763734934f3b6cac6bf65df3dbd94d57f2dc59",
   "providerExecution": "NO_GO",
