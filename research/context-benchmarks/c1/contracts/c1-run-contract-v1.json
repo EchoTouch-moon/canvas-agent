@@ -1,0 +1,841 @@
+{
+  "contractId": "C1_RUN_CONTRACT_V1",
+  "schemaVersion": 1,
+  "status": "FROZEN",
+  "design": {
+    "designId": "C1_FEASIBILITY_V1",
+    "kind": "FEASIBILITY",
+    "confirmatoryClaimsAllowed": false,
+    "strataCount": 4,
+    "pairsPerStratum": 8,
+    "totalMatchedPairs": 32,
+    "nativeLegs": 32,
+    "runtimeLegs": 32,
+    "totalLiveLegs": 64,
+    "maxConcurrency": 1,
+    "futureConfirmatorySampleSize": "SEPARATE_PRE_REGISTERED_SENSITIVITY_OR_POWER_GATE"
+  },
+  "protocolBinding": {
+    "protocolId": "C1_PROTOCOL_V1",
+    "protocolPath": "docs/plan/cspv-c1-comparative-effectiveness-protocol-2026-09-01.md",
+    "taskManifestId": "C1_A_MANIFEST_V1",
+    "taskManifestPath": "research/context-benchmarks/c1/manifests/c1-effectiveness-v1.json",
+    "taskManifestSha256": "2bfcad11078758c21a9ca799357553d08beb08065cea2efd179eade7e0a04e38",
+    "manifestBaseRevision": "e6763734934f3b6cac6bf65df3dbd94d57f2dc59",
+    "contractSha256": "1c82e095973b5cf9b47787f99a6ad41dccfd50d3f68379c68c02e8bd36d6f9f4",
+    "assignmentMatrixSha256": "630d2f6a66d8ceb414533040052a96bf20566a7ddef33edc7236b6e4ecc711e7",
+    "hashing": {
+      "encoding": "UTF-8",
+      "objectKeyOrder": "LEXICOGRAPHIC_UNICODE_CODE_POINT_AT_EVERY_DEPTH",
+      "arrayOrder": "PRESERVED",
+      "stringEscaping": "STANDARD_JSON",
+      "numberSerialization": "JSON_ECMASCRIPT_NUMERIC_SERIALIZATION",
+      "whitespace": "NONE",
+      "trailingNewline": false,
+      "contractHashInput": "CANONICAL_JSON_OF_WHOLE_CONTRACT_WITH_protocolBinding.contractSha256_REPLACED_BY_LITERAL_SELF",
+      "assignmentMatrixHashInput": "CANONICAL_JSON_OF_EXACT_randomization.assignmentMatrix_ARRAY_ONLY",
+      "hashOrder": [
+        "COMPUTE_ASSIGNMENT_MATRIX_SHA256_FIRST",
+        "WRITE_ASSIGNMENT_MATRIX_HASH_FIELDS",
+        "COMPUTE_CONTRACT_SHA256_WITH_SELF_PLACEHOLDER"
+      ],
+      "assignmentMatrixHashFieldsMustMatch": [
+        "protocolBinding.assignmentMatrixSha256",
+        "randomization.assignmentMatrixHash"
+      ]
+    }
+  },
+  "executionBinding": {
+    "codeRevision": "PENDING_C1_C",
+    "exactTreatmentRevisionRequiredBeforeLive": true,
+    "nodeRange": ">=24.0.0 <25.0.0",
+    "provider": "step-plan",
+    "model": "step-3.7-flash",
+    "baseUrl": "https://api.stepfun.com/step_plan/v1",
+    "requestPath": "/chat/completions",
+    "endpoint": "https://api.stepfun.com/step_plan/v1/chat/completions",
+    "credentialEnv": "STEP_PLAN_API_KEY",
+    "credentialPersistence": "MEMORY_ONLY",
+    "executionMode": "experiment-strict",
+    "fallback": "NONE",
+    "readinessArtifact": "C1-C_TREATMENT_READINESS_V1",
+    "providerConfigHashExcludesCredential": true
+  },
+  "taskManifestPolicy": {
+    "taskIds": [
+      "c1-t1-localized-distractor-v1",
+      "c1-t2-multi-file-migration-v1",
+      "c1-t3-failure-recovery-v1",
+      "c1-t4-delayed-context-recovery-v1"
+    ],
+    "priorEvidenceAdmissible": false,
+    "fixtureMutationAllowed": false,
+    "promptMutationAllowed": false,
+    "oracleMutationAllowed": false,
+    "c0LifecycleAdapterAllowed": false
+  },
+  "randomization": {
+    "seed": "c1-feasibility-v1-order-seed-20260901",
+    "algorithm": "SHA-256(seed + ':' + taskId + ':' + pairId), ascending digest order within task; first four receive NATIVE_THEN_RUNTIME and last four receive RUNTIME_THEN_NATIVE",
+    "quotaPerStratum": {
+      "pairs": 8,
+      "nativeThenRuntime": 4,
+      "runtimeThenNative": 4
+    },
+    "globalQuota": {
+      "nativeThenRuntime": 16,
+      "runtimeThenNative": 16
+    },
+    "seedMayChangeQuota": false,
+    "matrixFrozenBeforeFirstProviderCall": true,
+    "assignmentMatrixHash": "630d2f6a66d8ceb414533040052a96bf20566a7ddef33edc7236b6e4ecc711e7",
+    "assignmentMatrixHashAlgorithm": "SHA-256 of canonical UTF-8 JSON bytes for the exact assignmentMatrix array; object keys sorted lexicographically by Unicode code point, arrays preserved, standard JSON string escaping, JSON/ECMAScript numeric serialization, no whitespace, no trailing newline",
+    "assignmentMatrix": [
+      {
+        "taskId": "c1-t1-localized-distractor-v1",
+        "stratum": "localized_investigation_distractors",
+        "pairId": "c1-t1-localized-distractor-v1-p01",
+        "pairOrdinal": 1,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p01-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p01-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t1-localized-distractor-v1",
+        "stratum": "localized_investigation_distractors",
+        "pairId": "c1-t1-localized-distractor-v1-p05",
+        "pairOrdinal": 2,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p05-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p05-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t1-localized-distractor-v1",
+        "stratum": "localized_investigation_distractors",
+        "pairId": "c1-t1-localized-distractor-v1-p02",
+        "pairOrdinal": 3,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p02-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p02-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t1-localized-distractor-v1",
+        "stratum": "localized_investigation_distractors",
+        "pairId": "c1-t1-localized-distractor-v1-p08",
+        "pairOrdinal": 4,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p08-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p08-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t1-localized-distractor-v1",
+        "stratum": "localized_investigation_distractors",
+        "pairId": "c1-t1-localized-distractor-v1-p04",
+        "pairOrdinal": 5,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p04-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p04-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t1-localized-distractor-v1",
+        "stratum": "localized_investigation_distractors",
+        "pairId": "c1-t1-localized-distractor-v1-p07",
+        "pairOrdinal": 6,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p07-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p07-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t1-localized-distractor-v1",
+        "stratum": "localized_investigation_distractors",
+        "pairId": "c1-t1-localized-distractor-v1-p03",
+        "pairOrdinal": 7,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p03-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p03-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t1-localized-distractor-v1",
+        "stratum": "localized_investigation_distractors",
+        "pairId": "c1-t1-localized-distractor-v1-p06",
+        "pairOrdinal": 8,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p06-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t1-localized-distractor-v1-p06-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t2-multi-file-migration-v1",
+        "stratum": "multi_file_multi_source",
+        "pairId": "c1-t2-multi-file-migration-v1-p04",
+        "pairOrdinal": 1,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p04-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p04-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t2-multi-file-migration-v1",
+        "stratum": "multi_file_multi_source",
+        "pairId": "c1-t2-multi-file-migration-v1-p07",
+        "pairOrdinal": 2,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p07-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p07-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t2-multi-file-migration-v1",
+        "stratum": "multi_file_multi_source",
+        "pairId": "c1-t2-multi-file-migration-v1-p02",
+        "pairOrdinal": 3,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p02-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p02-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t2-multi-file-migration-v1",
+        "stratum": "multi_file_multi_source",
+        "pairId": "c1-t2-multi-file-migration-v1-p01",
+        "pairOrdinal": 4,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p01-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p01-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t2-multi-file-migration-v1",
+        "stratum": "multi_file_multi_source",
+        "pairId": "c1-t2-multi-file-migration-v1-p05",
+        "pairOrdinal": 5,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p05-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p05-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t2-multi-file-migration-v1",
+        "stratum": "multi_file_multi_source",
+        "pairId": "c1-t2-multi-file-migration-v1-p08",
+        "pairOrdinal": 6,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p08-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p08-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t2-multi-file-migration-v1",
+        "stratum": "multi_file_multi_source",
+        "pairId": "c1-t2-multi-file-migration-v1-p03",
+        "pairOrdinal": 7,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p03-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p03-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t2-multi-file-migration-v1",
+        "stratum": "multi_file_multi_source",
+        "pairId": "c1-t2-multi-file-migration-v1-p06",
+        "pairOrdinal": 8,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p06-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t2-multi-file-migration-v1-p06-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t3-failure-recovery-v1",
+        "stratum": "failure_diagnosis_recovery",
+        "pairId": "c1-t3-failure-recovery-v1-p02",
+        "pairOrdinal": 1,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p02-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p02-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t3-failure-recovery-v1",
+        "stratum": "failure_diagnosis_recovery",
+        "pairId": "c1-t3-failure-recovery-v1-p04",
+        "pairOrdinal": 2,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p04-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p04-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t3-failure-recovery-v1",
+        "stratum": "failure_diagnosis_recovery",
+        "pairId": "c1-t3-failure-recovery-v1-p05",
+        "pairOrdinal": 3,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p05-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p05-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t3-failure-recovery-v1",
+        "stratum": "failure_diagnosis_recovery",
+        "pairId": "c1-t3-failure-recovery-v1-p06",
+        "pairOrdinal": 4,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p06-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p06-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t3-failure-recovery-v1",
+        "stratum": "failure_diagnosis_recovery",
+        "pairId": "c1-t3-failure-recovery-v1-p07",
+        "pairOrdinal": 5,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p07-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p07-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t3-failure-recovery-v1",
+        "stratum": "failure_diagnosis_recovery",
+        "pairId": "c1-t3-failure-recovery-v1-p08",
+        "pairOrdinal": 6,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p08-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p08-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t3-failure-recovery-v1",
+        "stratum": "failure_diagnosis_recovery",
+        "pairId": "c1-t3-failure-recovery-v1-p01",
+        "pairOrdinal": 7,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p01-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p01-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t3-failure-recovery-v1",
+        "stratum": "failure_diagnosis_recovery",
+        "pairId": "c1-t3-failure-recovery-v1-p03",
+        "pairOrdinal": 8,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p03-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t3-failure-recovery-v1-p03-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t4-delayed-context-recovery-v1",
+        "stratum": "phase_transition_delayed_context",
+        "pairId": "c1-t4-delayed-context-recovery-v1-p06",
+        "pairOrdinal": 1,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p06-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p06-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t4-delayed-context-recovery-v1",
+        "stratum": "phase_transition_delayed_context",
+        "pairId": "c1-t4-delayed-context-recovery-v1-p01",
+        "pairOrdinal": 2,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p01-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p01-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t4-delayed-context-recovery-v1",
+        "stratum": "phase_transition_delayed_context",
+        "pairId": "c1-t4-delayed-context-recovery-v1-p02",
+        "pairOrdinal": 3,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p02-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p02-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t4-delayed-context-recovery-v1",
+        "stratum": "phase_transition_delayed_context",
+        "pairId": "c1-t4-delayed-context-recovery-v1-p08",
+        "pairOrdinal": 4,
+        "order": "NATIVE_THEN_RUNTIME",
+        "armSequence": ["NATIVE", "RUNTIME"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p08-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p08-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t4-delayed-context-recovery-v1",
+        "stratum": "phase_transition_delayed_context",
+        "pairId": "c1-t4-delayed-context-recovery-v1-p05",
+        "pairOrdinal": 5,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p05-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p05-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t4-delayed-context-recovery-v1",
+        "stratum": "phase_transition_delayed_context",
+        "pairId": "c1-t4-delayed-context-recovery-v1-p07",
+        "pairOrdinal": 6,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p07-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p07-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t4-delayed-context-recovery-v1",
+        "stratum": "phase_transition_delayed_context",
+        "pairId": "c1-t4-delayed-context-recovery-v1-p03",
+        "pairOrdinal": 7,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p03-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p03-runtime-<8hex>"
+      },
+      {
+        "taskId": "c1-t4-delayed-context-recovery-v1",
+        "stratum": "phase_transition_delayed_context",
+        "pairId": "c1-t4-delayed-context-recovery-v1-p04",
+        "pairOrdinal": 8,
+        "order": "RUNTIME_THEN_NATIVE",
+        "armSequence": ["RUNTIME", "NATIVE"],
+        "nativeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p04-native-<8hex>",
+        "runtimeRunIdTemplate": "c1-<yyyymmdd>-c1-t4-delayed-context-recovery-v1-p04-runtime-<8hex>"
+      }
+    ]
+  },
+  "runIdentity": {
+    "studyIdFormat": "c1-<yyyymmdd>-c1-feasibility-v1-<8hex>",
+    "runIdFormat": "c1-<yyyymmdd>-<pairId>-<arm>-<8hex>",
+    "freshStudyRequired": true,
+    "freshRunRequired": true,
+    "singleUse": true,
+    "terminalNeverResume": true,
+    "overwriteExistingRunId": false,
+    "retryUntilSuccess": false,
+    "crossArmStateSharing": false,
+    "providerRebindingAfterStart": false,
+    "identityClaimBeforeFirstProviderCall": true
+  },
+  "armBinding": {
+    "native": {
+      "contextStrategy": "NATIVE_UNMANAGED",
+      "modelFacingSemanticContext": "UNCHANGED_NATIVE_BASELINE",
+      "lifecycleRewrite": false,
+      "metadataObservationAllowed": true
+    },
+    "runtime": {
+      "contextStrategy": "CONTEXT_RUNTIME_FROZEN_POLICY",
+      "modelFacingSemanticContext": "WORKING_SET_MATERIALIZATION",
+      "mustDifferWhenEligible": true,
+      "systemDeveloperToolProviderNativeStructuresPreserved": true,
+      "silentNativeFallback": false,
+      "scriptedLifecycleInjection": false
+    },
+    "primaryIndependentVariable": "context_management_strategy"
+  },
+  "providerUsage": {
+    "source": "PROVIDER_REPORTED_MESSAGE_END",
+    "requiredFields": [
+      "inputTokens",
+      "outputTokens",
+      "cacheReadTokens",
+      "cacheWriteTokens",
+      "totalTokens",
+      "usageSource"
+    ],
+    "usageSourceRequired": "PROVIDER_REPORTED",
+    "costSourceAllowed": ["PROVIDER_REPORTED", "UNAVAILABLE"],
+    "localEstimateAsProviderUsage": false,
+    "missingUsagePolicy": "INVALIDATE_AFFECTED_USAGE_ENDPOINT_AND_COUNT_ATTRITION; DO_NOT_INVENT_DATA",
+    "rawPayloadPersistence": false,
+    "promptPersistence": false,
+    "responsePersistence": false,
+    "credentialPersistence": false
+  },
+  "primaryOutcome": {
+    "successDefinition": [
+      "objective_oracle_pass",
+      "regression_oracle_pass",
+      "expected_writable_scope_pass"
+    ],
+    "evidenceValiditySeparate": true,
+    "validTaskFailureIsOutcomeObservation": true,
+    "taskFailureDoesNotTriggerRetry": true
+  },
+  "primaryEfficiencyEndpoint": {
+    "id": "provider_input_tokens",
+    "path": "providerReported.inputTokens",
+    "direction": "LOWER_IS_BETTER",
+    "statisticalPairDelta": "nativeInputTokens - runtimeInputTokens",
+    "practicalEffectSize": "(nativeInputTokens - runtimeInputTokens) / nativeInputTokens",
+    "statisticalDeltaIsArmSwapAntisymmetric": true,
+    "nativeDenominatorMustBePositive": true,
+    "practicalThreshold": 0.1,
+    "practicalThresholdLabel": "FROZEN_C1_FEASIBILITY_V1",
+    "test": {
+      "type": "STRATUM_BLOCKED_EXACT_PAIRED_SIGN_FLIP",
+      "tail": "ONE_SIDED_FAVORING_RUNTIME",
+      "statistic": "SUM_OF_VALID_ABSOLUTE_TOKEN_DELTAS",
+      "armSwapMapsDeltaToNegative": true,
+      "nullAssumption": "PAIRED_DIFFERENCES_SIGN_EXCHANGEABLE_ABOUT_ZERO",
+      "conditionalOn": [
+        "OBSERVED_VALID_PAIR_SET",
+        "OBSERVED_ABSOLUTE_TOKEN_DIFFERENCES"
+      ],
+      "permutationSource": "DISTRIBUTIONAL_SIGN_FLIP_NOT_ORDER_RANDOMIZATION",
+      "exactnessMeaning": "FINITE_2_TO_THE_N_ENUMERATION_IS_EXACT_UNDER_SIGN_EXCHANGEABILITY_ASSUMPTION",
+      "abBaQuotaIsPermutationSource": false,
+      "fullStratumAssignments": 256,
+      "incompleteStratumAssignments": "2^n_FOR_n_VALID_PAIRS",
+      "combination": "FISHER_METHOD_ACROSS_FOUR_STRATUM_P_VALUES",
+      "alpha": 0.05,
+      "alphaLabel": "FROZEN_C1_FEASIBILITY_V1"
+    },
+    "requirements": {
+      "eachEligibleStratumMedianNonNegative": true,
+      "pooledMedianReductionAtLeast": 0.1,
+      "fisherCombinedPAtMost": 0.05,
+      "minimumValidPairsPerStratum": 6,
+      "minimumValidPairsPooled": 24
+    },
+    "exploratoryReplacementForbidden": true
+  },
+  "secondaryEndpoints": [
+    {
+      "id": "provider_total_tokens",
+      "path": "providerReported.totalTokens",
+      "role": "KEY_PROTECTED_SECONDARY",
+      "order": 1,
+      "direction": "LOWER_IS_BETTER"
+    },
+    {
+      "id": "tool_calls",
+      "path": "trajectory.toolCallCount",
+      "role": "KEY_PROTECTED_SECONDARY",
+      "order": 2,
+      "direction": "LOWER_IS_BETTER"
+    },
+    {
+      "id": "wall_clock_ms",
+      "path": "timing.wallClockMs",
+      "role": "KEY_PROTECTED_SECONDARY",
+      "order": 3,
+      "direction": "LOWER_IS_BETTER"
+    },
+    {
+      "id": "cache_tokens",
+      "path": "providerReported.cacheReadTokens+providerReported.cacheWriteTokens",
+      "role": "EXPLORATORY",
+      "order": 4
+    },
+    {
+      "id": "repeated_reads",
+      "path": "trajectory.repeatedReadCount",
+      "role": "EXPLORATORY",
+      "order": 5
+    },
+    {
+      "id": "repeated_searches",
+      "path": "trajectory.repeatedSearchCount",
+      "role": "EXPLORATORY",
+      "order": 6
+    },
+    {
+      "id": "trajectory_length",
+      "path": "trajectory.eventCount",
+      "role": "EXPLORATORY",
+      "order": 7
+    },
+    {
+      "id": "per_turn_latency_ms",
+      "path": "timing.perTurnLatencyMs",
+      "role": "EXPLORATORY",
+      "order": 8
+    }
+  ],
+  "materialRegressionThresholds": {
+    "status": "FROZEN",
+    "totalTokens": {
+      "metric": "paired_median_relative_increase",
+      "threshold": 0.1,
+      "nativeDenominatorMustBePositive": true
+    },
+    "toolCalls": {
+      "metric": "paired_median_absolute_and_zero_safe_relative_increase",
+      "absoluteThresholdCalls": 2,
+      "relativeThreshold": 0.2,
+      "relativeDenominator": "max(nativeMedian, 1)"
+    },
+    "wallClock": {
+      "metric": "paired_median_absolute_and_zero_safe_relative_increase",
+      "absoluteThresholdMs": 5000,
+      "relativeThreshold": 0.2,
+      "relativeDenominator": "max(nativeMedian, 1ms)"
+    },
+    "lifecycle": {
+      "policy": "Report_task_specific_denominators_and_C1_A_NOT_ESTIMABLE_states; do_not_invent_a_cross_task_material_regression_threshold"
+    }
+  },
+  "lifecycleEligibility": {
+    "c1-t1-localized-distractor-v1": {
+      "removalPrecision": "ELIGIBLE",
+      "rehydrationRecoveryRate": "NOT_ESTIMABLE",
+      "coldContextPenalty": "NOT_APPLICABLE"
+    },
+    "c1-t2-multi-file-migration-v1": {
+      "removalPrecision": "ELIGIBLE",
+      "rehydrationRecoveryRate": "NOT_ESTIMABLE",
+      "coldContextPenalty": "NOT_APPLICABLE"
+    },
+    "c1-t3-failure-recovery-v1": {
+      "removalPrecision": "NOT_ESTIMABLE",
+      "rehydrationRecoveryRate": "NOT_ESTIMABLE",
+      "coldContextPenalty": "NOT_APPLICABLE"
+    },
+    "c1-t4-delayed-context-recovery-v1": {
+      "removalPrecision": "ELIGIBLE",
+      "rehydrationRecoveryRate": "ELIGIBLE",
+      "coldContextPenalty": "ELIGIBLE_CONDITIONAL"
+    },
+    "notEstimableIsNotZero": true,
+    "notApplicableIsNotZero": true,
+    "opportunityAbsenceAffectsOnlyLifecycleEndpoint": true,
+    "observedEventMissingRequiredAnchorOrEvidence": "HARNESS_OR_INFRASTRUCTURE_FAILURE_AND_ENDPOINT_OVERALL_INCONCLUSIVE_RULE",
+    "firstAddIsNeverRehydrate": true,
+    "t4OriginatingRemoveRequired": true,
+    "t4ExactSourceVersionAndRepresentationRequired": true,
+    "t4ColdAnchors": {
+      "anchorA": "completion of WRONG_PATH_TRIAGE immediately before parser diagnosis",
+      "anchorB": "first focused-oracle invocation after parser-fix write",
+      "nativeDoesNotInventLifecycleEvents": true,
+      "postHocIntervalSelection": false
+    }
+  },
+  "nonInferiority": {
+    "status": "FROZEN",
+    "additionalRuntimeFailures": "max(0, runtimeFailures - nativeFailures)",
+    "perStratum": {
+      "toleratedAdditionalFailures": 1,
+      "failureAtOrAbove": 2
+    },
+    "pooled": {
+      "toleratedAdditionalFailures": 2,
+      "failureAtOrAbove": 3
+    },
+    "anyAdditionalRuntimeFailureForbidsBetter": true,
+    "failureWithinToleratedBandMayYield": "TRADE_OFF_IF_PRIMARY_GAIN_AND_OTHER_GATES_PASS"
+  },
+  "operationalReliability": {
+    "status": "FROZEN",
+    "attemptedRuntimeLegs": 32,
+    "runtimeInvalidLegsPermittedForBetter": 1,
+    "runtimeOperationalSuccessMinimum": {
+      "validLegs": 31,
+      "totalLegs": 32,
+      "fraction": 0.96875
+    },
+    "nativeInvalidLegsPermittedForBetter": 1,
+    "invalidLegsPermittedInEitherArmForBetter": 1,
+    "betterArmInvalidLegImbalanceMaximum": 1,
+    "runtimeInvalidLegs2Decision": "INCONCLUSIVE",
+    "runtimeInvalidLegsAtLeast3Decision": "WORSE_IF_TREATMENT_SPECIFIC_ELSE_INCONCLUSIVE",
+    "nativeAttritionReported": true,
+    "nativeThresholdTriggersTreatmentGate": true,
+    "nativeThresholdScope": "BETTER_ELIGIBILITY_ONLY",
+    "taskFailureWithCompleteEvidenceCountsAsAttrition": false
+  },
+  "minimumCoverage": {
+    "status": "FROZEN",
+    "primaryValidPairsPerStratum": 6,
+    "primaryValidPairsPooled": 24,
+    "keySecondaryValidPairsPerStratum": 6,
+    "betterValidPrimaryPairsPerStratum": 7,
+    "betterValidPrimaryPairsPooled": 30,
+    "betterInvalidLegsPerArmMaximum": 1,
+    "belowMinimumDecision": "NOT_ESTIMABLE_AND_OVERALL_BETTER_FORBIDDEN",
+    "betterCoverageDecision": "BETTER_FORBIDDEN_BELOW_7_PER_STRATUM_OR_30_POOLED_OR_ABOVE_1_INVALID_LEG_IN_EITHER_ARM",
+    "noSilentStratumOmission": true,
+    "lifecycleCoverage": "USE_TASK_SPECIFIC_C1_A_DENOMINATORS"
+  },
+  "budgets": {
+    "status": "FROZEN",
+    "perLeg": {
+      "maxProviderCalls": 24,
+      "maxToolCalls": 96,
+      "maxWallClockMs": 600000
+    },
+    "study": {
+      "maxProviderCalls": 1536,
+      "maxToolCalls": 6144,
+      "maxWallClockMs": 43200000,
+      "legWallClockMaximumTotalMs": 38400000,
+      "orchestrationAllowanceMs": 4800000,
+      "maxConcurrency": 1,
+      "arithmeticBasis": "64 x 600000ms = 38400000ms leg budget + 4800000ms orchestration allowance = 43200000ms study cap"
+    },
+    "breachAction": "TERMINAL_PRESERVE_EVIDENCE_NO_RESUME_NO_NEXT_LEG",
+    "providerCallCounterSeam": "OUTBOUND_PROVIDER_TRANSPORT",
+    "assistantMessagesAreNotCallSubstitute": true
+  },
+  "evidenceContract": {
+    "metadataOnly": true,
+    "stableJoinKeys": [
+      "studyId",
+      "runId",
+      "taskId",
+      "stratum",
+      "pairId",
+      "arm",
+      "turnId",
+      "modelCallId"
+    ],
+    "joinChain": [
+      "task_pair_arm",
+      "model_visible_context_fingerprint_working_set_transition_ids",
+      "provider_request_identity_reported_usage",
+      "tool_trajectory_latency",
+      "task_outcome_lifecycle_adjudication"
+    ],
+    "requiredArtifacts": [
+      "run_manifest",
+      "provider_usage_ledger",
+      "transition_evidence",
+      "decision_evidence",
+      "tool_latency_evidence",
+      "outcome_evidence",
+      "replay_evidence"
+    ],
+    "rawPromptStored": false,
+    "rawResponseStored": false,
+    "rawProviderPayloadStored": false,
+    "credentialsStored": false,
+    "authorizationHeadersStored": false,
+    "replayMismatchIsHardFailure": true,
+    "evidenceWriteFailureIsHardFailure": true
+  },
+  "failureClassification": {
+    "harnessContractFailure": [
+      "fixture_hash_mismatch",
+      "prompt_hash_mismatch",
+      "oracle_unavailable_or_not_distinct",
+      "manifest_identity_mismatch"
+    ],
+    "infrastructureFailure": [
+      "provider_binding_failure",
+      "runtime_failure",
+      "materialization_failure",
+      "replay_failure",
+      "security_failure",
+      "checkpoint_failure",
+      "evidence_write_failure",
+      "budget_failure"
+    ],
+    "treatmentInactive": "RUNTIME_OPPORTUNITY_OBSERVED_OR_REQUIRED_BUT_PROVIDER_BOUND_SEMANTIC_CONTEXT_REMAINS_NATIVE_EQUIVALENT",
+    "validTaskOutcomeFailure": [
+      "objective_oracle_fail",
+      "regression_oracle_fail",
+      "writable_scope_fail"
+    ],
+    "missingUsage": "INVALIDATE_AFFECTED_USAGE_ENDPOINT_AND_COUNT_ATTRITION_ONLY_IF_OTHER_EVIDENCE_IS_COMPLETE",
+    "notEstimableHandling": "PRESERVE_DENOMINATOR_STATE_NEVER_CONVERT_TO_ZERO"
+  },
+  "adjudication": {
+    "order": [
+      "CLASSIFY_HARNESS_OR_INFRASTRUCTURE_FAILURE",
+      "CHECK_TREATMENT_ACTIVITY_AND_COVERAGE",
+      "CHECK_RUNTIME_OPERATIONAL_RELIABILITY",
+      "CHECK_TASK_OUTCOME_NON_INFERIORITY",
+      "EVALUATE_PRIMARY_EFFICIENCY",
+      "APPLY_PROTECTED_SECONDARY_REGRESSION_GUARDS",
+      "EMIT_ONE_OVERALL_DECISION"
+    ],
+    "better": {
+      "requires": [
+        "outcome_non_inferiority_pass",
+        "lifecycle_and_evidence_safety_pass",
+        "runtime_invalid_legs_at_most_1",
+        "native_invalid_legs_at_most_1",
+        "at_least_7_valid_primary_pairs_per_stratum",
+        "at_least_30_valid_primary_pairs_pooled",
+        "primary_input_token_test_pass",
+        "primary_median_reduction_at_least_10_percent",
+        "no_material_protected_secondary_regression",
+        "no_additional_runtime_task_failure"
+      ]
+    },
+    "worse": {
+      "ifAny": [
+        "outcome_non_inferiority_fail",
+        "safety_or_evidence_invariant_fail",
+        "material_resource_or_recovery_regression_without_outcome_benefit",
+        "treatment_specific_runtime_attrition_at_least_3"
+      ]
+    },
+    "tradeOff": {
+      "requires": [
+        "outcome_non_inferiority_pass",
+        "qualifying_primary_efficiency_gain",
+        "protected_secondary_regression_or_tolerated_additional_task_failure"
+      ]
+    },
+    "inconclusive": {
+      "ifAny": [
+        "treatment_inactive",
+        "primary_or_key_endpoint_coverage_insufficient",
+        "runtime_attrition_equals_2",
+        "shared_external_failure_prevents_attribution",
+        "observed_lifecycle_event_missing_required_anchor_or_evidence",
+        "frozen_decision_region_not_selected"
+      ]
+    },
+    "tokenReductionAloneCannotBeBetter": true,
+    "exploratoryEndpointCanTriggerBetter": false
+  },
+  "analysisPlan": {
+    "reportRawPairValues": true,
+    "reportExclusionsAndReasons": true,
+    "reportStrataBeforePooled": true,
+    "reportMedianAndIqr": true,
+    "reportExactPrimaryPValues": true,
+    "silentOutlierDeletion": false,
+    "missingValueImputation": false,
+    "confidenceOrEquivalenceClaims": false,
+    "generalizationBeyondFrozenDesign": false,
+    "costSavingsClaim": false,
+    "primaryEndpointMultiplicity": "ONE_PRIMARY_ONLY",
+    "keySecondaryHierarchy": [
+      "provider_total_tokens",
+      "tool_calls",
+      "wall_clock_ms"
+    ],
+    "exploratoryEndpointsCannotTriggerDecision": true
+  },
+  "draftParametersPendingLeadFreeze": [],
+  "frozenParameterGroups": [
+    "non_inferiority_failure_margin",
+    "primary_10_percent_practical_threshold_and_alpha_0_05_exact_test",
+    "protected_secondary_material_regression_thresholds",
+    "runtime_and_native_attrition_and_coverage_thresholds",
+    "per_leg_and_study_hard_budgets"
+  ],
+  "authorization": {
+    "providerCallsDuringC1BDesignAndFreeze": 0,
+    "c1LiveAuthorized": false,
+    "c1CReadinessRequired": true,
+    "c1CReadinessStatus": "GO_ZERO_PROVIDER",
+    "separateLeadAuthorizationRequired": true,
+    "cr004Authorized": false,
+    "waveAAuthorized": false,
+    "waveBAuthorized": false
+  }
+}
