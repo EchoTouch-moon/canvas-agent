@@ -487,6 +487,14 @@
       "tail": "ONE_SIDED_FAVORING_RUNTIME",
       "statistic": "SUM_OF_VALID_ABSOLUTE_TOKEN_DELTAS",
       "armSwapMapsDeltaToNegative": true,
+      "nullAssumption": "PAIRED_DIFFERENCES_SIGN_EXCHANGEABLE_ABOUT_ZERO",
+      "conditionalOn": [
+        "OBSERVED_VALID_PAIR_SET",
+        "OBSERVED_ABSOLUTE_TOKEN_DIFFERENCES"
+      ],
+      "permutationSource": "DISTRIBUTIONAL_SIGN_FLIP_NOT_ORDER_RANDOMIZATION",
+      "exactnessMeaning": "FINITE_2_TO_THE_N_ENUMERATION_IS_EXACT_UNDER_SIGN_EXCHANGEABILITY_ASSUMPTION",
+      "abBaQuotaIsPermutationSource": false,
       "fullStratumAssignments": 256,
       "incompleteStratumAssignments": "2^n_FOR_n_VALID_PAIRS",
       "combination": "FISHER_METHOD_ACROSS_FOUR_STRATUM_P_VALUES",

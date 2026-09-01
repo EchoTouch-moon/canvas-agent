@@ -293,6 +293,15 @@ non-negative, and the Native input-token denominator is positive. Raw token
 values remain reportable when a percentage denominator is zero, but the
 percentage effect size is `NOT_ESTIMABLE` for that pair.
 
+The exact sign-flip distribution is a distributional paired test, not a
+consequence of the AB/BA order quota. Under the pre-registered primary null,
+eligible matched-pair absolute token differences are assumed to be
+sign-exchangeable about zero, conditional on the observed eligible-pair set
+and magnitudes. The finite `2^n` enumeration is exact under that
+sign-exchangeability assumption; it is not a design-based randomization
+distribution. The 4/4 AB/BA quota controls order balance and is analyzed as a
+separate design feature.
+
 The following test and practical threshold are proposed for Lead freeze:
 
 1. Report every eligible pair delta and each stratum's median delta.
