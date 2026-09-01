@@ -35,6 +35,7 @@ import {
   safeProviderSelection,
   type PreparedModelProvider
 } from '../index'
+import { claimSingleUseC0ReportDir } from './c0-report-directory'
 
 // CSPV-C0 canary runner (docs/plan/cspv-c0-run-contract-2026-08-27.md).
 //
@@ -48,7 +49,7 @@ import {
 // the first model call; any provider failure after execution starts is
 // terminal. Provider calls are counted as observer model-call records, not
 // prompts (one prompt can yield multiple records). Four hard budgets
-// (4 scenario runs / 12 provider calls / 60 min wall clock; token cost is
+// (4 scenario runs / 48 provider-call records / 60 min wall clock; token cost is
 // Lead-tracked) fail closed via S-1..S-8, and evidence collected so far is
 // always preserved. Output is metadata-only.
 //
@@ -275,8 +276,15 @@ async function run(): Promise<void> {
     log(`DRY_RUN generated run identity ${runId} (no provider binding occurs in DRY_RUN)`)
   }
 
-  const reportDir = join(REPORTS_ROOT, runId)
-  await mkdir(reportDir, { recursive: true })
+  let reportDir: string
+  try {
+    reportDir = await claimSingleUseC0ReportDir(REPORTS_ROOT, runId)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`[c0] REFUSED: ${message}`)
+    console.error('C0_STATUS=FAILED')
+    process.exit(1)
+  }
   const sink = new JsonlObservationSink({ directory: reportDir, sessionId: 'observations' })
 
   const startedAt = new Date()
@@ -428,11 +436,12 @@ async function run(): Promise<void> {
   const wallClockMs = finishedAt.getTime() - startedAt.getTime()
   const providerCalls = mode === 'LIVE' ? state.providerCallRecords : 0
   const verdictOf = (id: C0ScenarioId): string => scenarioResults.get(id)?.scenarioVerdict ?? 'NOT_OBSERVED'
-  const status: C0Status = terminal
+  let status: C0Status = terminal
     ? 'STOPPED'
     : mode === 'DRY_RUN'
       ? 'DRY_RUN_COMPLETE'
       : 'EXECUTED'
+  let evidenceWriteFailed = false
 
   try {
     await writeJson(join(reportDir, 'transitions.json'), {
@@ -453,7 +462,7 @@ async function run(): Promise<void> {
       overall: {
         scenariosPass: [...scenarioResults.values()].filter((r) => r.scenarioVerdict === 'PASS').length,
         scenariosFail: [...scenarioResults.values()].filter((r) => r.scenarioVerdict === 'FAIL').length,
-        scenariosNotObserved: C0_SCENARIOS.length - scenarioResults.size,
+        scenariosNotObserved: scenarios.length - scenarioResults.size,
         providerCalls,
         stopConditionsFired: firedStops
       },
@@ -510,6 +519,8 @@ async function run(): Promise<void> {
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    evidenceWriteFailed = true
+    status = 'FAILED'
     console.error(`[c0] evidence write FAILED: ${message}`)
   }
 
@@ -524,7 +535,7 @@ async function run(): Promise<void> {
     console.log(`C0_VERDICT_${scenario.id}=${verdictOf(scenario.id)}`)
   }
   console.log(`C0_REPORT_DIR=${reportDir}`)
-  if (terminal) {
+  if (terminal || evidenceWriteFailed) {
     process.exit(1)
   }
 }
