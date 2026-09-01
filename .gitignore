@@ -12,6 +12,7 @@ output/playwright/
 .canvas-agent/
 research/context-benchmarks/output/
 research/context-benchmarks/.live-output/
+research/context-benchmarks/reports/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

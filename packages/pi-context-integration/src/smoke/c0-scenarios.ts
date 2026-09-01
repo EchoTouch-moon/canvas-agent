@@ -73,11 +73,7 @@ export const C0_BUDGETS = {
   // 24 -> 48 for subset-targeted runs after c0-20260827-9faf18ac saw a single
   // E3 turn burst to 14 records (27 > 24, terminal S-7). See contract section 7.
   maxProviderCalls: 48,
-  maxWallClockMs: 60 * 60 * 1000,
-  // The contract's USD ceiling is still a Lead-confirmed placeholder. Keeping
-  // it explicit makes manifests honest and lets the live entry point refuse
-  // execution until provider-reported usage and pricing are resolved.
-  maxTokenCostUsd: null as number | null
+  maxWallClockMs: 60 * 60 * 1000
 } as const
 
 export type C0StopConditionId =
@@ -781,6 +777,33 @@ function stableStringify(value: unknown): string {
     return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`).join(',')}}`
   }
   return JSON.stringify(value) ?? 'null'
+}
+
+/**
+ * Canonical identity for the frozen C0 scenario corpus.
+ *
+ * The live runner records this digest in its manifest so an evidence
+ * directory can be checked against the exact prompts, scripted tool traffic,
+ * lifecycle events, fixtures and expected decision chain used by the run.
+ * This is deliberately derived from plain JSON data only; no provider or
+ * filesystem access is involved.
+ */
+export const C0_CORPUS_MANIFEST_ID = 'cspv-c0-corpus-v1'
+
+export function c0CorpusManifest(): {
+  readonly manifestId: string
+  readonly policyVersion: string
+  readonly scenarios: readonly C0ScenarioDefinition[]
+} {
+  return {
+    manifestId: C0_CORPUS_MANIFEST_ID,
+    policyVersion: C0_POLICY_VERSION,
+    scenarios: C0_SCENARIOS
+  }
+}
+
+export function c0CorpusManifestHash(): string {
+  return sha256Hex(stableStringify(c0CorpusManifest()))
 }
 
 export class C0ScenarioExecutor {

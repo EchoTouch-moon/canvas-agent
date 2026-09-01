@@ -130,9 +130,14 @@ Mechanics shared by all four scenarios:
   `SOURCE_SUPERSEDED→SUPERSEDED`, `FAILURE_OBSERVED→NEW_FAILURE_EVIDENCE`,
   `PHASE_CHANGED→PHASE_IRRELEVANT`, `DETAIL_REQUESTED→DETAIL_REQUIRED`
   (mapping at `runner.ts:75-86`, injection at `runner.ts:359-372`).
-- The live canary drives the same normalized event shapes from real adapter
-  observations; the frozen synthetic fixtures S1/S2/S6/S4 remain the oracle
-  reference. Expected chains below are consistent with the frozen oracles:
+- The frozen C0 canary drives the same normalized planning shapes through its
+  deterministic harness seam: `C0ScenarioDefinition.events` are applied by
+  `C0ScenarioExecutor.beginTurn()` before each planning boundary, while the
+  live provider supplies only the prompt turn. The frozen synthetic fixtures
+  S1/S2/S6/S4 remain the oracle reference. This is intentionally not a claim
+  that the current C0 runner discovers lifecycle events from provider text or
+  real adapter tool results. Expected chains below are consistent with the
+  frozen oracles:
   S1 (`distractor-elimination.ts:27-58`), S2
   (`wrong-path-recovery.ts:47-69`), S6 (`phase-shift.ts:61-79`), S4
   (`superseded-evidence.ts:33-51`).
@@ -328,7 +333,7 @@ Sequence substrate — already recorded, no schema change required
   canary must report candidate counts and examples, never causal task
   failures (`p032:170-184`, `p032:400`).
 
-## 6. READ_AFTER_REMOVE binding — Gate A Q2 follow-up
+## 6. Lifecycle-event seam and READ_AFTER_REMOVE binding — Gate A Q2 follow-up
 
 The deterministic suite recognizes later-need evidence as exactly five
 normalized kinds (`NEED_EVIDENCE_EVENTS`,
@@ -343,29 +348,33 @@ SEARCH_HIT_AFTER_REMOVE
 READ_AFTER_REMOVE
 ```
 
-The frozen scenarios exercise only `FAILURE_OBSERVED` and `DETAIL_REQUESTED`
-(`gate-a:81-88`); `SEARCH_HIT_AFTER_REMOVE` and `READ_AFTER_REMOVE` are
-declared kinds emitted by no frozen scenario (`types.ts:32-33`;
-`gate-a:89-90`), and mapping them to real adapter events "is a C0 input"
-(`gate-a:94-98`).
+The frozen C0 scenarios exercise only `FAILURE_OBSERVED` and
+`DETAIL_REQUESTED` (`gate-a:81-88`). In the current runner these are not
+adapter-derived events: they are deterministic `C0LifecycleEventSpec` inputs
+applied by `C0ScenarioExecutor.beginTurn()` and recorded as part of the
+corpus identity. `SEARCH_HIT_AFTER_REMOVE`, `READ_AFTER_REMOVE`, and
+`DEPENDENCY_DISCOVERED` are declared normalized kinds that are not emitted by
+the frozen C0 corpus (`types.ts:31-33`; `gate-a:89-90`).
 
-This contract requires: before the run starts, both unfired kinds must be
-mapped to concrete adapter events in Appendix A. A kind with no completed
-mapping row at runner review is not emitted by the live canary; the run must
-not improvise a mapping mid-run. Appendix A is part of this contract and is
-filled at runner review, before execution.
+Appendix A therefore records two distinct cases. A frozen-corpus row names the
+deterministic harness seam and is valid only for this bounded C0 evidence. A
+`NOT_EMITTED_BY_C0_CORPUS` row explicitly carries no adapter mapping and does
+not support a claim about real search/read/dependency events. A future live
+experiment that claims adapter-derived later-need evidence must add a reviewed
+adapter mapping and a corpus amendment before execution; the runner must not
+improvise one mid-run.
 
 ## 7. Budgets
 
-Four separate budgets, all hard-fail. Exceeding ANY budget is a terminal
+Three operational budgets, all hard-fail. Exceeding ANY budget is a terminal
 stop (§8): the run halts, evidence is preserved, and no retry occurs under
-the same run identity.
+the same run identity. Provider-reported token usage is required evidence for
+C0-L1, but it is not a local token estimate or a monetary spend ceiling.
 
 | Budget | Limit | Notes |
 | --- | --- | --- |
 | Scenario runs | max `4` completed scenario runs — one per E-scenario (E1–E4) | no repeats, no extra scenarios |
 | Provider calls | max `48` model calls total for a subset-targeted run | counted at the outbound transport seam, wrapping `globalThis.fetch` only after explicit opt-in (CR-011 precedent, `cr-011:58-60`). **Amendment 1 (2026-08-27, pre-execution):** raised from `12` after live run `c0-20260827-8cdb65c4` observed record yields of 4 (E1) and 6 (E2) against the ~3-per-scenario assumption — the one-prompt-multiple-records behavior the 2026-08-25 Step Plan parity smoke flagged. That run stays terminal at S-7 with evidence preserved; the amendment authorizes only a fresh run identity. **Amendment 2 (2026-08-27, pre-execution, before any third run):** after run `c0-20260827-9faf18ac` (27 > 24, terminal S-7; a single E3 turn burst to 14 records) the ceiling rises to `48` and a run may target an explicit scenario subset via `CANVAS_C0_ONLY` when prior terminal runs already banked evidence for the excluded scenarios — E1/E2 are banked PASS by both prior runs. Subsets are validated, recorded in the manifest (`scenariosRequested`), and never alter per-scenario semantics or the scenario-run ledger. |
-| Token / cost | `<= 2.00 USD equivalent` — `PLACEHOLDER, REQUIRES LEAD CONFIRMATION` | internal token estimates are not provider token/cost measurements (`p032:403`); ceiling applies to provider-reported usage |
 | Wall clock | `60` minutes | measured from strict preparation (binding) to final scenario completion |
 
 Separation requirement (`gate-b:76-77`): the scenario-run budget and the
@@ -373,6 +382,11 @@ provider-call budget are independent ledgers. Completing fewer than 4
 scenarios within the call budget is a budget-constrained outcome, not
 permission to overspend calls; exhausting calls before scenario completion
 trips the provider-call budget terminally.
+
+Provider usage is a required evidence condition, not a spend ceiling. For
+C0-L1, every terminal assistant message must have provider-reported usage;
+missing usage makes the observability verdict `INCOMPLETE`. Monetary cost is
+optional, may be `UNAVAILABLE`, and is not an adjudicated C0-L1 budget.
 
 ## 8. Stop policy — fail closed at every gate
 
@@ -389,7 +403,7 @@ reused.
 | S-4 | Mandatory / pinned eviction > 0 | any REMOVE of a protected source (`runner.ts:254-259`; `p032:190-198`) |
 | S-5 | Unexplained materialization failure | materialization failure without bounded fail-closed evidence (`p032:273-275`; gate criteria `p032:426`) |
 | S-6 | Unexplained decision > 0 | any active-set change without machine-readable reason codes (`p032:291`, `p032:308`; check at `runner.ts:244-248`) |
-| S-7 | Budget breach | any of the four §7 budgets exceeded |
+| S-7 | Budget breach | any of the three §7 operational budgets exceeded |
 | S-8 | Kill-switch invoked by operator | operator halts the run; treated identically to an automatic terminal stop |
 
 There is no degradation path: no retry, no provider switch, no mid-run
@@ -406,7 +420,8 @@ Captured per run:
 | Working-set transitions | `LifecycleTransitionRecord` fields: decision kind, source/version/representation IDs, reason codes, originating REMOVE and later-need refs, from/to working-set hashes, transition hash (`types.ts:83-100`) | planner output records |
 | Admission / decision records | every active-set change with reason codes; `FalseRemovalCandidate` records per §5 | planner + runner |
 | Provider binding | `providerConfigHash`, requested/actual provider/model, `fallbackUsed=false`, run identity — no credential | `safeProviderSelection` record (`provider-layer:44-45`, `provider-layer:66-70`) |
-| Run manifest | run identity, ISO timestamps, corpus manifest hash, this contract's identity/hash, §7 budget ledgers, §8 stop conditions fired, per-scenario verdicts | C0 runner |
+| Provider usage | per-assistant-response token fields, explicit usage source, and independent cost availability state; no message content | C0-L1 usage contract amendment (`docs/plan/cspv-c0-provider-usage-contract-2026-09-01.md`) |
+| Run manifest | run identity, ISO timestamps, corpus manifest hash, this contract's identity/hash, provider-usage amendment identity/hash, C0-L1 observability verdict, §7 budget ledgers, §8 stop conditions fired, per-scenario verdicts | C0 runner |
 
 Storage location — reports directory pattern, following the CR-005
 research-only boundary (`cr-005-task:598-614`):
@@ -416,6 +431,7 @@ research/context-benchmarks/reports/cspv-c0/<run-identity>/
   observations.jsonl
   transitions.jsonl
   decisions.jsonl
+  usage.jsonl
   binding.json
   manifest.json
 ```
@@ -460,19 +476,24 @@ this contract performs no adjudication.
   evaluator are new, separately reviewed code changes on a separate
   branch/PR (`p032:454-456`).
 
-## Appendix A — adapter event → normalized kind mapping (placeholder)
+## Appendix A — C0 event seam and future adapter mapping
 
-Required before run start (§6). To be completed at runner review; empty rows
-mean the kind is not emitted by this run.
+This appendix is frozen for the current C0 corpus. The first two rows name the
+deterministic harness seam used by the runner; they are not evidence that the
+provider or a real Pi/OpenCode/Codex adapter emitted those events. The last
+three rows are explicitly not emitted by the current corpus. A future
+adapter-backed lifecycle experiment must replace those rows through a reviewed
+contract amendment before execution.
 
-| Adapter event (concrete, named) | Normalized kind | Notes |
+| Event source / mapping source | Normalized kind | Notes |
 | --- | --- | --- |
-| `TBD` | `SEARCH_HIT_AFTER_REMOVE` | declared, unfired in frozen corpus (`types.ts:32`; `gate-a:89-90`) |
-| `TBD` | `READ_AFTER_REMOVE` | declared, unfired in frozen corpus (`types.ts:33`; `gate-a:89-90`) |
-| `TBD` | `DEPENDENCY_DISCOVERED` | declared + in `NEED_EVIDENCE_EVENTS` (`runner.ts:27-33`); unfired in frozen corpus |
-| `TBD` | `FAILURE_OBSERVED` | exercised by frozen S2/S4 (`gate-a:81-88`) |
-| `TBD` | `DETAIL_REQUESTED` | exercised by frozen S2/S6/composite (`gate-a:81-88`) |
+| `C0ScenarioDefinition.events → C0ScenarioExecutor.beginTurn()` | `FAILURE_OBSERVED` | deterministic harness input exercised by frozen E2/E4 (`gate-a:81-88`); not provider/adapter-derived |
+| `C0ScenarioDefinition.events → C0ScenarioExecutor.beginTurn()` | `DETAIL_REQUESTED` | deterministic harness input exercised by frozen E2/E3 (`gate-a:81-88`); not provider/adapter-derived |
+| `NOT_EMITTED_BY_C0_CORPUS` | `SEARCH_HIT_AFTER_REMOVE` | declared normalized kind; no frozen C0 event (`types.ts:32`; `gate-a:89-90`) |
+| `NOT_EMITTED_BY_C0_CORPUS` | `READ_AFTER_REMOVE` | declared normalized kind; no frozen C0 event (`types.ts:33`; `gate-a:89-90`) |
+| `NOT_EMITTED_BY_C0_CORPUS` | `DEPENDENCY_DISCOVERED` | declared normalized kind; no frozen C0 event (`runner.ts:27-33`) |
 
-Fill rule: every row must name a concrete adapter event emitted by a named
-adapter (Pi/OpenCode/Codex) at a verified seam. "TBD" at execution time
-blocks the run under §6.
+Fill rule for a future adapter-backed experiment: every emitted row must name
+a concrete event from a named adapter (Pi/OpenCode/Codex) at a verified seam.
+The current `NOT_EMITTED_BY_C0_CORPUS` rows are honest exclusions, not
+completed mappings, and do not authorize an adapter-backed live claim.

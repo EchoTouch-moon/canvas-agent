@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
@@ -14,9 +15,11 @@ import { JsonlObservationSink } from '@canvas-agent/context-runtime'
 import { runC0PromptWithDeadline } from './c0-prompt-deadline'
 import {
   C0_BUDGETS,
+  C0_CORPUS_MANIFEST_ID,
   C0_POLICY_VERSION,
   C0_SCENARIOS,
   C0ScenarioExecutor,
+  c0CorpusManifestHash,
   evaluateC0StopConditions,
   finalizeScenarioRun,
   isValidC0RunId,
@@ -46,6 +49,11 @@ import {
 } from './c0-kill-switch'
 import { C0ProviderTransportGuard } from './c0-provider-transport'
 import { claimSingleUseC0ReportDir } from './c0-report-directory'
+import {
+  c0L1ObservabilityVerdict,
+  C0ProviderUsageLedger,
+  type C0ProviderUsageSummary
+} from './c0-provider-usage'
 
 // CSPV-C0 canary runner (docs/plan/cspv-c0-run-contract-2026-08-27.md).
 //
@@ -60,9 +68,9 @@ import { claimSingleUseC0ReportDir } from './c0-report-directory'
 // terminal. Live provider calls are counted at the outbound transport seam,
 // while observer model-call records remain separate (one prompt can yield
 // multiple records). Three operational hard budgets (4 scenario runs / 48
-// provider calls / 60 min wall clock) fail closed via S-1..S-8. Token/cost
-// remains an unresolved contract item; LIVE mode refuses to start until its
-// provider-reported usage semantics and ceiling are explicitly resolved.
+// provider calls / 60 min wall clock) fail closed via S-1..S-8. Provider
+// reported token usage is required evidence for C0-L1; monetary cost is
+// optional and never inferred from local estimates or configured pricing.
 // Evidence collected so far is always preserved. Output is metadata-only.
 //
 // DRY_RUN mode (CANVAS_C0_DRY_RUN=1) proves the whole pipeline with ZERO
@@ -71,7 +79,9 @@ import { claimSingleUseC0ReportDir } from './c0-report-directory'
 // the SAME observation seam; providerCalls is exactly 0.
 //
 // Evidence: research/context-benchmarks/reports/cspv-c0/<runId>/
-//   observations.jsonl  transitions.json  verdicts.json  manifest.json
+//   observations.jsonl  transitions.jsonl  decisions.jsonl  usage.jsonl  binding.json
+//   manifest.json (transitions.json and verdicts.json remain supplementary
+//   human-readable summaries for backwards-compatible local inspection.)
 
 const REPORTS_ROOT = resolve(
   process.cwd(),
@@ -83,6 +93,9 @@ const REPORTS_ROOT = resolve(
   'cspv-c0'
 )
 const STEP_PLAN_PROVIDER_ID = 'step-plan'
+const C0_CONTRACT_PATH = 'docs/plan/cspv-c0-run-contract-2026-08-27.md'
+const C0_USAGE_CONTRACT_PATH = 'docs/plan/cspv-c0-provider-usage-contract-2026-09-01.md'
+const REPO_ROOT = resolve(process.cwd(), '..', '..')
 
 type C0Status = 'EXECUTED' | 'DRY_RUN_COMPLETE' | 'STOPPED' | 'FAILED'
 type C0Mode = 'LIVE' | 'DRY_RUN'
@@ -134,10 +147,39 @@ interface C0FinalEvidenceInput {
   readonly providerCallsByScenario: ReadonlyMap<C0ScenarioId, number>
   readonly operatorAbortOutcome: C0AbortOutcome | null
   readonly runnerFailureMessage: string | null
+  readonly identityEvidence: C0IdentityEvidence
+  readonly providerUsageRecords: readonly Record<string, unknown>[]
+  readonly providerUsageSummary: C0ProviderUsageSummary
 }
 
 interface C0FinalEvidenceResult {
   readonly failedArtifacts: readonly string[]
+}
+
+interface C0IdentityEvidence {
+  readonly corpusManifestId: string
+  readonly corpusManifestHash: string
+  readonly contractPath: string
+  readonly contractSha256: string
+  readonly providerUsageContractPath: string
+  readonly providerUsageContractSha256: string
+}
+
+async function loadC0IdentityEvidence(): Promise<C0IdentityEvidence> {
+  const [contractContent, providerUsageContractContent] = await Promise.all([
+    readFile(join(REPO_ROOT, C0_CONTRACT_PATH), 'utf8'),
+    readFile(join(REPO_ROOT, C0_USAGE_CONTRACT_PATH), 'utf8')
+  ])
+  return {
+    corpusManifestId: C0_CORPUS_MANIFEST_ID,
+    corpusManifestHash: c0CorpusManifestHash(),
+    contractPath: C0_CONTRACT_PATH,
+    contractSha256: createHash('sha256').update(contractContent, 'utf8').digest('hex'),
+    providerUsageContractPath: C0_USAGE_CONTRACT_PATH,
+    providerUsageContractSha256: createHash('sha256')
+      .update(providerUsageContractContent, 'utf8')
+      .digest('hex')
+  }
 }
 
 /**
@@ -158,6 +200,55 @@ async function writeC0FinalEvidence(input: C0FinalEvidenceInput): Promise<C0Fina
   }
   const verdictOf = (id: C0ScenarioId): string =>
     input.scenarioResults.get(id)?.scenarioVerdict ?? 'NOT_OBSERVED'
+
+  const writeJsonLines = async (
+    name: string,
+    rows: readonly Record<string, unknown>[]
+  ): Promise<void> => {
+    try {
+      const content = rows.map((row) => JSON.stringify(row)).join('\n')
+      await writeFile(join(input.reportDir, name), content.length > 0 ? `${content}\n` : '', 'utf8')
+    } catch (error) {
+      failedArtifacts.push(name)
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`[c0] evidence write FAILED (${name}): ${message}`)
+    }
+  }
+
+  const transitionRows = [...input.scenarioResults.values()].flatMap((result) =>
+    result.boundaries.map((boundary) => ({
+      runId: input.runId,
+      scenarioId: result.scenarioId,
+      ...boundary
+    }))
+  )
+  const decisionRows = [...input.scenarioResults.values()].flatMap((result) =>
+    result.records.map((record) => ({
+      runId: input.runId,
+      scenarioId: result.scenarioId,
+      ...record
+    }))
+  )
+
+  await writeJsonLines('transitions.jsonl', transitionRows)
+  await writeJsonLines('decisions.jsonl', decisionRows)
+  await writeJsonLines('usage.jsonl', input.providerUsageRecords)
+
+  await writeArtifact('binding.json', () =>
+    input.mode === 'LIVE'
+      ? {
+          runId: input.runId,
+          mode: input.mode,
+          binding: input.bindingEvidence
+        }
+      : {
+          runId: input.runId,
+          mode: input.mode,
+          binding: null,
+          providerCalls: 0,
+          note: 'DRY_RUN: no provider binding or ModelRuntime session'
+        }
+  )
 
   await writeArtifact('transitions.json', () => ({
     runId: input.runId,
@@ -218,7 +309,12 @@ async function writeC0FinalEvidence(input: C0FinalEvidenceInput): Promise<C0Fina
     runId: input.runId,
     mode: input.mode,
     status: manifestStatus,
-    contract: 'docs/plan/cspv-c0-run-contract-2026-08-27.md',
+    contract: input.identityEvidence.contractPath,
+    contractSha256: input.identityEvidence.contractSha256,
+    providerUsageContract: input.identityEvidence.providerUsageContractPath,
+    providerUsageContractSha256: input.identityEvidence.providerUsageContractSha256,
+    corpusManifestId: input.identityEvidence.corpusManifestId,
+    corpusManifestHash: input.identityEvidence.corpusManifestHash,
     policyVersion: C0_POLICY_VERSION,
     startedAt: input.startedAt.toISOString(),
     finishedAt: input.finishedAt.toISOString(),
@@ -238,6 +334,10 @@ async function writeC0FinalEvidence(input: C0FinalEvidenceInput): Promise<C0Fina
             note: 'DRY_RUN: no ModelRuntime, no prepareModelProvider, no session; scripted deterministic messages',
             sourceDerivation: 'scripted-messages'
           },
+    c0L1Observability: {
+      verdict: c0L1ObservabilityVerdict(input.mode, input.providerUsageSummary)
+    },
+    providerUsage: input.providerUsageSummary,
     stopConditionsFired: input.firedStops,
     ...(input.operatorAbortOutcome !== null ? { operatorAbort: input.operatorAbortOutcome } : {}),
     ...(input.runnerFailureMessage !== null
@@ -303,7 +403,8 @@ async function runLiveScenario(
   transport: C0ProviderTransportGuard,
   setActiveSession: (session: C0ActiveSession) => void,
   clearActiveSession: (session: C0ActiveSession) => void,
-  operatorKillPromise: Promise<C0OperatorSignal>
+  operatorKillPromise: Promise<C0OperatorSignal>,
+  usageLedger: C0ProviderUsageLedger
 ): Promise<C0ScenarioExecutor | null> {
   const fixtureDir = await mkdtemp(join(tmpdir(), `canvas-c0-${scenario.id.toLowerCase()}-`))
   let disposeSession: (() => void) | undefined
@@ -342,7 +443,18 @@ async function runLiveScenario(
       tools: ['read']
     })
     setActiveSession(session)
+    let currentTurnLabel = 'unstarted'
+    const unsubscribeUsage = session.subscribe((event) => {
+      if (event.type !== 'message_end' || event.message.role !== 'assistant') return
+      usageLedger.recordAssistantMessage({
+        runId,
+        scenarioId: scenario.id,
+        turnLabel: currentTurnLabel,
+        message: event.message
+      })
+    })
     disposeSession = () => {
+      unsubscribeUsage()
       clearActiveSession(session)
       session.dispose()
     }
@@ -376,6 +488,7 @@ async function runLiveScenario(
         )
         return executor
       }
+      currentTurnLabel = turn.label
       executor.beginTurn(turn)
       const scripted = turnScriptedObservations(scenario, turn, new Date().toISOString())
       if (scripted.length > 0) executor.queueExternalObservations(scripted)
@@ -466,14 +579,18 @@ async function run(): Promise<void> {
 
   const mode: C0Mode = dryRun ? 'DRY_RUN' : 'LIVE'
 
+  let identityEvidence: C0IdentityEvidence
+  try {
+    identityEvidence = await loadC0IdentityEvidence()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`[c0] REFUSED: C0 identity evidence unavailable: ${message}`)
+    console.error('C0_STATUS=FAILED')
+    process.exit(1)
+    return
+  }
+
   if (!dryRun) {
-    if (C0_BUDGETS.maxTokenCostUsd === null) {
-      console.error(
-        '[c0] REFUSED: token/cost hard budget is unresolved; Lead must confirm provider-reported usage and pricing before live execution.'
-      )
-      console.error('C0_STATUS=FAILED')
-      process.exit(1)
-    }
     if (process.env['CANVAS_PROVIDER_EXECUTION_MODE'] !== 'experiment-strict') {
       console.error(
         '[c0] REFUSED: CANVAS_PROVIDER_EXECUTION_MODE=experiment-strict is required for the C0 canary.'
@@ -533,6 +650,7 @@ async function run(): Promise<void> {
   const firedStops: FiredStopCondition[] = []
   const scenarioResults = new Map<C0ScenarioId, C0ScenarioRunResult>()
   const providerCallsByScenario = new Map<C0ScenarioId, number>()
+  const providerUsageLedger = new C0ProviderUsageLedger()
   let terminal = false
   const fireStop = (condition: C0StopConditionId, reason: string): void => {
     terminal = true
@@ -670,7 +788,8 @@ async function run(): Promise<void> {
             transport,
             setActiveSession,
             clearActiveSession,
-            operatorKillSwitch.whenKilled
+            operatorKillSwitch.whenKilled,
+            providerUsageLedger
           )
         } else if (mode === 'DRY_RUN') {
           executor = new C0ScenarioExecutor({
@@ -767,6 +886,7 @@ async function run(): Promise<void> {
     const providerCalls = mode === 'LIVE' ? state.providerCallRecords : 0
     let finalEvidence: C0FinalEvidenceResult = { failedArtifacts: [] }
     try {
+      const usageSummary = providerUsageLedger.summary()
       finalEvidence = await writeC0FinalEvidence({
         reportDir,
         runId,
@@ -783,7 +903,13 @@ async function run(): Promise<void> {
         scenarioResults,
         providerCallsByScenario,
         operatorAbortOutcome,
-        runnerFailureMessage
+        runnerFailureMessage,
+        identityEvidence,
+        providerUsageRecords: providerUsageLedger.records.map((record) => ({
+          ...record
+        })),
+        providerUsageSummary:
+          mode === 'DRY_RUN' ? { ...usageSummary, status: 'NOT_APPLICABLE' } : usageSummary
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
