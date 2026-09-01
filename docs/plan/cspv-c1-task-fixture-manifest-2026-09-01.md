@@ -16,7 +16,7 @@
 This manifest operationalizes
 [`C1_PROTOCOL_V1`](./cspv-c1-comparative-effectiveness-protocol-2026-09-01.md).
 The machine-readable companion is
-[`c1-effectiveness-v1.json`](../../research/context-benchmarks/manifests/c1-effectiveness-v1.json).
+[`c1-effectiveness-v1.json`](../../research/context-benchmarks/c1/manifests/c1-effectiveness-v1.json).
 Neither artifact authorizes live execution. C1-B must later bind provider,
 model, runtime, repetition count, budgets, randomization seed, and final
 adjudication parameters.
