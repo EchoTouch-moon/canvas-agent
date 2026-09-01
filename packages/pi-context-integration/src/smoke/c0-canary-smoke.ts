@@ -49,7 +49,11 @@ import {
 } from './c0-kill-switch'
 import { C0ProviderTransportGuard } from './c0-provider-transport'
 import { claimSingleUseC0ReportDir } from './c0-report-directory'
-import { C0ProviderUsageLedger, type C0ProviderUsageSummary } from './c0-provider-usage'
+import {
+  c0L1ObservabilityVerdict,
+  C0ProviderUsageLedger,
+  type C0ProviderUsageSummary
+} from './c0-provider-usage'
 
 // CSPV-C0 canary runner (docs/plan/cspv-c0-run-contract-2026-08-27.md).
 //
@@ -64,9 +68,9 @@ import { C0ProviderUsageLedger, type C0ProviderUsageSummary } from './c0-provide
 // terminal. Live provider calls are counted at the outbound transport seam,
 // while observer model-call records remain separate (one prompt can yield
 // multiple records). Three operational hard budgets (4 scenario runs / 48
-// provider calls / 60 min wall clock) fail closed via S-1..S-8. Token/cost
-// remains an unresolved contract item; LIVE mode refuses to start until its
-// provider-reported usage semantics and ceiling are explicitly resolved.
+// provider calls / 60 min wall clock) fail closed via S-1..S-8. Provider
+// reported token usage is required evidence for C0-L1; monetary cost is
+// optional and never inferred from local estimates or configured pricing.
 // Evidence collected so far is always preserved. Output is metadata-only.
 //
 // DRY_RUN mode (CANVAS_C0_DRY_RUN=1) proves the whole pipeline with ZERO
@@ -330,6 +334,9 @@ async function writeC0FinalEvidence(input: C0FinalEvidenceInput): Promise<C0Fina
             note: 'DRY_RUN: no ModelRuntime, no prepareModelProvider, no session; scripted deterministic messages',
             sourceDerivation: 'scripted-messages'
           },
+    c0L1Observability: {
+      verdict: c0L1ObservabilityVerdict(input.mode, input.providerUsageSummary)
+    },
     providerUsage: input.providerUsageSummary,
     stopConditionsFired: input.firedStops,
     ...(input.operatorAbortOutcome !== null ? { operatorAbort: input.operatorAbortOutcome } : {}),
@@ -584,13 +591,6 @@ async function run(): Promise<void> {
   }
 
   if (!dryRun) {
-    if (C0_BUDGETS.maxTokenCostUsd === null) {
-      console.error(
-        '[c0] REFUSED: token/cost hard budget is unresolved; Lead must confirm provider-reported usage and pricing before live execution.'
-      )
-      console.error('C0_STATUS=FAILED')
-      process.exit(1)
-    }
     if (process.env['CANVAS_PROVIDER_EXECUTION_MODE'] !== 'experiment-strict') {
       console.error(
         '[c0] REFUSED: CANVAS_PROVIDER_EXECUTION_MODE=experiment-strict is required for the C0 canary.'

@@ -366,15 +366,15 @@ improvise one mid-run.
 
 ## 7. Budgets
 
-Four separate budgets, all hard-fail. Exceeding ANY budget is a terminal
+Three operational budgets, all hard-fail. Exceeding ANY budget is a terminal
 stop (§8): the run halts, evidence is preserved, and no retry occurs under
-the same run identity.
+the same run identity. Provider-reported token usage is required evidence for
+C0-L1, but it is not a local token estimate or a monetary spend ceiling.
 
 | Budget | Limit | Notes |
 | --- | --- | --- |
 | Scenario runs | max `4` completed scenario runs — one per E-scenario (E1–E4) | no repeats, no extra scenarios |
 | Provider calls | max `48` model calls total for a subset-targeted run | counted at the outbound transport seam, wrapping `globalThis.fetch` only after explicit opt-in (CR-011 precedent, `cr-011:58-60`). **Amendment 1 (2026-08-27, pre-execution):** raised from `12` after live run `c0-20260827-8cdb65c4` observed record yields of 4 (E1) and 6 (E2) against the ~3-per-scenario assumption — the one-prompt-multiple-records behavior the 2026-08-25 Step Plan parity smoke flagged. That run stays terminal at S-7 with evidence preserved; the amendment authorizes only a fresh run identity. **Amendment 2 (2026-08-27, pre-execution, before any third run):** after run `c0-20260827-9faf18ac` (27 > 24, terminal S-7; a single E3 turn burst to 14 records) the ceiling rises to `48` and a run may target an explicit scenario subset via `CANVAS_C0_ONLY` when prior terminal runs already banked evidence for the excluded scenarios — E1/E2 are banked PASS by both prior runs. Subsets are validated, recorded in the manifest (`scenariosRequested`), and never alter per-scenario semantics or the scenario-run ledger. |
-| Token / cost | `<= 2.00 USD equivalent` — `PLACEHOLDER, REQUIRES LEAD CONFIRMATION` | internal token estimates are not provider token/cost measurements (`p032:403`); ceiling applies to provider-reported usage. The current Step Plan adapter exposes no verified usage/cost ledger, so LIVE remains fail-closed until this contract is amended or enforcement is separately implemented and reviewed. |
 | Wall clock | `60` minutes | measured from strict preparation (binding) to final scenario completion |
 
 Separation requirement (`gate-b:76-77`): the scenario-run budget and the
@@ -382,6 +382,11 @@ provider-call budget are independent ledgers. Completing fewer than 4
 scenarios within the call budget is a budget-constrained outcome, not
 permission to overspend calls; exhausting calls before scenario completion
 trips the provider-call budget terminally.
+
+Provider usage is a required evidence condition, not a spend ceiling. For
+C0-L1, every terminal assistant message must have provider-reported usage;
+missing usage makes the observability verdict `INCOMPLETE`. Monetary cost is
+optional, may be `UNAVAILABLE`, and is not an adjudicated C0-L1 budget.
 
 ## 8. Stop policy — fail closed at every gate
 
@@ -398,7 +403,7 @@ reused.
 | S-4 | Mandatory / pinned eviction > 0 | any REMOVE of a protected source (`runner.ts:254-259`; `p032:190-198`) |
 | S-5 | Unexplained materialization failure | materialization failure without bounded fail-closed evidence (`p032:273-275`; gate criteria `p032:426`) |
 | S-6 | Unexplained decision > 0 | any active-set change without machine-readable reason codes (`p032:291`, `p032:308`; check at `runner.ts:244-248`) |
-| S-7 | Budget breach | any of the four §7 budgets exceeded |
+| S-7 | Budget breach | any of the three §7 operational budgets exceeded |
 | S-8 | Kill-switch invoked by operator | operator halts the run; treated identically to an automatic terminal stop |
 
 There is no degradation path: no retry, no provider switch, no mid-run
@@ -416,7 +421,7 @@ Captured per run:
 | Admission / decision records | every active-set change with reason codes; `FalseRemovalCandidate` records per §5 | planner + runner |
 | Provider binding | `providerConfigHash`, requested/actual provider/model, `fallbackUsed=false`, run identity — no credential | `safeProviderSelection` record (`provider-layer:44-45`, `provider-layer:66-70`) |
 | Provider usage | per-assistant-response token fields, explicit usage source, and independent cost availability state; no message content | C0-L1 usage contract amendment (`docs/plan/cspv-c0-provider-usage-contract-2026-09-01.md`) |
-| Run manifest | run identity, ISO timestamps, corpus manifest hash, this contract's identity/hash, provider-usage amendment identity/hash, §7 budget ledgers, §8 stop conditions fired, per-scenario verdicts | C0 runner |
+| Run manifest | run identity, ISO timestamps, corpus manifest hash, this contract's identity/hash, provider-usage amendment identity/hash, C0-L1 observability verdict, §7 budget ledgers, §8 stop conditions fired, per-scenario verdicts | C0 runner |
 
 Storage location — reports directory pattern, following the CR-005
 research-only boundary (`cr-005-task:598-614`):

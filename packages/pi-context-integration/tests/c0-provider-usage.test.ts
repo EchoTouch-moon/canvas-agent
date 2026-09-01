@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { C0ProviderUsageLedger, normalizeC0ProviderUsage } from '../src/smoke/c0-provider-usage'
+import {
+  c0L1ObservabilityVerdict,
+  C0ProviderUsageLedger,
+  normalizeC0ProviderUsage
+} from '../src/smoke/c0-provider-usage'
 
 const base = {
   runId: 'c0-20260901-1234abcd',
@@ -146,6 +150,32 @@ describe('CSPV-C0 provider usage evidence', () => {
       reportedCostTotal: null,
       costCurrency: null
     })
+  })
+
+  it('marks a live empty ledger incomplete and a dry-run ledger not applicable', () => {
+    const summary = new C0ProviderUsageLedger().summary()
+
+    expect(summary.status).toBe('INCOMPLETE')
+    expect(c0L1ObservabilityVerdict('LIVE', summary)).toBe('INCOMPLETE')
+    expect(c0L1ObservabilityVerdict('DRY_RUN', summary)).toBe('NOT_APPLICABLE')
+  })
+
+  it('marks a live ledger with complete provider usage as pass', () => {
+    const ledger = new C0ProviderUsageLedger()
+    ledger.recordAssistantMessage({
+      ...base,
+      message: assistantMessage({
+        input: 20,
+        output: 10,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 30
+      })
+    })
+
+    const summary = ledger.summary()
+    expect(summary.status).toBe('COMPLETE')
+    expect(c0L1ObservabilityVerdict('LIVE', summary)).toBe('PASS')
   })
 
   it('does not present a partial cost total as complete cost evidence', () => {

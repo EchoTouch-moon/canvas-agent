@@ -4,7 +4,7 @@
 
 | Field                          | Value                                                                       |
 | ------------------------------ | --------------------------------------------------------------------------- |
-| Status                         | `DRAFT — PENDING LEAD REVIEW`                                               |
+| Status                         | `ACCEPTED / FROZEN FOR C0-L1`                                               |
 | Amendment                      | `C0_USAGE_CONTRACT_V1`                                                      |
 | Purpose                        | Make provider usage evidence sufficient for an observability-only C0-L1 run |
 | Grants                         | `NOTHING`. This amendment grants no provider execution and no live run      |
@@ -49,6 +49,12 @@ UNAVAILABLE
 non-negative provider usage fields and a positive token signal. The runner
 preserves those numeric fields as received by the Pi runtime. It does not
 recalculate them from local text or context estimators.
+
+The Pi normalized `Usage` seam requires numeric `input`, `output`, `cacheRead`,
+`cacheWrite`, and `totalTokens` fields. A cache miss is represented by a
+numeric zero, not by an omitted cache field. If the runtime delivers an
+incomplete or malformed shape, the row is conservatively recorded as
+`UNAVAILABLE`.
 
 When usage is absent, malformed, or contains no usable token signal, the row
 is still written with `usageSource=UNAVAILABLE` and nullable token fields. No
@@ -97,6 +103,16 @@ one or more assistant responses have UNAVAILABLE usage
 observability result indicating that the provider/runtime usage seam did not
 provide enough evidence. The run identity remains single-use and all evidence
 is preserved.
+
+The run manifest also records a separate `c0L1Observability.verdict`:
+
+```text
+DRY_RUN                         → NOT_APPLICABLE
+LIVE + >=1 complete usage rows  → PASS
+LIVE + 0 rows or any incomplete → INCOMPLETE
+```
+
+This verdict is independent of scenario/task success or failure.
 
 ## 5. C0-L1 success boundary
 

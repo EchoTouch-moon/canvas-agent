@@ -10,6 +10,7 @@
 export type C0UsageSource = 'PROVIDER_REPORTED' | 'UNAVAILABLE'
 export type C0CostSource = 'PROVIDER_REPORTED' | 'UNAVAILABLE'
 export type C0UsageEvidenceStatus = 'COMPLETE' | 'INCOMPLETE' | 'NOT_APPLICABLE'
+export type C0L1ObservabilityVerdict = 'PASS' | 'INCOMPLETE' | 'NOT_APPLICABLE'
 
 export interface C0ProviderReportedCost {
   readonly amount: number
@@ -50,6 +51,14 @@ export interface C0ProviderUsageSummary {
   readonly costSource: C0CostSource
   readonly reportedCostTotal: number | null
   readonly costCurrency: string | null
+}
+
+export function c0L1ObservabilityVerdict(
+  mode: 'LIVE' | 'DRY_RUN',
+  summary: Pick<C0ProviderUsageSummary, 'status' | 'assistantMessages'>
+): C0L1ObservabilityVerdict {
+  if (mode === 'DRY_RUN') return 'NOT_APPLICABLE'
+  return summary.status === 'COMPLETE' && summary.assistantMessages > 0 ? 'PASS' : 'INCOMPLETE'
 }
 
 interface UsageShape {
@@ -209,7 +218,7 @@ export class C0ProviderUsageLedger {
       this.entries.length > 0 && costs.length === this.entries.length && currencies.size === 1
 
     return {
-      status: unavailableMessages === 0 ? 'COMPLETE' : 'INCOMPLETE',
+      status: this.entries.length > 0 && unavailableMessages === 0 ? 'COMPLETE' : 'INCOMPLETE',
       assistantMessages: this.entries.length,
       providerReportedMessages: reported.length,
       unavailableMessages,

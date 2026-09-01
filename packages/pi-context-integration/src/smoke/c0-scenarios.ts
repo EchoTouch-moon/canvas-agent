@@ -73,11 +73,7 @@ export const C0_BUDGETS = {
   // 24 -> 48 for subset-targeted runs after c0-20260827-9faf18ac saw a single
   // E3 turn burst to 14 records (27 > 24, terminal S-7). See contract section 7.
   maxProviderCalls: 48,
-  maxWallClockMs: 60 * 60 * 1000,
-  // The contract's USD ceiling is still a Lead-confirmed placeholder. Keeping
-  // it explicit makes manifests honest and lets the live entry point refuse
-  // execution until provider-reported usage and pricing are resolved.
-  maxTokenCostUsd: null as number | null
+  maxWallClockMs: 60 * 60 * 1000
 } as const
 
 export type C0StopConditionId =
