@@ -392,21 +392,32 @@
         "eligibleRemovalSources": ["src/search/cache.js"],
         "mustRetainForRecovery": [
           "src/runtime/public-api.js",
-          "src/parser/evaluate.js",
           "src/parser/tokenize.js",
           "test/evaluate.test.js"
         ],
-        "requiredRehydrateSource": "src/parser/evaluate.js",
-        "nominalLaterNeed": ["src/parser/evaluate.js", "test/regression.test.js"],
         "eligibleAfterPhase": "WRONG_PATH_TRIAGE",
-        "basis": "The search cache is a plausible but unrelated path. The evaluator becomes required after wrong-path triage and must not be permanently evicted before recovery."
+        "basis": "src/search/cache.js is the plausible but unrelated path and the only correct-removal candidate for Removal Precision. src/parser/evaluate.js is not a correct-removal candidate; if Runtime removes it in the frozen window, that is a separate premature-removal event and it must remain recoverable."
+      },
+      "rehydrationGroundTruth": {
+        "source": "src/parser/evaluate.js",
+        "originatingRemoveRequired": true,
+        "originatingRemoveWindow": "The first lifecycle boundary immediately after WRONG_PATH_TRIAGE and before parser diagnosis; Runtime is eligible only if REMOVE(src/parser/evaluate.js) occurs at this boundary.",
+        "laterNeedPhase": "RECOVERY",
+        "laterNeedEvidence": "Parser diagnosis and recovery require src/parser/evaluate.js after the wrong-path triage; a first-time ADD does not satisfy this relation.",
+        "recoveryCondition": "REHYDRATE(src/parser/evaluate.js) must be linked to the originating REMOVE and restore the exact required SourceVersion and representation before parser diagnosis continues.",
+        "notEstimableIf": [
+          "Runtime does not issue the pre-registered REMOVE in the frozen window",
+          "later need is not evidenced during RECOVERY",
+          "REHYDRATE is missing or is not linked to that originating REMOVE",
+          "exact SourceVersion or representation cannot be verified"
+        ]
       },
       "coldContext": {
         "eligibility": "ELIGIBLE",
-        "anchorA": "After WRONG_PATH_TRIAGE establishes that src/search/cache.js is unrelated and immediately before parser implementation diagnosis.",
-        "anchorB": "The first post-edit invocation of the focused oracle after a write to src/parser/evaluate.js; earliest invocation is the tie-break.",
+        "anchorA": "The shared semantic boundary immediately after WRONG_PATH_TRIAGE and before parser diagnosis. Runtime is eligible only if REMOVE(src/parser/evaluate.js) occurs at this boundary; Native records the same boundary without lifecycle events.",
+        "anchorB": "The first focused-oracle invocation after the parser-fix write to src/parser/evaluate.js. When A is eligible, Runtime must first REHYDRATE(src/parser/evaluate.js) from the originating REMOVE with the exact required SourceVersion and representation; earliest invocation is the tie-break.",
         "nativeAlignment": "Use the same task-semantic WRONG_PATH_TRIAGE and VERIFY milestones; Native has no REMOVE or REHYDRATE events.",
-        "unavailableRule": "If either arm cannot identify A and B, or more than one candidate remains without the frozen tie-break, Cold Context Penalty is NOT_ESTIMABLE."
+        "unavailableRule": "If either arm cannot identify A and B, the interval is ambiguous without the frozen tie-break, or Runtime does not issue the pre-registered REMOVE and linked REHYDRATE, Rehydration Recovery Rate and Cold Context Penalty are NOT_ESTIMABLE."
       },
       "outcomeRubric": {
         "success": "The nested expression oracle and regression oracle pass; the public API remains the entry point; only src/parser/evaluate.js is changed.",

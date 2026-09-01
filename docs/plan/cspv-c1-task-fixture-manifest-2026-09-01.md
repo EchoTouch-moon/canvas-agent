@@ -141,22 +141,43 @@ regression:    node --test test/regression.test.js
 ```
 
 The public API, tokenizer, evaluator, and both tests form the relevant path.
-`src/search/cache.js` is the explicit plausible-but-unrelated distractor. It
-may be removed after `WRONG_PATH_TRIAGE`; `src/parser/evaluate.js` must be
-available when recovery begins and must not be permanently evicted. A first
-time `ADD` is not a rehydrate: a valid rehydrate requires the originating
-`REMOVE` relation and later-need evidence.
+`src/search/cache.js` is the explicit plausible-but-unrelated distractor and
+the only correct-removal candidate for Removal Precision. It may be removed
+after `WRONG_PATH_TRIAGE`. `src/parser/evaluate.js` is not a correct-removal
+candidate; a Runtime `REMOVE` of it at the pre-registered boundary immediately
+after `WRONG_PATH_TRIAGE` and before parser diagnosis is a premature-removal
+event for the separate rehydration analysis. It must remain recoverable and,
+if removed, later be restored by `REHYDRATE` with the exact required
+SourceVersion and representation before parser diagnosis continues. The
+pre-registered lineage is:
+
+```text
+REMOVE(src/parser/evaluate.js)
+  → later need during RECOVERY
+  → REHYDRATE(src/parser/evaluate.js)
+  → parser recovery
+```
+
+If that originating `REMOVE` does not occur in the frozen window, rehydration
+and Cold Context Penalty are `NOT_ESTIMABLE`. A first-time `ADD` is never a
+rehydrate.
 
 Phase boundaries are `INVESTIGATE`, `WRONG_PATH_TRIAGE`, `RECOVERY`, and
 `VERIFY`. This is the only task with a nominal Cold Context Penalty interval:
 
 ```text
 A (both arms)
-  completion of WRONG_PATH_TRIAGE, immediately before parser diagnosis
+  shared semantic boundary at completion of WRONG_PATH_TRIAGE, immediately
+  before parser diagnosis. Runtime is eligible only if it issues the
+  pre-registered REMOVE(src/parser/evaluate.js) at this boundary; Native
+  records the same boundary without lifecycle events.
 
 B (both arms)
-  first focused-oracle invocation after a write to src/parser/evaluate.js;
-  earliest invocation is the tie-break
+  first focused-oracle invocation after the parser-fix write to
+  src/parser/evaluate.js. When A is eligible, Runtime must first
+  REHYDRATE(src/parser/evaluate.js) from that originating REMOVE with the
+  exact required SourceVersion and representation; earliest invocation is the
+  tie-break.
 
 Native
   use the same task-semantic milestones; do not invent REMOVE/REHYDRATE
@@ -164,7 +185,9 @@ Native
 ```
 
 If either arm cannot identify both anchors, or the interval is ambiguous
-without the frozen tie-break, Cold Context Penalty is `NOT_ESTIMABLE`.
+without the frozen tie-break, or Runtime does not issue the pre-registered
+REMOVE and linked REHYDRATE, Rehydration Recovery Rate and Cold Context
+Penalty are `NOT_ESTIMABLE`.
 
 ## 4. Cross-task endpoint policy
 
@@ -193,7 +216,8 @@ prompt bytes match promptSha256
 objective and regression oracles are executable and distinct
 expected writable paths are complete and scope-bounded
 relevant/distractor classification has a ground-truth basis
-required-later sources are not ordinary first-time ADDs
+any source used to adjudicate REHYDRATE has an originating REMOVE relation;
+a first-time ADD is never a REHYDRATE
 phase boundaries are task-semantic and replayable
 Cold Context A/B anchors are common to both arms where eligible
 Removal Precision ground truth is explicit
