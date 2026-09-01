@@ -1,10 +1,10 @@
-# C1 Comparative / Effectiveness Experiment Protocol — Draft
+# C1 Comparative / Effectiveness Experiment Protocol — C1_PROTOCOL_V1
 
 ## Decision boundary
 
 | Field | Value |
 | --- | --- |
-| Status | `DRAFT — LEAD REVIEW REQUIRED` |
+| Status | `ACCEPTED / FROZEN — C1_PROTOCOL_V1` |
 | Phase | `C1 Comparative / Effectiveness Design` |
 | Purpose | Determine whether Context Runtime lifecycle policy changes real Agent execution relative to Native / unmanaged context |
 | Provider execution | `NO_GO` under this document |
@@ -365,7 +365,7 @@ generalize beyond those conditions without new evidence.
 ```text
 C0-L1 live evidence acquisition  COMPLETE
 C0 implementation/contracts      FROZEN
-C1 protocol                      DRAFT / LEAD REVIEW REQUIRED
+C1 protocol                      ACCEPTED / FROZEN
 C1 Provider execution            NO_GO
 CR-004 Active Rewrite            NO_GO
 Wave A / Wave B                  NO_GO
