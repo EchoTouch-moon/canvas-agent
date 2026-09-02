@@ -17,10 +17,13 @@ import {
   claimSingleUseC1StudyDir,
   computeC1AssignmentMatrixSha256,
   computeC1ContractSha256,
+  createC1ObservedReadTrace,
   createC1PreflightIdentity,
   installC1OperatorKillSwitch,
   loadC1FrozenStudy,
   nodeVersionSatisfiesC1Range,
+  prepareC1StrictProvider,
+  runC1TreatmentOpportunityProbe,
   runC1LivePreflight,
   validateC1ProviderUsage,
   writableScopePass,
@@ -188,6 +191,28 @@ describe('C1 live runner credential-free preflight', () => {
     )
   })
 
+  it('routes observed Pi source identities through the shared Runtime treatment executor', async () => {
+    const observation = createC1ObservedReadTrace({
+      observationId: 'c1-test-observation',
+      prompt: 'inspect the target fixture',
+      fixtureFiles: ['src/target.js', 'src/distractor.js']
+    })
+    expect(observation.currentTargetSourceKeys).toEqual(
+      expect.arrayContaining(['run/tool-call://c1-observation-c1-test-observation-1'])
+    )
+    const providerBinding = await prepareC1StrictProvider({
+      runIdentity: 'c1-20260902-c1-test-provider-aaaaaaaa'
+    })
+    try {
+      expect(runC1TreatmentOpportunityProbe(providerBinding)).toMatchObject({
+        gateId: 'actual_runtime_treatment_opportunity',
+        verdict: 'PASS'
+      })
+    } finally {
+      providerBinding.dispose()
+    }
+  })
+
   it('keeps identity claims single-use and finalizes artifacts independently', async () => {
     const root = await mkdtemp(join(tmpdir(), 'canvas-c1-preflight-test-'))
     try {
@@ -235,6 +260,7 @@ describe('C1 live runner credential-free preflight', () => {
         expect(report.networkRequests).toBe(0)
         expect(report.fakeProviderBoundCaptures).toBe(64)
         expect(report.legs).toHaveLength(64)
+        expect(report.providerConfigHash).toEqual(expect.any(String))
         expect(report.artifacts.map((artifact) => artifact.name)).toEqual(
           expect.arrayContaining([
             'run-manifest.json',
@@ -246,6 +272,38 @@ describe('C1 live runner credential-free preflight', () => {
             'replay-evidence.jsonl'
           ])
         )
+        const stableJoinKeys = [
+          'studyId',
+          'runId',
+          'taskId',
+          'stratum',
+          'pairId',
+          'arm',
+          'turnId',
+          'modelCallId'
+        ] as const
+        const jsonlArtifacts = report.artifacts
+          .map((artifact) => artifact.name)
+          .filter((name) => name.endsWith('.jsonl'))
+        expect(jsonlArtifacts).toHaveLength(6)
+        for (const name of jsonlArtifacts) {
+          const rows = (await readFile(join(report.reportDir!, name), 'utf8'))
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line) as Record<string, unknown>)
+          expect(rows).toHaveLength(64)
+          for (const row of rows) {
+            for (const key of stableJoinKeys) expect(row[key]).toEqual(expect.any(String))
+          }
+          expect(new Set(rows.map((row) => row['runId']))).toEqual(
+            new Set(report.legs.map((leg) => leg.runId))
+          )
+        }
+        const manifest = JSON.parse(
+          await readFile(join(report.reportDir!, 'run-manifest.json'), 'utf8')
+        ) as Record<string, unknown>
+        expect(manifest['legCount']).toBe(64)
+        expect(manifest['stableJoinKeys']).toEqual(stableJoinKeys)
       } else {
         expect(report.status).toBe('FAIL')
         expect(report.failures[0]?.code).toBe('NODE_RANGE_MISMATCH')

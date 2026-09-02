@@ -3,6 +3,42 @@ import { createHash, randomBytes } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, relative, resolve, sep } from 'node:path'
+import type {
+  ModelRuntime,
+  ProviderConfig,
+  ProviderModelConfig
+} from '@earendil-works/pi-coding-agent'
+import {
+  createRepresentation,
+  planWorkingSet,
+  seedUniverse,
+  type ContextPlanningRequest,
+  type ContextRepresentation,
+  type ContextRepresentationNeed,
+  type ContextTransition,
+  type ContextUniverseRevision,
+  type ContextWorkingSet,
+  type RemovalRecord,
+  type SourceLifecycleSignal,
+  type TaskPhase
+} from '@canvas-agent/context-runtime'
+import {
+  computeProviderConfigHash,
+  prepareModelProvider,
+  ProviderBindingError,
+  STEP_PLAN_PROVIDER_PROFILE,
+  type ProviderExperimentBinding
+} from '@canvas-agent/pi-context-integration'
+import type { PiMessageView } from '@canvas-agent/pi-context-integration'
+import {
+  activeMessagesHash,
+  activeMessageFingerprint,
+  analyzeNativeMessages,
+  assertRewriteSafe,
+  composeActiveRewrite,
+  createRunKillSwitch,
+  type RunKillSwitch
+} from '@canvas-agent/pi-context-integration/experimental'
 import { runProcess } from './fixture-generator'
 import {
   C1_C_ASSIGNMENT_MATRIX_SHA256,
@@ -17,10 +53,11 @@ import {
 /**
  * C1-specific, credential-free readiness for the future live runner.
  *
- * This module deliberately has no ModelRuntime, provider preparation, fetch,
- * API-key lookup, or live command. Its fake transport captures metadata-only
- * provider-bound requests so the frozen matrix and lifecycle seams can be
- * checked without making a Provider call.
+ * This module has a credential-free preflight boundary. It runs the actual
+ * observation -> policy-v0 -> Working Set -> Active composition path and the
+ * strict provider-preparation code path, but injects a fake transport before
+ * any network/provider call. The same leg executor is designed to receive a
+ * real transport/provider response source only after the separate live gate.
  */
 
 export const C1_LIVE_PREFLIGHT_ID = 'C1_LIVE_PREFLIGHT_V1'
@@ -65,12 +102,17 @@ export type C1PreflightFailureCode =
   | 'FIXTURE_BINDING_MISMATCH'
   | 'IDENTITY_REUSE'
   | 'IDENTITY_INVALID'
+  | 'PROVIDER_BINDING_MISMATCH'
+  | 'PROVIDER_PREPARATION_FAILURE'
   | 'TREATMENT_INACTIVE'
+  | 'MATERIALIZATION_FAILURE'
+  | 'REWRITE_FAILURE'
   | 'NATIVE_CONTEXT_DRIFT'
   | 'RUNTIME_CONTEXT_UNCHANGED'
   | 'FALLBACK_ATTEMPTED'
   | 'USAGE_CONTRACT_MISMATCH'
   | 'BUDGET_BREACH'
+  | 'DEADLINE_EXCEEDED'
   | 'KILL_SWITCH_BLOCKED'
   | 'REPLAY_MISMATCH'
   | 'EVIDENCE_WRITE_FAILURE'
@@ -85,6 +127,13 @@ export class C1PreflightFailure extends Error {
     this.name = 'C1PreflightFailure'
   }
 }
+
+const C1_POLICY_VERSION = 'policy-v0-c1-live-preflight-v1'
+const C1_SYSTEM_INSTRUCTION = 'Follow the frozen C1 task contract and preserve tool continuity.'
+const C1_TOOL_STRUCTURE_FINGERPRINT = sha256Bytes(
+  'c1-provider-tool-structures-v1|read|edit|bash|same-across-arms'
+)
+const C1_EXPECTED_PROVIDER_CONFIG_HASH = computeProviderConfigHash(STEP_PLAN_PROVIDER_PROFILE)
 
 type JsonRecord = Record<string, unknown>
 
@@ -179,6 +228,15 @@ export function computeC1AssignmentMatrixSha256(assignmentMatrix: unknown): stri
   return sha256Bytes(canonicalJson(assignmentMatrix))
 }
 
+export function assertC1AssignmentMatrixBinding(
+  assignmentMatrix: unknown,
+  expectedHash: string = C1_C_ASSIGNMENT_MATRIX_SHA256
+): void {
+  if (computeC1AssignmentMatrixSha256(assignmentMatrix) !== expectedHash) {
+    fail('ASSIGNMENT_BINDING_MISMATCH', 'assignment matrix does not match the frozen digest')
+  }
+}
+
 export function nodeVersionSatisfiesC1Range(version: string = process.versions.node): boolean {
   const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version.trim())
   if (match === null) return false
@@ -221,6 +279,114 @@ export function validateC1ProviderUsage(value: unknown): C1ProviderReportedUsage
     cacheWriteTokens: numberField('cacheWriteTokens'),
     totalTokens: numberField('totalTokens'),
     usageSource: 'PROVIDER_REPORTED'
+  }
+}
+
+/** Normalized observations supplied by the Agent/Pi adapter to one C1 leg. */
+export interface C1AgentObservation {
+  readonly observationId: string
+  readonly messages: readonly PiMessageView[]
+  readonly taskPhase: TaskPhase
+  readonly currentTargetSourceKeys: readonly string[]
+  readonly excludedSourceKeys: readonly string[]
+  readonly latestVerificationSourceKeys: readonly string[]
+  readonly recentEvidenceSourceKeys: readonly string[]
+  readonly sourceLifecycleSignals?: readonly SourceLifecycleSignal[]
+  readonly removalHistory?: readonly RemovalRecord[]
+  readonly representationNeeds?: readonly ContextRepresentationNeed[]
+  readonly previousWorkingSetId: string | null
+}
+
+export interface C1StrictProviderBinding {
+  readonly experimentBinding: ProviderExperimentBinding
+  readonly providerConfigHash: string
+  readonly dispose: () => void
+}
+
+export interface C1ProviderTransport {
+  capture(request: C1ProviderBoundCapture): void
+}
+
+/**
+ * Execute the real strict provider-preparation path against an in-memory Pi
+ * ModelRuntime. The sentinel credential is deliberately local to this call;
+ * no environment lookup, credential persistence, model call, or network is
+ * performed by the readiness runner.
+ */
+export async function prepareC1StrictProvider(options: {
+  readonly runIdentity: string
+  readonly primaryProviderId?: string
+  readonly requestedModelId?: string
+  readonly allowFallback?: boolean
+  readonly env?: Readonly<Record<string, string | undefined>>
+}): Promise<C1StrictProviderBinding> {
+  const runtime = new C1InMemoryProviderRuntime()
+  try {
+    const prepared = await prepareModelProvider(runtime as unknown as ModelRuntime, {
+      executionMode: 'experiment-strict',
+      runIdentity: options.runIdentity,
+      primaryProviderId: options.primaryProviderId ?? C1_PROVIDER_ID,
+      fallbackProviderId: 'none',
+      requestedModelId: options.requestedModelId ?? C1_MODEL_ID,
+      ...(options.allowFallback !== undefined ? { allowFallback: options.allowFallback } : {}),
+      env: options.env ?? {
+        STEP_PLAN_API_KEY: 'c1-preflight-in-memory-sentinel'
+      }
+    })
+    const experimentBinding = prepared.experimentBinding
+    if (experimentBinding === undefined) {
+      throw new ProviderBindingError('provider_unavailable')
+    }
+    return {
+      experimentBinding,
+      providerConfigHash: experimentBinding.providerConfigHash,
+      dispose: () => runtime.unregisterProvider(experimentBinding.actualProviderId)
+    }
+  } catch (error) {
+    try {
+      runtime.unregisterProvider(options.primaryProviderId ?? C1_PROVIDER_ID)
+    } catch {
+      // Cleanup is best effort; the original preparation error is authoritative.
+    }
+    throw error
+  }
+}
+
+/** Minimal ModelRuntime seam used to exercise provider preparation offline. */
+class C1InMemoryProviderRuntime {
+  private readonly providers = new Map<string, ProviderConfig>()
+
+  registerProvider(providerId: string, config: ProviderConfig): void {
+    this.providers.set(providerId, config)
+  }
+
+  unregisterProvider(providerId: string): void {
+    this.providers.delete(providerId)
+  }
+
+  async checkAuth(providerId: string): Promise<{ readonly type: 'api_key' } | undefined> {
+    return this.providers.has(providerId) ? { type: 'api_key' } : undefined
+  }
+
+  getModel(providerId: string, modelId: string): ProviderModelConfig | undefined {
+    const models = this.providers.get(providerId)?.models ?? []
+    return models.find((model) => model.id === modelId)
+  }
+}
+
+export function assertC1StrictProviderBinding(binding: ProviderExperimentBinding): void {
+  if (
+    binding.requestedProviderId !== C1_PROVIDER_ID ||
+    binding.actualProviderId !== C1_PROVIDER_ID ||
+    binding.requestedModelId !== C1_MODEL_ID ||
+    binding.actualModelId !== C1_MODEL_ID ||
+    binding.fallbackUsed !== false ||
+    binding.providerConfigHash !== C1_EXPECTED_PROVIDER_CONFIG_HASH
+  ) {
+    fail(
+      'PROVIDER_BINDING_MISMATCH',
+      'provider/model/fallback/config binding is not the frozen C1 binding'
+    )
   }
 }
 
@@ -512,11 +678,11 @@ export async function loadC1FrozenStudy(repoRoot: string): Promise<C1FrozenStudy
   const expectedAssignmentHash = stringField(protocolBinding, 'assignmentMatrixSha256')
   if (
     expectedAssignmentHash !== C1_C_ASSIGNMENT_MATRIX_SHA256 ||
-    stringField(randomization, 'assignmentMatrixHash') !== expectedAssignmentHash ||
-    computeC1AssignmentMatrixSha256(assignmentMatrix) !== expectedAssignmentHash
+    stringField(randomization, 'assignmentMatrixHash') !== expectedAssignmentHash
   ) {
     fail('ASSIGNMENT_BINDING_MISMATCH', 'frozen C1 assignment matrix hash mismatch')
   }
+  assertC1AssignmentMatrixBinding(assignmentMatrix, expectedAssignmentHash)
   if (
     stringField(protocolBinding, 'protocolId') !== C1_PROTOCOL_ID ||
     stringField(protocolBinding, 'protocolPath') !== C1_PROTOCOL_RELATIVE_PATH ||
@@ -1108,27 +1274,30 @@ export function buildC1PreflightLegPlan(
 }
 
 export interface C1ProviderBoundCapture {
+  readonly studyId: string
   readonly taskId: string
   readonly stratum: string
   readonly pairId: string
   readonly arm: C1PreflightArm
   readonly runId: string
+  readonly turnId: string
+  readonly modelCallId: string
   readonly provider: typeof C1_PROVIDER_ID
   readonly model: typeof C1_MODEL_ID
   readonly endpoint: typeof C1_PROVIDER_ENDPOINT
+  readonly providerConfigHash: string
   readonly contextStrategy: 'NATIVE_UNMANAGED' | 'RUNTIME_WORKING_SET'
+  readonly sourceDerivation: 'PI_NATIVE_MESSAGE_ANALYSIS'
   readonly providerBoundSourceKeys: readonly string[]
   readonly modelVisibleSemanticContextFingerprint: string
   readonly systemDeveloperToolStructuresFingerprint: string
+  readonly workingSetId: string
+  readonly transitionId: string
+  readonly lifecycleEligible: boolean
+  readonly runtimeContextChanged: boolean
   readonly fallbackSent: false
   readonly networkSent: false
   readonly lifecycleEvidence: 'NOT_OBSERVED_IN_PREFLIGHT'
-}
-
-function runtimeSourceKeys(task: C1PreflightTask): readonly string[] {
-  const distractors = new Set(task.distractorSources)
-  const selected = task.relevantSources.filter((source) => !distractors.has(source))
-  return selected.length > 0 ? selected : [...task.relevantSources]
 }
 
 export function captureC1PreflightArm(input: {
@@ -1139,38 +1308,73 @@ export function captureC1PreflightArm(input: {
   readonly runId: string
   readonly fixtureContentSha256: string
   readonly treatmentReady: boolean
+  readonly studyId?: string
+  readonly turnId?: string
+  readonly modelCallId?: string
+  readonly providerConfigHash?: string
+  readonly providerBoundSourceKeys?: readonly string[]
+  readonly modelVisibleSemanticContextFingerprint?: string
+  readonly systemDeveloperToolStructuresFingerprint?: string
+  readonly workingSetId?: string
+  readonly transitionId?: string
+  readonly lifecycleEligible?: boolean
+  readonly runtimeContextChanged?: boolean
+  readonly sourceDerivation?: 'PI_NATIVE_MESSAGE_ANALYSIS'
+  readonly fallbackSent?: boolean
+  readonly networkSent?: boolean
 }): C1ProviderBoundCapture {
   if (input.arm === 'RUNTIME' && !input.treatmentReady) {
     fail('TREATMENT_INACTIVE', 'Runtime treatment was not ready; Native fallback is forbidden')
   }
-  const sourceKeys =
-    input.arm === 'NATIVE' ? ['NATIVE_UNMANAGED_FULL_CONTEXT'] : runtimeSourceKeys(input.task)
+  if (input.providerBoundSourceKeys === undefined) {
+    fail(
+      'PREFLIGHT_FAILURE',
+      'provider-bound source keys must come from the observed Pi message list'
+    )
+  }
+  if (input.modelVisibleSemanticContextFingerprint === undefined) {
+    fail('PREFLIGHT_FAILURE', 'provider-bound semantic fingerprint must come from the executor')
+  }
+  if (input.providerConfigHash === undefined) {
+    fail(
+      'PROVIDER_BINDING_MISMATCH',
+      'provider config hash is required before provider preparation'
+    )
+  }
+  if (input.fallbackSent === true) {
+    fail('FALLBACK_ATTEMPTED', 'a provider-bound capture may not record a Native fallback')
+  }
+  if (input.networkSent === true) {
+    fail('PREFLIGHT_FAILURE', 'credential-free preflight may not record a network request')
+  }
+  const sourceKeys = [...input.providerBoundSourceKeys]
+  if (sourceKeys.length === 0) {
+    fail('PREFLIGHT_FAILURE', 'provider-bound context must contain observed source keys')
+  }
   const contextStrategy = input.arm === 'NATIVE' ? 'NATIVE_UNMANAGED' : 'RUNTIME_WORKING_SET'
-  const modelVisibleSemanticContextFingerprint = sha256Bytes(
-    canonicalJson({
-      taskId: input.task.taskId,
-      promptSha256: input.task.promptSha256,
-      fixtureContentSha256: input.fixtureContentSha256,
-      arm: contextStrategy,
-      sourceKeys,
-      treatmentRevision: input.arm === 'RUNTIME' ? C1_C_TREATMENT_REVISION : 'NATIVE_BASELINE'
-    })
-  )
   return {
+    studyId: input.studyId ?? 'c1-preflight-study',
     taskId: input.task.taskId,
     stratum: input.stratum,
     pairId: input.pairId,
     arm: input.arm,
     runId: input.runId,
+    turnId: input.turnId ?? `${input.runId}-turn-01`,
+    modelCallId: input.modelCallId ?? `${input.runId}-model-call-01`,
     provider: C1_PROVIDER_ID,
     model: C1_MODEL_ID,
     endpoint: C1_PROVIDER_ENDPOINT,
+    providerConfigHash: input.providerConfigHash,
     contextStrategy,
+    sourceDerivation: input.sourceDerivation ?? 'PI_NATIVE_MESSAGE_ANALYSIS',
     providerBoundSourceKeys: sourceKeys,
-    modelVisibleSemanticContextFingerprint,
-    systemDeveloperToolStructuresFingerprint: sha256Bytes(
-      'c1-preflight-system-developer-tool-structures-v1'
-    ),
+    modelVisibleSemanticContextFingerprint: input.modelVisibleSemanticContextFingerprint,
+    systemDeveloperToolStructuresFingerprint:
+      input.systemDeveloperToolStructuresFingerprint ?? C1_TOOL_STRUCTURE_FINGERPRINT,
+    workingSetId: input.workingSetId ?? `${contextStrategy}:unmanaged`,
+    transitionId: input.transitionId ?? `${contextStrategy}:unmanaged`,
+    lifecycleEligible: input.lifecycleEligible ?? false,
+    runtimeContextChanged: input.runtimeContextChanged ?? false,
     fallbackSent: false,
     networkSent: false,
     lifecycleEvidence: 'NOT_OBSERVED_IN_PREFLIGHT'
@@ -1180,6 +1384,15 @@ export function captureC1PreflightArm(input: {
 export class C1PreflightFakeTransport {
   private readonly capturedRequests: C1ProviderBoundCapture[] = []
   private blocked = false
+
+  constructor(
+    private readonly expectedBinding?: {
+      readonly provider: typeof C1_PROVIDER_ID
+      readonly model: typeof C1_MODEL_ID
+      readonly endpoint: typeof C1_PROVIDER_ENDPOINT
+      readonly providerConfigHash: string
+    }
+  ) {}
 
   get requests(): readonly C1ProviderBoundCapture[] {
     return [...this.capturedRequests]
@@ -1206,7 +1419,546 @@ export class C1PreflightFakeTransport {
       fail('KILL_SWITCH_BLOCKED', 'terminal kill switch blocked fake transport capture')
     if (request.networkSent)
       fail('PREFLIGHT_FAILURE', 'preflight capture cannot mark a network request')
+    if (request.fallbackSent)
+      fail('FALLBACK_ATTEMPTED', 'fake transport received a fallback capture')
+    if (
+      request.provider !== (this.expectedBinding?.provider ?? C1_PROVIDER_ID) ||
+      request.model !== (this.expectedBinding?.model ?? C1_MODEL_ID) ||
+      request.endpoint !== (this.expectedBinding?.endpoint ?? C1_PROVIDER_ENDPOINT) ||
+      request.providerConfigHash !==
+        (this.expectedBinding?.providerConfigHash ?? C1_EXPECTED_PROVIDER_CONFIG_HASH)
+    ) {
+      fail('PROVIDER_BINDING_MISMATCH', 'fake transport received a provider binding mismatch')
+    }
+    if (
+      request.studyId.length === 0 ||
+      request.taskId.length === 0 ||
+      request.stratum.length === 0 ||
+      request.pairId.length === 0 ||
+      request.runId.length === 0 ||
+      request.turnId.length === 0 ||
+      request.modelCallId.length === 0
+    ) {
+      fail('PREFLIGHT_FAILURE', 'provider-bound capture is missing a stable join key')
+    }
     this.capturedRequests.push(request)
+  }
+}
+
+interface C1ObservedPlanningContext {
+  readonly universe: ContextUniverseRevision
+  readonly representationsById: ReadonlyMap<string, ContextRepresentation>
+  readonly representationsBySourceKey: ReadonlyMap<string, ContextRepresentation>
+}
+
+interface C1MaterializedWorkingSet {
+  readonly workingSetId: string
+  readonly sourceKeys: readonly string[]
+  readonly fingerprint: string
+}
+
+export interface C1LegExecutionInput {
+  readonly studyId: string
+  readonly task: C1PreflightTask
+  readonly stratum: string
+  readonly pairId: string
+  readonly arm: C1PreflightArm
+  readonly runId: string
+  readonly turnId: string
+  readonly modelCallId: string
+  readonly fixtureContentSha256: string
+  readonly fixtureTreeObjectId: string
+  readonly observation: C1AgentObservation
+  readonly providerBinding: C1StrictProviderBinding
+  readonly transport: C1ProviderTransport
+  readonly treatmentReady: boolean
+  readonly killSwitch?: RunKillSwitch
+  readonly previousWorkingSet?: ContextWorkingSet | null
+  readonly recompositionSequence?: number
+  readonly runtimeSessionId?: string
+  /** Set only for the deterministic treatment-opportunity probe. */
+  readonly requireRuntimeDifference?: boolean
+  /** Used by adversarial readiness probes; never enabled by the main 64 legs. */
+  readonly failureInjection?: C1LegFailureInjection
+  /** Expected Native fingerprint for a fidelity comparison. */
+  readonly nativeBaselineSemanticContextFingerprint?: string
+}
+
+export interface C1LegExecutionResult {
+  readonly capture: C1ProviderBoundCapture
+  readonly workingSet: ContextWorkingSet | null
+  readonly transition: ContextTransition | null
+  readonly materializedWorkingSetFingerprint: string
+  readonly runtimeContextChanged: boolean
+  readonly lifecycleEligible: boolean
+  readonly replayMismatch: 0
+}
+
+export type C1LegFailureInjection =
+  | 'MATERIALIZATION_FAILURE'
+  | 'REWRITE_FAILURE'
+  | 'FALLBACK'
+  | 'NATIVE_DRIFT'
+  | 'RUNTIME_UNCHANGED'
+  | 'REPLAY_MISMATCH'
+
+const C1_OBSERVATION_NOW = '2026-09-02T00:00:00.000Z'
+
+function uniqueSorted(values: readonly string[]): readonly string[] {
+  return [...new Set(values)].sort()
+}
+
+/** Exact source identities derived from the Pi observation, never task metadata. */
+export function observedC1SourceKeys(
+  messages: readonly PiMessageView[],
+  runtimeSessionId: string,
+  modelCallSequence: number
+): readonly string[] {
+  const analysis = analyzeNativeMessages(messages, {
+    runtimeSessionId,
+    modelCallSequence
+  })
+  const keys = analysis.messages.flatMap((message) => message.sourceKeys)
+  if (keys.length === 0)
+    fail('PREFLIGHT_FAILURE', 'Pi observation contains no attributable source keys')
+  return uniqueSorted(keys)
+}
+
+/**
+ * Build a normalized agent observation from actual fixture file paths. The
+ * task's relevant/distractor arrays are deliberately not consulted: source
+ * identity comes from the same Pi message analysis used by Active composition.
+ */
+export function createC1ObservedReadTrace(input: {
+  readonly observationId: string
+  readonly prompt: string
+  readonly fixtureFiles: readonly string[]
+  readonly taskPhase?: TaskPhase
+}): C1AgentObservation {
+  const files = input.fixtureFiles.length > 0 ? [...input.fixtureFiles] : ['observed/source.js']
+  const messages: PiMessageView[] = [
+    { role: 'user', content: [{ type: 'text', text: input.prompt }] }
+  ]
+  for (const [index, file] of files.entries()) {
+    const callId = `c1-observation-${input.observationId}-${index + 1}`
+    messages.push({
+      role: 'assistant',
+      content: [
+        {
+          type: 'toolCall',
+          id: callId,
+          name: 'read',
+          arguments: { path: file }
+        }
+      ]
+    })
+    messages.push({
+      role: 'toolResult',
+      content: [{ type: 'text', text: `observation captured for ${file}` }],
+      toolCallId: callId,
+      toolName: 'read',
+      isError: false
+    })
+  }
+  const sourceKeys = observedC1SourceKeys(messages, input.observationId, 0)
+  return {
+    observationId: input.observationId,
+    messages: Object.freeze(messages),
+    taskPhase: input.taskPhase ?? 'INVESTIGATE',
+    currentTargetSourceKeys: sourceKeys,
+    excludedSourceKeys: [],
+    latestVerificationSourceKeys: [],
+    recentEvidenceSourceKeys: [],
+    previousWorkingSetId: null
+  }
+}
+
+function createObservedPlanningContext(
+  observation: C1AgentObservation,
+  runtimeSessionId: string,
+  modelCallSequence: number
+): C1ObservedPlanningContext {
+  const analysis = analyzeNativeMessages(observation.messages, {
+    runtimeSessionId,
+    modelCallSequence
+  })
+  const fingerprintBySource = new Map<string, string[]>()
+  for (const analyzedMessage of analysis.messages) {
+    const message = observation.messages[analyzedMessage.index]
+    if (message === undefined) continue
+    for (const sourceKey of analyzedMessage.sourceKeys) {
+      const fingerprints = fingerprintBySource.get(sourceKey) ?? []
+      fingerprints.push(activeMessageFingerprint(message))
+      fingerprintBySource.set(sourceKey, fingerprints)
+    }
+  }
+  const sourceKeys = uniqueSorted([...fingerprintBySource.keys()])
+  if (sourceKeys.length === 0)
+    fail('PREFLIGHT_FAILURE', 'cannot plan an observation without source identities')
+  const seeds = sourceKeys.map((sourceKey) => {
+    const messageFingerprints = fingerprintBySource.get(sourceKey) ?? []
+    return {
+      sourceKey,
+      sourceKind: 'PI_AGENT_OBSERVATION',
+      provenance: 'C1_AGENT_VISIBLE_OBSERVATION',
+      authority: 'pi-agent',
+      contentHash: sha256Bytes(
+        `c1-observed-source-v1|${sourceKey}|${uniqueSorted(messageFingerprints).join('|')}`
+      ),
+      observedAt: C1_OBSERVATION_NOW
+    }
+  })
+  const universe = seedUniverse({ runtimeSessionId, seeds })
+  const representationsById = new Map<string, ContextRepresentation>()
+  const representationsBySourceKey = new Map<string, ContextRepresentation>()
+  for (const entry of universe.entries) {
+    const sourceKey = entry.source.sourceKey
+    const version = entry.admittedVersion
+    if (version === null)
+      fail('MATERIALIZATION_FAILURE', `observation source ${sourceKey} has no admitted version`)
+    const sourceContent = `c1-observed-content-v1|${sourceKey}|${version.contentHash}`
+    const representation = createRepresentation({
+      kind: 'FULL',
+      sourceVersionIds: [version.versionId],
+      contentHash: version.contentHash,
+      tokenEstimate: Math.max(1, Math.ceil(sourceContent.length / 4)),
+      lossiness: 'NONE',
+      derivation: {
+        adapter: 'C1_PI_AGENT_OBSERVATION',
+        observationId: observation.observationId,
+        sourceKey,
+        sourceVersionId: version.versionId
+      },
+      content: sourceContent
+    })
+    representationsById.set(representation.id, representation)
+    representationsBySourceKey.set(sourceKey, representation)
+  }
+  return { universe, representationsById, representationsBySourceKey }
+}
+
+function buildObservedPlanningRequest(input: {
+  readonly observation: C1AgentObservation
+  readonly runtimeSessionId: string
+  readonly sequence: number
+}): ContextPlanningRequest {
+  return {
+    runtimeSessionId: input.runtimeSessionId,
+    recompositionSequence: input.sequence,
+    taskPhase: input.observation.taskPhase,
+    budget: { maxSemanticTokens: 1_000_000 },
+    pinnedSourceKeys: [],
+    excludedSourceKeys: input.observation.excludedSourceKeys,
+    currentTargetSourceKeys: input.observation.currentTargetSourceKeys,
+    latestVerificationSourceKeys: input.observation.latestVerificationSourceKeys,
+    recentEvidenceSourceKeys: input.observation.recentEvidenceSourceKeys,
+    ...(input.observation.sourceLifecycleSignals !== undefined
+      ? { sourceLifecycleSignals: input.observation.sourceLifecycleSignals }
+      : {}),
+    ...(input.observation.removalHistory !== undefined
+      ? { removalHistory: input.observation.removalHistory }
+      : {}),
+    ...(input.observation.representationNeeds !== undefined
+      ? { representationNeeds: input.observation.representationNeeds }
+      : {}),
+    previousWorkingSetId: input.observation.previousWorkingSetId
+  }
+}
+
+function planObservedRuntime(input: {
+  readonly observation: C1AgentObservation
+  readonly runtimeSessionId: string
+  readonly sequence: number
+  readonly previousWorkingSet: ContextWorkingSet | null
+  readonly failureInjection?: C1LegFailureInjection
+}): {
+  readonly context: C1ObservedPlanningContext
+  readonly workingSet: ContextWorkingSet
+  readonly transition: ContextTransition
+} {
+  if (
+    input.previousWorkingSet !== null &&
+    input.observation.previousWorkingSetId !== input.previousWorkingSet.workingSetId
+  ) {
+    fail('REWRITE_FAILURE', 'observation previousWorkingSetId does not match executor state')
+  }
+  const context = createObservedPlanningContext(
+    input.observation,
+    input.runtimeSessionId,
+    input.sequence
+  )
+  const request = buildObservedPlanningRequest({
+    observation: input.observation,
+    runtimeSessionId: input.runtimeSessionId,
+    sequence: input.sequence
+  })
+  const result = planWorkingSet({
+    universe: context.universe,
+    request,
+    previousWorkingSet: input.previousWorkingSet,
+    options: {
+      policyVersion: C1_POLICY_VERSION,
+      createdAt: C1_OBSERVATION_NOW,
+      represent: (entry) => context.representationsBySourceKey.get(entry.source.sourceKey) ?? null
+    }
+  })
+  return {
+    context,
+    workingSet: result.workingSet,
+    transition: result.transition
+  }
+}
+
+function materializeObservedWorkingSet(input: {
+  readonly workingSet: ContextWorkingSet
+  readonly universe: ContextUniverseRevision
+  readonly representationsById: ReadonlyMap<string, ContextRepresentation>
+  readonly failureInjection?: C1LegFailureInjection
+}): C1MaterializedWorkingSet {
+  if (input.failureInjection === 'MATERIALIZATION_FAILURE') {
+    fail('MATERIALIZATION_FAILURE', 'C1 materialization failure was injected before composition')
+  }
+  if (input.workingSet.plannedFromUniverseHash !== input.universe.logicalHash) {
+    fail(
+      'MATERIALIZATION_FAILURE',
+      'working set universe hash does not match the observed universe'
+    )
+  }
+  const sourceKeys: string[] = []
+  const identityRows: string[] = []
+  for (const item of input.workingSet.items) {
+    if (item.sourceKeys.length !== 1 || item.sourceVersionIds.length !== 1) {
+      fail('MATERIALIZATION_FAILURE', 'C1 materializer requires one source/version per item')
+    }
+    const sourceKey = item.sourceKeys[0]
+    const sourceVersionId = item.sourceVersionIds[0]
+    if (sourceKey === undefined || sourceVersionId === undefined) {
+      fail('MATERIALIZATION_FAILURE', 'C1 materializer found an incomplete source identity')
+    }
+    const entry = input.universe.entries.find(
+      (candidate) => candidate.source.sourceKey === sourceKey
+    )
+    if (entry?.admittedVersion?.versionId !== sourceVersionId) {
+      fail('MATERIALIZATION_FAILURE', `stale SourceVersion for ${sourceKey}`)
+    }
+    const representation = input.representationsById.get(item.representationId)
+    if (
+      representation === undefined ||
+      representation.content === undefined ||
+      representation.contentRef !== undefined ||
+      !representation.sourceVersionIds.includes(sourceVersionId)
+    ) {
+      fail('MATERIALIZATION_FAILURE', `exact representation is unavailable for ${sourceKey}`)
+    }
+    sourceKeys.push(sourceKey)
+    identityRows.push(
+      [
+        sourceKey,
+        sourceVersionId,
+        representation.id,
+        representation.contentHash,
+        representation.content
+      ].join('|')
+    )
+  }
+  return {
+    workingSetId: input.workingSet.workingSetId,
+    sourceKeys: Object.freeze(sourceKeys),
+    fingerprint: sha256Bytes(['c1-materialized-observed-v1', ...identityRows].join('\u241F'))
+  }
+}
+
+function sameSourceSet(left: readonly string[], right: readonly string[]): boolean {
+  return canonicalJson(uniqueSorted(left)) === canonicalJson(uniqueSorted(right))
+}
+
+export function replayC1ProviderBoundCapture(
+  capture: C1ProviderBoundCapture,
+  mutate = false
+): void {
+  const replay = mutate
+    ? {
+        ...capture,
+        providerBoundSourceKeys: [...capture.providerBoundSourceKeys, 'replay-mutation']
+      }
+    : {
+        ...capture,
+        providerBoundSourceKeys: [...capture.providerBoundSourceKeys]
+      }
+  if (canonicalJson(replay) !== canonicalJson(capture)) {
+    fail('REPLAY_MISMATCH', `provider-bound capture replay differs for ${capture.modelCallId}`)
+  }
+}
+
+/**
+ * The single executor used by the 64-leg preflight and the deterministic
+ * treatment opportunity. A future live transport can replace the capture
+ * sink; observation, policy, materialization, composition, and guard logic
+ * stay identical.
+ */
+export class C1LegExecutor {
+  constructor(
+    private readonly options: {
+      readonly providerBinding: C1StrictProviderBinding
+      readonly systemInstruction?: string
+    }
+  ) {}
+
+  execute(input: C1LegExecutionInput): C1LegExecutionResult {
+    assertC1StrictProviderBinding(input.providerBinding.experimentBinding)
+    const killSwitch =
+      input.killSwitch ??
+      createRunKillSwitch(input.runId, {
+        now: () => C1_OBSERVATION_NOW
+      })
+    if (killSwitch.isTripped)
+      fail('KILL_SWITCH_BLOCKED', 'C1 leg started after its kill switch tripped')
+
+    const nativeFingerprint = activeMessagesHash(input.observation.messages)
+    if (
+      input.arm === 'NATIVE' &&
+      input.nativeBaselineSemanticContextFingerprint !== undefined &&
+      input.nativeBaselineSemanticContextFingerprint !== nativeFingerprint
+    ) {
+      fail(
+        'NATIVE_CONTEXT_DRIFT',
+        'Native provider-bound semantic context drifted from the observation'
+      )
+    }
+
+    let workingSet: ContextWorkingSet | null = null
+    let transition: ContextTransition | null = null
+    let materializedWorkingSetFingerprint = 'NATIVE_UNMANAGED'
+    let providerBoundMessages = input.observation.messages
+    let lifecycleEligible = false
+    let runtimeContextChanged = false
+
+    if (input.arm === 'RUNTIME') {
+      if (!input.treatmentReady) {
+        fail('TREATMENT_INACTIVE', 'Runtime treatment was not ready; Native fallback is forbidden')
+      }
+      const runtimeSessionId = input.runtimeSessionId ?? `${input.studyId}:${input.pairId}`
+      const sequence = input.recompositionSequence ?? 0
+      const planned = planObservedRuntime({
+        observation: input.observation,
+        runtimeSessionId,
+        sequence,
+        previousWorkingSet: input.previousWorkingSet ?? null,
+        ...(input.failureInjection !== undefined
+          ? { failureInjection: input.failureInjection }
+          : {})
+      })
+      workingSet = planned.workingSet
+      transition = planned.transition
+      const materialized = materializeObservedWorkingSet({
+        workingSet: planned.workingSet,
+        universe: planned.context.universe,
+        representationsById: planned.context.representationsById,
+        ...(input.failureInjection !== undefined
+          ? { failureInjection: input.failureInjection }
+          : {})
+      })
+      materializedWorkingSetFingerprint = materialized.fingerprint
+      lifecycleEligible =
+        input.requireRuntimeDifference === true ||
+        (input.observation.sourceLifecycleSignals?.length ?? 0) > 0
+      const composition = composeActiveRewrite({
+        messages: input.observation.messages,
+        workingSet: planned.workingSet,
+        transition:
+          input.failureInjection === 'REWRITE_FAILURE'
+            ? {
+                ...planned.transition,
+                toWorkingSetId: 'c1-invalid-rewrite-target'
+              }
+            : planned.transition,
+        runId: input.runId,
+        killSwitch,
+        activeModeOptIn: input.failureInjection !== 'FALLBACK',
+        systemInstruction: this.options.systemInstruction ?? C1_SYSTEM_INSTRUCTION,
+        harness: 'PI'
+      })
+      if (composition.kind !== 'REWRITE_READY') {
+        fail(
+          input.failureInjection === 'REWRITE_FAILURE' ? 'REWRITE_FAILURE' : 'FALLBACK_ATTEMPTED',
+          `Active composition did not produce a sendable Runtime context: ${composition.reason}`
+        )
+      }
+      const guarded = assertRewriteSafe(composition, killSwitch)
+      if (!guarded.ok) {
+        fail(
+          'REWRITE_FAILURE',
+          `pre-send guard rejected the Runtime composition: ${guarded.reason}`
+        )
+      }
+      // The unchanged-context injection simulates a broken treatment adapter
+      // that silently returns the Native message list after planning and
+      // composition. The executor must detect that loss at the same
+      // provider-bound comparison used by the real path.
+      providerBoundMessages =
+        input.failureInjection === 'RUNTIME_UNCHANGED'
+          ? input.observation.messages
+          : composition.messages
+      const providerBoundSourceKeys = observedC1SourceKeys(
+        providerBoundMessages,
+        runtimeSessionId,
+        sequence
+      )
+      if (!sameSourceSet(providerBoundSourceKeys, materialized.sourceKeys)) {
+        fail(
+          'MATERIALIZATION_FAILURE',
+          'provider-bound source keys do not match the materialized Working Set'
+        )
+      }
+      const runtimeFingerprint = activeMessagesHash(providerBoundMessages)
+      runtimeContextChanged = runtimeFingerprint !== nativeFingerprint
+      if (lifecycleEligible && !runtimeContextChanged) {
+        fail(
+          'RUNTIME_CONTEXT_UNCHANGED',
+          'eligible Runtime treatment did not change provider-bound context'
+        )
+      }
+    }
+
+    const providerBoundSourceKeys = observedC1SourceKeys(
+      providerBoundMessages,
+      input.runtimeSessionId ?? `${input.studyId}:${input.pairId}`,
+      input.recompositionSequence ?? 0
+    )
+    const capture = captureC1PreflightArm({
+      task: input.task,
+      stratum: input.stratum,
+      pairId: input.pairId,
+      arm: input.arm,
+      runId: input.runId,
+      fixtureContentSha256: input.fixtureContentSha256,
+      treatmentReady: input.treatmentReady,
+      studyId: input.studyId,
+      turnId: input.turnId,
+      modelCallId: input.modelCallId,
+      providerConfigHash: input.providerBinding.providerConfigHash,
+      providerBoundSourceKeys,
+      modelVisibleSemanticContextFingerprint: activeMessagesHash(providerBoundMessages),
+      systemDeveloperToolStructuresFingerprint: C1_TOOL_STRUCTURE_FINGERPRINT,
+      workingSetId: workingSet?.workingSetId ?? 'NATIVE_UNMANAGED',
+      transitionId: transition?.transitionId ?? 'NATIVE_UNMANAGED',
+      lifecycleEligible,
+      runtimeContextChanged
+    })
+    if (input.failureInjection === 'NATIVE_DRIFT' && input.arm === 'NATIVE') {
+      fail('NATIVE_CONTEXT_DRIFT', 'Native context drift injection rejected before capture')
+    }
+    input.transport.capture(capture)
+    replayC1ProviderBoundCapture(capture, input.failureInjection === 'REPLAY_MISMATCH')
+    return {
+      capture,
+      workingSet,
+      transition,
+      materializedWorkingSetFingerprint,
+      runtimeContextChanged,
+      lifecycleEligible,
+      replayMismatch: 0
+    }
   }
 }
 
@@ -1267,7 +2019,11 @@ export interface C1BudgetLimits {
 }
 
 export class C1HardBudgetGuard {
-  private currentLeg: { providerCalls: number; toolCalls: number } | null = null
+  private currentLeg: {
+    providerCalls: number
+    toolCalls: number
+    startedAtMs: number
+  } | null = null
   private completedLegs = 0
   private studyProviderCalls = 0
   private studyToolCalls = 0
@@ -1275,11 +2031,27 @@ export class C1HardBudgetGuard {
 
   constructor(readonly limits: C1BudgetLimits) {}
 
-  beginLeg(): void {
+  beginLeg(startedAtMs: number = Date.now()): void {
     if (this.currentLeg !== null) fail('BUDGET_BREACH', 'a C1 leg is already active')
     if (this.completedLegs >= this.limits.study.maxLegs)
       fail('BUDGET_BREACH', 'C1 study leg budget exhausted')
-    this.currentLeg = { providerCalls: 0, toolCalls: 0 }
+    if (!Number.isInteger(startedAtMs) || startedAtMs < 0) {
+      fail('BUDGET_BREACH', 'C1 leg start time is invalid')
+    }
+    this.currentLeg = { providerCalls: 0, toolCalls: 0, startedAtMs }
+  }
+
+  /** Enforce the wall-clock ceiling while a leg is still in flight. */
+  assertWallClockBudget(nowMs: number = Date.now()): number {
+    if (this.currentLeg === null) fail('BUDGET_BREACH', 'wall-clock checked outside a C1 leg')
+    if (!Number.isInteger(nowMs) || nowMs < this.currentLeg.startedAtMs) {
+      fail('BUDGET_BREACH', 'C1 wall-clock clock reading is invalid')
+    }
+    const elapsed = nowMs - this.currentLeg.startedAtMs
+    if (elapsed > this.limits.perLeg.maxWallClockMs) {
+      fail('BUDGET_BREACH', 'C1 per-leg wall-clock budget exceeded while leg was in flight')
+    }
+    return elapsed
   }
 
   recordProviderCall(): void {
@@ -1311,9 +2083,7 @@ export class C1HardBudgetGuard {
     if (!Number.isInteger(measures.wallClockMs) || measures.wallClockMs < 0) {
       fail('BUDGET_BREACH', 'C1 wall-clock measure is invalid')
     }
-    if (measures.wallClockMs > this.limits.perLeg.maxWallClockMs) {
-      fail('BUDGET_BREACH', 'C1 per-leg wall-clock budget exceeded')
-    }
+    this.assertWallClockBudget(this.currentLeg.startedAtMs + measures.wallClockMs)
     this.studyWallClockMs += measures.wallClockMs
     if (this.studyWallClockMs > this.limits.study.maxWallClockMs) {
       fail('BUDGET_BREACH', 'C1 study wall-clock budget exceeded')
@@ -1335,6 +2105,53 @@ export class C1HardBudgetGuard {
       wallClockMs: this.studyWallClockMs
     }
   }
+}
+
+export interface C1BoundedOperationResult<T> {
+  readonly status: 'COMPLETED' | 'DEADLINE_EXCEEDED'
+  readonly value?: T
+  readonly aborted: boolean
+}
+
+/**
+ * Shared deadline boundary for the future live leg executor. The preflight
+ * uses it only with an in-memory operation; a deadline aborts the operation
+ * and invokes the same terminal callback that blocks transport.
+ */
+export async function runC1BoundedOperation<T>(input: {
+  readonly operation: (signal: AbortSignal) => Promise<T>
+  readonly timeoutMs: number
+  readonly onDeadline: () => void
+}): Promise<C1BoundedOperationResult<T>> {
+  if (!Number.isInteger(input.timeoutMs) || input.timeoutMs < 0) {
+    fail('BUDGET_BREACH', 'C1 deadline must be a non-negative integer')
+  }
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let deadlineWon = false
+  const operation = Promise.resolve()
+    .then(() => input.operation(controller.signal))
+    .then(
+      (value) => ({ kind: 'completed' as const, value }),
+      (error: unknown) => ({ kind: 'failed' as const, error })
+    )
+  const deadline = new Promise<{ readonly kind: 'deadline' }>((resolveDeadline) => {
+    timer = setTimeout(() => {
+      deadlineWon = true
+      input.onDeadline()
+      controller.abort()
+      resolveDeadline({ kind: 'deadline' })
+    }, input.timeoutMs)
+  })
+  const result = await Promise.race([operation, deadline])
+  if (timer !== undefined) clearTimeout(timer)
+  if (result.kind === 'deadline') {
+    // The operation promise has a rejection handler above, so a late abort
+    // cannot become an unhandled rejection after the terminal return.
+    return { status: 'DEADLINE_EXCEEDED', aborted: deadlineWon }
+  }
+  if (result.kind === 'failed') throw result.error
+  return { status: 'COMPLETED', value: result.value, aborted: false }
 }
 
 export interface C1IndependentArtifactWrite {
@@ -1376,6 +2193,8 @@ export interface C1PreflightLegEvidence {
   readonly order: C1PreflightOrder
   readonly arm: C1PreflightArm
   readonly runId: string
+  readonly turnId: string
+  readonly modelCallId: string
   readonly fixtureContentSha256: string
   readonly fixtureTreeObjectId: string
   readonly freshSandbox: true
@@ -1385,9 +2204,15 @@ export interface C1PreflightLegEvidence {
   readonly providerBoundSourceKeys: readonly string[]
   readonly modelVisibleSemanticContextFingerprint: string
   readonly systemDeveloperToolStructuresFingerprint: string
+  readonly providerConfigHash: string
+  readonly workingSetId: string
+  readonly transitionId: string
+  readonly lifecycleEligible: boolean
+  readonly runtimeContextChanged: boolean
+  readonly sourceDerivation: 'PI_NATIVE_MESSAGE_ANALYSIS'
   readonly providerCalls: 0
   readonly toolCalls: 0
-  readonly wallClockMs: 0
+  readonly wallClockMs: number
   readonly taskOutcome: 'NOT_OBSERVED_IN_PREFLIGHT'
   readonly lifecycleEvidence: 'NOT_OBSERVED_IN_PREFLIGHT'
   readonly replayMismatch: 0
@@ -1413,6 +2238,7 @@ export interface C1LivePreflightReport {
   readonly provider: typeof C1_PROVIDER_ID
   readonly model: typeof C1_MODEL_ID
   readonly endpoint: typeof C1_PROVIDER_ENDPOINT
+  readonly providerConfigHash: string | null
   readonly providerCalls: 0
   readonly networkRequests: 0
   readonly fakeProviderBoundCaptures: number
@@ -1464,6 +2290,8 @@ async function writePreflightArtifacts(input: {
             stratum: leg.stratum,
             pairId: leg.pairId,
             arm: leg.arm,
+            turnId: leg.turnId,
+            modelCallId: leg.modelCallId,
             providerCalls: 0,
             usageStatus: 'NOT_OBSERVED_IN_PREFLIGHT'
           })
@@ -1478,8 +2306,11 @@ async function writePreflightArtifacts(input: {
             studyId: input.identity.studyId,
             runId: leg.runId,
             taskId: leg.taskId,
+            stratum: leg.stratum,
             pairId: leg.pairId,
             arm: leg.arm,
+            turnId: leg.turnId,
+            modelCallId: leg.modelCallId,
             lifecycleEvidence: leg.lifecycleEvidence,
             providerBoundSourceKeys: leg.providerBoundSourceKeys
           })
@@ -1494,8 +2325,11 @@ async function writePreflightArtifacts(input: {
             studyId: input.identity.studyId,
             runId: leg.runId,
             taskId: leg.taskId,
+            stratum: leg.stratum,
             pairId: leg.pairId,
             arm: leg.arm,
+            turnId: leg.turnId,
+            modelCallId: leg.modelCallId,
             contextFingerprint: leg.modelVisibleSemanticContextFingerprint,
             treatmentRevision: C1_C_TREATMENT_REVISION
           })
@@ -1510,10 +2344,13 @@ async function writePreflightArtifacts(input: {
             studyId: input.identity.studyId,
             runId: leg.runId,
             taskId: leg.taskId,
+            stratum: leg.stratum,
             pairId: leg.pairId,
             arm: leg.arm,
+            turnId: leg.turnId,
+            modelCallId: leg.modelCallId,
             toolCalls: 0,
-            wallClockMs: 0
+            wallClockMs: leg.wallClockMs
           })
         )
         .join('')
@@ -1526,8 +2363,11 @@ async function writePreflightArtifacts(input: {
             studyId: input.identity.studyId,
             runId: leg.runId,
             taskId: leg.taskId,
+            stratum: leg.stratum,
             pairId: leg.pairId,
             arm: leg.arm,
+            turnId: leg.turnId,
+            modelCallId: leg.modelCallId,
             taskOutcome: leg.taskOutcome,
             writableScopePass: leg.writableScopePass
           })
@@ -1542,8 +2382,11 @@ async function writePreflightArtifacts(input: {
             studyId: input.identity.studyId,
             runId: leg.runId,
             taskId: leg.taskId,
+            stratum: leg.stratum,
             pairId: leg.pairId,
             arm: leg.arm,
+            turnId: leg.turnId,
+            modelCallId: leg.modelCallId,
             replayMismatch: leg.replayMismatch
           })
         )
@@ -1574,6 +2417,17 @@ async function writePreflightArtifacts(input: {
         assignmentMatrixSha256: input.study.assignmentMatrixSha256,
         taskManifestSha256: input.study.taskManifestSha256,
         treatmentRevision: C1_C_TREATMENT_REVISION,
+        stableJoinKeys: [
+          'studyId',
+          'runId',
+          'taskId',
+          'stratum',
+          'pairId',
+          'arm',
+          'turnId',
+          'modelCallId'
+        ],
+        legCount: legRows.length,
         gates: input.gates,
         requiredArtifacts: C1_PREFLIGHT_ARTIFACT_NAMES,
         evidenceWriteFailures: priorFailures
@@ -1607,9 +2461,8 @@ function normalizeFailure(error: unknown): {
   }
 }
 
-async function runAdversarialReadinessProbes(limits: C1BudgetLimits): Promise<C1PreflightGate> {
-  const checks: boolean[] = []
-  const runtimeTask: C1PreflightTask = {
+function adversarialTask(): C1PreflightTask {
+  return {
     taskId: 'c1-preflight-adversarial-task',
     stratum: 'preflight',
     title: 'preflight',
@@ -1623,74 +2476,434 @@ async function runAdversarialReadinessProbes(limits: C1BudgetLimits): Promise<C1
     prompt: 'preflight',
     promptSha256: sha256Bytes('preflight'),
     expectedWritablePaths: ['src/target.js'],
-    relevantSources: ['src/target.js', 'src/distractor.js'],
-    distractorSources: ['src/distractor.js'],
+    relevantSources: ['metadata-only-test-field'],
+    distractorSources: ['metadata-only-test-field'],
     requiredLaterSources: []
   }
-  const transport = new C1PreflightFakeTransport()
-  try {
-    const request = captureC1PreflightArm({
-      task: runtimeTask,
-      stratum: runtimeTask.stratum,
-      pairId: 'preflight-p01',
-      arm: 'RUNTIME',
-      runId: 'c1-20260902-preflight-p01-RUNTIME-aaaaaaaa',
-      fixtureContentSha256: 'fixture',
-      treatmentReady: false
-    })
-    transport.capture(request)
-  } catch (error) {
-    checks.push(
-      error instanceof C1PreflightFailure &&
-        error.code === 'TREATMENT_INACTIVE' &&
-        transport.requests.length === 0
+}
+
+export function runC1TreatmentOpportunityProbe(
+  providerBinding: C1StrictProviderBinding
+): C1PreflightGate {
+  const task = adversarialTask()
+  const studyId = 'c1-preflight-treatment-opportunity'
+  const pairId = 'c1-preflight-treatment-opportunity-p01'
+  const runtimeSessionId = 'c1-preflight-treatment-opportunity-session'
+  const observation = createC1ObservedReadTrace({
+    observationId: 'treatment-opportunity-initial',
+    prompt: task.prompt,
+    fixtureFiles: ['src/target.js', 'src/distractor.js']
+  })
+  const firstCallKey = observation.currentTargetSourceKeys.find((key) =>
+    key.startsWith('run/tool-call://')
+  )
+  if (firstCallKey === undefined) {
+    return gate(
+      'actual_runtime_treatment_opportunity',
+      false,
+      'observation did not contain a tool-call source identity'
     )
+  }
+  const firstCallId = firstCallKey.slice('run/tool-call://'.length)
+  const retainedKeys = observation.currentTargetSourceKeys.filter(
+    (key) => key === firstCallKey || key === `run/tool-result://${firstCallId}`
+  )
+  const removedKeys = observation.currentTargetSourceKeys.filter(
+    (key) => !retainedKeys.includes(key)
+  )
+  const changedObservation: C1AgentObservation = {
+    ...observation,
+    observationId: 'treatment-opportunity-after-triage',
+    currentTargetSourceKeys: retainedKeys,
+    excludedSourceKeys: removedKeys,
+    sourceLifecycleSignals: removedKeys.map((sourceKey) => ({
+      sourceKey,
+      kind: 'RULED_OUT' as const,
+      evidenceRef: 'preflight-triage'
+    }))
+  }
+  const nativeTransport = new C1PreflightFakeTransport({
+    provider: C1_PROVIDER_ID,
+    model: C1_MODEL_ID,
+    endpoint: C1_PROVIDER_ENDPOINT,
+    providerConfigHash: providerBinding.providerConfigHash
+  })
+  const executor = new C1LegExecutor({ providerBinding })
+  const native = executor.execute({
+    studyId,
+    task,
+    stratum: task.stratum,
+    pairId,
+    arm: 'NATIVE',
+    runId: 'c1-20260902-treatment-opportunity-NATIVE-aaaaaaaa',
+    turnId: 'turn-treatment-native',
+    modelCallId: 'model-call-treatment-native',
+    fixtureContentSha256: 'preflight-fixture',
+    fixtureTreeObjectId: 'preflight-tree',
+    observation,
+    providerBinding,
+    transport: nativeTransport,
+    treatmentReady: true,
+    runtimeSessionId,
+    recompositionSequence: 0
+  })
+  const initialRuntime = executor.execute({
+    studyId,
+    task,
+    stratum: task.stratum,
+    pairId,
+    arm: 'RUNTIME',
+    runId: 'c1-20260902-treatment-initial-RUNTIME-bbbbbbbb',
+    turnId: 'turn-treatment-initial',
+    modelCallId: 'model-call-treatment-initial',
+    fixtureContentSha256: 'preflight-fixture',
+    fixtureTreeObjectId: 'preflight-tree',
+    observation,
+    providerBinding,
+    transport: nativeTransport,
+    treatmentReady: true,
+    runtimeSessionId,
+    recompositionSequence: 0
+  })
+  const restoredTransport = new C1PreflightFakeTransport({
+    provider: C1_PROVIDER_ID,
+    model: C1_MODEL_ID,
+    endpoint: C1_PROVIDER_ENDPOINT,
+    providerConfigHash: providerBinding.providerConfigHash
+  })
+  const runtime = executor.execute({
+    studyId,
+    task,
+    stratum: task.stratum,
+    pairId,
+    arm: 'RUNTIME',
+    runId: 'c1-20260902-treatment-changed-RUNTIME-cccccccc',
+    turnId: 'turn-treatment-changed',
+    modelCallId: 'model-call-treatment-changed',
+    fixtureContentSha256: 'preflight-fixture',
+    fixtureTreeObjectId: 'preflight-tree',
+    observation: {
+      ...changedObservation,
+      previousWorkingSetId: initialRuntime.workingSet?.workingSetId ?? null
+    },
+    providerBinding,
+    transport: restoredTransport,
+    treatmentReady: true,
+    runtimeSessionId,
+    recompositionSequence: 1,
+    previousWorkingSet: initialRuntime.workingSet,
+    requireRuntimeDifference: true
+  })
+  const pass =
+    native.capture.contextStrategy === 'NATIVE_UNMANAGED' &&
+    runtime.capture.contextStrategy === 'RUNTIME_WORKING_SET' &&
+    runtime.capture.lifecycleEligible &&
+    runtime.capture.runtimeContextChanged &&
+    runtime.capture.modelVisibleSemanticContextFingerprint !==
+      native.capture.modelVisibleSemanticContextFingerprint &&
+    !sameSourceSet(
+      native.capture.providerBoundSourceKeys,
+      runtime.capture.providerBoundSourceKeys
+    ) &&
+    native.capture.systemDeveloperToolStructuresFingerprint ===
+      runtime.capture.systemDeveloperToolStructuresFingerprint
+  return gate(
+    'actual_runtime_treatment_opportunity',
+    pass,
+    pass
+      ? 'Native remained unchanged while an eligible Runtime observation changed through policy-v0 and Active composition'
+      : 'the shared executor did not produce the expected Native/Runtime provider-bound difference'
+  )
+}
+
+async function runAdversarialReadinessProbes(
+  limits: C1BudgetLimits,
+  providerBinding: C1StrictProviderBinding
+): Promise<C1PreflightGate> {
+  const checks: boolean[] = []
+  const runtimeTask = adversarialTask()
+  const observation = createC1ObservedReadTrace({
+    observationId: 'adversarial-observation',
+    prompt: runtimeTask.prompt,
+    fixtureFiles: ['src/target.js', 'src/distractor.js']
+  })
+  const executor = new C1LegExecutor({ providerBinding })
+  const baseInput = {
+    studyId: 'c1-20260902-adversarial-study',
+    task: runtimeTask,
+    stratum: runtimeTask.stratum,
+    pairId: 'c1-preflight-adversarial-p01',
+    arm: 'RUNTIME' as const,
+    runId: 'c1-20260902-preflight-p01-RUNTIME-aaaaaaaa',
+    turnId: 'turn-adversarial-01',
+    modelCallId: 'model-call-adversarial-01',
+    fixtureContentSha256: 'fixture',
+    fixtureTreeObjectId: 'tree',
+    observation,
+    providerBinding,
+    treatmentReady: true,
+    recompositionSequence: 0,
+    runtimeSessionId: 'c1-adversarial-session'
+  }
+  try {
+    executor.execute({
+      ...baseInput,
+      treatmentReady: false,
+      transport: new C1PreflightFakeTransport()
+    })
+  } catch (error) {
+    checks.push(error instanceof C1PreflightFailure && error.code === 'TREATMENT_INACTIVE')
   }
   checks.push(
     !writableScopePass(['src/target.js', 'src/escape.js'], runtimeTask.expectedWritablePaths)
   )
-  const budget = new C1HardBudgetGuard(limits)
-  budget.beginLeg()
-  for (let index = 0; index < limits.perLeg.maxProviderCalls; index += 1)
-    budget.recordProviderCall()
+
+  const providerBudget = new C1HardBudgetGuard({
+    perLeg: { maxProviderCalls: 1, maxToolCalls: 4, maxWallClockMs: 100 },
+    study: {
+      maxProviderCalls: 1,
+      maxToolCalls: 4,
+      maxWallClockMs: 100,
+      maxLegs: 1
+    }
+  })
+  providerBudget.beginLeg(100)
+  providerBudget.recordProviderCall()
   try {
-    budget.recordProviderCall()
+    providerBudget.recordProviderCall()
   } catch (error) {
     checks.push(error instanceof C1PreflightFailure && error.code === 'BUDGET_BREACH')
   }
+  const toolBudget = new C1HardBudgetGuard({
+    perLeg: { maxProviderCalls: 4, maxToolCalls: 1, maxWallClockMs: 100 },
+    study: {
+      maxProviderCalls: 4,
+      maxToolCalls: 1,
+      maxWallClockMs: 100,
+      maxLegs: 1
+    }
+  })
+  toolBudget.beginLeg(100)
+  toolBudget.recordToolCall()
+  try {
+    toolBudget.recordToolCall()
+  } catch (error) {
+    checks.push(error instanceof C1PreflightFailure && error.code === 'BUDGET_BREACH')
+  }
+  const wallClockBudget = new C1HardBudgetGuard({
+    perLeg: { maxProviderCalls: 4, maxToolCalls: 4, maxWallClockMs: 1 },
+    study: {
+      maxProviderCalls: 4,
+      maxToolCalls: 4,
+      maxWallClockMs: 1,
+      maxLegs: 1
+    }
+  })
+  wallClockBudget.beginLeg(100)
+  try {
+    wallClockBudget.assertWallClockBudget(102)
+  } catch (error) {
+    checks.push(error instanceof C1PreflightFailure && error.code === 'BUDGET_BREACH')
+  }
+
+  checks.push(
+    validateC1ProviderUsage({
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 2,
+      usageSource: 'PROVIDER_REPORTED'
+    }).usageSource === 'PROVIDER_REPORTED'
+  )
+  try {
+    validateC1ProviderUsage({
+      inputTokens: 1,
+      outputTokens: 1,
+      totalTokens: 2
+    })
+  } catch (error) {
+    checks.push(error instanceof C1PreflightFailure && error.code === 'USAGE_CONTRACT_MISMATCH')
+  }
+  try {
+    validateC1ProviderUsage({
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 2,
+      usageSource: 'LOCAL_ESTIMATE'
+    })
+  } catch (error) {
+    checks.push(error instanceof C1PreflightFailure && error.code === 'USAGE_CONTRACT_MISMATCH')
+  }
+
+  try {
+    await prepareC1StrictProvider({
+      runIdentity: 'c1-20260902-adversarial-model-mismatch',
+      requestedModelId: 'wrong-model',
+      env: { STEP_PLAN_API_KEY: 'c1-preflight-in-memory-sentinel' }
+    })
+  } catch (error) {
+    checks.push(error instanceof ProviderBindingError && error.code === 'model_mismatch')
+  }
+  try {
+    const wrongProvider = await prepareC1StrictProvider({
+      runIdentity: 'c1-20260902-adversarial-provider-mismatch',
+      primaryProviderId: 'deepseek',
+      requestedModelId: 'deepseek-v4-flash',
+      env: { DEEPSEEK_API_KEY: 'c1-preflight-in-memory-sentinel' }
+    })
+    try {
+      assertC1StrictProviderBinding(wrongProvider.experimentBinding)
+    } catch (error) {
+      checks.push(error instanceof C1PreflightFailure && error.code === 'PROVIDER_BINDING_MISMATCH')
+    } finally {
+      wrongProvider.dispose()
+    }
+  } catch {
+    checks.push(false)
+  }
+  try {
+    await prepareC1StrictProvider({
+      runIdentity: 'c1-20260902-adversarial-fallback',
+      allowFallback: true,
+      env: { STEP_PLAN_API_KEY: 'c1-preflight-in-memory-sentinel' }
+    })
+  } catch (error) {
+    checks.push(error instanceof ProviderBindingError && error.code === 'fallback_forbidden')
+  }
+
+  const mutatedAssignment = [{ taskId: 'mutated' }]
+  try {
+    assertC1AssignmentMatrixBinding(mutatedAssignment)
+  } catch (error) {
+    checks.push(error instanceof C1PreflightFailure && error.code === 'ASSIGNMENT_BINDING_MISMATCH')
+  }
+
+  const expectInjected = (injection: C1LegFailureInjection, code: C1PreflightFailureCode): void => {
+    const transport = new C1PreflightFakeTransport({
+      provider: C1_PROVIDER_ID,
+      model: C1_MODEL_ID,
+      endpoint: C1_PROVIDER_ENDPOINT,
+      providerConfigHash: providerBinding.providerConfigHash
+    })
+    try {
+      executor.execute({
+        ...baseInput,
+        transport,
+        failureInjection: injection,
+        ...(injection === 'RUNTIME_UNCHANGED' ? { requireRuntimeDifference: true } : {})
+      })
+    } catch (error) {
+      checks.push(
+        error instanceof C1PreflightFailure &&
+          error.code === code &&
+          transport.requests.length === 0
+      )
+    }
+  }
+  expectInjected('MATERIALIZATION_FAILURE', 'MATERIALIZATION_FAILURE')
+  expectInjected('REWRITE_FAILURE', 'REWRITE_FAILURE')
+  expectInjected('FALLBACK', 'FALLBACK_ATTEMPTED')
+  expectInjected('RUNTIME_UNCHANGED', 'RUNTIME_CONTEXT_UNCHANGED')
+  try {
+    executor.execute({
+      ...baseInput,
+      arm: 'NATIVE',
+      runId: 'c1-20260902-preflight-native-aaaaaaaa',
+      failureInjection: 'NATIVE_DRIFT',
+      nativeBaselineSemanticContextFingerprint: 'wrong-native-fingerprint',
+      transport: new C1PreflightFakeTransport()
+    })
+  } catch (error) {
+    checks.push(error instanceof C1PreflightFailure && error.code === 'NATIVE_CONTEXT_DRIFT')
+  }
+  try {
+    executor.execute({
+      ...baseInput,
+      failureInjection: 'REPLAY_MISMATCH',
+      transport: new C1PreflightFakeTransport()
+    })
+  } catch (error) {
+    checks.push(error instanceof C1PreflightFailure && error.code === 'REPLAY_MISMATCH')
+  }
+
   const events = new EventEmitter()
   const killTransport = new C1PreflightFakeTransport()
+  let activeKillSwitch: RunKillSwitch | null = null
   let tripCount = 0
-  const killSwitch = installC1OperatorKillSwitch(events, () => {
+  const operatorKillSwitch = installC1OperatorKillSwitch(events, (signal) => {
     tripCount += 1
+    activeKillSwitch?.trip(`operator ${signal}`)
     killTransport.block()
+  })
+  activeKillSwitch = createRunKillSwitch(baseInput.runId, {
+    now: () => C1_OBSERVATION_NOW
   })
   events.emit('SIGINT')
   events.emit('SIGTERM')
-  let blockedAfterSignal = false
   try {
-    killTransport.capture(
-      captureC1PreflightArm({
-        task: runtimeTask,
-        stratum: runtimeTask.stratum,
-        pairId: 'preflight-p01',
-        arm: 'RUNTIME',
-        runId: 'c1-20260902-preflight-p01-RUNTIME-aaaaaaaa',
-        fixtureContentSha256: 'fixture',
-        treatmentReady: true
-      })
+    executor.execute({
+      ...baseInput,
+      killSwitch: activeKillSwitch,
+      transport: killTransport
+    })
+  } catch (error) {
+    checks.push(
+      error instanceof C1PreflightFailure &&
+        error.code === 'KILL_SWITCH_BLOCKED' &&
+        activeKillSwitch.isTripped &&
+        operatorKillSwitch.firstSignal === 'SIGINT' &&
+        tripCount === 1 &&
+        killTransport.isBlocked
+    )
+  }
+  operatorKillSwitch.dispose()
+
+  const deadlineEvents = new EventEmitter()
+  const deadlineTransport = new C1PreflightFakeTransport()
+  let deadlineKillSwitch: RunKillSwitch | null = createRunKillSwitch(
+    'c1-20260902-deadline-RUNTIME-aaaaaaaa',
+    { now: () => C1_OBSERVATION_NOW }
+  )
+  const deadlineOperator = installC1OperatorKillSwitch(deadlineEvents, () => {
+    deadlineKillSwitch?.trip('deadline')
+    deadlineTransport.block()
+  })
+  const deadlineResult = await runC1BoundedOperation({
+    timeoutMs: 5,
+    operation: (signal) =>
+      new Promise<void>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('aborted')), {
+          once: true
+        })
+      }),
+    onDeadline: () => deadlineEvents.emit('SIGTERM')
+  })
+  let deadlineBlocked = false
+  try {
+    deadlineTransport.capture(
+      executor.execute({
+        ...baseInput,
+        runId: 'c1-20260902-deadline-RUNTIME-aaaaaaaa',
+        killSwitch: deadlineKillSwitch,
+        transport: deadlineTransport
+      }).capture
     )
   } catch (error) {
-    blockedAfterSignal = error instanceof C1PreflightFailure && error.code === 'KILL_SWITCH_BLOCKED'
+    deadlineBlocked = error instanceof C1PreflightFailure && error.code === 'KILL_SWITCH_BLOCKED'
   }
   checks.push(
-    killSwitch.isTripped &&
-      killSwitch.firstSignal === 'SIGINT' &&
-      tripCount === 1 &&
-      killTransport.isBlocked &&
-      blockedAfterSignal
+    deadlineResult.status === 'DEADLINE_EXCEEDED' &&
+      deadlineResult.aborted &&
+      deadlineKillSwitch.isTripped &&
+      deadlineTransport.isBlocked &&
+      deadlineBlocked
   )
-  killSwitch.dispose()
+  deadlineOperator.dispose()
+  deadlineKillSwitch = null
+
   const root = await mkdtemp(join(tmpdir(), 'canvas-c1-identity-probe-'))
   try {
     const studyId = 'c1-20260902-c1-feasibility-v1-aaaaaaaa'
@@ -1725,7 +2938,7 @@ async function runAdversarialReadinessProbes(limits: C1BudgetLimits): Promise<C1
   return gate(
     'credential_free_adversarial_failures',
     checks.every(Boolean),
-    `${checks.filter(Boolean).length}/${checks.length} injections caught`
+    `${checks.filter(Boolean).length}/${checks.length} provider, binding, budget, lifecycle, replay, deadline, signal, identity, and evidence injections caught`
   )
 }
 
@@ -1741,10 +2954,20 @@ function validatePairCaptures(
       const plan = planByRunId.get(capture.runId)
       return (
         plan !== undefined &&
+        capture.studyId.length > 0 &&
         capture.taskId === plan.taskId &&
         capture.stratum === plan.stratum &&
         capture.pairId === plan.pairId &&
-        capture.arm === plan.arm
+        capture.arm === plan.arm &&
+        capture.turnId.length > 0 &&
+        capture.modelCallId.length > 0 &&
+        capture.sourceDerivation === 'PI_NATIVE_MESSAGE_ANALYSIS' &&
+        capture.provider === C1_PROVIDER_ID &&
+        capture.model === C1_MODEL_ID &&
+        capture.endpoint === C1_PROVIDER_ENDPOINT &&
+        capture.providerConfigHash === C1_EXPECTED_PROVIDER_CONFIG_HASH &&
+        capture.fallbackSent === false &&
+        capture.networkSent === false
       )
     })
   if (!captureBindingsPass) {
@@ -1771,17 +2994,20 @@ function validatePairCaptures(
       runtime !== undefined &&
       native.systemDeveloperToolStructuresFingerprint ===
         runtime.systemDeveloperToolStructuresFingerprint &&
-      native.modelVisibleSemanticContextFingerprint !==
-        runtime.modelVisibleSemanticContextFingerprint &&
-      native.providerBoundSourceKeys.join('|') !== runtime.providerBoundSourceKeys.join('|') &&
+      native.providerConfigHash === runtime.providerConfigHash &&
       native.fallbackSent === false &&
-      runtime.fallbackSent === false
+      runtime.fallbackSent === false &&
+      (!runtime.lifecycleEligible ||
+        (native.modelVisibleSemanticContextFingerprint !==
+          runtime.modelVisibleSemanticContextFingerprint &&
+          !sameSourceSet(native.providerBoundSourceKeys, runtime.providerBoundSourceKeys)))
     )
   })
+  const eligibleCount = captures.filter((capture) => capture.lifecycleEligible).length
   return gate(
     'native_runtime_treatment_isolation',
     pass,
-    `${pairMap.size}/32 pairs captured with distinct semantic fingerprints`
+    `${pairMap.size}/32 pairs captured; ${eligibleCount} lifecycle-eligible captures required an observed Runtime change`
   )
 }
 
@@ -1801,7 +3027,13 @@ export async function runC1LivePreflight(
   let study: C1FrozenStudy | null = null
   let identity: C1PreflightIdentity | null = null
   let reportDir: string | null = null
-  let fakeTransport = new C1PreflightFakeTransport()
+  let providerBinding: C1StrictProviderBinding | null = null
+  const fakeTransport = new C1PreflightFakeTransport({
+    provider: C1_PROVIDER_ID,
+    model: C1_MODEL_ID,
+    endpoint: C1_PROVIDER_ENDPOINT,
+    providerConfigHash: C1_EXPECTED_PROVIDER_CONFIG_HASH
+  })
   let artifactResult: {
     readonly artifacts: readonly C1PreflightArtifactSummary[]
     readonly failed: readonly string[]
@@ -1838,93 +3070,171 @@ export async function runC1LivePreflight(
     gates.push(
       gate('fresh_fixture_binding', true, 'all four frozen fixture tree/content hashes verified')
     )
-    const adversarialGate = await runAdversarialReadinessProbes({
-      perLeg: study.perLegBudgets,
-      study: study.studyBudgets
-    })
-    gates.push(adversarialGate)
     identity = createC1PreflightIdentity(options.now?.() ?? new Date())
     const reportRoot =
       options.outputRoot ?? (await mkdtemp(join(tmpdir(), 'canvas-c1-live-preflight-')))
     reportDir = await claimSingleUseC1StudyDir(reportRoot, identity.studyId)
+    try {
+      providerBinding = await prepareC1StrictProvider({
+        runIdentity: identity.studyId
+      })
+      assertC1StrictProviderBinding(providerBinding.experimentBinding)
+    } catch (error) {
+      const normalized = normalizeFailure(error)
+      fail(
+        error instanceof ProviderBindingError ? 'PROVIDER_PREPARATION_FAILURE' : normalized.code,
+        normalized.message
+      )
+    }
+    gates.push(
+      gate(
+        'strict_provider_preparation',
+        providerBinding !== null,
+        'Step Plan primary/model binding prepared in memory with fallback disabled'
+      )
+    )
+    const boundProvider = providerBinding
+    if (boundProvider === null)
+      fail('PROVIDER_PREPARATION_FAILURE', 'strict provider binding is absent')
+    const adversarialGate = await runAdversarialReadinessProbes(
+      {
+        perLeg: study.perLegBudgets,
+        study: study.studyBudgets
+      },
+      boundProvider
+    )
+    gates.push(adversarialGate)
+    gates.push(runC1TreatmentOpportunityProbe(boundProvider))
     const plans = buildC1PreflightLegPlan(study, identity)
     const budgetGuard = new C1HardBudgetGuard({
       perLeg: study.perLegBudgets,
       study: study.studyBudgets
     })
-    for (const plan of plans) {
-      const task = study.tasks.find((candidate) => candidate.taskId === plan.taskId)
-      const fixtureBinding = fixtureBindings.get(plan.taskId)
-      if (task === undefined || fixtureBinding === undefined)
-        fail('FIXTURE_BINDING_MISMATCH', `missing preflight task ${plan.taskId}`)
-      const legDir = await claimSingleUseC1LegDir(reportDir, plan.runId)
-      budgetGuard.beginLeg()
-      const fixture = await materializeFreshC1Fixture(fixtureBinding.sourcePath)
-      try {
-        const copiedSummary = await computeC1FixtureContentSummary(fixture.path)
-        if (copiedSummary.sha256 !== fixtureBinding.contentSummary.sha256) {
-          fail('FIXTURE_BINDING_MISMATCH', `fresh sandbox content mismatch for ${plan.runId}`)
-        }
-        const changedPaths = await simulateExpectedWritableChange(
-          fixture.path,
-          task.expectedWritablePaths[0]!
-        )
-        if (!writableScopePass(changedPaths, task.expectedWritablePaths)) {
-          fail('FIXTURE_BINDING_MISMATCH', `simulated writable scope failed for ${plan.runId}`)
-        }
-        const capture = captureC1PreflightArm({
-          task,
-          stratum: plan.stratum,
-          pairId: plan.pairId,
-          arm: plan.arm,
-          runId: plan.runId,
-          fixtureContentSha256: copiedSummary.sha256,
-          treatmentReady: readiness.overallVerdict === 'PASS'
-        })
-        fakeTransport.capture(capture)
-        const evidence: C1PreflightLegEvidence = {
-          legIndex: plan.legIndex,
-          taskId: plan.taskId,
-          stratum: plan.stratum,
-          pairId: plan.pairId,
-          pairOrdinal: plan.pairOrdinal,
-          order: plan.order,
-          arm: plan.arm,
-          runId: plan.runId,
-          fixtureContentSha256: copiedSummary.sha256,
-          fixtureTreeObjectId: task.fixtureRevision.fixtureTreeObjectId,
-          freshSandbox: true,
-          sandboxReused: false,
-          changedPaths,
-          writableScopePass: true,
-          providerBoundSourceKeys: capture.providerBoundSourceKeys,
-          modelVisibleSemanticContextFingerprint: capture.modelVisibleSemanticContextFingerprint,
-          systemDeveloperToolStructuresFingerprint:
-            capture.systemDeveloperToolStructuresFingerprint,
-          providerCalls: 0,
-          toolCalls: 0,
-          wallClockMs: 0,
-          taskOutcome: 'NOT_OBSERVED_IN_PREFLIGHT',
-          lifecycleEvidence: 'NOT_OBSERVED_IN_PREFLIGHT',
-          replayMismatch: 0
-        }
-        try {
-          await writeFile(
-            join(legDir, 'leg.json'),
-            `${JSON.stringify(evidence, null, 2)}\n`,
-            'utf8'
-          )
-        } catch (error) {
+    let activeLegKillSwitch: RunKillSwitch | null = null
+    let killSwitchDisposed = false
+    const operatorSignals = new EventEmitter()
+    const operatorKillSwitch = installC1OperatorKillSwitch(operatorSignals, (signal) => {
+      activeLegKillSwitch?.trip(`operator ${signal}`)
+      fakeTransport.block()
+    })
+    const executor = new C1LegExecutor({ providerBinding: boundProvider })
+    try {
+      for (const plan of plans) {
+        if (operatorKillSwitch.isTripped) {
           fail(
-            'EVIDENCE_WRITE_FAILURE',
-            `failed to write leg evidence for ${plan.runId}: ${error instanceof Error ? error.message : String(error)}`
+            'KILL_SWITCH_BLOCKED',
+            'C1 study received a terminal operator signal before the next leg'
           )
         }
-        legs.push(evidence)
-        budgetGuard.endLeg({ wallClockMs: 0 })
-      } finally {
-        await fixture.cleanup()
+        const task = study.tasks.find((candidate) => candidate.taskId === plan.taskId)
+        const fixtureBinding = fixtureBindings.get(plan.taskId)
+        if (task === undefined || fixtureBinding === undefined)
+          fail('FIXTURE_BINDING_MISMATCH', `missing preflight task ${plan.taskId}`)
+        const legDir = await claimSingleUseC1LegDir(reportDir, plan.runId)
+        const legStartedAt = Date.now()
+        budgetGuard.beginLeg(legStartedAt)
+        const legKillSwitch = createRunKillSwitch(plan.runId, {
+          now: () => new Date().toISOString()
+        })
+        activeLegKillSwitch = legKillSwitch
+        const fixture = await materializeFreshC1Fixture(fixtureBinding.sourcePath)
+        try {
+          const copiedSummary = await computeC1FixtureContentSummary(fixture.path)
+          if (copiedSummary.sha256 !== fixtureBinding.contentSummary.sha256) {
+            fail('FIXTURE_BINDING_MISMATCH', `fresh sandbox content mismatch for ${plan.runId}`)
+          }
+          const changedPaths = await simulateExpectedWritableChange(
+            fixture.path,
+            task.expectedWritablePaths[0]!
+          )
+          if (!writableScopePass(changedPaths, task.expectedWritablePaths)) {
+            fail('FIXTURE_BINDING_MISMATCH', `simulated writable scope failed for ${plan.runId}`)
+          }
+          const observation = createC1ObservedReadTrace({
+            observationId: plan.runId,
+            prompt: task.prompt,
+            fixtureFiles: copiedSummary.files,
+            taskPhase: 'INVESTIGATE'
+          })
+          budgetGuard.assertWallClockBudget(Date.now())
+          const execution = executor.execute({
+            studyId: identity.studyId,
+            task,
+            stratum: plan.stratum,
+            pairId: plan.pairId,
+            arm: plan.arm,
+            runId: plan.runId,
+            turnId: `turn-${String(plan.legIndex + 1).padStart(2, '0')}`,
+            modelCallId: `model-call-${String(plan.legIndex + 1).padStart(2, '0')}`,
+            fixtureContentSha256: copiedSummary.sha256,
+            fixtureTreeObjectId: task.fixtureRevision.fixtureTreeObjectId,
+            observation,
+            providerBinding: boundProvider,
+            transport: fakeTransport,
+            treatmentReady: readiness.overallVerdict === 'PASS',
+            killSwitch: legKillSwitch,
+            runtimeSessionId: `${identity.studyId}:${plan.pairId}`,
+            recompositionSequence: 0
+          })
+          const wallClockMs = Date.now() - legStartedAt
+          budgetGuard.assertWallClockBudget(Date.now())
+          const evidence: C1PreflightLegEvidence = {
+            legIndex: plan.legIndex,
+            taskId: plan.taskId,
+            stratum: plan.stratum,
+            pairId: plan.pairId,
+            pairOrdinal: plan.pairOrdinal,
+            order: plan.order,
+            arm: plan.arm,
+            runId: plan.runId,
+            turnId: execution.capture.turnId,
+            modelCallId: execution.capture.modelCallId,
+            fixtureContentSha256: copiedSummary.sha256,
+            fixtureTreeObjectId: task.fixtureRevision.fixtureTreeObjectId,
+            freshSandbox: true,
+            sandboxReused: false,
+            changedPaths,
+            writableScopePass: true,
+            providerBoundSourceKeys: execution.capture.providerBoundSourceKeys,
+            modelVisibleSemanticContextFingerprint:
+              execution.capture.modelVisibleSemanticContextFingerprint,
+            systemDeveloperToolStructuresFingerprint:
+              execution.capture.systemDeveloperToolStructuresFingerprint,
+            providerConfigHash: execution.capture.providerConfigHash,
+            workingSetId: execution.capture.workingSetId,
+            transitionId: execution.capture.transitionId,
+            lifecycleEligible: execution.capture.lifecycleEligible,
+            runtimeContextChanged: execution.capture.runtimeContextChanged,
+            sourceDerivation: execution.capture.sourceDerivation,
+            providerCalls: 0,
+            toolCalls: 0,
+            wallClockMs,
+            taskOutcome: 'NOT_OBSERVED_IN_PREFLIGHT',
+            lifecycleEvidence: 'NOT_OBSERVED_IN_PREFLIGHT',
+            replayMismatch: execution.replayMismatch
+          }
+          try {
+            await writeFile(
+              join(legDir, 'leg.json'),
+              `${JSON.stringify(evidence, null, 2)}\n`,
+              'utf8'
+            )
+          } catch (error) {
+            fail(
+              'EVIDENCE_WRITE_FAILURE',
+              `failed to write leg evidence for ${plan.runId}: ${error instanceof Error ? error.message : String(error)}`
+            )
+          }
+          legs.push(evidence)
+          budgetGuard.endLeg({ wallClockMs })
+        } finally {
+          activeLegKillSwitch = null
+          await fixture.cleanup()
+        }
       }
+    } finally {
+      operatorKillSwitch.dispose()
+      killSwitchDisposed = true
     }
     gates.push(validatePairCaptures(fakeTransport.requests, plans))
     const budgetLedger = budgetGuard.ledger
@@ -1934,8 +3244,8 @@ export async function runC1LivePreflight(
         budgetLedger.completedLegs === 64 &&
           budgetLedger.providerCalls === 0 &&
           budgetLedger.toolCalls === 0 &&
-          budgetLedger.wallClockMs === 0,
-        `64 legs closed at 0/0/0 preflight usage`
+          budgetLedger.wallClockMs <= study.studyBudgets.maxWallClockMs,
+        `64 legs closed at 0 provider calls, 0 tool calls, ${budgetLedger.wallClockMs}ms wall clock`
       )
     )
     gates.push(
@@ -1949,24 +3259,28 @@ export async function runC1LivePreflight(
       gate(
         'replay_and_evidence_shape',
         legs.every((leg) => leg.replayMismatch === 0 && leg.writableScopePass),
-        'all leg evidence is metadata-only and replay-clean'
+        'all leg evidence is metadata-only, joinable, and replay-clean'
       )
     )
     gates.push(
       gate(
         'kill_switch_cleanup',
-        true,
-        'SIGINT/SIGTERM first-signal latch and transport block probe passed'
+        killSwitchDisposed && !operatorKillSwitch.isTripped,
+        'SIGINT/SIGTERM operator kill switch was installed for the 64-leg flow and disposed cleanly'
       )
     )
   } catch (error) {
     failures.push(normalizeFailure(error))
   } finally {
+    providerBinding?.dispose()
     if (study !== null && identity !== null && reportDir !== null) {
       try {
         artifactResult = await writePreflightArtifacts({
           reportDir,
-          status: failures.length === 0 ? 'PASS' : 'FAIL',
+          status:
+            failures.length === 0 && gates.every((item) => item.verdict === 'PASS')
+              ? 'PASS'
+              : 'FAIL',
           study,
           identity,
           legs,
@@ -2001,6 +3315,7 @@ export async function runC1LivePreflight(
     provider: C1_PROVIDER_ID,
     model: C1_MODEL_ID,
     endpoint: C1_PROVIDER_ENDPOINT,
+    providerConfigHash: providerBinding?.providerConfigHash ?? null,
     providerCalls: 0,
     networkRequests: fakeTransport.networkRequests,
     fakeProviderBoundCaptures: fakeTransport.requests.length,
