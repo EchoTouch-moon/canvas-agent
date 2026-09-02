@@ -1,6 +1,6 @@
 # CSPV-C1 Treatment Readiness — 2026-09-01
 
-Status: `PASS / CREDENTIAL-FREE / NO NETWORK`
+Status: `PASS / FROZEN / CREDENTIAL-FREE / NO NETWORK`
 
 Readiness artifact: [`C1-C_TREATMENT_READINESS_V1`](../../research/context-benchmarks/c1/readiness/c1-treatment-readiness-v1.json)
 
@@ -16,12 +16,12 @@ execution, CR-004, or any Provider call.
 | Contract SHA-256          | `1c82e095973b5cf9b47787f99a6ad41dccfd50d3f68379c68c02e8bd36d6f9f4` |
 | C1-A manifest SHA-256     | `2bfcad11078758c21a9ca799357553d08beb08065cea2efd179eade7e0a04e38` |
 | Assignment matrix SHA-256 | `630d2f6a66d8ceb414533040052a96bf20566a7ddef33edc7236b6e4ecc711e7` |
-| Readiness parent revision | `4321d361a47ca3ce1afde1e40aef64075ebc1f11`                         |
+| Readiness parent revision | `64e09980b0f8ef3b0830dbaec360c2aa0e3a9960`                         |
 | Provider binding          | `step-plan / step-3.7-flash`                                       |
 | Network mode              | disabled; in-memory capture and fake transport only                |
 | Provider calls            | `0`                                                                |
 | Usage                     | `NOT_OBSERVED_IN_READINESS / NOT_APPLICABLE`                       |
-| Treatment revision        | `PENDING_C1_C_FREEZE`                                              |
+| Treatment revision        | `5dc3c3abb37383cd679f39712e2c316d89efdeab`                         |
 
 The readiness implementation uses the real provider-neutral `policy-v0`
 planner and the existing Active rewrite composition as a deterministic,
@@ -103,8 +103,8 @@ for the durable live-run artifact writer.
 ## Boundary and next gate
 
 ```text
-C1-C treatment readiness       PASS
-C1-C treatment revision        PENDING_C1_C_FREEZE
+C1-C treatment readiness       PASS / FROZEN
+C1-C treatment revision        5dc3c3abb37383cd679f39712e2c316d89efdeab
 C1 live authorization          NO_GO
 Provider execution             NO_GO
 CR-004 Active Rewrite          NO_GO

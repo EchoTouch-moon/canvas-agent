@@ -29,14 +29,14 @@ import {
 } from '@canvas-agent/pi-context-integration/experimental'
 
 export const C1_C_READINESS_ID = 'C1-C_TREATMENT_READINESS_V1'
-export const C1_C_PARENT_REVISION = '4321d361a47ca3ce1afde1e40aef64075ebc1f11'
+export const C1_C_PARENT_REVISION = '64e09980b0f8ef3b0830dbaec360c2aa0e3a9960'
 export const C1_C_CONTRACT_SHA256 =
   '1c82e095973b5cf9b47787f99a6ad41dccfd50d3f68379c68c02e8bd36d6f9f4'
 export const C1_C_ASSIGNMENT_MATRIX_SHA256 =
   '630d2f6a66d8ceb414533040052a96bf20566a7ddef33edc7236b6e4ecc711e7'
 export const C1_C_TASK_MANIFEST_SHA256 =
   '2bfcad11078758c21a9ca799357553d08beb08065cea2efd179eade7e0a04e38'
-export const C1_C_TREATMENT_REVISION = 'PENDING_C1_C_FREEZE'
+export const C1_C_TREATMENT_REVISION = '5dc3c3abb37383cd679f39712e2c316d89efdeab'
 
 const READINESS_PROVIDER = 'step-plan'
 const READINESS_MODEL = 'step-3.7-flash'
