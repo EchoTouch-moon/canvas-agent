@@ -194,7 +194,17 @@
       {
         "checkId": "t4_remove_rehydrate_exact_source_version",
         "verdict": "PASS",
-        "observed": "ADD=true; REMOVE=repository/file://src/parser/evaluate.js:RULED_OUT; cold_selected=repository/file://src/search/cache.js; REHYDRATE=REHYDRATE; restored_version=f9313d6a2d73714428ccb59910bd0fbb8f885e43a885b4598a3115533e27a862; exact_version=true"
+        "observed": "ADD=true; REMOVE=repository/file://src/parser/evaluate.js:RULED_OUT; cold_selected=repository/file://src/search/cache.js; REHYDRATE=REHYDRATE; restored_version=f9313d6a2d73714428ccb59910bd0fbb8f885e43a885b4598a3115533e27a862; exact_version=true; cold_provider_bound=run/tool-call://c1-c-t4-cache-read,run/tool-result://c1-c-t4-cache-read; restored_provider_bound=run/tool-call://c1-c-t4-cache-read,run/tool-call://c1-c-t4-evaluate-read,run/tool-result://c1-c-t4-cache-read,run/tool-result://c1-c-t4-evaluate-read; provider_capture_count=2"
+      },
+      {
+        "checkId": "t4_cold_provider_bound_excludes_evaluate",
+        "verdict": "PASS",
+        "observed": "captured=2; sources=run/tool-call://c1-c-t4-cache-read,run/tool-result://c1-c-t4-cache-read; evaluate_present=false; materialized_match=true"
+      },
+      {
+        "checkId": "t4_rehydrated_provider_bound_restores_evaluate",
+        "verdict": "PASS",
+        "observed": "captured=2; sources=run/tool-call://c1-c-t4-cache-read,run/tool-call://c1-c-t4-evaluate-read,run/tool-result://c1-c-t4-cache-read,run/tool-result://c1-c-t4-evaluate-read; evaluate_present=true; materialized_match=true; semantic_changed=true"
       }
     ]
   }

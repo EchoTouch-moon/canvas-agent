@@ -1,13 +1,18 @@
 import {
+  computeTransitionLogicalHash,
+  computeWorkingSetLogicalHash,
+  createDecisionId,
   planWorkingSet,
   seedUniverse,
   createRepresentation,
   sha256Hex,
   type ContextPlanningRequest,
   type ContextRepresentation,
+  type ContextDecision,
   type ContextTransition,
   type ContextUniverseRevision,
   type ContextWorkingSet,
+  type ContextWorkingSetItem,
   type RemovalRecord,
   type SourceLifecycleSignal,
   type SnapshotLikeSeed
@@ -65,6 +70,24 @@ const ALL_READINESS_KEYS = Object.freeze([...TARGET_KEYS, ...DISTRACTOR_KEYS])
 
 const T4_EVALUATE_KEY = 'repository/file://src/parser/evaluate.js'
 const T4_CACHE_KEY = 'repository/file://src/search/cache.js'
+const T4_EVALUATE_CALL_ID = 'c1-c-t4-evaluate-read'
+const T4_CACHE_CALL_ID = 'c1-c-t4-cache-read'
+const T4_EVALUATE_PROVIDER_KEYS = Object.freeze([
+  `run/tool-call://${T4_EVALUATE_CALL_ID}`,
+  `run/tool-result://${T4_EVALUATE_CALL_ID}`
+])
+const T4_CACHE_PROVIDER_KEYS = Object.freeze([
+  `run/tool-call://${T4_CACHE_CALL_ID}`,
+  `run/tool-result://${T4_CACHE_CALL_ID}`
+])
+const T4_PROVIDER_KEYS_BY_SOURCE: ReadonlyMap<string, readonly string[]> = new Map([
+  [T4_EVALUATE_KEY, T4_EVALUATE_PROVIDER_KEYS],
+  [T4_CACHE_KEY, T4_CACHE_PROVIDER_KEYS]
+])
+const T4_TASK_ID = 'c1-c-t4-lifecycle-synthetic-v1'
+const T4_PAIR_ID = 'c1-c-t4-lifecycle-pair-01'
+const T4_COLD_RUN_ID = 'c1-c-20260901-t4-cold-01'
+const T4_RESTORED_RUN_ID = 'c1-c-20260901-t4-restored-01'
 
 export type C1ReadinessVerdict = 'PASS' | 'FAIL'
 export type C1ReadinessArm = 'NATIVE' | 'RUNTIME'
@@ -187,6 +210,26 @@ interface MainPlanningFixture extends PlanningContext {
     readonly workingSet: ContextWorkingSet
     readonly transition: ContextTransition
   }
+}
+
+interface T4ProviderBoundSnapshot {
+  readonly phase: 'COLD' | 'RESTORED'
+  readonly request: CapturedProviderBoundRequest
+  readonly materialized: MaterializedWorkingSet
+  readonly providerSourceKeys: readonly string[]
+}
+
+interface T4LifecycleProbeCheck {
+  readonly checkId: string
+  readonly pass: boolean
+  readonly observed: string
+}
+
+interface T4LifecycleProbeResult {
+  readonly lifecyclePass: boolean
+  readonly pass: boolean
+  readonly checks: readonly T4LifecycleProbeCheck[]
+  readonly observed: string
 }
 
 interface ReadinessProviderPayload {
@@ -657,6 +700,10 @@ function buildProviderBoundRequest(input: {
   }
   readonly materializedWorkingSetFingerprint: string
   readonly messages: readonly PiMessageView[]
+  readonly taskId?: string
+  readonly pairId?: string
+  readonly turnId?: string
+  readonly modelCallId?: string
 }): CapturedProviderBoundRequest {
   const payload: ReadinessProviderPayload = {
     api: 'openai-completions',
@@ -672,12 +719,12 @@ function buildProviderBoundRequest(input: {
   )
   const requestFingerprint = sha256Hex(`c1-c-provider-bound-request-v1|${stableStringify(payload)}`)
   return {
-    taskId: READINESS_TASK_ID,
-    pairId: READINESS_PAIR_ID,
+    taskId: input.taskId ?? READINESS_TASK_ID,
+    pairId: input.pairId ?? READINESS_PAIR_ID,
     arm: input.arm,
     runId: input.runId,
-    turnId: READINESS_TURN_ID,
-    modelCallId: READINESS_MODEL_CALL_ID,
+    turnId: input.turnId ?? READINESS_TURN_ID,
+    modelCallId: input.modelCallId ?? READINESS_MODEL_CALL_ID,
     workingSetId: input.plan.workingSet.workingSetId,
     transitionId: input.plan.transition.transitionId,
     workingSetLogicalHash: input.plan.workingSet.logicalHash,
@@ -1095,10 +1142,228 @@ function runBudgetAndIdentityProbe(): {
   }
 }
 
-function runT4LifecycleProbe(): {
-  readonly pass: boolean
-  readonly observed: string
+function t4Messages(): readonly PiMessageView[] {
+  return [
+    userMessage('Diagnose the parser path, then recover the exact implementation detail.'),
+    ...readPair(
+      T4_EVALUATE_CALL_ID,
+      'src/parser/evaluate.js',
+      'evaluate.js: parser implementation requires focused recovery detail'
+    ),
+    ...readPair(
+      T4_CACHE_CALL_ID,
+      'src/search/cache.js',
+      'cache.js: wrong-path triage remains available'
+    )
+  ]
+}
+
+function t4ProviderKeysForSource(sourceKey: string): readonly string[] {
+  const providerKeys = T4_PROVIDER_KEYS_BY_SOURCE.get(sourceKey)
+  if (providerKeys === undefined) {
+    throw new C1ReadinessFailure(
+      'CONTEXT_REPLACEMENT_FAILED',
+      `T4 provider projection has no mapping for ${sourceKey}`
+    )
+  }
+  return providerKeys
+}
+
+function t4ProviderWorkingSetId(workingSetId: string): string {
+  return `c1-c-t4-provider-working-set:${workingSetId}`
+}
+
+function projectT4WorkingSet(input: ContextWorkingSet): ContextWorkingSet {
+  const items: ContextWorkingSetItem[] = []
+  for (const item of input.items) {
+    if (item.sourceKeys.length !== 1) {
+      throw new C1ReadinessFailure(
+        'CONTEXT_REPLACEMENT_FAILED',
+        `T4 provider projection requires one canonical source per item: ${item.representationId}`
+      )
+    }
+    const sourceKey = item.sourceKeys[0]
+    if (sourceKey === undefined) {
+      throw new C1ReadinessFailure(
+        'CONTEXT_REPLACEMENT_FAILED',
+        'T4 item has no canonical source key'
+      )
+    }
+    for (const providerSourceKey of t4ProviderKeysForSource(sourceKey)) {
+      items.push({
+        ...item,
+        position: items.length,
+        sourceKeys: [providerSourceKey]
+      })
+    }
+  }
+  const workingSetId = t4ProviderWorkingSetId(input.workingSetId)
+  const previousWorkingSetId =
+    input.previousWorkingSetId === null ? null : t4ProviderWorkingSetId(input.previousWorkingSetId)
+  const totalTokenEstimate = items.reduce((sum, item) => sum + item.tokenEstimate, 0)
+  return {
+    ...input,
+    workingSetId,
+    previousWorkingSetId,
+    items: Object.freeze(items),
+    totalTokenEstimate,
+    logicalHash: computeWorkingSetLogicalHash({
+      runtimeSessionId: input.runtimeSessionId,
+      sequence: input.sequence,
+      plannedFromUniverseSequence: input.plannedFromUniverseSequence,
+      plannedFromUniverseHash: input.plannedFromUniverseHash,
+      previousWorkingSetId,
+      policyVersion: input.policyVersion,
+      planningRequestHash: input.planningRequestHash,
+      items
+    })
+  }
+}
+
+function projectT4Transition(input: {
+  readonly transition: ContextTransition
+  readonly workingSet: ContextWorkingSet
+  readonly previousWorkingSet: ContextWorkingSet | null
+}): ContextTransition {
+  const toWorkingSetId = input.workingSet.workingSetId
+  const fromWorkingSetId = input.previousWorkingSet?.workingSetId ?? null
+  const orderedDecisions: ContextDecision[] = []
+  for (const decision of input.transition.orderedDecisions) {
+    for (const providerSourceKey of t4ProviderKeysForSource(decision.sourceKey)) {
+      orderedDecisions.push({
+        ...decision,
+        decisionId: createDecisionId(input.transition.sequence, decision.kind, providerSourceKey, {
+          sourceVersionId: decision.sourceVersionId,
+          representationId: decision.representationId,
+          toWorkingSetId,
+          reasonCodes: decision.reasonCodes
+        }),
+        sourceKey: providerSourceKey,
+        fromWorkingSetId,
+        toWorkingSetId
+      })
+    }
+  }
+  const fromTokenEstimate = input.previousWorkingSet?.totalTokenEstimate ?? 0
+  const toTokenEstimate = input.workingSet.totalTokenEstimate
+  return {
+    ...input.transition,
+    transitionId: `transition:${toWorkingSetId}`,
+    fromWorkingSetId,
+    toWorkingSetId,
+    orderedDecisions: Object.freeze(orderedDecisions),
+    fromTokenEstimate,
+    toTokenEstimate,
+    logicalHash: computeTransitionLogicalHash({
+      runtimeSessionId: input.workingSet.runtimeSessionId,
+      sequence: input.workingSet.sequence,
+      fromWorkingSetId,
+      toWorkingSetId,
+      orderedDecisions,
+      fromTokenEstimate,
+      toTokenEstimate,
+      policyVersion: input.workingSet.policyVersion
+    })
+  }
+}
+
+function projectT4Plan(input: {
+  readonly workingSet: ContextWorkingSet
+  readonly transition: ContextTransition
+  readonly previousWorkingSet: ContextWorkingSet | null
+}): {
+  readonly workingSet: ContextWorkingSet
+  readonly transition: ContextTransition
 } {
+  const previousWorkingSet =
+    input.previousWorkingSet === null ? null : projectT4WorkingSet(input.previousWorkingSet)
+  const workingSet = projectT4WorkingSet(input.workingSet)
+  if (workingSet.previousWorkingSetId !== (previousWorkingSet?.workingSetId ?? null)) {
+    throw new C1ReadinessFailure(
+      'CONTEXT_REPLACEMENT_FAILED',
+      'T4 provider projection previous Working Set identity is inconsistent'
+    )
+  }
+  return {
+    workingSet,
+    transition: projectT4Transition({
+      transition: input.transition,
+      workingSet,
+      previousWorkingSet
+    })
+  }
+}
+
+function executeT4ProviderBoundArm(input: {
+  readonly phase: 'COLD' | 'RESTORED'
+  readonly plan: {
+    readonly workingSet: ContextWorkingSet
+    readonly transition: ContextTransition
+  }
+  readonly previousWorkingSet: ContextWorkingSet | null
+  readonly materialized: MaterializedWorkingSet
+  readonly capture: InMemoryReadinessCapture
+}): T4ProviderBoundSnapshot {
+  const projectedPlan = projectT4Plan({
+    ...input.plan,
+    previousWorkingSet: input.previousWorkingSet
+  })
+  const runId = input.phase === 'COLD' ? T4_COLD_RUN_ID : T4_RESTORED_RUN_ID
+  const killSwitch = createRunKillSwitch(runId, { now: () => READINESS_NOW })
+  const composition = composeActiveRewrite({
+    messages: t4Messages(),
+    workingSet: projectedPlan.workingSet,
+    transition: projectedPlan.transition,
+    runId,
+    killSwitch,
+    activeModeOptIn: true,
+    systemInstruction: READINESS_SYSTEM,
+    harness: 'PI'
+  })
+  if (composition.kind !== 'REWRITE_READY') {
+    throw new C1ReadinessFailure(
+      'CONTEXT_REPLACEMENT_FAILED',
+      `T4 ${input.phase.toLowerCase()} composition failed: ${composition.reason}`
+    )
+  }
+  const guard = assertRewriteSafe(composition, killSwitch)
+  if (!guard.ok) {
+    throw new C1ReadinessFailure(
+      'CONTEXT_REPLACEMENT_FAILED',
+      `T4 ${input.phase.toLowerCase()} pre-send guard failed: ${guard.reason}`
+    )
+  }
+  const providerSourceKeys = sourceKeysInMessages(composition.messages)
+  const expectedProviderSourceKeys = input.materialized.sourceKeys
+    .flatMap((sourceKey) => t4ProviderKeysForSource(sourceKey))
+    .sort()
+  if (!sameValue(providerSourceKeys, expectedProviderSourceKeys)) {
+    throw new C1ReadinessFailure(
+      'CONTEXT_REPLACEMENT_FAILED',
+      `T4 ${input.phase.toLowerCase()} provider sources ${providerSourceKeys.join(',')} do not match materialized sources ${expectedProviderSourceKeys.join(',')}`
+    )
+  }
+  const request = buildProviderBoundRequest({
+    arm: 'RUNTIME',
+    runId,
+    plan: projectedPlan,
+    materializedWorkingSetFingerprint: input.materialized.fingerprint,
+    messages: composition.messages,
+    taskId: T4_TASK_ID,
+    pairId: T4_PAIR_ID,
+    turnId: `t4-${input.phase.toLowerCase()}`,
+    modelCallId: `t4-${input.phase.toLowerCase()}-model-call`
+  })
+  input.capture.capture(request)
+  return {
+    phase: input.phase,
+    request,
+    materialized: input.materialized,
+    providerSourceKeys
+  }
+}
+
+function runT4LifecycleProbe(): T4LifecycleProbeResult {
   const context = createPlanningContext(t4SourceFixtures())
   const initial = planFromContext(
     context,
@@ -1130,7 +1395,24 @@ function runT4LifecycleProbe(): {
     (decision) => decision.sourceKey === T4_EVALUATE_KEY && decision.kind === 'REMOVE'
   )
   if (remove === undefined) {
-    return { pass: false, observed: 'originating REMOVE missing' }
+    const observed = 'originating REMOVE missing'
+    return {
+      lifecyclePass: false,
+      pass: false,
+      checks: [
+        {
+          checkId: 't4_cold_provider_bound_excludes_evaluate',
+          pass: false,
+          observed
+        },
+        {
+          checkId: 't4_rehydrated_provider_bound_restores_evaluate',
+          pass: false,
+          observed
+        }
+      ],
+      observed
+    }
   }
   const removalHistory: RemovalRecord[] = [
     {
@@ -1167,6 +1449,21 @@ function runT4LifecycleProbe(): {
     universe: context.universe,
     representationsById: context.representationsById
   })
+  const providerCapture = new InMemoryReadinessCapture()
+  const coldProvider = executeT4ProviderBoundArm({
+    phase: 'COLD',
+    plan: wrongPath,
+    previousWorkingSet: initial.workingSet,
+    materialized: cold,
+    capture: providerCapture
+  })
+  const restoredProvider = executeT4ProviderBoundArm({
+    phase: 'RESTORED',
+    plan: recovery,
+    previousWorkingSet: wrongPath.workingSet,
+    materialized: restored,
+    capture: providerCapture
+  })
   const evaluateInitialEntry = initial.workingSet.items.find((item) =>
     item.sourceKeys.includes(T4_EVALUATE_KEY)
   )
@@ -1177,7 +1474,30 @@ function runT4LifecycleProbe(): {
     (entry) => entry.source.sourceKey === T4_EVALUATE_KEY
   )?.admittedVersion?.versionId
   const restoredEntry = restored.entries.find((entry) => entry.sourceKey === T4_EVALUATE_KEY)
-  const pass =
+  const coldExpectedProviderKeys = cold.sourceKeys
+    .flatMap((sourceKey) => t4ProviderKeysForSource(sourceKey))
+    .sort()
+  const restoredExpectedProviderKeys = restored.sourceKeys
+    .flatMap((sourceKey) => t4ProviderKeysForSource(sourceKey))
+    .sort()
+  const evaluateProviderKeys = new Set(T4_EVALUATE_PROVIDER_KEYS)
+  const coldProviderBoundPass =
+    providerCapture.requests.length === 2 &&
+    coldProvider.request.captureStage === 'PRE_NETWORK_FAKE_CAPTURE' &&
+    coldProvider.request.materializedWorkingSetFingerprint === cold.fingerprint &&
+    sameValue(coldProvider.providerSourceKeys, coldExpectedProviderKeys) &&
+    !coldProvider.providerSourceKeys.some((sourceKey) => evaluateProviderKeys.has(sourceKey))
+  const restoredProviderBoundPass =
+    providerCapture.requests.length === 2 &&
+    restoredProvider.request.captureStage === 'PRE_NETWORK_FAKE_CAPTURE' &&
+    restoredProvider.request.materializedWorkingSetFingerprint === restored.fingerprint &&
+    sameValue(restoredProvider.providerSourceKeys, restoredExpectedProviderKeys) &&
+    T4_EVALUATE_PROVIDER_KEYS.every((sourceKey) =>
+      restoredProvider.providerSourceKeys.includes(sourceKey)
+    ) &&
+    restoredProvider.request.modelVisibleContextFingerprint !==
+      coldProvider.request.modelVisibleContextFingerprint
+  const lifecyclePass =
     initial.transition.orderedDecisions.some(
       (decision) => decision.sourceKey === T4_EVALUATE_KEY && decision.kind === 'ADD'
     ) &&
@@ -1193,15 +1513,44 @@ function runT4LifecycleProbe(): {
     restoredEntry.representationId === evaluateInitialEntry?.representationId &&
     restored.sourceKeys.includes(T4_EVALUATE_KEY) &&
     cold.fingerprint !== restored.fingerprint
+  const pass = lifecyclePass && coldProviderBoundPass && restoredProviderBoundPass
+  const checks: T4LifecycleProbeCheck[] = [
+    {
+      checkId: 't4_cold_provider_bound_excludes_evaluate',
+      pass: coldProviderBoundPass,
+      observed: [
+        `captured=${providerCapture.requests.length}`,
+        `sources=${coldProvider.providerSourceKeys.join(',')}`,
+        `evaluate_present=${String(coldProvider.providerSourceKeys.some((sourceKey) => evaluateProviderKeys.has(sourceKey)))}`,
+        `materialized_match=${String(coldProvider.request.materializedWorkingSetFingerprint === cold.fingerprint)}`
+      ].join('; ')
+    },
+    {
+      checkId: 't4_rehydrated_provider_bound_restores_evaluate',
+      pass: restoredProviderBoundPass,
+      observed: [
+        `captured=${providerCapture.requests.length}`,
+        `sources=${restoredProvider.providerSourceKeys.join(',')}`,
+        `evaluate_present=${String(T4_EVALUATE_PROVIDER_KEYS.every((sourceKey) => restoredProvider.providerSourceKeys.includes(sourceKey)))}`,
+        `materialized_match=${String(restoredProvider.request.materializedWorkingSetFingerprint === restored.fingerprint)}`,
+        `semantic_changed=${String(restoredProvider.request.modelVisibleContextFingerprint !== coldProvider.request.modelVisibleContextFingerprint)}`
+      ].join('; ')
+    }
+  ]
   return {
+    lifecyclePass,
     pass,
+    checks: Object.freeze(checks),
     observed: [
       `ADD=${String(initial.transition.orderedDecisions.some((decision) => decision.sourceKey === T4_EVALUATE_KEY && decision.kind === 'ADD'))}`,
       `REMOVE=${remove.sourceKey}:${remove.reasonCodes.join(',')}`,
       `cold_selected=${cold.sourceKeys.join(',')}`,
       `REHYDRATE=${rehydrate?.kind ?? 'missing'}`,
       `restored_version=${restoredEntry?.sourceVersionId ?? 'missing'}`,
-      `exact_version=${String(restoredEntry?.sourceVersionId === evaluateVersion)}`
+      `exact_version=${String(restoredEntry?.sourceVersionId === evaluateVersion)}`,
+      `cold_provider_bound=${coldProvider.providerSourceKeys.join(',')}`,
+      `restored_provider_bound=${restoredProvider.providerSourceKeys.join(',')}`,
+      `provider_capture_count=${providerCapture.requests.length}`
     ].join('; ')
   }
 }
@@ -1388,7 +1737,8 @@ function buildReadinessGates(): readonly C1ReadinessGate[] {
     gate('evidenceJoin', evidenceChecks),
     gate('budgetEnforcement', budgetChecks),
     gate('t4LifecycleChain', [
-      check('t4_remove_rehydrate_exact_source_version', t4.pass, t4.observed)
+      check('t4_remove_rehydrate_exact_source_version', t4.lifecyclePass, t4.observed),
+      ...t4.checks.map((item) => check(item.checkId, item.pass, item.observed))
     ])
   ]
 }

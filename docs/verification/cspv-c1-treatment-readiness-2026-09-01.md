@@ -33,15 +33,15 @@ response, or usage ledger is read or written.
 
 All required gates are conjunctions. A partial pass is not a readiness pass.
 
-| Gate                        | Result | Evidence                                                                                                                                                                                    |
-| --------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Native fidelity             | `PASS` | observer-only capture preserves five messages, role/order, semantic fingerprint, system/developer/tool definitions, and provider-native metadata                                            |
-| Runtime treatment active    | `PASS` | policy transition emits two distractor `REMOVE`s; Active composition drops that pair; provider-bound semantic fingerprint differs from Native                                               |
-| Structural preservation     | `PASS` | only the declared semantic region changes; system instruction is byte-identical, retained tool pair remains intact, opaque reasoning content is preserved                                   |
-| Silent fallback forbidden   | `PASS` | materialization, replacement, binding, stale-revision, and invalid-transition injections all terminate with zero fallback/capture                                                           |
-| Evidence join               | `PASS` | task/pair/arm/run/turn/model-call IDs join to Working Set, Transition, materialized fingerprint, and provider-bound request fingerprint for both arms                                       |
-| Budget/identity/kill-switch | `PASS` | fake transport allows 24 and blocks the 25th before outbound for both arms; duplicate identities, terminal resume/overwrite, kill switch, and independent finalization attempts are checked |
-| T4 lifecycle chain          | `PASS` | `ADD → REMOVE(evaluate.js) → cold selected state → later need → REHYDRATE` restores the exact SourceVersion and representation                                                              |
+| Gate                        | Result | Evidence                                                                                                                                                                                                                    |
+| --------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native fidelity             | `PASS` | observer-only capture preserves five messages, role/order, semantic fingerprint, system/developer/tool definitions, and provider-native metadata                                                                            |
+| Runtime treatment active    | `PASS` | policy transition emits two distractor `REMOVE`s; Active composition drops that pair; provider-bound semantic fingerprint differs from Native                                                                               |
+| Structural preservation     | `PASS` | only the declared semantic region changes; system instruction is byte-identical, retained tool pair remains intact, opaque reasoning content is preserved                                                                   |
+| Silent fallback forbidden   | `PASS` | materialization, replacement, binding, stale-revision, and invalid-transition injections all terminate with zero fallback/capture                                                                                           |
+| Evidence join               | `PASS` | task/pair/arm/run/turn/model-call IDs join to Working Set, Transition, materialized fingerprint, and provider-bound request fingerprint for both arms                                                                       |
+| Budget/identity/kill-switch | `PASS` | fake transport allows 24 and blocks the 25th before outbound for both arms; duplicate identities, terminal resume/overwrite, kill switch, and independent finalization attempts are checked                                 |
+| T4 lifecycle chain          | `PASS` | `ADD → REMOVE(evaluate.js) → cold selected state → later need → REHYDRATE` is sent through Active composition and pre-network capture in both cold and restored states; exact SourceVersion and representation are restored |
 
 ## Treatment evidence
 
@@ -77,9 +77,14 @@ ADD src/parser/evaluate.js
 ```
 
 The originating `REMOVE` relationship is carried through `removalHistory`.
-A first-time `ADD` is never treated as `REHYDRATE`. The probe checks both the
-provider-bound selected-source set and the exact version/representation
-identity after recovery.
+A first-time `ADD` is never treated as `REHYDRATE`. For both materialized
+states, the probe invokes the existing Active composer and captures the
+provider-bound request at the in-memory pre-network seam. The cold capture
+must exclude both provider identities for `evaluate.js`; the restored capture
+must include both identities and retain the exact SourceVersion,
+representation, and a changed model-visible semantic fingerprint. These are
+test-only provider identity projections used to exercise the existing
+composition seam; they do not rewrite production source identity semantics.
 
 ## Fail-closed and evidence policy
 

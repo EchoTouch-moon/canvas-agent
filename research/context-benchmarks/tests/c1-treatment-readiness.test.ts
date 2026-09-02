@@ -78,13 +78,34 @@ describe('C1-C credential-free treatment readiness', () => {
     const t4 = gateOf(report, 't4LifecycleChain')
 
     expect(t4.verdict).toBe('PASS')
-    expect(t4.checks[0]).toMatchObject({
+    const exactVersion = t4.checks.find(
+      (check) => check.checkId === 't4_remove_rehydrate_exact_source_version'
+    )
+    expect(exactVersion).toMatchObject({
       checkId: 't4_remove_rehydrate_exact_source_version',
       verdict: 'PASS'
     })
-    expect(t4.checks[0]?.observed).toContain('REMOVE=repository/file://src/parser/evaluate.js')
-    expect(t4.checks[0]?.observed).toContain('REHYDRATE=REHYDRATE')
-    expect(t4.checks[0]?.observed).toContain('exact_version=true')
+    expect(exactVersion?.observed).toContain('REMOVE=repository/file://src/parser/evaluate.js')
+    expect(exactVersion?.observed).toContain('REHYDRATE=REHYDRATE')
+    expect(exactVersion?.observed).toContain('exact_version=true')
+
+    const coldProviderBound = t4.checks.find(
+      (check) => check.checkId === 't4_cold_provider_bound_excludes_evaluate'
+    )
+    expect(coldProviderBound).toMatchObject({
+      checkId: 't4_cold_provider_bound_excludes_evaluate',
+      verdict: 'PASS'
+    })
+    expect(coldProviderBound?.observed).toContain('evaluate_present=false')
+
+    const restoredProviderBound = t4.checks.find(
+      (check) => check.checkId === 't4_rehydrated_provider_bound_restores_evaluate'
+    )
+    expect(restoredProviderBound).toMatchObject({
+      checkId: 't4_rehydrated_provider_bound_restores_evaluate',
+      verdict: 'PASS'
+    })
+    expect(restoredProviderBound?.observed).toContain('evaluate_present=true')
   })
 
   it('is replay-stable for the readiness artifact', () => {
