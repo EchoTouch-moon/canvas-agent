@@ -1,0 +1,211 @@
+{
+  "readinessId": "C1-C_TREATMENT_READINESS_V1",
+  "schemaVersion": 1,
+  "status": "PASS",
+  "overallVerdict": "PASS",
+  "executionMode": "CREDENTIAL_FREE_NO_NETWORK",
+  "provider": "step-plan",
+  "model": "step-3.7-flash",
+  "endpoint": "https://api.stepfun.com/step_plan/v1/chat/completions",
+  "providerCalls": 0,
+  "usage": {
+    "status": "NOT_OBSERVED_IN_READINESS",
+    "providerCalls": 0,
+    "providerReportedTokens": "NOT_APPLICABLE",
+    "cost": "NOT_APPLICABLE"
+  },
+  "contractBinding": {
+    "contractId": "C1_RUN_CONTRACT_V1",
+    "contractSha256": "1c82e095973b5cf9b47787f99a6ad41dccfd50d3f68379c68c02e8bd36d6f9f4",
+    "assignmentMatrixSha256": "630d2f6a66d8ceb414533040052a96bf20566a7ddef33edc7236b6e4ecc711e7",
+    "taskManifestSha256": "2bfcad11078758c21a9ca799357553d08beb08065cea2efd179eade7e0a04e38",
+    "parentRevision": "64e09980b0f8ef3b0830dbaec360c2aa0e3a9960",
+    "treatmentRevision": "5dc3c3abb37383cd679f39712e2c316d89efdeab"
+  },
+  "requiredGates": [
+    "nativeFidelity",
+    "runtimeTreatmentActive",
+    "structuralPreservation",
+    "silentFallback",
+    "evidenceJoin",
+    "budgetEnforcement",
+    "t4LifecycleChain"
+  ],
+  "nativeFidelity": {
+    "gateId": "nativeFidelity",
+    "verdict": "PASS",
+    "checks": [
+      {
+        "checkId": "native_observer_request_fingerprint_unchanged",
+        "verdict": "PASS",
+        "observed": "6c1ce954ce7b5664879e2c9b5bb24aad3cbe317a7399be61099f6f064f6c226f -> 6c1ce954ce7b5664879e2c9b5bb24aad3cbe317a7399be61099f6f064f6c226f"
+      },
+      {
+        "checkId": "native_message_count_role_order_semantics_unchanged",
+        "verdict": "PASS",
+        "observed": "5:user>assistant>toolResult>assistant>toolResult"
+      },
+      {
+        "checkId": "native_fixed_provider_structure_unchanged",
+        "verdict": "PASS",
+        "observed": "system/developer/tools/provider-native metadata preserved"
+      }
+    ]
+  },
+  "runtimeTreatmentActive": {
+    "gateId": "runtimeTreatmentActive",
+    "verdict": "PASS",
+    "checks": [
+      {
+        "checkId": "runtime_composition_ready",
+        "verdict": "PASS",
+        "observed": "PASS"
+      },
+      {
+        "checkId": "working_set_materialized_before_provider_capture",
+        "verdict": "PASS",
+        "observed": "run/tool-call://c1-c-target-read|run/tool-result://c1-c-target-read"
+      },
+      {
+        "checkId": "provider_bound_sources_match_materialized_working_set",
+        "verdict": "PASS",
+        "observed": "run/tool-call://c1-c-target-read|run/tool-result://c1-c-target-read"
+      },
+      {
+        "checkId": "provider_capture_binds_materialized_working_set",
+        "verdict": "PASS",
+        "observed": "89dab954e637f41299d1081986e1cac69eabb22f045713333d0cf2b5a806120f"
+      },
+      {
+        "checkId": "both_arms_share_fixture_evaluator_and_budget",
+        "verdict": "PASS",
+        "observed": "c1-c-treatment-readiness-fixture-v1:c1-c-readiness-oracle-v1:24"
+      },
+      {
+        "checkId": "runtime_semantic_fingerprint_differs_from_native",
+        "verdict": "PASS",
+        "observed": "5074ca14eb66c4037c9e492e3ac935cea230c066f9ed66e7cfcc3aa8716af3d1 -> 2e8dd5b0af38cdc0bcf5909d5947bfb0f65465dc2c705ac35b524eb7938f4a9b"
+      },
+      {
+        "checkId": "runtime_transition_contains_distractor_remove",
+        "verdict": "PASS",
+        "observed": "KEEP:run/tool-call://c1-c-target-read|KEEP:run/tool-result://c1-c-target-read|REMOVE:run/tool-call://c1-c-distractor-read|REMOVE:run/tool-result://c1-c-distractor-read"
+      }
+    ]
+  },
+  "structuralPreservation": {
+    "gateId": "structuralPreservation",
+    "verdict": "PASS",
+    "checks": [
+      {
+        "checkId": "fixed_structure_diff_only_in_semantic_region",
+        "verdict": "PASS",
+        "observed": "prefix/system/developer/tools/provider-native projection equal"
+      },
+      {
+        "checkId": "system_instruction_byte_identical",
+        "verdict": "PASS",
+        "observed": "true"
+      },
+      {
+        "checkId": "tool_protocol_and_retained_pair_intact",
+        "verdict": "PASS",
+        "observed": "c1-c-target-read"
+      },
+      {
+        "checkId": "opaque_content_preserved",
+        "verdict": "PASS",
+        "observed": "true"
+      }
+    ]
+  },
+  "silentFallback": {
+    "gateId": "silentFallback",
+    "verdict": "PASS",
+    "checks": [
+      {
+        "checkId": "failure_materialization_failed_terminal_no_native_fallback",
+        "verdict": "PASS",
+        "observed": "MATERIALIZATION_FAILED:fallbackSent=false:captured=0"
+      },
+      {
+        "checkId": "failure_context_replacement_failed_terminal_no_native_fallback",
+        "verdict": "PASS",
+        "observed": "CONTEXT_REPLACEMENT_FAILED:fallbackSent=false:captured=0"
+      },
+      {
+        "checkId": "failure_binding_mismatch_terminal_no_native_fallback",
+        "verdict": "PASS",
+        "observed": "BINDING_MISMATCH:fallbackSent=false:captured=0"
+      },
+      {
+        "checkId": "failure_stale_revision_terminal_no_native_fallback",
+        "verdict": "PASS",
+        "observed": "STALE_REVISION:fallbackSent=false:captured=0"
+      },
+      {
+        "checkId": "failure_invalid_transition_terminal_no_native_fallback",
+        "verdict": "PASS",
+        "observed": "INVALID_TRANSITION:fallbackSent=false:captured=0"
+      }
+    ]
+  },
+  "evidenceJoin": {
+    "gateId": "evidenceJoin",
+    "verdict": "PASS",
+    "checks": [
+      {
+        "checkId": "native_evidence_join_complete",
+        "verdict": "PASS",
+        "observed": "c1-c-20260901-native-01:working-set:c1-c-readiness-runtime-session-v1:0:c17d97965c4aebcd:5074ca14eb66c4037c9e492e3ac935cea230c066f9ed66e7cfcc3aa8716af3d1"
+      },
+      {
+        "checkId": "runtime_evidence_join_complete",
+        "verdict": "PASS",
+        "observed": "c1-c-20260901-runtime-01:working-set:c1-c-readiness-runtime-session-v1:1:28200640f69fa949:2e8dd5b0af38cdc0bcf5909d5947bfb0f65465dc2c705ac35b524eb7938f4a9b"
+      },
+      {
+        "checkId": "usage_not_observed_in_readiness",
+        "verdict": "PASS",
+        "observed": "captured=2;providerCalls=0"
+      }
+    ]
+  },
+  "budgetEnforcement": {
+    "gateId": "budgetEnforcement",
+    "verdict": "PASS",
+    "checks": [
+      {
+        "checkId": "fake_transport_24_allowed_25th_blocked_both_arms",
+        "verdict": "PASS",
+        "observed": "NATIVE:24_allowed/24_outbound/25th_blocked=true; RUNTIME:24_allowed/24_outbound/25th_blocked=true"
+      },
+      {
+        "checkId": "single_use_checkpoint_kill_switch_finalization",
+        "verdict": "PASS",
+        "observed": "duplicate-study/run-rejected=true; terminal-resume-rejected=true; terminal-overwrite-rejected=true; kill-switch=true; finalization-attempts=transitions,verdicts,manifest"
+      }
+    ]
+  },
+  "t4LifecycleChain": {
+    "gateId": "t4LifecycleChain",
+    "verdict": "PASS",
+    "checks": [
+      {
+        "checkId": "t4_remove_rehydrate_exact_source_version",
+        "verdict": "PASS",
+        "observed": "ADD=true; REMOVE=repository/file://src/parser/evaluate.js:RULED_OUT; cold_selected=repository/file://src/search/cache.js; REHYDRATE=REHYDRATE; restored_version=f9313d6a2d73714428ccb59910bd0fbb8f885e43a885b4598a3115533e27a862; exact_version=true; cold_provider_bound=run/tool-call://c1-c-t4-cache-read,run/tool-result://c1-c-t4-cache-read; restored_provider_bound=run/tool-call://c1-c-t4-cache-read,run/tool-call://c1-c-t4-evaluate-read,run/tool-result://c1-c-t4-cache-read,run/tool-result://c1-c-t4-evaluate-read; provider_capture_count=2"
+      },
+      {
+        "checkId": "t4_cold_provider_bound_excludes_evaluate",
+        "verdict": "PASS",
+        "observed": "captured=2; sources=run/tool-call://c1-c-t4-cache-read,run/tool-result://c1-c-t4-cache-read; evaluate_present=false; materialized_match=true"
+      },
+      {
+        "checkId": "t4_rehydrated_provider_bound_restores_evaluate",
+        "verdict": "PASS",
+        "observed": "captured=2; sources=run/tool-call://c1-c-t4-cache-read,run/tool-call://c1-c-t4-evaluate-read,run/tool-result://c1-c-t4-cache-read,run/tool-result://c1-c-t4-evaluate-read; evaluate_present=true; materialized_match=true; semantic_changed=true"
+      }
+    ]
+  }
+}
