@@ -2099,6 +2099,11 @@ export class C1HardBudgetGuard {
     this.currentLeg = null
   }
 
+  /** Close an interrupted leg without treating it as a completed leg. */
+  abortLeg(): void {
+    this.currentLeg = null
+  }
+
   get ledger(): Readonly<{
     completedLegs: number
     providerCalls: number

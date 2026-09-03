@@ -1,4 +1,6 @@
-import { resolve } from 'node:path'
+import { mkdir, mkdtemp, open, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import type {
   ContextWorkingSet,
   RemovalRecord,
@@ -354,6 +356,12 @@ export class C1LiveBindingTransport implements C1ProviderTransport {
     readonly responseSource: C1LiveResponseSource
     readonly killSwitch?: RunKillSwitch
     readonly nowMs?: number
+    readonly transportSendAttemptOrdinal?: number
+    readonly onOutboundPermitted?: (input: {
+      readonly request: C1LiveOutboundRequest
+      readonly providerCallOrdinal: number
+      readonly transportSendAttemptOrdinal: number
+    }) => void | Promise<void>
   }): Promise<C1LiveModelResponse> {
     this.attempts += 1
     const request = this.pending
@@ -387,6 +395,11 @@ export class C1LiveBindingTransport implements C1ProviderTransport {
       throw error
     }
     this.sent.push(request)
+    await input.onOutboundPermitted?.({
+      request,
+      providerCallOrdinal: input.budgetGuard.ledger.providerCalls,
+      transportSendAttemptOrdinal: input.transportSendAttemptOrdinal ?? this.attempts
+    })
     return input.responseSource.next(request)
   }
 }
@@ -428,6 +441,70 @@ export interface C1LiveBindingEvidence {
   readonly fallbackSent: false
   readonly networkSent: false
   readonly replayMismatch: 0
+}
+
+export type C1LiveBindingCheckpoint =
+  | {
+      readonly checkpointOrdinal: number
+      readonly phase: 'OUTBOUND_PERMITTED'
+      readonly callOrdinal: number
+      readonly providerCallOrdinal: number
+      readonly transportSendAttemptOrdinal: number
+      readonly capture: C1ProviderBoundCapture
+    }
+  | {
+      readonly checkpointOrdinal: number
+      readonly phase: 'RESPONSE_RECORDED'
+      readonly callOrdinal: number
+      readonly evidence: C1LiveBindingEvidence
+    }
+
+type C1LiveBindingCheckpointInput =
+  | Omit<
+      Extract<C1LiveBindingCheckpoint, { readonly phase: 'OUTBOUND_PERMITTED' }>,
+      'checkpointOrdinal'
+    >
+  | Omit<
+      Extract<C1LiveBindingCheckpoint, { readonly phase: 'RESPONSE_RECORDED' }>,
+      'checkpointOrdinal'
+    >
+
+/**
+ * Metadata-only checkpoint sink. A live implementation can replace this with
+ * a durable writer; provider-bound messages and raw response payloads are not
+ * part of this interface.
+ */
+export interface C1LiveBindingEvidenceSink {
+  append(checkpoint: C1LiveBindingCheckpoint): void | Promise<void>
+}
+
+export class C1JsonlLiveBindingEvidenceSink implements C1LiveBindingEvidenceSink {
+  private readonly entries: C1LiveBindingCheckpoint[] = []
+
+  constructor(readonly checkpointPath: string) {}
+
+  async append(checkpoint: C1LiveBindingCheckpoint): Promise<void> {
+    const serialized = JSON.stringify(checkpoint)
+    if (serialized.includes('providerBoundMessages')) {
+      throw new C1PreflightFailure(
+        'EVIDENCE_WRITE_FAILURE',
+        'metadata-only checkpoint unexpectedly contains provider-bound messages'
+      )
+    }
+    await mkdir(dirname(this.checkpointPath), { recursive: true })
+    const handle = await open(this.checkpointPath, 'a')
+    try {
+      await handle.write(`${serialized}\n`)
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+    this.entries.push(checkpoint)
+  }
+
+  get checkpoints(): readonly C1LiveBindingCheckpoint[] {
+    return [...this.entries]
+  }
 }
 
 export function validateC1LiveBindingEvidence(
@@ -499,6 +576,7 @@ export interface C1LiveBindingLegInput {
   readonly requireRuntimeDifferenceForCall?: (callOrdinal: number) => boolean
   readonly maxCalls?: number
   readonly startedAtMs?: number
+  readonly nowMs?: number
   readonly wallClockMs?: number
   readonly killSwitch?: RunKillSwitch
 }
@@ -539,11 +617,14 @@ function withPreviousWorkingSet(
 
 export class C1LiveBindingDriver {
   private readonly executor: C1LegExecutor
+  private checkpointOrdinal = 0
+  private studyTerminalReason: string | null = null
 
   constructor(
     private readonly options: {
       readonly providerBinding: C1StrictProviderBinding
       readonly budgetGuard: C1HardBudgetGuard
+      readonly evidenceSink: C1LiveBindingEvidenceSink
     }
   ) {
     this.executor = new C1LegExecutor({
@@ -551,7 +632,50 @@ export class C1LiveBindingDriver {
     })
   }
 
+  get isStudyTerminal(): boolean {
+    return this.studyTerminalReason !== null
+  }
+
+  get terminalReason(): string | null {
+    return this.studyTerminalReason
+  }
+
+  private tripStudyTerminal(error: unknown): void {
+    if (
+      error instanceof C1PreflightFailure &&
+      (error.code === 'BUDGET_BREACH' || error.code === 'EVIDENCE_WRITE_FAILURE')
+    ) {
+      this.studyTerminalReason ??= error.message
+    }
+  }
+
+  private async appendCheckpoint(checkpoint: C1LiveBindingCheckpointInput): Promise<void> {
+    const next = Object.freeze({
+      checkpointOrdinal: ++this.checkpointOrdinal,
+      ...checkpoint
+    }) as C1LiveBindingCheckpoint
+    try {
+      await this.options.evidenceSink.append(next)
+    } catch (error) {
+      if (error instanceof C1PreflightFailure && error.code === 'EVIDENCE_WRITE_FAILURE') {
+        throw error
+      }
+      throw new C1PreflightFailure(
+        'EVIDENCE_WRITE_FAILURE',
+        `live binding evidence checkpoint ${next.checkpointOrdinal} failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    }
+  }
+
   async runLeg(input: C1LiveBindingLegInput): Promise<C1LiveBindingLegResult> {
+    if (this.studyTerminalReason !== null) {
+      throw new C1PreflightFailure(
+        'BUDGET_BREACH',
+        `C1 study is terminal; next leg is forbidden (${this.studyTerminalReason})`
+      )
+    }
     const maxCalls = input.maxCalls ?? 24
     if (!Number.isInteger(maxCalls) || maxCalls < 1 || maxCalls > 24) {
       throw new C1PreflightFailure(
@@ -560,7 +684,12 @@ export class C1LiveBindingDriver {
       )
     }
     const startedAtMs = input.startedAtMs ?? Date.now()
-    this.options.budgetGuard.beginLeg(startedAtMs)
+    try {
+      this.options.budgetGuard.beginLeg(startedAtMs)
+    } catch (error) {
+      this.tripStudyTerminal(error)
+      throw error
+    }
     let legEnded = false
     const killSwitch =
       input.killSwitch ??
@@ -626,7 +755,17 @@ export class C1LiveBindingDriver {
           response = await transport.send({
             budgetGuard: this.options.budgetGuard,
             responseSource: input.responseSource,
-            killSwitch
+            killSwitch,
+            ...(input.nowMs !== undefined ? { nowMs: input.nowMs } : {}),
+            transportSendAttemptOrdinal: transportSendAttempts + 1,
+            onOutboundPermitted: ({ request, providerCallOrdinal, transportSendAttemptOrdinal }) =>
+              this.appendCheckpoint({
+                phase: 'OUTBOUND_PERMITTED',
+                callOrdinal,
+                providerCallOrdinal,
+                transportSendAttemptOrdinal,
+                capture: request.capture
+              })
           })
         } catch (error) {
           transportSendAttempts += transport.sendAttempts
@@ -636,7 +775,6 @@ export class C1LiveBindingDriver {
         transportSendAttempts += transport.sendAttempts
         blockedProviderCallAttempts += transport.blockedSendAttempts
         const usage = validateModelResponse(response, input.responseSource.kind)
-        for (const tool of response.toolCalls) this.options.budgetGuard.recordToolCall()
         const row: C1LiveBindingEvidence = {
           studyId: execution.capture.studyId,
           taskId: execution.capture.taskId,
@@ -681,7 +819,13 @@ export class C1LiveBindingDriver {
           networkSent: false,
           replayMismatch: execution.replayMismatch
         }
+        await this.appendCheckpoint({
+          phase: 'RESPONSE_RECORDED',
+          callOrdinal,
+          evidence: row
+        })
         evidence.push(row)
+        for (const tool of response.toolCalls) this.options.budgetGuard.recordToolCall()
         previousObservation = currentObservation
         previousExecution = execution
         finalOutcome = response.outcome
@@ -725,16 +869,23 @@ export class C1LiveBindingDriver {
         blockedProviderCallAttempts,
         budget: this.options.budgetGuard.ledger
       }
+    } catch (error) {
+      this.tripStudyTerminal(error)
+      throw error
     } finally {
       if (!legEnded) {
-        try {
-          this.options.budgetGuard.endLeg({
-            wallClockMs: input.wallClockMs ?? Math.max(0, Date.now() - startedAtMs)
-          })
-        } catch {
-          // The original terminal failure is authoritative; the guard is best
-          // effort closed so the single-use driver cannot accidentally reuse
-          // an active leg after an exception.
+        if (this.studyTerminalReason !== null) {
+          this.options.budgetGuard.abortLeg()
+        } else {
+          try {
+            this.options.budgetGuard.endLeg({
+              wallClockMs: input.wallClockMs ?? Math.max(0, Date.now() - startedAtMs)
+            })
+          } catch {
+            // The original terminal failure is authoritative; the guard is best
+            // effort closed so the single-use driver cannot accidentally reuse
+            // an active leg after an exception.
+          }
         }
       }
     }
@@ -848,6 +999,150 @@ export async function runC1LiveBudgetBoundaryProbe(input: {
     blockedProviderCallAttempts: blocked,
     fakeResponseCalls: responseSource.responsesServed,
     networkRequests: transport.networkRequests
+  }
+}
+
+export interface C1LiveBudgetTerminationProbe {
+  readonly status: 'PASS' | 'FAIL'
+  readonly firstLegErrorCode: string | null
+  readonly secondLegErrorCode: string | null
+  readonly preservedOutboundCheckpoints: number
+  readonly preservedResponseCheckpoints: number
+  readonly firstResponseCalls: number
+  readonly secondResponseCalls: number
+  readonly providerCalls: number
+  readonly studyTerminal: boolean
+  readonly nextLegBlockedBeforeResponse: boolean
+  readonly persistedCheckpointCount: number
+}
+
+/**
+ * Adversarially exercise the frozen breach action. The first response is
+ * checkpointed, the second outbound permit is denied, and a new leg is
+ * rejected by the same study-level latch before its response source runs.
+ */
+export async function runC1LiveBudgetTerminationProbe(input: {
+  readonly providerBinding: C1StrictProviderBinding
+  readonly task: C1PreflightTask
+}): Promise<C1LiveBudgetTerminationProbe> {
+  const checkpointRoot = await mkdtemp(join(tmpdir(), 'canvas-c1-live-binding-termination-'))
+  const checkpointPath = join(checkpointRoot, 'checkpoints.jsonl')
+  try {
+    const budgetGuard = new C1HardBudgetGuard({
+      perLeg: { maxProviderCalls: 1, maxToolCalls: 96, maxWallClockMs: 600000 },
+      study: { maxProviderCalls: 1, maxToolCalls: 96, maxWallClockMs: 600000, maxLegs: 2 }
+    })
+    const checkpointSink = new C1JsonlLiveBindingEvidenceSink(checkpointPath)
+    const driver = new C1LiveBindingDriver({
+      providerBinding: input.providerBinding,
+      budgetGuard,
+      evidenceSink: checkpointSink
+    })
+    const firstResponses = new C1ScriptedResponseSource(scriptedResponses('termination'))
+    const firstObservations = createBindingObservationSource(
+      input.task,
+      'NATIVE',
+      scriptedResponses('termination')
+    )
+    let firstLegErrorCode: string | null = null
+    try {
+      await driver.runLeg({
+        studyId: C1_LIVE_BINDING_STUDY_ID,
+        task: input.task,
+        stratum: input.task.stratum,
+        pairId: 'c1-live-binding-termination-p01',
+        arm: 'NATIVE',
+        runId: 'c1-20260903-termination-p01-native-aaaaaaaa',
+        fixtureContentSha256: input.task.fixtureRevision.fixtureContentSha256,
+        fixtureTreeObjectId: input.task.fixtureRevision.fixtureTreeObjectId,
+        runtimeSessionId: 'c1-live-binding-termination-session-v1',
+        observationSource: firstObservations,
+        responseSource: firstResponses,
+        maxCalls: 2,
+        startedAtMs: 100,
+        nowMs: 100,
+        wallClockMs: 0
+      })
+    } catch (error) {
+      firstLegErrorCode = error instanceof C1PreflightFailure ? error.code : 'PREFLIGHT_FAILURE'
+    }
+
+    const secondResponses = new C1ScriptedResponseSource([])
+    const secondObservations = createBindingObservationSource(
+      input.task,
+      'NATIVE',
+      scriptedResponses('next-leg')
+    )
+    let secondLegErrorCode: string | null = null
+    try {
+      await driver.runLeg({
+        studyId: C1_LIVE_BINDING_STUDY_ID,
+        task: input.task,
+        stratum: input.task.stratum,
+        pairId: 'c1-live-binding-termination-p02',
+        arm: 'NATIVE',
+        runId: 'c1-20260903-termination-p02-native-bbbbbbbb',
+        fixtureContentSha256: input.task.fixtureRevision.fixtureContentSha256,
+        fixtureTreeObjectId: input.task.fixtureRevision.fixtureTreeObjectId,
+        runtimeSessionId: 'c1-live-binding-termination-session-v2',
+        observationSource: secondObservations,
+        responseSource: secondResponses,
+        maxCalls: 1,
+        startedAtMs: 100,
+        nowMs: 100,
+        wallClockMs: 0
+      })
+    } catch (error) {
+      secondLegErrorCode = error instanceof C1PreflightFailure ? error.code : 'PREFLIGHT_FAILURE'
+    }
+
+    const checkpoints = checkpointSink.checkpoints
+    const preservedOutboundCheckpoints = checkpoints.filter(
+      (checkpoint) => checkpoint.phase === 'OUTBOUND_PERMITTED'
+    ).length
+    const preservedResponseCheckpoints = checkpoints.filter(
+      (checkpoint) => checkpoint.phase === 'RESPONSE_RECORDED'
+    ).length
+    const persistedCheckpoints = (await readFile(checkpointPath, 'utf8'))
+      .trim()
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as C1LiveBindingCheckpoint)
+    const persistedOutboundCheckpoints = persistedCheckpoints.filter(
+      (checkpoint) => checkpoint.phase === 'OUTBOUND_PERMITTED'
+    ).length
+    const persistedResponseCheckpoints = persistedCheckpoints.filter(
+      (checkpoint) => checkpoint.phase === 'RESPONSE_RECORDED'
+    ).length
+    const nextLegBlockedBeforeResponse =
+      secondLegErrorCode === 'BUDGET_BREACH' && secondResponses.responsesServed === 0
+    const pass =
+      firstLegErrorCode === 'BUDGET_BREACH' &&
+      secondLegErrorCode === 'BUDGET_BREACH' &&
+      preservedOutboundCheckpoints === 1 &&
+      preservedResponseCheckpoints === 1 &&
+      persistedOutboundCheckpoints === 1 &&
+      persistedResponseCheckpoints === 1 &&
+      firstResponses.responsesServed === 1 &&
+      secondResponses.responsesServed === 0 &&
+      budgetGuard.ledger.providerCalls === 1 &&
+      driver.isStudyTerminal &&
+      nextLegBlockedBeforeResponse
+    return {
+      status: pass ? 'PASS' : 'FAIL',
+      firstLegErrorCode,
+      secondLegErrorCode,
+      preservedOutboundCheckpoints,
+      preservedResponseCheckpoints,
+      firstResponseCalls: firstResponses.responsesServed,
+      secondResponseCalls: secondResponses.responsesServed,
+      providerCalls: budgetGuard.ledger.providerCalls,
+      studyTerminal: driver.isStudyTerminal,
+      nextLegBlockedBeforeResponse,
+      persistedCheckpointCount: persistedCheckpoints.length
+    }
+  } finally {
+    await rm(checkpointRoot, { recursive: true, force: true })
   }
 }
 
@@ -1025,6 +1320,7 @@ export interface C1LiveBindingReadinessReport {
     readonly observed: string
   }[]
   readonly arms: readonly C1LiveBindingArmSummary[]
+  readonly budgetTerminationProbe: C1LiveBudgetTerminationProbe | null
   readonly failures: readonly {
     readonly code: string
     readonly message: string
@@ -1093,6 +1389,8 @@ export async function runC1LiveBindingReadiness(
   let fixtureSandboxesCreated = 0
   let fixtureSandboxesCleaned = 0
   let study: C1FrozenStudy | null = null
+  let checkpointRoot: string | null = null
+  let budgetTerminationProbe: C1LiveBudgetTerminationProbe | null = null
   try {
     if (!nodeVersionSatisfiesC1Range(nodeVersion)) {
       throw new C1PreflightFailure(
@@ -1132,7 +1430,15 @@ export async function runC1LiveBindingReadiness(
       perLeg: study.perLegBudgets,
       study: { ...study.studyBudgets, maxLegs: 2 }
     })
-    const driver = new C1LiveBindingDriver({ providerBinding, budgetGuard })
+    checkpointRoot = await mkdtemp(join(tmpdir(), 'canvas-c1-live-binding-preflight-'))
+    const evidenceSink = new C1JsonlLiveBindingEvidenceSink(
+      join(checkpointRoot, 'checkpoints.jsonl')
+    )
+    const driver = new C1LiveBindingDriver({
+      providerBinding,
+      budgetGuard,
+      evidenceSink
+    })
     const nativeResponses = new C1ScriptedResponseSource(scriptedResponses('native'))
     const nativeObservations = createBindingObservationSource(
       task,
@@ -1273,10 +1579,25 @@ export async function runC1LiveBindingReadiness(
     gates.push(
       bindingGate(
         'evidence_is_metadata_only',
-        !JSON.stringify([...native.result.evidence, ...runtime.result.evidence]).includes(
-          'providerBoundMessages'
-        ),
-        'evidence rows contain no provider-bound message payload field'
+        !JSON.stringify([
+          ...native.result.evidence,
+          ...runtime.result.evidence,
+          ...evidenceSink.checkpoints
+        ]).includes('providerBoundMessages'),
+        'evidence checkpoints contain no provider-bound message payload field'
+      )
+    )
+    budgetTerminationProbe = await runC1LiveBudgetTerminationProbe({
+      providerBinding,
+      task
+    })
+    gates.push(
+      bindingGate(
+        'terminal_breach_preservation',
+        budgetTerminationProbe.status === 'PASS',
+        `call1 evidence preserved=${String(budgetTerminationProbe.preservedResponseCheckpoints === 1)}, ` +
+          `call2 blocked=${String(budgetTerminationProbe.firstLegErrorCode === 'BUDGET_BREACH')}, ` +
+          `nextLegBlocked=${String(budgetTerminationProbe.nextLegBlockedBeforeResponse)}`
       )
     )
   } catch (error) {
@@ -1290,6 +1611,9 @@ export async function runC1LiveBindingReadiness(
     failures.push(failure)
   } finally {
     providerBinding?.dispose()
+    if (checkpointRoot !== null) {
+      await rm(checkpointRoot, { recursive: true, force: true })
+    }
   }
   const status =
     failures.length === 0 && gates.length > 0 && gates.every((gate) => gate.verdict === 'PASS')
@@ -1318,6 +1642,7 @@ export async function runC1LiveBindingReadiness(
     treatmentRevision: C1_C_TREATMENT_REVISION,
     gates,
     arms,
+    budgetTerminationProbe,
     failures
   }
 }

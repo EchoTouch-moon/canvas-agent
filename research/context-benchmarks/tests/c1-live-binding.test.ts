@@ -10,7 +10,8 @@ import {
   loadC1FrozenStudy,
   prepareC1StrictProvider,
   runC1LiveBindingReadiness,
-  runC1LiveBudgetBoundaryProbe
+  runC1LiveBudgetBoundaryProbe,
+  runC1LiveBudgetTerminationProbe
 } from '../src'
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..', '..')
@@ -54,6 +55,35 @@ describe('C1 live execution binding', () => {
         blockedProviderCallAttempts: 1,
         fakeResponseCalls: 24,
         networkRequests: 0
+      })
+    } finally {
+      providerBinding.dispose()
+    }
+  })
+
+  it('preserves completed call evidence and forbids the next leg after a budget breach', async () => {
+    const study = await loadC1FrozenStudy(REPO_ROOT)
+    const providerBinding = await prepareC1StrictProvider({
+      runIdentity: 'c1-20260903-termination-test-aaaaaaaa'
+    })
+    try {
+      await expect(
+        runC1LiveBudgetTerminationProbe({
+          providerBinding,
+          task: study.tasks[0]!
+        })
+      ).resolves.toMatchObject({
+        status: 'PASS',
+        firstLegErrorCode: 'BUDGET_BREACH',
+        secondLegErrorCode: 'BUDGET_BREACH',
+        preservedOutboundCheckpoints: 1,
+        preservedResponseCheckpoints: 1,
+        firstResponseCalls: 1,
+        secondResponseCalls: 0,
+        providerCalls: 1,
+        studyTerminal: true,
+        nextLegBlockedBeforeResponse: true,
+        persistedCheckpointCount: 2
       })
     } finally {
       providerBinding.dispose()
@@ -129,6 +159,65 @@ describe('C1 live execution binding', () => {
       ).rejects.toMatchObject({ code: 'PREFLIGHT_FAILURE' })
       guard.endLeg({ wallClockMs: 0 })
       expect(transport.sentCaptures).toHaveLength(0)
+    } finally {
+      providerBinding.dispose()
+    }
+  })
+
+  it('records an outbound permit before a response-source failure', async () => {
+    const study = await loadC1FrozenStudy(REPO_ROOT)
+    const providerBinding = await prepareC1StrictProvider({
+      runIdentity: 'c1-20260903-response-failure-test-aaaaaaaa'
+    })
+    try {
+      const task = study.tasks[0]!
+      const transport = new C1LiveBindingTransport({
+        provider: 'step-plan',
+        model: 'step-3.7-flash',
+        endpoint: 'https://api.stepfun.com/step_plan/v1/chat/completions',
+        providerConfigHash: providerBinding.providerConfigHash
+      })
+      transport.capture(
+        captureC1PreflightArm({
+          task,
+          stratum: task.stratum,
+          pairId: 'c1-live-binding-response-failure-p01',
+          arm: 'NATIVE',
+          runId: 'c1-20260903-response-failure-native-aaaaaaaa',
+          fixtureContentSha256: task.fixtureRevision.fixtureContentSha256,
+          treatmentReady: true,
+          providerConfigHash: providerBinding.providerConfigHash,
+          providerBoundSourceKeys: ['run/tool-call://response-failure'],
+          modelVisibleSemanticContextFingerprint: 'response-failure-fingerprint'
+        })
+      )
+      transport.attachProviderBoundMessages([
+        { role: 'user', content: [{ type: 'text', text: 'response failure' }] }
+      ])
+      const guard = new C1HardBudgetGuard({
+        perLeg: { maxProviderCalls: 24, maxToolCalls: 96, maxWallClockMs: 600000 },
+        study: { maxProviderCalls: 24, maxToolCalls: 96, maxWallClockMs: 600000, maxLegs: 1 }
+      })
+      const permits: number[] = []
+      guard.beginLeg(100)
+      await expect(
+        transport.send({
+          budgetGuard: guard,
+          responseSource: {
+            kind: 'SCRIPTED_FAKE',
+            next: async () => {
+              throw new Error('synthetic response-source failure')
+            }
+          },
+          nowMs: 100,
+          onOutboundPermitted: ({ providerCallOrdinal }) => {
+            permits.push(providerCallOrdinal)
+          }
+        })
+      ).rejects.toThrow('synthetic response-source failure')
+      guard.endLeg({ wallClockMs: 0 })
+      expect(permits).toEqual([1])
+      expect(transport.sentCaptures).toHaveLength(1)
     } finally {
       providerBinding.dispose()
     }
