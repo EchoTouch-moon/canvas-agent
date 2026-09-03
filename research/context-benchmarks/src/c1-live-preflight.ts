@@ -1486,6 +1486,12 @@ export interface C1LegExecutionInput {
 
 export interface C1LegExecutionResult {
   readonly capture: C1ProviderBoundCapture
+  /**
+   * The exact in-memory message list that was handed to the provider-bound
+   * capture seam. This is available to the live transport only and must never
+   * be serialized into evidence artifacts.
+   */
+  readonly providerBoundMessages: readonly PiMessageView[]
   readonly workingSet: ContextWorkingSet | null
   readonly transition: ContextTransition | null
   readonly materializedWorkingSetFingerprint: string
@@ -1952,6 +1958,7 @@ export class C1LegExecutor {
     replayC1ProviderBoundCapture(capture, input.failureInjection === 'REPLAY_MISMATCH')
     return {
       capture,
+      providerBoundMessages: Object.freeze([...providerBoundMessages]),
       workingSet,
       transition,
       materializedWorkingSetFingerprint,
@@ -2089,6 +2096,11 @@ export class C1HardBudgetGuard {
       fail('BUDGET_BREACH', 'C1 study wall-clock budget exceeded')
     }
     this.completedLegs += 1
+    this.currentLeg = null
+  }
+
+  /** Close an interrupted leg without treating it as a completed leg. */
+  abortLeg(): void {
     this.currentLeg = null
   }
 

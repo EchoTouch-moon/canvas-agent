@@ -15,6 +15,7 @@ import {
 } from './wave-a'
 import { runC1TreatmentReadiness } from './c1-treatment-readiness'
 import { runC1LivePreflight } from './c1-live-preflight'
+import { runC1LiveBindingReadiness } from './c1-live-binding'
 
 async function main(): Promise<void> {
   const command = process.argv[2] ?? 'validate'
@@ -166,6 +167,15 @@ async function main(): Promise<void> {
     const report = await runC1LivePreflight()
     console.log(JSON.stringify(report, null, 2))
     console.log(`C1_LIVE_PREFLIGHT_STATUS=${report.status}`)
+    if (report.status !== 'PASS') process.exitCode = 1
+    return
+  }
+  if (command === 'c1-live-binding') {
+    const report = await runC1LiveBindingReadiness({
+      repoRoot: resolve(researchRoot, '../..')
+    })
+    console.log(JSON.stringify(report, null, 2))
+    console.log(`C1_LIVE_BINDING_STATUS=${report.status}`)
     if (report.status !== 'PASS') process.exitCode = 1
     return
   }
