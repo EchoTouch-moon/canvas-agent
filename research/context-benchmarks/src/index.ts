@@ -206,3 +206,10 @@ export {
   type C1LiveToolCall,
   type C1LiveUsage
 } from './c1-live-binding'
+export {
+  C1_AUTHORIZED_PROVIDER_MAX_TOKENS,
+  C1_AUTHORIZED_PROVIDER_SOURCE_ID,
+  C1AuthorizedProviderResponseSource,
+  type C1AuthorizedProviderResponseSourceOptions,
+  type C1AuthorizedProviderToolDefinition
+} from './c1-authorized-provider'

@@ -439,7 +439,7 @@ export interface C1LiveBindingEvidence {
   readonly lifecycleEligible: boolean
   readonly runtimeContextChanged: boolean
   readonly fallbackSent: false
-  readonly networkSent: false
+  readonly networkSent: boolean
   readonly replayMismatch: 0
 }
 
@@ -520,6 +520,7 @@ export function validateC1LiveBindingEvidence(
   }
   const turns = new Set<string>()
   const modelCalls = new Set<string>()
+  const expectedNetworkSent = expected.responseSource === 'AUTHORIZED_PROVIDER'
   for (const [index, row] of evidence.entries()) {
     if (
       row.callOrdinal !== index + 1 ||
@@ -531,7 +532,7 @@ export function validateC1LiveBindingEvidence(
       row.workingSetId.length === 0 ||
       row.transitionId.length === 0 ||
       row.fallbackSent ||
-      row.networkSent ||
+      row.networkSent !== expectedNetworkSent ||
       row.replayMismatch !== 0 ||
       row.toolCalls !== row.toolEvents.length ||
       row.assistantMessages < 1
@@ -816,7 +817,7 @@ export class C1LiveBindingDriver {
           lifecycleEligible: execution.capture.lifecycleEligible,
           runtimeContextChanged: execution.capture.runtimeContextChanged,
           fallbackSent: false,
-          networkSent: false,
+          networkSent: input.responseSource.kind === 'AUTHORIZED_PROVIDER',
           replayMismatch: execution.replayMismatch
         }
         await this.appendCheckpoint({
