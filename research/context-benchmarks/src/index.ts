@@ -174,3 +174,30 @@ export {
   type C1IndependentArtifactResult,
   type C1IndependentArtifactWrite
 } from './c1-live-preflight'
+export {
+  C1_LIVE_BINDING_ID,
+  C1_LIVE_BINDING_MODE,
+  C1_LIVE_BINDING_STUDY_ID,
+  C1LiveBindingDriver,
+  C1LiveBindingTransport,
+  C1ScriptedObservationSource,
+  C1ScriptedResponseSource,
+  appendC1LiveResponseToObservation,
+  runC1LiveBindingReadiness,
+  runC1LiveBudgetBoundaryProbe,
+  validateC1LiveBindingEvidence,
+  type C1LiveBindingArmSummary,
+  type C1LiveBindingEvidence,
+  type C1LiveBindingLegInput,
+  type C1LiveBindingLegResult,
+  type C1LiveBindingReadinessReport,
+  type C1LiveBudgetBoundaryProbe,
+  type C1LiveModelResponse,
+  type C1LiveObservationSource,
+  type C1LiveOutboundRequest,
+  type C1LiveResponseSource,
+  type C1LiveResponseSourceKind,
+  type C1LiveTaskOutcome,
+  type C1LiveToolCall,
+  type C1LiveUsage
+} from './c1-live-binding'
