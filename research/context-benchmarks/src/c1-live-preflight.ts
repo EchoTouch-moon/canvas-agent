@@ -2169,16 +2169,32 @@ export class C1HardBudgetGuard {
     this.studyProviderCalls += 1
   }
 
-  recordToolCall(): void {
-    if (this.currentLeg === null) fail('BUDGET_BREACH', 'tool call recorded outside a C1 leg')
+  /**
+   * Atomically reserve a batch of provider-requested tool calls before any
+   * tool executor is allowed to perform a side effect. Both leg and study
+   * ceilings are checked before either counter is mutated.
+   */
+  reserveToolCalls(count: number): void {
+    if (!Number.isSafeInteger(count) || count < 0) {
+      fail('BUDGET_BREACH', 'tool-call reservation count is invalid')
+    }
+    if (this.currentLeg === null) {
+      fail('BUDGET_BREACH', 'tool calls reserved outside a C1 leg')
+    }
+    if (count === 0) return
     if (
-      this.currentLeg.toolCalls >= this.limits.perLeg.maxToolCalls ||
-      this.studyToolCalls >= this.limits.study.maxToolCalls
+      this.currentLeg.toolCalls + count > this.limits.perLeg.maxToolCalls ||
+      this.studyToolCalls + count > this.limits.study.maxToolCalls
     ) {
       fail('BUDGET_BREACH', 'tool-call hard budget would be exceeded')
     }
-    this.currentLeg.toolCalls += 1
-    this.studyToolCalls += 1
+    this.currentLeg.toolCalls += count
+    this.studyToolCalls += count
+  }
+
+  recordToolCall(): void {
+    if (this.currentLeg === null) fail('BUDGET_BREACH', 'tool call recorded outside a C1 leg')
+    this.reserveToolCalls(1)
   }
 
   endLeg(measures: { readonly wallClockMs: number }): void {

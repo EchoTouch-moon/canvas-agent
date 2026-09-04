@@ -11,8 +11,10 @@ import {
   C1SandboxToolExecutor,
   C1HardBudgetGuard,
   C1ScriptedObservationSource,
+  C1ScriptedResponseSource,
   C1JsonlLiveBindingEvidenceSink,
   C1PreflightFailure,
+  type C1LiveToolExecutor,
   captureC1PreflightArm,
   createC1ObservedReadTrace,
   loadC1FrozenStudy,
@@ -165,7 +167,8 @@ async function runAuthorizedDriver(input: {
       calls,
       body: JSON.parse(String(firstCall.init?.body)) as Record<string, unknown>,
       bodies: calls.map((call) => JSON.parse(String(call.init?.body)) as Record<string, unknown>),
-      evidenceSink
+      evidenceSink,
+      checkpointText: await readFile(join(checkpointRoot, 'checkpoints.jsonl'), 'utf8')
     }
   } finally {
     await rm(checkpointRoot, { recursive: true, force: true })
@@ -312,15 +315,15 @@ describe('C1 authorized provider response source', () => {
     ['edit', { path: 'src/target.js', oldText: 'before', newText: 'after' }],
     ['bash', { command: 'pnpm test --filter context-benchmarks' }]
   ] as const)(
-    'round-trips lossless %s tool arguments without claiming execution',
+    'preserves lossless %s tool arguments in the in-memory provider response',
     async (toolName, args) => {
       const { providerBinding, task } = await bindingAndTask()
       try {
         const argumentsJson = JSON.stringify(args)
-        const { result } = await runAuthorizedDriver({
+        const source = new C1AuthorizedProviderResponseSource({
           providerBinding,
-          task,
-          responses: [
+          apiKey: API_KEY_SENTINEL,
+          fetchImpl: async () =>
             providerResponse({
               id: `${toolName}-request-response`,
               toolCalls: [
@@ -331,18 +334,13 @@ describe('C1 authorized provider response source', () => {
                 }
               ],
               finishReason: 'tool_calls'
-            }),
-            providerResponse({ id: `${toolName}-complete-response` })
-          ],
-          runId: `c1-20260903-authorized-provider-${toolName}-aaaaaaaa`,
-          pairId: `c1-authorized-provider-${toolName}-p01`
+            })
         })
-        expect(result.evidence[0]?.toolRequests).toEqual([
+        const response = await source.next(requestFor(task, providerBinding.providerConfigHash))
+        expect(response.toolRequests).toEqual([
           { toolCallId: `${toolName}-request-01`, toolName, argumentsJson }
         ])
-        expect(result.evidence[0]?.toolEvents).toEqual([])
-        expect(result.evidence[0]?.toolCalls).toBe(1)
-        expect(result.evidence[1]?.toolRequests).toEqual([])
+        expect(response.toolExecutions).toEqual([])
       } finally {
         providerBinding.dispose()
       }
@@ -373,7 +371,10 @@ describe('C1 authorized provider response source', () => {
             ],
             finishReason: 'tool_calls'
           }),
-          providerResponse({ id: 'read-loop-response-02', content: 'The file is understood.' })
+          providerResponse({
+            id: 'read-loop-response-02',
+            content: 'The file is understood.'
+          })
         ],
         runId: 'c1-20260903-authorized-provider-read-loop-aaaaaaaa',
         pairId: 'c1-authorized-provider-read-loop-p01'
@@ -414,6 +415,299 @@ describe('C1 authorized provider response source', () => {
     } finally {
       providerBinding.dispose()
       await rm(sandboxRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps raw tool arguments and results out of durable evidence', async () => {
+    const { providerBinding, task } = await bindingAndTask()
+    const sandboxRoot = await mkdtemp(join(tmpdir(), 'canvas-c1-tool-evidence-sanitizer-'))
+    try {
+      await mkdir(join(sandboxRoot, 'src'), { recursive: true })
+      await writeFile(join(sandboxRoot, 'src', 'read.js'), 'SECRET_TOOL_RESULT\n', 'utf8')
+      await writeFile(join(sandboxRoot, 'src', 'edit.js'), 'SECRET_OLD_TEXT\n', 'utf8')
+      const readArguments = JSON.stringify({ path: 'src/read.js' })
+      const editArguments = JSON.stringify({
+        path: 'src/edit.js',
+        oldText: 'SECRET_OLD_TEXT',
+        newText: 'SECRET_NEW_TEXT'
+      })
+      const bashArguments = JSON.stringify({
+        command: "printf 'SECRET_BASH_RESULT' # SECRET_BASH_COMMAND"
+      })
+      const { result, checkpointText } = await runAuthorizedDriver({
+        providerBinding,
+        task,
+        toolExecutor: new C1SandboxToolExecutor(sandboxRoot),
+        responses: [
+          providerResponse({
+            id: 'evidence-sanitizer-response-01',
+            content: 'SECRET_ASSISTANT_TEXT',
+            toolCalls: [
+              {
+                id: 'evidence-sanitizer-read-01',
+                type: 'function',
+                function: { name: 'read', arguments: readArguments }
+              },
+              {
+                id: 'evidence-sanitizer-edit-01',
+                type: 'function',
+                function: { name: 'edit', arguments: editArguments }
+              },
+              {
+                id: 'evidence-sanitizer-bash-01',
+                type: 'function',
+                function: { name: 'bash', arguments: bashArguments }
+              }
+            ],
+            finishReason: 'tool_calls'
+          }),
+          providerResponse({ id: 'evidence-sanitizer-response-02' })
+        ],
+        runId: 'c1-20260903-authorized-provider-evidence-sanitizer-aaaaaaaa',
+        pairId: 'c1-authorized-provider-evidence-sanitizer-p01'
+      })
+      const serializedEvidence = JSON.stringify(result.evidence)
+      expect(result.evidence[0]?.toolRequestEvidence).toEqual([
+        {
+          toolCallId: 'evidence-sanitizer-read-01',
+          toolName: 'read',
+          argumentHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          path: 'src/read.js'
+        },
+        {
+          toolCallId: 'evidence-sanitizer-edit-01',
+          toolName: 'edit',
+          argumentHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          path: 'src/edit.js'
+        },
+        {
+          toolCallId: 'evidence-sanitizer-bash-01',
+          toolName: 'bash',
+          argumentHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+        }
+      ])
+      expect(checkpointText).not.toContain('argumentsJson')
+      for (const sentinel of [
+        'SECRET_TOOL_RESULT',
+        'SECRET_OLD_TEXT',
+        'SECRET_NEW_TEXT',
+        'SECRET_BASH_COMMAND',
+        'SECRET_BASH_RESULT',
+        'SECRET_ASSISTANT_TEXT'
+      ]) {
+        expect(checkpointText).not.toContain(sentinel)
+        expect(serializedEvidence).not.toContain(sentinel)
+      }
+    } finally {
+      providerBinding.dispose()
+      await rm(sandboxRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('requires a tool executor for authorized provider tool requests', async () => {
+    const { providerBinding, task } = await bindingAndTask()
+    const checkpointRoot = await mkdtemp(join(tmpdir(), 'canvas-c1-tool-executor-required-'))
+    try {
+      let firstFetchCalls = 0
+      const firstSource = new C1AuthorizedProviderResponseSource({
+        providerBinding,
+        apiKey: API_KEY_SENTINEL,
+        fetchImpl: async () => {
+          firstFetchCalls += 1
+          return providerResponse({
+            id: 'tool-executor-required-response-01',
+            toolCalls: [
+              {
+                id: 'tool-executor-required-call-01',
+                type: 'function',
+                function: {
+                  name: 'read',
+                  arguments: JSON.stringify({ path: 'src/target.js' })
+                }
+              }
+            ],
+            finishReason: 'tool_calls'
+          })
+        }
+      })
+      let secondFetchCalls = 0
+      const secondSource = new C1AuthorizedProviderResponseSource({
+        providerBinding,
+        apiKey: API_KEY_SENTINEL,
+        fetchImpl: async () => {
+          secondFetchCalls += 1
+          return providerResponse({ id: 'should-not-be-called' })
+        }
+      })
+      const driver = new C1LiveBindingDriver({
+        providerBinding,
+        budgetGuard: new C1HardBudgetGuard({
+          perLeg: {
+            maxProviderCalls: 2,
+            maxToolCalls: 96,
+            maxWallClockMs: 600000
+          },
+          study: {
+            maxProviderCalls: 2,
+            maxToolCalls: 96,
+            maxWallClockMs: 600000,
+            maxLegs: 2
+          }
+        }),
+        evidenceSink: new C1JsonlLiveBindingEvidenceSink(join(checkpointRoot, 'checkpoints.jsonl'))
+      })
+      const observation = createC1ObservedReadTrace({
+        observationId: 'c1-tool-executor-required-observation',
+        prompt: task.prompt,
+        fixtureFiles: ['src/target.js']
+      })
+      const commonInput = {
+        studyId: 'c1-tool-executor-required-study',
+        task,
+        stratum: task.stratum,
+        pairId: 'c1-tool-executor-required-p01',
+        arm: 'NATIVE' as const,
+        fixtureContentSha256: task.fixtureRevision.fixtureContentSha256,
+        fixtureTreeObjectId: task.fixtureRevision.fixtureTreeObjectId,
+        runtimeSessionId: 'c1-tool-executor-required-session-v1',
+        observationSource: new C1ScriptedObservationSource([observation]),
+        maxCalls: 1,
+        startedAtMs: 100,
+        nowMs: 100,
+        wallClockMs: 0
+      }
+      await expect(
+        driver.runLeg({
+          ...commonInput,
+          runId: 'c1-tool-executor-required-leg-01-aaaaaaaa',
+          responseSource: firstSource
+        })
+      ).rejects.toMatchObject({
+        code: 'PREFLIGHT_FAILURE',
+        message: 'authorized provider tool requests require a tool executor'
+      })
+      expect(firstFetchCalls).toBe(1)
+      expect(driver.isStudyTerminal).toBe(true)
+      await expect(
+        driver.runLeg({
+          ...commonInput,
+          pairId: 'c1-tool-executor-required-p02',
+          runId: 'c1-tool-executor-required-leg-02-bbbbbbbb',
+          runtimeSessionId: 'c1-tool-executor-required-session-v2',
+          responseSource: secondSource
+        })
+      ).rejects.toMatchObject({ code: 'BUDGET_BREACH' })
+      expect(secondFetchCalls).toBe(0)
+    } finally {
+      providerBinding.dispose()
+      await rm(checkpointRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('reserves an entire tool batch before allowing executor side effects', async () => {
+    const { providerBinding, task } = await bindingAndTask()
+    const sandboxRoot = await mkdtemp(join(tmpdir(), 'canvas-c1-tool-budget-'))
+    const checkpointRoot = await mkdtemp(join(tmpdir(), 'canvas-c1-tool-budget-checkpoints-'))
+    try {
+      await mkdir(join(sandboxRoot, 'src'), { recursive: true })
+      const targetPath = join(sandboxRoot, 'src', 'target.js')
+      await writeFile(targetPath, 'ORIGINAL_CONTENT\n', 'utf8')
+      const sandboxExecutor = new C1SandboxToolExecutor(sandboxRoot)
+      let executorCalls = 0
+      const toolExecutor: C1LiveToolExecutor = {
+        execute: async (input) => {
+          executorCalls += 1
+          return sandboxExecutor.execute(input)
+        }
+      }
+      const responseSource = new C1ScriptedResponseSource([
+        {
+          responseId: 'tool-budget-response-01',
+          assistantMessageCount: 1,
+          assistantContent: 'tool budget probe',
+          usage: {
+            inputTokens: 10,
+            outputTokens: 2,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            totalTokens: 12,
+            usageSource: 'SCRIPTED_FAKE' as const
+          },
+          toolRequests: [
+            {
+              toolCallId: 'tool-budget-edit-01',
+              toolName: 'edit',
+              argumentsJson: JSON.stringify({
+                path: 'src/target.js',
+                oldText: 'ORIGINAL_CONTENT',
+                newText: 'FIRST_SIDE_EFFECT'
+              })
+            },
+            {
+              toolCallId: 'tool-budget-edit-02',
+              toolName: 'edit',
+              argumentsJson: JSON.stringify({
+                path: 'src/target.js',
+                oldText: 'ORIGINAL_CONTENT',
+                newText: 'SECOND_SIDE_EFFECT'
+              })
+            }
+          ],
+          toolExecutions: [],
+          outcome: 'CONTINUE' as const
+        }
+      ])
+      const budgetGuard = new C1HardBudgetGuard({
+        perLeg: {
+          maxProviderCalls: 1,
+          maxToolCalls: 1,
+          maxWallClockMs: 600000
+        },
+        study: {
+          maxProviderCalls: 1,
+          maxToolCalls: 1,
+          maxWallClockMs: 600000,
+          maxLegs: 2
+        }
+      })
+      const driver = new C1LiveBindingDriver({
+        providerBinding,
+        budgetGuard,
+        evidenceSink: new C1JsonlLiveBindingEvidenceSink(join(checkpointRoot, 'checkpoints.jsonl'))
+      })
+      const observation = createC1ObservedReadTrace({
+        observationId: 'c1-tool-budget-observation',
+        prompt: task.prompt,
+        fixtureFiles: ['src/target.js']
+      })
+      await expect(
+        driver.runLeg({
+          studyId: 'c1-tool-budget-study',
+          task,
+          stratum: task.stratum,
+          pairId: 'c1-tool-budget-p01',
+          arm: 'NATIVE',
+          runId: 'c1-20260903-tool-budget-native-aaaaaaaa',
+          fixtureContentSha256: task.fixtureRevision.fixtureContentSha256,
+          fixtureTreeObjectId: task.fixtureRevision.fixtureTreeObjectId,
+          runtimeSessionId: 'c1-tool-budget-session-v1',
+          observationSource: new C1ScriptedObservationSource([observation]),
+          responseSource,
+          toolExecutor,
+          maxCalls: 1,
+          startedAtMs: 100,
+          nowMs: 100,
+          wallClockMs: 0
+        })
+      ).rejects.toMatchObject({ code: 'BUDGET_BREACH' })
+      await expect(readFile(targetPath, 'utf8')).resolves.toBe('ORIGINAL_CONTENT\n')
+      expect(executorCalls).toBe(0)
+      expect(budgetGuard.ledger.toolCalls).toBe(0)
+      expect(driver.isStudyTerminal).toBe(true)
+    } finally {
+      providerBinding.dispose()
+      await rm(sandboxRoot, { recursive: true, force: true })
+      await rm(checkpointRoot, { recursive: true, force: true })
     }
   })
 
@@ -494,11 +788,19 @@ describe('C1 authorized provider response source', () => {
       const secondMessages = bodies[1]?.['messages']
       expect(secondMessages).toEqual(
         expect.arrayContaining([
-          { role: 'tool', content: 'bash result', tool_call_id: 'bash-loop-call-01' }
+          {
+            role: 'tool',
+            content: 'bash result',
+            tool_call_id: 'bash-loop-call-01'
+          }
         ])
       )
       expect(result.evidence[0]?.toolEvents).toEqual([
-        { toolCallId: 'bash-loop-call-01', toolName: 'bash', result: 'SUCCESS' }
+        {
+          toolCallId: 'bash-loop-call-01',
+          toolName: 'bash',
+          result: 'SUCCESS'
+        }
       ])
     } finally {
       providerBinding.dispose()

@@ -220,6 +220,7 @@ export {
   type C1LiveToolExecution,
   type C1LiveToolLoopResult,
   type C1LiveToolRequest,
+  type C1LiveToolRequestEvidence,
   type C1LiveUsage
 } from './c1-live-binding'
 export {

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -77,6 +78,18 @@ export interface C1LiveToolRequest {
   readonly toolCallId: string
   readonly toolName: string
   readonly argumentsJson: string
+}
+
+/**
+ * Metadata-only representation of a provider tool request. The full
+ * arguments remain available in-memory for execution and the next model
+ * observation, but are never written to durable evidence.
+ */
+export interface C1LiveToolRequestEvidence {
+  readonly toolCallId: string
+  readonly toolName: string
+  readonly argumentHash: string
+  readonly path?: string
 }
 
 export interface C1LiveToolExecution {
@@ -317,6 +330,26 @@ function parseToolArguments(argumentsJson: string, toolCallId: string): unknown 
       'PREFLIGHT_FAILURE',
       `tool request ${toolCallId} has invalid JSON arguments`
     )
+  }
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex')
+}
+
+function toolRequestEvidence(request: C1LiveToolRequest): C1LiveToolRequestEvidence {
+  const parsed = parseToolArguments(request.argumentsJson, request.toolCallId)
+  const pathValue =
+    request.toolName === 'read' || request.toolName === 'edit'
+      ? parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)['path']
+        : undefined
+      : undefined
+  return {
+    toolCallId: request.toolCallId,
+    toolName: request.toolName,
+    argumentHash: sha256(request.argumentsJson),
+    ...(typeof pathValue === 'string' && pathValue.length > 0 ? { path: pathValue } : {})
   }
 }
 
@@ -763,11 +796,7 @@ export interface C1LiveBindingEvidence {
   readonly assistantMessages: number
   readonly usage: C1LiveUsage
   readonly toolCalls: number
-  readonly toolRequests: readonly {
-    readonly toolCallId: string
-    readonly toolName: string
-    readonly argumentsJson: string
-  }[]
+  readonly toolRequestEvidence: readonly C1LiveToolRequestEvidence[]
   readonly toolEvents: readonly {
     readonly toolCallId: string
     readonly toolName: string
@@ -835,10 +864,10 @@ export class C1JsonlLiveBindingEvidenceSink implements C1LiveBindingEvidenceSink
 
   async append(checkpoint: C1LiveBindingCheckpoint): Promise<void> {
     const serialized = JSON.stringify(checkpoint)
-    if (serialized.includes('providerBoundMessages')) {
+    if (/providerBoundMessages|argumentsJson/.test(serialized)) {
       throw new C1PreflightFailure(
         'EVIDENCE_WRITE_FAILURE',
-        'metadata-only checkpoint unexpectedly contains provider-bound messages'
+        'metadata-only checkpoint unexpectedly contains provider-bound messages or raw tool arguments'
       )
     }
     await mkdir(dirname(this.checkpointPath), { recursive: true })
@@ -884,7 +913,7 @@ export function validateC1LiveBindingEvidence(
       row.fallbackSent ||
       row.networkSent !== expectedNetworkSent ||
       row.replayMismatch !== 0 ||
-      row.toolCalls !== row.toolRequests.length ||
+      row.toolCalls !== row.toolRequestEvidence.length ||
       row.assistantMessages < 1
     ) {
       throw new C1PreflightFailure(
@@ -901,24 +930,18 @@ export function validateC1LiveBindingEvidence(
     turns.add(row.turnId)
     modelCalls.add(row.modelCallId)
     const requestNames = new Map<string, string>()
-    for (const request of row.toolRequests) {
+    for (const request of row.toolRequestEvidence) {
       if (
         request.toolCallId.length === 0 ||
         request.toolName.length === 0 ||
-        request.argumentsJson.length === 0 ||
+        !/^[a-f0-9]{64}$/.test(request.argumentHash) ||
+        (request.path !== undefined &&
+          (typeof request.path !== 'string' || request.path.length === 0)) ||
         requestNames.has(request.toolCallId)
       ) {
         throw new C1PreflightFailure(
           'PREFLIGHT_FAILURE',
           'live binding evidence has an unstable tool request'
-        )
-      }
-      try {
-        JSON.parse(request.argumentsJson)
-      } catch {
-        throw new C1PreflightFailure(
-          'PREFLIGHT_FAILURE',
-          `live binding evidence has invalid arguments for ${request.toolCallId}`
         )
       }
       requestNames.set(request.toolCallId, request.toolName)
@@ -1161,6 +1184,20 @@ export class C1LiveBindingDriver {
         transportSendAttempts += transport.sendAttempts
         blockedProviderCallAttempts += transport.blockedSendAttempts
         validateModelResponse(response, input.responseSource.kind)
+        if (
+          response.toolRequests.length > 0 &&
+          input.responseSource.kind === 'AUTHORIZED_PROVIDER'
+        ) {
+          if (input.toolExecutor === undefined) {
+            const error = new C1PreflightFailure(
+              'PREFLIGHT_FAILURE',
+              'authorized provider tool requests require a tool executor'
+            )
+            this.studyTerminalReason ??= error.message
+            throw error
+          }
+        }
+        this.options.budgetGuard.reserveToolCalls(response.toolRequests.length)
         let effectiveResponse = response
         let toolObservation: C1AgentObservation | undefined
         if (input.toolExecutor !== undefined && response.toolRequests.length > 0) {
@@ -1203,11 +1240,9 @@ export class C1LiveBindingDriver {
           assistantMessages: effectiveResponse.assistantMessageCount,
           usage,
           toolCalls: effectiveResponse.toolRequests.length,
-          toolRequests: Object.freeze(
+          toolRequestEvidence: Object.freeze(
             effectiveResponse.toolRequests.map((request) => ({
-              toolCallId: request.toolCallId,
-              toolName: request.toolName,
-              argumentsJson: request.argumentsJson
+              ...toolRequestEvidence(request)
             }))
           ),
           toolEvents: Object.freeze(
@@ -1246,7 +1281,6 @@ export class C1LiveBindingDriver {
           evidence: row
         })
         evidence.push(row)
-        for (const tool of effectiveResponse.toolRequests) this.options.budgetGuard.recordToolCall()
         previousObservation = currentObservation
         previousExecution = execution
         finalOutcome = effectiveResponse.outcome
@@ -2033,8 +2067,8 @@ export async function runC1LiveBindingReadiness(
           ...native.result.evidence,
           ...runtime.result.evidence,
           ...evidenceSink.checkpoints
-        ]).includes('providerBoundMessages'),
-        'evidence checkpoints contain no provider-bound message payload field'
+        ]).match(/providerBoundMessages|argumentsJson/),
+        'evidence checkpoints contain no provider-bound messages or raw tool arguments'
       )
     )
     budgetTerminationProbe = await runC1LiveBudgetTerminationProbe({
