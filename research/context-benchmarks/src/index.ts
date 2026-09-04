@@ -139,6 +139,7 @@ export {
   computeC1AssignmentMatrixSha256,
   computeC1ContractSha256,
   computeC1FixtureContentSummary,
+  changedC1FixturePaths,
   createC1PreflightIdentity,
   createC1ObservedReadTrace,
   installC1OperatorKillSwitch,
@@ -151,6 +152,8 @@ export {
   runC1BoundedOperation,
   runC1LivePreflight,
   runC1TreatmentOpportunityProbe,
+  snapshotC1Fixture,
+  verifyC1FixtureBinding,
   validateC1ProviderUsage,
   writableScopePass,
   writeIndependentC1Artifacts,
@@ -226,12 +229,21 @@ export {
 export {
   C1_LIVE_STUDY_DRY_RUN_ID,
   C1_LIVE_STUDY_DRY_RUN_MODE,
+  C1StudyOrchestrator,
   runC1StudyDryRun,
   type C1StudyDryRunArtifactSummary,
   type C1StudyDryRunGate,
   type C1StudyDryRunLegSummary,
   type C1StudyDryRunOptions,
-  type C1StudyDryRunReport
+  type C1StudyDryRunReport,
+  type C1StudyDryRunStatus,
+  type C1StudyLegFactoryInput,
+  type C1StudyLegSummary,
+  type C1StudyObservationSourceFactory,
+  type C1StudyOrchestrationReport,
+  type C1StudyOrchestratorOptions,
+  type C1StudyResponseSourceFactory,
+  type C1StudyToolExecutorFactory
 } from './c1-live-study'
 export {
   C1_AUTHORIZED_PROVIDER_MAX_TOKENS,

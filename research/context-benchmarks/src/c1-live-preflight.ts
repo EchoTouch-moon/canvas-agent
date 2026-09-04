@@ -100,6 +100,7 @@ export type C1PreflightFailureCode =
   | 'MANIFEST_BINDING_MISMATCH'
   | 'READINESS_BINDING_MISMATCH'
   | 'FIXTURE_BINDING_MISMATCH'
+  | 'WRITABLE_SCOPE_FAILURE'
   | 'IDENTITY_REUSE'
   | 'IDENTITY_INVALID'
   | 'PROVIDER_BINDING_MISMATCH'
@@ -1188,7 +1189,7 @@ async function gitTreeObjectId(
   return tree
 }
 
-async function verifyFixtureBinding(
+export async function verifyC1FixtureBinding(
   study: C1FrozenStudy,
   task: C1PreflightTask
 ): Promise<{
@@ -1214,11 +1215,21 @@ async function verifyFixtureBinding(
   return { sourcePath, contentSummary }
 }
 
-async function snapshotFixture(root: string): Promise<Map<string, string>> {
+export async function snapshotC1Fixture(root: string): Promise<ReadonlyMap<string, string>> {
   const snapshot = new Map<string, string>()
   for (const rel of await walkFixtureFiles(root))
     snapshot.set(rel, sha256Bytes(await readFile(join(root, rel))))
   return snapshot
+}
+
+export function changedC1FixturePaths(
+  before: ReadonlyMap<string, string>,
+  after: ReadonlyMap<string, string>
+): readonly string[] {
+  const changed = new Set<string>()
+  for (const [rel, hash] of after) if (before.get(rel) !== hash) changed.add(rel)
+  for (const rel of before.keys()) if (!after.has(rel)) changed.add(rel)
+  return [...changed].sort()
 }
 
 async function simulateExpectedWritableChange(
@@ -1232,15 +1243,12 @@ async function simulateExpectedWritableChange(
       `expected writable path escapes fixture sandbox: ${expectedWritablePath}`
     )
   }
-  const before = await snapshotFixture(sandbox)
+  const before = await snapshotC1Fixture(sandbox)
   const existing = await readFile(target, 'utf8').catch(() => '')
   await mkdir(resolve(target, '..'), { recursive: true })
   await writeFile(target, `${existing}\n/* C1 preflight simulated writable change */\n`, 'utf8')
-  const after = await snapshotFixture(sandbox)
-  const changed = new Set<string>()
-  for (const [rel, hash] of after) if (before.get(rel) !== hash) changed.add(rel)
-  for (const rel of before.keys()) if (!after.has(rel)) changed.add(rel)
-  return [...changed].sort()
+  const after = await snapshotC1Fixture(sandbox)
+  return changedC1FixturePaths(before, after)
 }
 
 export function writableScopePass(
@@ -3190,7 +3198,7 @@ export async function runC1LivePreflight(
       }
     >()
     for (const task of study.tasks)
-      fixtureBindings.set(task.taskId, await verifyFixtureBinding(study, task))
+      fixtureBindings.set(task.taskId, await verifyC1FixtureBinding(study, task))
     gates.push(
       gate('fresh_fixture_binding', true, 'all four frozen fixture tree/content hashes verified')
     )

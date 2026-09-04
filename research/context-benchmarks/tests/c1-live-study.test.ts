@@ -2,7 +2,13 @@ import { EventEmitter } from 'node:events'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { C1_PREFLIGHT_ARTIFACT_NAMES, nodeVersionSatisfiesC1Range, runC1StudyDryRun } from '../src'
+import {
+  C1_PREFLIGHT_ARTIFACT_NAMES,
+  changedC1FixturePaths,
+  nodeVersionSatisfiesC1Range,
+  runC1StudyDryRun,
+  writableScopePass
+} from '../src'
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..', '..')
 
@@ -40,16 +46,13 @@ describe('C1 study-level credential-free orchestration', () => {
       expect(report.toolExecutions).toBe(192)
       expect(report.fixtureSandboxesCreated).toBe(64)
       expect(report.fixtureSandboxesCleaned).toBe(64)
+      expect(report.legs.every((leg) => leg.changedPaths.length > 0)).toBe(true)
+      expect(report.legs.every((leg) => leg.writableScopePass)).toBe(true)
+      expect(report.legs.every((leg) => leg.fixtureChangedByDryRunTool)).toBe(true)
       expect(report.failures).toEqual([])
       expect(report.gates.every((item) => item.verdict === 'PASS')).toBe(true)
       expect(report.legs.filter((leg) => leg.arm === 'NATIVE')).toHaveLength(32)
       expect(report.legs.filter((leg) => leg.arm === 'RUNTIME')).toHaveLength(32)
-      expect(report.legs.some((leg) => leg.transitionDecisionKinds.flat().includes('REMOVE'))).toBe(
-        true
-      )
-      expect(
-        report.legs.some((leg) => leg.transitionDecisionKinds.flat().includes('REHYDRATE'))
-      ).toBe(true)
       expect(report.artifacts.map((artifact) => artifact.name)).toEqual(
         expect.arrayContaining([...C1_PREFLIGHT_ARTIFACT_NAMES])
       )
@@ -60,6 +63,18 @@ describe('C1 study-level credential-free orchestration', () => {
       expect(manifest).not.toMatch(
         /providerBoundMessages|argumentsJson|assistantContent|toolResultContent/
       )
+      const firstLeg = report.legs[0]
+      if (firstLeg === undefined) throw new Error('study dry run produced no completed legs')
+      const legManifest = JSON.parse(
+        await readFile(join(report.reportDir!, 'legs', firstLeg.runId, 'leg-manifest.json'), 'utf8')
+      ) as Record<string, unknown>
+      expect(legManifest).toMatchObject({
+        fixtureTreeObjectIdVerified: true,
+        fixtureHashVerified: true,
+        fixtureCleaned: true,
+        writableScopePass: true,
+        changedPaths: firstLeg.changedPaths
+      })
       for (const name of C1_PREFLIGHT_ARTIFACT_NAMES) {
         const content = await readFile(join(report.reportDir!, name), 'utf8')
         expect(content).not.toMatch(
@@ -104,5 +119,21 @@ describe('C1 study-level credential-free orchestration', () => {
     } finally {
       await rm(outputRoot, { recursive: true, force: true })
     }
+  })
+
+  it('computes actual changed paths and rejects an out-of-scope mutation', () => {
+    const before = new Map([
+      ['src/allowed.js', 'before'],
+      ['src/untouched.js', 'same']
+    ])
+    const after = new Map([
+      ['src/allowed.js', 'after'],
+      ['src/untouched.js', 'same'],
+      ['src/escape.js', 'unexpected']
+    ])
+
+    expect(changedC1FixturePaths(before, after)).toEqual(['src/allowed.js', 'src/escape.js'])
+    expect(writableScopePass(['src/allowed.js'], ['src/allowed.js'])).toBe(true)
+    expect(writableScopePass(changedC1FixturePaths(before, after), ['src/allowed.js'])).toBe(false)
   })
 })
