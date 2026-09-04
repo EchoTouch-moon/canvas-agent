@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   C1_LIVE_BINDING_ID,
   C1LiveBindingTransport,
+  C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE,
   C1PreflightFailure,
   C1HardBudgetGuard,
   C1ScriptedResponseSource,
@@ -22,6 +23,7 @@ describe('C1 live execution binding', () => {
       {
         responseId: 'scripted-response-01',
         assistantMessageCount: 1,
+        assistantContent: 'scripted response',
         usage: {
           inputTokens: 10,
           outputTokens: 2,
@@ -30,7 +32,8 @@ describe('C1 live execution binding', () => {
           totalTokens: 12,
           usageSource: 'SCRIPTED_FAKE'
         },
-        toolCalls: [],
+        toolRequests: [],
+        toolExecutions: [],
         outcome: 'COMPLETE'
       }
     ])
@@ -191,12 +194,27 @@ describe('C1 live execution binding', () => {
           modelVisibleSemanticContextFingerprint: 'response-failure-fingerprint'
         })
       )
-      transport.attachProviderBoundMessages([
-        { role: 'user', content: [{ type: 'text', text: 'response failure' }] }
-      ])
+      transport.attachProviderBoundMessages(
+        [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: 'response failure' }]
+          }
+        ],
+        C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE
+      )
       const guard = new C1HardBudgetGuard({
-        perLeg: { maxProviderCalls: 24, maxToolCalls: 96, maxWallClockMs: 600000 },
-        study: { maxProviderCalls: 24, maxToolCalls: 96, maxWallClockMs: 600000, maxLegs: 1 }
+        perLeg: {
+          maxProviderCalls: 24,
+          maxToolCalls: 96,
+          maxWallClockMs: 600000
+        },
+        study: {
+          maxProviderCalls: 24,
+          maxToolCalls: 96,
+          maxWallClockMs: 600000,
+          maxLegs: 1
+        }
       })
       const permits: number[] = []
       guard.beginLeg(100)
