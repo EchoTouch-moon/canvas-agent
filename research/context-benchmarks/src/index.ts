@@ -193,6 +193,7 @@ export {
   C1JsonlLiveBindingEvidenceSink,
   C1LiveBindingDriver,
   C1LiveBindingTransport,
+  C1SandboxToolExecutor,
   C1ScriptedObservationSource,
   C1ScriptedResponseSource,
   appendC1LiveResponseToObservation,
@@ -215,7 +216,9 @@ export {
   type C1LiveResponseSource,
   type C1LiveResponseSourceKind,
   type C1LiveTaskOutcome,
+  type C1LiveToolExecutor,
   type C1LiveToolExecution,
+  type C1LiveToolLoopResult,
   type C1LiveToolRequest,
   type C1LiveUsage
 } from './c1-live-binding'

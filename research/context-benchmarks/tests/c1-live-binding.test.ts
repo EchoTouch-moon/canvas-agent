@@ -23,6 +23,7 @@ describe('C1 live execution binding', () => {
       {
         responseId: 'scripted-response-01',
         assistantMessageCount: 1,
+        assistantContent: 'scripted response',
         usage: {
           inputTokens: 10,
           outputTokens: 2,

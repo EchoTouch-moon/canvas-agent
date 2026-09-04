@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -8,6 +8,7 @@ import {
   C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE,
   C1_SYSTEM_INSTRUCTION,
   C1LiveBindingDriver,
+  C1SandboxToolExecutor,
   C1HardBudgetGuard,
   C1ScriptedObservationSource,
   C1JsonlLiveBindingEvidenceSink,
@@ -25,6 +26,7 @@ function providerResponse(input: {
   readonly id: string
   readonly finishReason?: string
   readonly toolCalls?: readonly unknown[]
+  readonly content?: string | null
   readonly usage?: Record<string, unknown>
 }): Response {
   return new Response(
@@ -35,7 +37,7 @@ function providerResponse(input: {
           index: 0,
           message: {
             role: 'assistant',
-            content: 'provider response',
+            content: input.content === undefined ? 'provider response' : input.content,
             ...(input.toolCalls === undefined ? {} : { tool_calls: input.toolCalls })
           },
           finish_reason: input.finishReason ?? 'stop'
@@ -91,6 +93,7 @@ async function runAuthorizedDriver(input: {
   readonly responses: readonly Response[]
   readonly runId: string
   readonly pairId: string
+  readonly toolExecutor?: C1SandboxToolExecutor
 }) {
   const calls: {
     input: Parameters<typeof fetch>[0]
@@ -149,6 +152,7 @@ async function runAuthorizedDriver(input: {
         Array.from({ length: input.responses.length }, () => observation)
       ),
       responseSource: source,
+      ...(input.toolExecutor === undefined ? {} : { toolExecutor: input.toolExecutor }),
       maxCalls: input.responses.length,
       startedAtMs: 100,
       nowMs: 100,
@@ -160,6 +164,7 @@ async function runAuthorizedDriver(input: {
       result,
       calls,
       body: JSON.parse(String(firstCall.init?.body)) as Record<string, unknown>,
+      bodies: calls.map((call) => JSON.parse(String(call.init?.body)) as Record<string, unknown>),
       evidenceSink
     }
   } finally {
@@ -343,6 +348,163 @@ describe('C1 authorized provider response source', () => {
       }
     }
   )
+
+  it('executes a provider read request and carries the exact result into the next request', async () => {
+    const { providerBinding, task } = await bindingAndTask()
+    const sandboxRoot = await mkdtemp(join(tmpdir(), 'canvas-c1-tool-loop-read-'))
+    try {
+      await mkdir(join(sandboxRoot, 'src'), { recursive: true })
+      await writeFile(join(sandboxRoot, 'src', 'target.js'), 'fixture read result\n', 'utf8')
+      const argumentsJson = JSON.stringify({ path: 'src/target.js' })
+      const { result, bodies, evidenceSink } = await runAuthorizedDriver({
+        providerBinding,
+        task,
+        toolExecutor: new C1SandboxToolExecutor(sandboxRoot),
+        responses: [
+          providerResponse({
+            id: 'read-loop-response-01',
+            content: 'I found the target; I will inspect it.',
+            toolCalls: [
+              {
+                id: 'read-loop-call-01',
+                type: 'function',
+                function: { name: 'read', arguments: argumentsJson }
+              }
+            ],
+            finishReason: 'tool_calls'
+          }),
+          providerResponse({ id: 'read-loop-response-02', content: 'The file is understood.' })
+        ],
+        runId: 'c1-20260903-authorized-provider-read-loop-aaaaaaaa',
+        pairId: 'c1-authorized-provider-read-loop-p01'
+      })
+      const secondMessages = bodies[1]?.['messages']
+      expect(secondMessages).toEqual(
+        expect.arrayContaining([
+          {
+            role: 'assistant',
+            content: 'I found the target; I will inspect it.',
+            tool_calls: [
+              {
+                id: 'read-loop-call-01',
+                type: 'function',
+                function: { name: 'read', arguments: argumentsJson }
+              }
+            ]
+          },
+          {
+            role: 'tool',
+            content: 'fixture read result\n',
+            tool_call_id: 'read-loop-call-01'
+          }
+        ])
+      )
+      expect(result.evidence[0]?.toolEvents).toEqual([
+        {
+          toolCallId: 'read-loop-call-01',
+          toolName: 'read',
+          path: 'src/target.js',
+          result: 'SUCCESS'
+        }
+      ])
+      expect(JSON.stringify(evidenceSink.checkpoints)).not.toContain('fixture read result')
+      expect(JSON.stringify(evidenceSink.checkpoints)).not.toContain(
+        'I found the target; I will inspect it.'
+      )
+    } finally {
+      providerBinding.dispose()
+      await rm(sandboxRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('executes an edit request against the fresh sandbox before the next provider turn', async () => {
+    const { providerBinding, task } = await bindingAndTask()
+    const sandboxRoot = await mkdtemp(join(tmpdir(), 'canvas-c1-tool-loop-edit-'))
+    try {
+      await mkdir(join(sandboxRoot, 'src'), { recursive: true })
+      const targetPath = join(sandboxRoot, 'src', 'target.js')
+      await writeFile(targetPath, 'before value\n', 'utf8')
+      const argumentsJson = JSON.stringify({
+        path: 'src/target.js',
+        oldText: 'before value',
+        newText: 'after value'
+      })
+      const { result } = await runAuthorizedDriver({
+        providerBinding,
+        task,
+        toolExecutor: new C1SandboxToolExecutor(sandboxRoot),
+        responses: [
+          providerResponse({
+            id: 'edit-loop-response-01',
+            toolCalls: [
+              {
+                id: 'edit-loop-call-01',
+                type: 'function',
+                function: { name: 'edit', arguments: argumentsJson }
+              }
+            ],
+            finishReason: 'tool_calls'
+          }),
+          providerResponse({ id: 'edit-loop-response-02' })
+        ],
+        runId: 'c1-20260903-authorized-provider-edit-loop-aaaaaaaa',
+        pairId: 'c1-authorized-provider-edit-loop-p01'
+      })
+      await expect(readFile(targetPath, 'utf8')).resolves.toBe('after value\n')
+      expect(result.evidence[0]?.toolEvents).toEqual([
+        {
+          toolCallId: 'edit-loop-call-01',
+          toolName: 'edit',
+          path: 'src/target.js',
+          result: 'SUCCESS'
+        }
+      ])
+    } finally {
+      providerBinding.dispose()
+      await rm(sandboxRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('executes a bash request in the fresh sandbox and carries stdout into the next turn', async () => {
+    const { providerBinding, task } = await bindingAndTask()
+    const sandboxRoot = await mkdtemp(join(tmpdir(), 'canvas-c1-tool-loop-bash-'))
+    try {
+      const argumentsJson = JSON.stringify({ command: "printf 'bash result'" })
+      const { result, bodies } = await runAuthorizedDriver({
+        providerBinding,
+        task,
+        toolExecutor: new C1SandboxToolExecutor(sandboxRoot),
+        responses: [
+          providerResponse({
+            id: 'bash-loop-response-01',
+            toolCalls: [
+              {
+                id: 'bash-loop-call-01',
+                type: 'function',
+                function: { name: 'bash', arguments: argumentsJson }
+              }
+            ],
+            finishReason: 'tool_calls'
+          }),
+          providerResponse({ id: 'bash-loop-response-02' })
+        ],
+        runId: 'c1-20260903-authorized-provider-bash-loop-aaaaaaaa',
+        pairId: 'c1-authorized-provider-bash-loop-p01'
+      })
+      const secondMessages = bodies[1]?.['messages']
+      expect(secondMessages).toEqual(
+        expect.arrayContaining([
+          { role: 'tool', content: 'bash result', tool_call_id: 'bash-loop-call-01' }
+        ])
+      )
+      expect(result.evidence[0]?.toolEvents).toEqual([
+        { toolCallId: 'bash-loop-call-01', toolName: 'bash', result: 'SUCCESS' }
+      ])
+    } finally {
+      providerBinding.dispose()
+      await rm(sandboxRoot, { recursive: true, force: true })
+    }
+  })
 
   it('fails closed on HTTP errors and incomplete provider usage without exposing response bodies', async () => {
     const { providerBinding, task } = await bindingAndTask()

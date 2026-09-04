@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, open, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
   ContextWorkingSet,
   RemovalRecord,
@@ -46,6 +46,7 @@ import {
   prepareC1StrictProvider,
   validateC1ProviderUsage
 } from './c1-live-preflight'
+import { runProcess } from './fixture-generator'
 
 /**
  * C1 live-execution binding is the last zero-provider layer before a live
@@ -88,6 +89,8 @@ export interface C1LiveToolExecution {
 export interface C1LiveModelResponse {
   readonly responseId: string
   readonly assistantMessageCount: number
+  /** In-memory only; evidence serializers must never persist raw assistant content. */
+  readonly assistantContent: string
   readonly usage: C1LiveUsage
   readonly toolRequests: readonly C1LiveToolRequest[]
   readonly toolExecutions: readonly C1LiveToolExecution[]
@@ -114,7 +117,23 @@ export interface C1LiveObservationSource {
     readonly previousObservation: C1AgentObservation
     readonly previousExecution: C1LegExecutionResult
     readonly response: C1LiveModelResponse
+    /** Actual tool-loop observation, when a C1LiveToolExecutor handled requests. */
+    readonly toolObservation?: C1AgentObservation
   }): C1AgentObservation
+}
+
+export interface C1LiveToolLoopResult {
+  readonly executions: readonly C1LiveToolExecution[]
+  /** In-memory only; raw tool result content is never part of durable evidence. */
+  readonly observation: C1AgentObservation
+}
+
+export interface C1LiveToolExecutor {
+  execute(input: {
+    readonly previousObservation: C1AgentObservation
+    readonly response: C1LiveModelResponse
+    readonly observationId: string
+  }): Promise<C1LiveToolLoopResult>
 }
 
 export class C1ScriptedResponseSource implements C1LiveResponseSource {
@@ -160,7 +179,11 @@ export class C1ScriptedObservationSource implements C1LiveObservationSource {
     this.initialObservation = initialObservation
   }
 
-  next(input: { readonly callOrdinal: number }): C1AgentObservation {
+  next(input: {
+    readonly callOrdinal: number
+    readonly toolObservation?: C1AgentObservation
+  }): C1AgentObservation {
+    if (input.toolObservation !== undefined) return input.toolObservation
     const observation = this.observations[input.callOrdinal]
     if (observation === undefined) {
       throw new C1PreflightFailure(
@@ -224,6 +247,12 @@ function validateModelResponse(
     throw new C1PreflightFailure(
       'PREFLIGHT_FAILURE',
       'every live model response must contain at least one assistant message'
+    )
+  }
+  if (typeof response.assistantContent !== 'string') {
+    throw new C1PreflightFailure(
+      'PREFLIGHT_FAILURE',
+      'model response assistant content must be a normalized string'
     )
   }
   if (!['CONTINUE', 'COMPLETE', 'FAILED'].includes(response.outcome)) {
@@ -292,15 +321,17 @@ function parseToolArguments(argumentsJson: string, toolCallId: string): unknown 
 }
 
 /**
- * Add only synthetic in-memory messages needed to make the next planning
- * boundary multi-call realistic. The returned observation contains no
- * provider payload and callers choose which normalized lifecycle fields to
- * overlay before the next leg boundary.
+ * Add only in-memory messages needed to make the next planning boundary
+ * multi-call realistic. Normalized assistant text and tool results are
+ * available to the next provider call, but the returned observation is not a
+ * durable evidence artifact; callers choose which lifecycle fields to overlay
+ * before the next leg boundary.
  */
 export function appendC1LiveResponseToObservation(
   observation: C1AgentObservation,
   response: C1LiveModelResponse,
-  observationId: string
+  observationId: string,
+  toolResultContents: ReadonlyMap<string, string> = new Map()
 ): C1AgentObservation {
   const toolBlocks = response.toolRequests.map((tool) => ({
     type: 'toolCall',
@@ -312,13 +343,23 @@ export function appendC1LiveResponseToObservation(
     ...observation.messages,
     {
       role: 'assistant',
-      content: [{ type: 'text', text: `scripted response ${response.responseId}` }, ...toolBlocks]
+      content: [
+        ...(response.assistantContent.length > 0
+          ? [{ type: 'text', text: response.assistantContent }]
+          : []),
+        ...toolBlocks
+      ]
     }
   ]
   for (const tool of response.toolExecutions) {
     messages.push({
       role: 'toolResult',
-      content: [{ type: 'text', text: `scripted result ${tool.toolCallId}` }],
+      content: [
+        {
+          type: 'text',
+          text: toolResultContents.get(tool.toolCallId) ?? `scripted result ${tool.toolCallId}`
+        }
+      ],
       toolCallId: tool.toolCallId,
       toolName: tool.toolName,
       isError: tool.result === 'ERROR'
@@ -334,6 +375,222 @@ export function appendC1LiveResponseToObservation(
     latestVerificationSourceKeys: [],
     recentEvidenceSourceKeys: [],
     previousWorkingSetId: null
+  }
+}
+
+const C1_TOOL_COMMAND_TIMEOUT_MS = 30_000
+const C1_TOOL_OUTPUT_LIMIT_BYTES = 64 * 1024
+
+function toolArgumentRecord(value: unknown, toolCallId: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`tool ${toolCallId} arguments must be an object`)
+  }
+  return value as Record<string, unknown>
+}
+
+function requiredToolString(
+  argumentsRecord: Record<string, unknown>,
+  key: string,
+  toolCallId: string
+): string {
+  const value = argumentsRecord[key]
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`tool ${toolCallId} argument ${key} must be a non-empty string`)
+  }
+  return value
+}
+
+function requiredToolText(
+  argumentsRecord: Record<string, unknown>,
+  key: string,
+  toolCallId: string
+): string {
+  const value = argumentsRecord[key]
+  if (typeof value !== 'string') {
+    throw new Error(`tool ${toolCallId} argument ${key} must be a string`)
+  }
+  return value
+}
+
+function countOccurrences(value: string, needle: string): number {
+  let count = 0
+  let offset = 0
+  while (offset < value.length) {
+    const index = value.indexOf(needle, offset)
+    if (index < 0) break
+    count += 1
+    offset = index + needle.length
+  }
+  return count
+}
+
+interface C1SandboxPath {
+  readonly absolutePath: string
+  readonly relativePath: string
+}
+
+/**
+ * Executes the three frozen C1 tools inside one fresh fixture sandbox. Raw
+ * results are returned only through the in-memory observation; the driver
+ * persists normalized tool metadata instead.
+ */
+export class C1SandboxToolExecutor implements C1LiveToolExecutor {
+  private readonly sandboxRoot: string
+  private readonly commandTimeoutMs: number
+  private readonly outputLimitBytes: number
+
+  constructor(
+    sandboxRoot: string,
+    options: {
+      readonly commandTimeoutMs?: number
+      readonly outputLimitBytes?: number
+    } = {}
+  ) {
+    this.sandboxRoot = resolve(sandboxRoot)
+    this.commandTimeoutMs = options.commandTimeoutMs ?? C1_TOOL_COMMAND_TIMEOUT_MS
+    this.outputLimitBytes = options.outputLimitBytes ?? C1_TOOL_OUTPUT_LIMIT_BYTES
+    if (!Number.isSafeInteger(this.commandTimeoutMs) || this.commandTimeoutMs < 1) {
+      throw new C1PreflightFailure(
+        'PREFLIGHT_FAILURE',
+        'C1 sandbox tool command timeout must be a positive integer'
+      )
+    }
+    if (!Number.isSafeInteger(this.outputLimitBytes) || this.outputLimitBytes < 1) {
+      throw new C1PreflightFailure(
+        'PREFLIGHT_FAILURE',
+        'C1 sandbox tool output limit must be a positive integer'
+      )
+    }
+  }
+
+  async execute(input: {
+    readonly previousObservation: C1AgentObservation
+    readonly response: C1LiveModelResponse
+    readonly observationId: string
+  }): Promise<C1LiveToolLoopResult> {
+    if (input.response.toolExecutions.length > 0) {
+      throw new C1PreflightFailure(
+        'PREFLIGHT_FAILURE',
+        'tool executor received provider-prepopulated tool executions'
+      )
+    }
+    const executions: C1LiveToolExecution[] = []
+    const resultContents = new Map<string, string>()
+    for (const request of input.response.toolRequests) {
+      try {
+        const result = await this.executeRequest(request)
+        executions.push({
+          toolCallId: request.toolCallId,
+          toolName: request.toolName,
+          ...(result.path === undefined ? {} : { path: result.path }),
+          result: result.result
+        })
+        resultContents.set(request.toolCallId, result.content)
+      } catch (error) {
+        executions.push({
+          toolCallId: request.toolCallId,
+          toolName: request.toolName,
+          result: 'ERROR'
+        })
+        resultContents.set(request.toolCallId, this.errorContent(error))
+      }
+    }
+    const responseWithExecutions: C1LiveModelResponse = {
+      ...input.response,
+      toolExecutions: Object.freeze(executions)
+    }
+    return {
+      executions: Object.freeze(executions),
+      observation: appendC1LiveResponseToObservation(
+        input.previousObservation,
+        responseWithExecutions,
+        input.observationId,
+        resultContents
+      )
+    }
+  }
+
+  private async executeRequest(request: C1LiveToolRequest): Promise<{
+    readonly result: 'SUCCESS' | 'ERROR'
+    readonly content: string
+    readonly path?: string
+  }> {
+    const argumentsRecord = toolArgumentRecord(
+      parseToolArguments(request.argumentsJson, request.toolCallId),
+      request.toolCallId
+    )
+    if (request.toolName === 'read') {
+      const path = this.sandboxPath(
+        requiredToolString(argumentsRecord, 'path', request.toolCallId),
+        request.toolCallId
+      )
+      return {
+        result: 'SUCCESS',
+        content: await readFile(path.absolutePath, 'utf8'),
+        path: path.relativePath
+      }
+    }
+    if (request.toolName === 'edit') {
+      const path = this.sandboxPath(
+        requiredToolString(argumentsRecord, 'path', request.toolCallId),
+        request.toolCallId
+      )
+      const oldText = requiredToolString(argumentsRecord, 'oldText', request.toolCallId)
+      const newText = requiredToolText(argumentsRecord, 'newText', request.toolCallId)
+      const existing = await readFile(path.absolutePath, 'utf8')
+      const matches = countOccurrences(existing, oldText)
+      if (matches !== 1) {
+        throw new Error(
+          `edit ${path.relativePath} expected one oldText match, received ${String(matches)}`
+        )
+      }
+      await writeFile(path.absolutePath, existing.replace(oldText, newText), 'utf8')
+      return {
+        result: 'SUCCESS',
+        content: `edited ${path.relativePath}`,
+        path: path.relativePath
+      }
+    }
+    if (request.toolName === 'bash') {
+      const command = requiredToolString(argumentsRecord, 'command', request.toolCallId)
+      const processResult = await runProcess('bash', ['-lc', command], {
+        cwd: this.sandboxRoot,
+        timeoutMs: this.commandTimeoutMs,
+        maxOutputBytes: this.outputLimitBytes
+      })
+      const content = `${processResult.stdout}${processResult.stderr}`
+      const succeeded =
+        processResult.exitCode === 0 &&
+        !processResult.timedOut &&
+        !processResult.outputLimitExceeded
+      return {
+        result: succeeded ? 'SUCCESS' : 'ERROR',
+        content: content.length > 0 ? content : `bash exited with ${String(processResult.exitCode)}`
+      }
+    }
+    throw new Error(`unsupported C1 tool ${request.toolName}`)
+  }
+
+  private sandboxPath(value: string, toolCallId: string): C1SandboxPath {
+    if (isAbsolute(value)) {
+      throw new Error(`tool ${toolCallId} path must be relative to the fixture sandbox`)
+    }
+    const absolutePath = resolve(this.sandboxRoot, value)
+    if (
+      absolutePath !== this.sandboxRoot &&
+      !absolutePath.startsWith(`${this.sandboxRoot}${sep}`)
+    ) {
+      throw new Error(`tool ${toolCallId} path escapes the fixture sandbox`)
+    }
+    const relativePath = relative(this.sandboxRoot, absolutePath).split(sep).join('/')
+    if (relativePath.length === 0) {
+      throw new Error(`tool ${toolCallId} path must identify a file inside the fixture sandbox`)
+    }
+    return { absolutePath, relativePath }
+  }
+
+  private errorContent(error: unknown): string {
+    return `tool execution error: ${error instanceof Error ? error.message : String(error)}`
   }
 }
 
@@ -697,6 +954,8 @@ export interface C1LiveBindingLegInput {
   readonly runtimeSessionId: string
   readonly observationSource: C1LiveObservationSource
   readonly responseSource: C1LiveResponseSource
+  /** Executes provider-requested tools before the next observation boundary. */
+  readonly toolExecutor?: C1LiveToolExecutor
   readonly requireRuntimeDifferenceForCall?: (callOrdinal: number) => boolean
   readonly maxCalls?: number
   readonly startedAtMs?: number
@@ -901,7 +1160,34 @@ export class C1LiveBindingDriver {
         }
         transportSendAttempts += transport.sendAttempts
         blockedProviderCallAttempts += transport.blockedSendAttempts
-        const usage = validateModelResponse(response, input.responseSource.kind)
+        validateModelResponse(response, input.responseSource.kind)
+        let effectiveResponse = response
+        let toolObservation: C1AgentObservation | undefined
+        if (input.toolExecutor !== undefined && response.toolRequests.length > 0) {
+          if (response.toolExecutions.length > 0) {
+            throw new C1PreflightFailure(
+              'PREFLIGHT_FAILURE',
+              'authorized provider response must not prepopulate tool executions'
+            )
+          }
+          const toolLoop = await input.toolExecutor.execute({
+            previousObservation: currentObservation,
+            response,
+            observationId: `${input.runId}-observation-after-call-${String(callOrdinal).padStart(2, '0')}`
+          })
+          if (toolLoop.executions.length !== response.toolRequests.length) {
+            throw new C1PreflightFailure(
+              'PREFLIGHT_FAILURE',
+              `tool executor returned ${toolLoop.executions.length} executions for ${response.toolRequests.length} requests`
+            )
+          }
+          effectiveResponse = Object.freeze({
+            ...response,
+            toolExecutions: Object.freeze([...toolLoop.executions])
+          })
+          toolObservation = toolLoop.observation
+        }
+        const usage = validateModelResponse(effectiveResponse, input.responseSource.kind)
         const row: C1LiveBindingEvidence = {
           studyId: execution.capture.studyId,
           taskId: execution.capture.taskId,
@@ -912,27 +1198,27 @@ export class C1LiveBindingDriver {
           callOrdinal,
           turnId: execution.capture.turnId,
           modelCallId: execution.capture.modelCallId,
-          responseId: response.responseId,
+          responseId: effectiveResponse.responseId,
           responseSource: input.responseSource.kind,
-          assistantMessages: response.assistantMessageCount,
+          assistantMessages: effectiveResponse.assistantMessageCount,
           usage,
-          toolCalls: response.toolRequests.length,
+          toolCalls: effectiveResponse.toolRequests.length,
           toolRequests: Object.freeze(
-            response.toolRequests.map((request) => ({
+            effectiveResponse.toolRequests.map((request) => ({
               toolCallId: request.toolCallId,
               toolName: request.toolName,
               argumentsJson: request.argumentsJson
             }))
           ),
           toolEvents: Object.freeze(
-            response.toolExecutions.map((execution) => ({
+            effectiveResponse.toolExecutions.map((execution) => ({
               toolCallId: execution.toolCallId,
               toolName: execution.toolName,
               ...(execution.path === undefined ? {} : { path: execution.path }),
               result: execution.result
             }))
           ),
-          taskOutcome: response.outcome,
+          taskOutcome: effectiveResponse.outcome,
           provider: execution.capture.provider,
           model: execution.capture.model,
           endpoint: execution.capture.endpoint,
@@ -960,11 +1246,11 @@ export class C1LiveBindingDriver {
           evidence: row
         })
         evidence.push(row)
-        for (const tool of response.toolRequests) this.options.budgetGuard.recordToolCall()
+        for (const tool of effectiveResponse.toolRequests) this.options.budgetGuard.recordToolCall()
         previousObservation = currentObservation
         previousExecution = execution
-        finalOutcome = response.outcome
-        if (response.outcome !== 'CONTINUE') break
+        finalOutcome = effectiveResponse.outcome
+        if (effectiveResponse.outcome !== 'CONTINUE') break
         if (callOrdinal === maxCalls) {
           throw new C1PreflightFailure(
             'PREFLIGHT_FAILURE',
@@ -975,7 +1261,8 @@ export class C1LiveBindingDriver {
           callOrdinal,
           previousObservation,
           previousExecution,
-          response
+          response: effectiveResponse,
+          ...(toolObservation === undefined ? {} : { toolObservation })
         })
         previousWorkingSet = input.arm === 'RUNTIME' ? execution.workingSet : null
       }
@@ -1052,6 +1339,7 @@ export async function runC1LiveBudgetBoundaryProbe(input: {
   const responses = Array.from({ length: 24 }, (_, index) => ({
     responseId: `boundary-response-${String(index + 1).padStart(2, '0')}`,
     assistantMessageCount: 1,
+    assistantContent: `boundary response ${String(index + 1).padStart(2, '0')}`,
     usage: {
       inputTokens: 10,
       outputTokens: 1,
@@ -1296,6 +1584,7 @@ function scriptedResponses(
     {
       responseId: `${prefix}-response-01`,
       assistantMessageCount: 1,
+      assistantContent: `${prefix} assistant response 01`,
       usage: {
         inputTokens: 100,
         outputTokens: 10,
@@ -1328,6 +1617,7 @@ function scriptedResponses(
     {
       responseId: `${prefix}-response-02`,
       assistantMessageCount: 1,
+      assistantContent: `${prefix} assistant response 02`,
       usage: {
         inputTokens: 120,
         outputTokens: 12,
@@ -1355,6 +1645,7 @@ function scriptedResponses(
     {
       responseId: `${prefix}-response-03`,
       assistantMessageCount: 1,
+      assistantContent: `${prefix} assistant response 03`,
       usage: {
         inputTokens: 140,
         outputTokens: 14,

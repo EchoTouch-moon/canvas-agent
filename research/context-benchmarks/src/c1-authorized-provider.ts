@@ -95,6 +95,29 @@ function textFromContent(content: PiMessageView['content'], label: string): stri
   return text.join('')
 }
 
+function assistantContent(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'string') return value
+  if (!Array.isArray(value)) {
+    throw new C1PreflightFailure(
+      'PREFLIGHT_FAILURE',
+      'provider assistant content has an unsupported shape'
+    )
+  }
+  const text: string[] = []
+  for (const [index, block] of value.entries()) {
+    const record = asRecord(block, `provider assistant content[${index}]`)
+    if (record['type'] !== 'text' || typeof record['text'] !== 'string') {
+      throw new C1PreflightFailure(
+        'PREFLIGHT_FAILURE',
+        `provider assistant content[${index}] is not a text block`
+      )
+    }
+    text.push(record['text'])
+  }
+  return text.join('')
+}
+
 function toolArguments(value: unknown, label: string): string {
   if (value === undefined) {
     throw new C1PreflightFailure('PREFLIGHT_FAILURE', `${label} is missing`)
@@ -346,6 +369,7 @@ function providerResponse(value: unknown): C1LiveModelResponse {
   return {
     responseId,
     assistantMessageCount: 1,
+    assistantContent: assistantContent(message['content']),
     usage: providerUsage(payload['usage']),
     toolRequests,
     toolExecutions: [],
