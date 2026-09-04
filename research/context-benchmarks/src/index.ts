@@ -24,11 +24,13 @@ export {
   type AcceptanceEvaluationInput,
   type DeterministicAcceptanceEvidence
 } from './acceptance'
+export { diagnoseBenchmarkFailure, type BenchmarkFailureDiagnosis } from './diagnostics'
 export {
-  diagnoseBenchmarkFailure,
-  type BenchmarkFailureDiagnosis
-} from './diagnostics'
-export { benchmarkManifestSchema, loadManifests, parseManifestFile, validateManifestReferences } from './manifest'
+  benchmarkManifestSchema,
+  loadManifests,
+  parseManifestFile,
+  validateManifestReferences
+} from './manifest'
 export {
   computeInitialStateHash,
   buildSanitizedChildEnvironment,
@@ -44,7 +46,12 @@ export {
   type MaterializedFixture,
   type ProcessResult
 } from './fixture-generator'
-export { aggregateRuns, allCategoriesHaveNativeAndShadow, replayShadowCallsHash, replayShadowEvidenceHash } from './aggregation'
+export {
+  aggregateRuns,
+  allCategoriesHaveNativeAndShadow,
+  replayShadowCallsHash,
+  replayShadowEvidenceHash
+} from './aggregation'
 export {
   formatValidationSummary,
   validateCorpus,
@@ -117,6 +124,8 @@ export {
   C1_PROTOCOL_ID,
   C1_PROVIDER_ENDPOINT,
   C1_PROVIDER_ID,
+  C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE,
+  C1_SYSTEM_INSTRUCTION,
   C1_READINESS_RELATIVE_PATH,
   C1_RUN_CONTRACT_ID,
   C1_TASK_MANIFEST_ID,
@@ -164,6 +173,9 @@ export {
   type C1PreflightOrder,
   type C1PreflightTask,
   type C1ProviderBoundCapture,
+  type C1ProviderNativeMetadata,
+  type C1ProviderStructuralEnvelope,
+  type C1ProviderToolDefinition,
   type C1ProviderTransport,
   type C1ProviderReportedUsage,
   type C1LegExecutionInput,
@@ -203,7 +215,8 @@ export {
   type C1LiveResponseSource,
   type C1LiveResponseSourceKind,
   type C1LiveTaskOutcome,
-  type C1LiveToolCall,
+  type C1LiveToolExecution,
+  type C1LiveToolRequest,
   type C1LiveUsage
 } from './c1-live-binding'
 export {

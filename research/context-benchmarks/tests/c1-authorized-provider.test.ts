@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest'
 import {
   C1_AUTHORIZED_PROVIDER_MAX_TOKENS,
   C1AuthorizedProviderResponseSource,
+  C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE,
+  C1_SYSTEM_INSTRUCTION,
   C1LiveBindingDriver,
   C1HardBudgetGuard,
   C1ScriptedObservationSource,
@@ -59,7 +61,10 @@ async function bindingAndTask() {
   return { providerBinding, task: study.tasks[0]! }
 }
 
-function requestFor(task: Awaited<ReturnType<typeof bindingAndTask>>['task'], providerConfigHash: string) {
+function requestFor(
+  task: Awaited<ReturnType<typeof bindingAndTask>>['task'],
+  providerConfigHash: string
+) {
   return {
     capture: captureC1PreflightArm({
       task,
@@ -74,70 +79,109 @@ function requestFor(task: Awaited<ReturnType<typeof bindingAndTask>>['task'], pr
       modelVisibleSemanticContextFingerprint: 'authorized-provider-fingerprint'
     }),
     providerBoundMessages: [
-      { role: 'system', content: [{ type: 'text', text: 'system instruction' }] },
-      { role: 'user', content: [{ type: 'text', text: 'inspect the target' }] },
-      {
-        role: 'assistant',
-        content: [
-          {
-            type: 'toolCall',
-            id: 'tool-call-1',
-            name: 'read',
-            arguments: { path: 'src/target.js' }
-          }
-        ]
-      },
-      {
-        role: 'toolResult',
-        content: [{ type: 'text', text: 'target contents' }],
-        toolCallId: 'tool-call-1',
-        toolName: 'read',
-        isError: false
-      }
-    ]
+      { role: 'user', content: [{ type: 'text', text: 'inspect the target' }] }
+    ],
+    structuralEnvelope: C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE
+  }
+}
+
+async function runAuthorizedDriver(input: {
+  readonly providerBinding: Awaited<ReturnType<typeof bindingAndTask>>['providerBinding']
+  readonly task: Awaited<ReturnType<typeof bindingAndTask>>['task']
+  readonly responses: readonly Response[]
+  readonly runId: string
+  readonly pairId: string
+}) {
+  const calls: {
+    input: Parameters<typeof fetch>[0]
+    init: Parameters<typeof fetch>[1]
+  }[] = []
+  let responseCursor = 0
+  const source = new C1AuthorizedProviderResponseSource({
+    providerBinding: input.providerBinding,
+    apiKey: API_KEY_SENTINEL,
+    fetchImpl: async (requestInput, init) => {
+      calls.push({ input: requestInput, init })
+      const response = input.responses[responseCursor]
+      responseCursor += 1
+      if (response === undefined) throw new Error('authorized provider test response exhausted')
+      return response
+    }
+  })
+  const checkpointRoot = await mkdtemp(join(tmpdir(), 'canvas-c1-authorized-provider-driver-'))
+  try {
+    const evidenceSink = new C1JsonlLiveBindingEvidenceSink(
+      join(checkpointRoot, 'checkpoints.jsonl')
+    )
+    const driver = new C1LiveBindingDriver({
+      providerBinding: input.providerBinding,
+      budgetGuard: new C1HardBudgetGuard({
+        perLeg: {
+          maxProviderCalls: 24,
+          maxToolCalls: 96,
+          maxWallClockMs: 600000
+        },
+        study: {
+          maxProviderCalls: 24,
+          maxToolCalls: 96,
+          maxWallClockMs: 600000,
+          maxLegs: 1
+        }
+      }),
+      evidenceSink
+    })
+    const observation = createC1ObservedReadTrace({
+      observationId: `${input.runId}-observation`,
+      prompt: input.task.prompt,
+      fixtureFiles: ['src/target.js']
+    })
+    const result = await driver.runLeg({
+      studyId: `${input.runId}-study`,
+      task: input.task,
+      stratum: input.task.stratum,
+      pairId: input.pairId,
+      arm: 'NATIVE',
+      runId: input.runId,
+      fixtureContentSha256: input.task.fixtureRevision.fixtureContentSha256,
+      fixtureTreeObjectId: input.task.fixtureRevision.fixtureTreeObjectId,
+      runtimeSessionId: `${input.runId}-session`,
+      observationSource: new C1ScriptedObservationSource(
+        Array.from({ length: input.responses.length }, () => observation)
+      ),
+      responseSource: source,
+      maxCalls: input.responses.length,
+      startedAtMs: 100,
+      nowMs: 100,
+      wallClockMs: 0
+    })
+    const firstCall = calls[0]
+    if (firstCall === undefined) throw new Error('authorized provider test made no request')
+    return {
+      result,
+      calls,
+      body: JSON.parse(String(firstCall.init?.body)) as Record<string, unknown>,
+      evidenceSink
+    }
+  } finally {
+    await rm(checkpointRoot, { recursive: true, force: true })
   }
 }
 
 describe('C1 authorized provider response source', () => {
-  it('binds the exact endpoint, model, auth header, messages, tools, and usage', async () => {
+  it('binds the actual driver path to the executor-owned envelope and provider usage', async () => {
     const { providerBinding, task } = await bindingAndTask()
-    const calls: { input: Parameters<typeof fetch>[0]; init: Parameters<typeof fetch>[1] }[] = []
-    const fetchImpl: typeof fetch = async (input, init) => {
-      calls.push({ input, init })
-      return providerResponse({
-        id: 'authorized-response-01',
-        toolCalls: [
-          {
-            id: 'provider-tool-1',
-            type: 'function',
-            function: { name: 'read', arguments: '{"path":"src/target.js"}' }
-          }
-        ],
-        finishReason: 'tool_calls'
-      })
-    }
-    const source = new C1AuthorizedProviderResponseSource({
-      providerBinding,
-      apiKey: API_KEY_SENTINEL,
-      fetchImpl,
-      tools: [
-        {
-          type: 'function',
-          function: {
-            name: 'read',
-            description: 'Read a fixture file',
-            parameters: { type: 'object', properties: { path: { type: 'string' } } }
-          }
-        }
-      ]
-    })
     try {
-      const request = requestFor(task, providerBinding.providerConfigHash)
-      const response = await source.next(request)
-      expect(response).toMatchObject({
+      const { result, calls, body, evidenceSink } = await runAuthorizedDriver({
+        providerBinding,
+        task,
+        responses: [providerResponse({ id: 'authorized-response-01' })],
+        runId: 'c1-20260903-authorized-provider-envelope-native-aaaaaaaa',
+        pairId: 'c1-authorized-provider-envelope-p01'
+      })
+      expect(result.evidence).toHaveLength(1)
+      expect(result.evidence[0]).toMatchObject({
         responseId: 'authorized-response-01',
-        assistantMessageCount: 1,
-        outcome: 'CONTINUE',
+        responseSource: 'AUTHORIZED_PROVIDER',
         usage: {
           inputTokens: 21,
           outputTokens: 5,
@@ -145,17 +189,8 @@ describe('C1 authorized provider response source', () => {
           cacheWriteTokens: 0,
           totalTokens: 26,
           usageSource: 'PROVIDER_REPORTED'
-        },
-        toolCalls: [
-          {
-            toolCallId: 'provider-tool-1',
-            toolName: 'read',
-            path: 'src/target.js',
-            result: 'SUCCESS'
-          }
-        ]
+        }
       })
-      expect(source.requestCount).toBe(1)
       expect(calls).toHaveLength(1)
       expect(calls[0]?.input).toBe('https://api.stepfun.com/step_plan/v1/chat/completions')
       expect(calls[0]?.init?.method).toBe('POST')
@@ -164,30 +199,34 @@ describe('C1 authorized provider response source', () => {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${API_KEY_SENTINEL}`
       })
-      const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>
       expect(body).toMatchObject({
         model: 'step-3.7-flash',
         stream: false,
         max_tokens: C1_AUTHORIZED_PROVIDER_MAX_TOKENS
       })
-      expect(body['tools']).toHaveLength(1)
+      expect(body['tools']).toEqual(C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE.tools)
       expect(body['messages']).toEqual([
-        { role: 'system', content: 'system instruction' },
-        { role: 'user', content: 'inspect the target' },
+        { role: 'system', content: C1_SYSTEM_INSTRUCTION },
+        { role: 'user', content: task.prompt },
         {
           role: 'assistant',
           content: null,
           tool_calls: [
             {
-              id: 'tool-call-1',
+              id: 'c1-observation-c1-20260903-authorized-provider-envelope-native-aaaaaaaa-observation-1',
               type: 'function',
               function: { name: 'read', arguments: '{"path":"src/target.js"}' }
             }
           ]
         },
-        { role: 'tool', content: 'target contents', tool_call_id: 'tool-call-1' }
+        {
+          role: 'tool',
+          content: 'observation captured for src/target.js',
+          tool_call_id:
+            'c1-observation-c1-20260903-authorized-provider-envelope-native-aaaaaaaa-observation-1'
+        }
       ])
-      expect(JSON.stringify(source)).not.toContain(API_KEY_SENTINEL)
+      expect(JSON.stringify(evidenceSink.checkpoints)).not.toContain(API_KEY_SENTINEL)
     } finally {
       providerBinding.dispose()
     }
@@ -212,8 +251,17 @@ describe('C1 authorized provider response source', () => {
       const driver = new C1LiveBindingDriver({
         providerBinding,
         budgetGuard: new C1HardBudgetGuard({
-          perLeg: { maxProviderCalls: 24, maxToolCalls: 96, maxWallClockMs: 600000 },
-          study: { maxProviderCalls: 24, maxToolCalls: 96, maxWallClockMs: 600000, maxLegs: 1 }
+          perLeg: {
+            maxProviderCalls: 24,
+            maxToolCalls: 96,
+            maxWallClockMs: 600000
+          },
+          study: {
+            maxProviderCalls: 24,
+            maxToolCalls: 96,
+            maxWallClockMs: 600000,
+            maxLegs: 1
+          }
         }),
         evidenceSink
       })
@@ -254,6 +302,48 @@ describe('C1 authorized provider response source', () => {
     }
   })
 
+  it.each([
+    ['read', { path: 'src/target.js' }],
+    ['edit', { path: 'src/target.js', oldText: 'before', newText: 'after' }],
+    ['bash', { command: 'pnpm test --filter context-benchmarks' }]
+  ] as const)(
+    'round-trips lossless %s tool arguments without claiming execution',
+    async (toolName, args) => {
+      const { providerBinding, task } = await bindingAndTask()
+      try {
+        const argumentsJson = JSON.stringify(args)
+        const { result } = await runAuthorizedDriver({
+          providerBinding,
+          task,
+          responses: [
+            providerResponse({
+              id: `${toolName}-request-response`,
+              toolCalls: [
+                {
+                  id: `${toolName}-request-01`,
+                  type: 'function',
+                  function: { name: toolName, arguments: argumentsJson }
+                }
+              ],
+              finishReason: 'tool_calls'
+            }),
+            providerResponse({ id: `${toolName}-complete-response` })
+          ],
+          runId: `c1-20260903-authorized-provider-${toolName}-aaaaaaaa`,
+          pairId: `c1-authorized-provider-${toolName}-p01`
+        })
+        expect(result.evidence[0]?.toolRequests).toEqual([
+          { toolCallId: `${toolName}-request-01`, toolName, argumentsJson }
+        ])
+        expect(result.evidence[0]?.toolEvents).toEqual([])
+        expect(result.evidence[0]?.toolCalls).toBe(1)
+        expect(result.evidence[1]?.toolRequests).toEqual([])
+      } finally {
+        providerBinding.dispose()
+      }
+    }
+  )
+
   it('fails closed on HTTP errors and incomplete provider usage without exposing response bodies', async () => {
     const { providerBinding, task } = await bindingAndTask()
     try {
@@ -266,7 +356,9 @@ describe('C1 authorized provider response source', () => {
             headers: { 'content-type': 'application/json' }
           })
       })
-      await expect(httpSource.next(requestFor(task, providerBinding.providerConfigHash))).rejects.toMatchObject({
+      await expect(
+        httpSource.next(requestFor(task, providerBinding.providerConfigHash))
+      ).rejects.toMatchObject({
         code: 'PROVIDER_PREPARATION_FAILURE',
         message: 'authorized provider returned HTTP 503'
       })
@@ -317,7 +409,10 @@ describe('C1 authorized provider response source', () => {
       const request = requestFor(task, providerBinding.providerConfigHash)
       const mismatched = {
         ...request,
-        capture: { ...request.capture, endpoint: 'https://unexpected.example.test' }
+        capture: {
+          ...request.capture,
+          endpoint: 'https://unexpected.example.test'
+        }
       }
       await expect(source.next(mismatched as typeof request)).rejects.toMatchObject({
         code: 'PROVIDER_BINDING_MISMATCH'

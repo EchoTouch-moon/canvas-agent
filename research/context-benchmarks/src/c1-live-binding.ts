@@ -28,6 +28,8 @@ import {
   type C1LegExecutionResult,
   type C1PreflightTask,
   type C1ProviderBoundCapture,
+  C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE,
+  type C1ProviderStructuralEnvelope,
   type C1StrictProviderBinding,
   type C1ProviderTransport,
   C1_NODE_RANGE,
@@ -70,7 +72,13 @@ export interface C1LiveUsage {
   readonly usageSource: 'SCRIPTED_FAKE' | 'PROVIDER_REPORTED'
 }
 
-export interface C1LiveToolCall {
+export interface C1LiveToolRequest {
+  readonly toolCallId: string
+  readonly toolName: string
+  readonly argumentsJson: string
+}
+
+export interface C1LiveToolExecution {
   readonly toolCallId: string
   readonly toolName: string
   readonly path?: string
@@ -81,7 +89,8 @@ export interface C1LiveModelResponse {
   readonly responseId: string
   readonly assistantMessageCount: number
   readonly usage: C1LiveUsage
-  readonly toolCalls: readonly C1LiveToolCall[]
+  readonly toolRequests: readonly C1LiveToolRequest[]
+  readonly toolExecutions: readonly C1LiveToolExecution[]
   readonly outcome: C1LiveTaskOutcome
 }
 
@@ -89,6 +98,8 @@ export interface C1LiveOutboundRequest {
   readonly capture: C1ProviderBoundCapture
   /** In-memory only. Evidence serializers must never include this field. */
   readonly providerBoundMessages: readonly PiMessageView[]
+  /** Executor-owned structural context; evidence serializers must omit it. */
+  readonly structuralEnvelope: C1ProviderStructuralEnvelope
 }
 
 export interface C1LiveResponseSource {
@@ -218,27 +229,66 @@ function validateModelResponse(
   if (!['CONTINUE', 'COMPLETE', 'FAILED'].includes(response.outcome)) {
     throw new C1PreflightFailure('PREFLIGHT_FAILURE', 'model response has an unknown task outcome')
   }
-  const toolIds = new Set<string>()
-  for (const tool of response.toolCalls) {
+  const requestIds = new Set<string>()
+  const requestsById = new Map<string, C1LiveToolRequest>()
+  for (const request of response.toolRequests) {
     if (
-      tool.toolCallId.length === 0 ||
-      tool.toolName.length === 0 ||
-      toolIds.has(tool.toolCallId)
+      request.toolCallId.length === 0 ||
+      request.toolName.length === 0 ||
+      request.argumentsJson.length === 0 ||
+      requestIds.has(request.toolCallId)
     ) {
       throw new C1PreflightFailure(
         'PREFLIGHT_FAILURE',
-        'model response contains an unstable tool event'
+        'model response contains an unstable tool request'
       )
     }
-    toolIds.add(tool.toolCallId)
-    if (tool.result !== 'SUCCESS' && tool.result !== 'ERROR') {
+    try {
+      JSON.parse(request.argumentsJson)
+    } catch {
       throw new C1PreflightFailure(
         'PREFLIGHT_FAILURE',
-        'model response contains an unknown tool result'
+        `model response tool request ${request.toolCallId} has invalid JSON arguments`
       )
     }
+    requestIds.add(request.toolCallId)
+    requestsById.set(request.toolCallId, request)
+  }
+  const executionIds = new Set<string>()
+  for (const execution of response.toolExecutions) {
+    const request = requestsById.get(execution.toolCallId)
+    if (
+      execution.toolCallId.length === 0 ||
+      execution.toolName.length === 0 ||
+      executionIds.has(execution.toolCallId) ||
+      request === undefined ||
+      request.toolName !== execution.toolName
+    ) {
+      throw new C1PreflightFailure(
+        'PREFLIGHT_FAILURE',
+        'model response contains an execution without a matching tool request'
+      )
+    }
+    if (execution.result !== 'SUCCESS' && execution.result !== 'ERROR') {
+      throw new C1PreflightFailure(
+        'PREFLIGHT_FAILURE',
+        'model response contains an unknown tool execution result'
+      )
+    }
+    executionIds.add(execution.toolCallId)
   }
   return validateLiveUsage(response.usage, sourceKind)
+}
+
+function parseToolArguments(argumentsJson: string, toolCallId: string): unknown {
+  try {
+    return JSON.parse(argumentsJson) as unknown
+  } catch {
+    throw new C1PreflightFailure(
+      'PREFLIGHT_FAILURE',
+      `tool request ${toolCallId} has invalid JSON arguments`
+    )
+  }
 }
 
 /**
@@ -252,11 +302,11 @@ export function appendC1LiveResponseToObservation(
   response: C1LiveModelResponse,
   observationId: string
 ): C1AgentObservation {
-  const toolBlocks = response.toolCalls.map((tool) => ({
+  const toolBlocks = response.toolRequests.map((tool) => ({
     type: 'toolCall',
     id: tool.toolCallId,
     name: tool.toolName,
-    arguments: tool.path === undefined ? {} : { path: tool.path }
+    arguments: parseToolArguments(tool.argumentsJson, tool.toolCallId)
   }))
   const messages: PiMessageView[] = [
     ...observation.messages,
@@ -265,7 +315,7 @@ export function appendC1LiveResponseToObservation(
       content: [{ type: 'text', text: `scripted response ${response.responseId}` }, ...toolBlocks]
     }
   ]
-  for (const tool of response.toolCalls) {
+  for (const tool of response.toolExecutions) {
     messages.push({
       role: 'toolResult',
       content: [{ type: 'text', text: `scripted result ${tool.toolCallId}` }],
@@ -289,7 +339,11 @@ export function appendC1LiveResponseToObservation(
 
 /** Capture-only transport used by the shared driver before its send permit. */
 export class C1LiveBindingTransport implements C1ProviderTransport {
-  private pending: C1LiveOutboundRequest | null = null
+  private pending: {
+    readonly capture: C1ProviderBoundCapture
+    readonly providerBoundMessages: readonly PiMessageView[]
+    readonly structuralEnvelope: C1ProviderStructuralEnvelope | null
+  } | null = null
   private readonly validator: C1PreflightFakeTransport
   private readonly sent: C1LiveOutboundRequest[] = []
   private attempts = 0
@@ -332,10 +386,17 @@ export class C1LiveBindingTransport implements C1ProviderTransport {
       )
     }
     this.validator.capture(request)
-    this.pending = { capture: request, providerBoundMessages: [] }
+    this.pending = {
+      capture: request,
+      providerBoundMessages: [],
+      structuralEnvelope: null
+    }
   }
 
-  attachProviderBoundMessages(messages: readonly PiMessageView[]): void {
+  attachProviderBoundMessages(
+    messages: readonly PiMessageView[],
+    structuralEnvelope: C1ProviderStructuralEnvelope
+  ): void {
     if (this.pending === null) {
       throw new C1PreflightFailure(
         'PREFLIGHT_FAILURE',
@@ -345,9 +406,23 @@ export class C1LiveBindingTransport implements C1ProviderTransport {
     if (this.pending.providerBoundMessages.length > 0) {
       throw new C1PreflightFailure('PREFLIGHT_FAILURE', 'provider-bound messages already attached')
     }
+    if (this.pending.structuralEnvelope !== null) {
+      throw new C1PreflightFailure('PREFLIGHT_FAILURE', 'structural envelope already attached')
+    }
+    if (
+      structuralEnvelope !== C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE ||
+      structuralEnvelope.structuralFingerprint !==
+        this.pending.capture.systemDeveloperToolStructuresFingerprint
+    ) {
+      throw new C1PreflightFailure(
+        'PREFLIGHT_FAILURE',
+        'executor structural envelope does not match the provider-bound capture fingerprint'
+      )
+    }
     this.pending = {
       capture: this.pending.capture,
-      providerBoundMessages: Object.freeze([...messages])
+      providerBoundMessages: Object.freeze([...messages]),
+      structuralEnvelope
     }
   }
 
@@ -364,20 +439,27 @@ export class C1LiveBindingTransport implements C1ProviderTransport {
     }) => void | Promise<void>
   }): Promise<C1LiveModelResponse> {
     this.attempts += 1
-    const request = this.pending
+    const pending = this.pending
     this.pending = null
-    if (request === null) {
+    if (pending === null) {
       this.blockedAttempts += 1
       throw new C1PreflightFailure(
         'PREFLIGHT_FAILURE',
         'live binding transport send has no capture'
       )
     }
-    if (request.providerBoundMessages.length === 0) {
+    if (pending.providerBoundMessages.length === 0) {
       this.blockedAttempts += 1
       throw new C1PreflightFailure(
         'PREFLIGHT_FAILURE',
         'live binding transport send has no in-memory provider-bound messages'
+      )
+    }
+    if (pending.structuralEnvelope === null) {
+      this.blockedAttempts += 1
+      throw new C1PreflightFailure(
+        'PREFLIGHT_FAILURE',
+        'live binding transport send has no executor-owned structural envelope'
       )
     }
     if (input.killSwitch?.isTripped === true) {
@@ -393,6 +475,11 @@ export class C1LiveBindingTransport implements C1ProviderTransport {
     } catch (error) {
       this.blockedAttempts += 1
       throw error
+    }
+    const request: C1LiveOutboundRequest = {
+      capture: pending.capture,
+      providerBoundMessages: pending.providerBoundMessages,
+      structuralEnvelope: pending.structuralEnvelope
     }
     this.sent.push(request)
     await input.onOutboundPermitted?.({
@@ -419,9 +506,15 @@ export interface C1LiveBindingEvidence {
   readonly assistantMessages: number
   readonly usage: C1LiveUsage
   readonly toolCalls: number
+  readonly toolRequests: readonly {
+    readonly toolCallId: string
+    readonly toolName: string
+    readonly argumentsJson: string
+  }[]
   readonly toolEvents: readonly {
     readonly toolCallId: string
     readonly toolName: string
+    readonly path?: string
     readonly result: 'SUCCESS' | 'ERROR'
   }[]
   readonly taskOutcome: C1LiveTaskOutcome
@@ -534,7 +627,7 @@ export function validateC1LiveBindingEvidence(
       row.fallbackSent ||
       row.networkSent !== expectedNetworkSent ||
       row.replayMismatch !== 0 ||
-      row.toolCalls !== row.toolEvents.length ||
+      row.toolCalls !== row.toolRequests.length ||
       row.assistantMessages < 1
     ) {
       throw new C1PreflightFailure(
@@ -550,13 +643,43 @@ export function validateC1LiveBindingEvidence(
     }
     turns.add(row.turnId)
     modelCalls.add(row.modelCallId)
-    for (const tool of row.toolEvents) {
-      if (tool.toolCallId.length === 0 || tool.toolName.length === 0) {
+    const requestNames = new Map<string, string>()
+    for (const request of row.toolRequests) {
+      if (
+        request.toolCallId.length === 0 ||
+        request.toolName.length === 0 ||
+        request.argumentsJson.length === 0 ||
+        requestNames.has(request.toolCallId)
+      ) {
         throw new C1PreflightFailure(
           'PREFLIGHT_FAILURE',
-          'live binding evidence has an unstable tool id'
+          'live binding evidence has an unstable tool request'
         )
       }
+      try {
+        JSON.parse(request.argumentsJson)
+      } catch {
+        throw new C1PreflightFailure(
+          'PREFLIGHT_FAILURE',
+          `live binding evidence has invalid arguments for ${request.toolCallId}`
+        )
+      }
+      requestNames.set(request.toolCallId, request.toolName)
+    }
+    const executionIds = new Set<string>()
+    for (const tool of row.toolEvents) {
+      if (
+        tool.toolCallId.length === 0 ||
+        tool.toolName.length === 0 ||
+        executionIds.has(tool.toolCallId) ||
+        requestNames.get(tool.toolCallId) !== tool.toolName
+      ) {
+        throw new C1PreflightFailure(
+          'PREFLIGHT_FAILURE',
+          'live binding evidence has an execution without a matching tool request'
+        )
+      }
+      executionIds.add(tool.toolCallId)
     }
     validateLiveUsage(row.usage, expected.responseSource)
   }
@@ -750,7 +873,10 @@ export class C1LiveBindingDriver {
           }
           throw error
         }
-        transport.attachProviderBoundMessages(execution.providerBoundMessages)
+        transport.attachProviderBoundMessages(
+          execution.providerBoundMessages,
+          execution.structuralEnvelope
+        )
         let response: C1LiveModelResponse
         try {
           response = await transport.send({
@@ -790,12 +916,20 @@ export class C1LiveBindingDriver {
           responseSource: input.responseSource.kind,
           assistantMessages: response.assistantMessageCount,
           usage,
-          toolCalls: response.toolCalls.length,
+          toolCalls: response.toolRequests.length,
+          toolRequests: Object.freeze(
+            response.toolRequests.map((request) => ({
+              toolCallId: request.toolCallId,
+              toolName: request.toolName,
+              argumentsJson: request.argumentsJson
+            }))
+          ),
           toolEvents: Object.freeze(
-            response.toolCalls.map((tool) => ({
-              toolCallId: tool.toolCallId,
-              toolName: tool.toolName,
-              result: tool.result
+            response.toolExecutions.map((execution) => ({
+              toolCallId: execution.toolCallId,
+              toolName: execution.toolName,
+              ...(execution.path === undefined ? {} : { path: execution.path }),
+              result: execution.result
             }))
           ),
           taskOutcome: response.outcome,
@@ -826,7 +960,7 @@ export class C1LiveBindingDriver {
           evidence: row
         })
         evidence.push(row)
-        for (const tool of response.toolCalls) this.options.budgetGuard.recordToolCall()
+        for (const tool of response.toolRequests) this.options.budgetGuard.recordToolCall()
         previousObservation = currentObservation
         previousExecution = execution
         finalOutcome = response.outcome
@@ -926,7 +1060,8 @@ export async function runC1LiveBudgetBoundaryProbe(input: {
       totalTokens: 11,
       usageSource: 'SCRIPTED_FAKE' as const
     },
-    toolCalls: [],
+    toolRequests: [],
+    toolExecutions: [],
     outcome: 'COMPLETE' as const
   }))
   const responseSource = new C1ScriptedResponseSource(responses)
@@ -960,10 +1095,11 @@ export async function runC1LiveBudgetBoundaryProbe(input: {
         providerConfigHash: input.providerBinding.providerConfigHash,
         providerBoundSourceKeys: ['run/tool-call://c1-budget-boundary'],
         modelVisibleSemanticContextFingerprint: 'c1-budget-boundary-fingerprint',
-        systemDeveloperToolStructuresFingerprint: 'c1-budget-boundary-tools'
+        systemDeveloperToolStructuresFingerprint:
+          C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE.structuralFingerprint
       })
       transport.capture(capture)
-      transport.attachProviderBoundMessages(messages)
+      transport.attachProviderBoundMessages(messages, C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE)
       try {
         await transport.send({
           budgetGuard,
@@ -1031,7 +1167,12 @@ export async function runC1LiveBudgetTerminationProbe(input: {
   try {
     const budgetGuard = new C1HardBudgetGuard({
       perLeg: { maxProviderCalls: 1, maxToolCalls: 96, maxWallClockMs: 600000 },
-      study: { maxProviderCalls: 1, maxToolCalls: 96, maxWallClockMs: 600000, maxLegs: 2 }
+      study: {
+        maxProviderCalls: 1,
+        maxToolCalls: 96,
+        maxWallClockMs: 600000,
+        maxLegs: 2
+      }
     })
     const checkpointSink = new C1JsonlLiveBindingEvidenceSink(checkpointPath)
     const driver = new C1LiveBindingDriver({
@@ -1163,7 +1304,16 @@ function scriptedResponses(
         totalTokens: 110,
         usageSource: 'SCRIPTED_FAKE'
       },
-      toolCalls: includeFirstToolCall
+      toolRequests: includeFirstToolCall
+        ? [
+            {
+              toolCallId: `${prefix}-read-01`,
+              toolName: 'read',
+              argumentsJson: JSON.stringify({ path: 'src/observed-extra.js' })
+            }
+          ]
+        : [],
+      toolExecutions: includeFirstToolCall
         ? [
             {
               toolCallId: `${prefix}-read-01`,
@@ -1186,7 +1336,14 @@ function scriptedResponses(
         totalTokens: 132,
         usageSource: 'SCRIPTED_FAKE'
       },
-      toolCalls: [
+      toolRequests: [
+        {
+          toolCallId: `${prefix}-bash-02`,
+          toolName: 'bash',
+          argumentsJson: JSON.stringify({ command: 'pnpm test' })
+        }
+      ],
+      toolExecutions: [
         {
           toolCallId: `${prefix}-bash-02`,
           toolName: 'bash',
@@ -1206,7 +1363,8 @@ function scriptedResponses(
         totalTokens: 154,
         usageSource: 'SCRIPTED_FAKE'
       },
-      toolCalls: [],
+      toolRequests: [],
+      toolExecutions: [],
       outcome: 'COMPLETE'
     }
   ]

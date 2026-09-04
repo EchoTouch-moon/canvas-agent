@@ -9,7 +9,10 @@ import {
   C1_MODEL_ID,
   C1_PROVIDER_ENDPOINT,
   C1_PROVIDER_ID,
+  C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE,
   C1PreflightFailure,
+  type C1ProviderStructuralEnvelope,
+  type C1ProviderToolDefinition,
   type C1StrictProviderBinding
 } from './c1-live-preflight'
 
@@ -17,14 +20,7 @@ import {
 export const C1_AUTHORIZED_PROVIDER_SOURCE_ID = 'C1_AUTHORIZED_PROVIDER_RESPONSE_SOURCE_V1'
 export const C1_AUTHORIZED_PROVIDER_MAX_TOKENS = 16_384
 
-export interface C1AuthorizedProviderToolDefinition {
-  readonly type: 'function'
-  readonly function: {
-    readonly name: string
-    readonly description?: string
-    readonly parameters: Record<string, unknown>
-  }
-}
+export type C1AuthorizedProviderToolDefinition = C1ProviderToolDefinition
 
 export interface C1AuthorizedProviderResponseSourceOptions {
   readonly providerBinding: C1StrictProviderBinding
@@ -33,7 +29,6 @@ export interface C1AuthorizedProviderResponseSourceOptions {
   /** Injected in tests; the default is the global fetch used only by live code. */
   readonly fetchImpl?: typeof fetch
   readonly requestTimeoutMs?: number
-  readonly tools?: readonly C1AuthorizedProviderToolDefinition[]
 }
 
 interface OpenAIMessage {
@@ -122,7 +117,10 @@ function toolArguments(value: unknown, label: string): string {
 function assistantMessage(message: PiMessageView): OpenAIMessage {
   const content = message.content
   if (typeof content === 'string' || content === undefined) {
-    return { role: 'assistant', content: typeof content === 'string' ? content : null }
+    return {
+      role: 'assistant',
+      content: typeof content === 'string' ? content : null
+    }
   }
   if (!Array.isArray(content)) {
     throw new C1PreflightFailure('PREFLIGHT_FAILURE', 'assistant message has unsupported content')
@@ -170,34 +168,55 @@ function providerMessage(message: PiMessageView): OpenAIMessage {
       tool_call_id: nonEmptyString(message.toolCallId, `${message.role}.toolCallId`)
     }
   }
-  if (message.role === 'system' || message.role === 'user') {
+  if (message.role === 'user') {
     return {
       role: message.role,
       content: textFromContent(message.content, `${message.role}.content`)
     }
   }
-  // Step Plan's frozen compatibility profile does not accept a developer role.
-  if (message.role === 'developer') {
-    return { role: 'system', content: textFromContent(message.content, 'developer.content') }
-  }
   throw new C1PreflightFailure(
     'PREFLIGHT_FAILURE',
-    `unsupported Pi message role for OpenAI-compatible provider: ${message.role}`
+    `structural role must come from the executor-owned envelope: ${message.role}`
   )
 }
 
-function providerMessages(messages: readonly PiMessageView[]): readonly OpenAIMessage[] {
+function structuralMessages(envelope: C1ProviderStructuralEnvelope): readonly OpenAIMessage[] {
+  return [
+    { role: 'system', content: envelope.systemInstruction },
+    ...envelope.developerMessages.map((message) => ({
+      role: 'system' as const,
+      content: message
+    }))
+  ]
+}
+
+function providerMessages(
+  messages: readonly PiMessageView[],
+  envelope: C1ProviderStructuralEnvelope
+): readonly OpenAIMessage[] {
   if (messages.length === 0) {
     throw new C1PreflightFailure('PREFLIGHT_FAILURE', 'authorized provider request has no messages')
   }
-  return Object.freeze(messages.map(providerMessage))
+  return Object.freeze([...structuralMessages(envelope), ...messages.map(providerMessage)])
 }
 
-function usageValue(
-  usage: JsonRecord,
-  keys: readonly string[],
-  label: string
-): number {
+function canonicalJson(value: unknown): string {
+  if (value === null) return 'null'
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return JSON.stringify(value)
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .join(',')}}`
+  }
+  throw new C1PreflightFailure('PREFLIGHT_FAILURE', 'structural envelope is not JSON serializable')
+}
+
+function usageValue(usage: JsonRecord, keys: readonly string[], label: string): number {
   for (const key of keys) {
     const value = usage[key]
     if (value !== undefined) return nonNegativeInteger(value, label)
@@ -237,12 +256,7 @@ function providerUsage(value: unknown): C1LiveModelResponse['usage'] {
   }
   const cacheWrite =
     usageValueIfPresent(usage, ['cache_write_tokens', 'cacheWriteTokens']) ??
-    nestedUsageValue(
-      usage,
-      'prompt_tokens_details',
-      ['cache_write_tokens'],
-      'cacheWriteTokens'
-    )
+    nestedUsageValue(usage, 'prompt_tokens_details', ['cache_write_tokens'], 'cacheWriteTokens')
   if (cacheWrite === undefined) {
     throw new C1PreflightFailure(
       'USAGE_CONTRACT_MISMATCH',
@@ -271,17 +285,6 @@ function usageValueIfPresent(usage: JsonRecord, keys: readonly string[]): number
   return undefined
 }
 
-function extractToolPath(argumentsText: string): string | undefined {
-  try {
-    const parsed: unknown = JSON.parse(argumentsText)
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
-    const path = (parsed as Record<string, unknown>)['path']
-    return typeof path === 'string' ? path : undefined
-  } catch {
-    return undefined
-  }
-}
-
 function providerResponse(value: unknown): C1LiveModelResponse {
   const payload = asRecord(value, 'provider response')
   const responseId = nonEmptyString(payload['id'], 'provider response.id')
@@ -298,7 +301,7 @@ function providerResponse(value: unknown): C1LiveModelResponse {
   if (rawToolCalls !== undefined && !Array.isArray(rawToolCalls)) {
     throw new C1PreflightFailure('PREFLIGHT_FAILURE', 'provider tool_calls is not an array')
   }
-  const toolCalls = (rawToolCalls ?? []).map((raw, index) => {
+  const toolRequests = (rawToolCalls ?? []).map((raw, index) => {
     const toolCall = asRecord(raw, `provider tool_calls[${index}]`)
     if (toolCall['type'] !== 'function') {
       throw new C1PreflightFailure(
@@ -311,20 +314,16 @@ function providerResponse(value: unknown): C1LiveModelResponse {
       functionCall['arguments'],
       `provider tool_calls[${index}].function.arguments`
     )
-    const path = extractToolPath(argumentsText)
     return {
       toolCallId: nonEmptyString(toolCall['id'], `provider tool_calls[${index}].id`),
       toolName: nonEmptyString(functionCall['name'], `provider tool_calls[${index}].function.name`),
-      ...(path === undefined ? {} : { path }),
-      // The C1 observation source executes/observes the requested tool next;
-      // SUCCESS here means the provider emitted a valid tool request.
-      result: 'SUCCESS' as const
+      argumentsJson: argumentsText
     }
   })
   const finishReason = choice['finish_reason']
   if (
     (finishReason === 'tool_calls' || finishReason === 'function_call') &&
-    toolCalls.length === 0
+    toolRequests.length === 0
   ) {
     throw new C1PreflightFailure(
       'PREFLIGHT_FAILURE',
@@ -332,7 +331,7 @@ function providerResponse(value: unknown): C1LiveModelResponse {
     )
   }
   const outcome =
-    toolCalls.length > 0 || finishReason === 'tool_calls' || finishReason === 'function_call'
+    toolRequests.length > 0 || finishReason === 'tool_calls' || finishReason === 'function_call'
       ? 'CONTINUE'
       : finishReason === 'stop'
         ? 'COMPLETE'
@@ -348,8 +347,26 @@ function providerResponse(value: unknown): C1LiveModelResponse {
     responseId,
     assistantMessageCount: 1,
     usage: providerUsage(payload['usage']),
-    toolCalls,
+    toolRequests,
+    toolExecutions: [],
     outcome
+  }
+}
+
+function assertStructuralEnvelope(
+  request: C1LiveOutboundRequest,
+  envelope: C1ProviderStructuralEnvelope
+): void {
+  if (
+    envelope === null ||
+    typeof envelope !== 'object' ||
+    envelope.structuralFingerprint !== request.capture.systemDeveloperToolStructuresFingerprint ||
+    canonicalJson(envelope) !== canonicalJson(C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE)
+  ) {
+    throw new C1PreflightFailure(
+      'PROVIDER_BINDING_MISMATCH',
+      'authorized provider request does not match the executor-owned structural envelope'
+    )
   }
 }
 
@@ -369,6 +386,7 @@ function assertRequestBinding(
       'authorized provider request does not match the frozen C1 binding'
     )
   }
+  assertStructuralEnvelope(request, request.structuralEnvelope)
 }
 
 export class C1AuthorizedProviderResponseSource implements C1LiveResponseSource {
@@ -377,7 +395,6 @@ export class C1AuthorizedProviderResponseSource implements C1LiveResponseSource 
   private readonly providerBinding: C1StrictProviderBinding
   private readonly fetchImpl: typeof fetch
   private readonly requestTimeoutMs: number
-  private readonly tools: readonly C1AuthorizedProviderToolDefinition[] | undefined
   private requests = 0
 
   constructor(options: C1AuthorizedProviderResponseSourceOptions) {
@@ -410,7 +427,6 @@ export class C1AuthorizedProviderResponseSource implements C1LiveResponseSource 
         'authorized provider request timeout must be a positive integer'
       )
     }
-    this.tools = options.tools === undefined ? undefined : Object.freeze([...options.tools])
   }
 
   get requestCount(): number {
@@ -419,13 +435,16 @@ export class C1AuthorizedProviderResponseSource implements C1LiveResponseSource 
 
   async next(request: C1LiveOutboundRequest): Promise<C1LiveModelResponse> {
     assertRequestBinding(request, this.providerBinding)
-    const messages = providerMessages(request.providerBoundMessages)
+    const envelope = request.structuralEnvelope
+    const messages = providerMessages(request.providerBoundMessages, envelope)
     const body = {
       model: C1_MODEL_ID,
       messages,
-      stream: false,
-      max_tokens: C1_AUTHORIZED_PROVIDER_MAX_TOKENS,
-      ...(this.tools !== undefined ? { tools: [...this.tools] } : {})
+      tools: envelope.tools,
+      // The frozen provider-native metadata is an in-memory binding contract;
+      // `streaming` is its supported wire projection for Step Plan.
+      stream: envelope.providerNativeMetadata.streaming,
+      max_tokens: C1_AUTHORIZED_PROVIDER_MAX_TOKENS
     }
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs)

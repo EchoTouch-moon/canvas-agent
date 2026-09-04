@@ -129,13 +129,107 @@ export class C1PreflightFailure extends Error {
 }
 
 const C1_POLICY_VERSION = 'policy-v0-c1-live-preflight-v1'
-const C1_SYSTEM_INSTRUCTION = 'Follow the frozen C1 task contract and preserve tool continuity.'
+export const C1_SYSTEM_INSTRUCTION =
+  'Follow the frozen C1 task contract and preserve tool continuity.'
 const C1_TOOL_STRUCTURE_FINGERPRINT = sha256Bytes(
   'c1-provider-tool-structures-v1|read|edit|bash|same-across-arms'
 )
 const C1_EXPECTED_PROVIDER_CONFIG_HASH = computeProviderConfigHash(STEP_PLAN_PROVIDER_PROFILE)
 
 type JsonRecord = Record<string, unknown>
+
+export interface C1ProviderToolDefinition {
+  readonly type: 'function'
+  readonly function: {
+    readonly name: 'read' | 'edit' | 'bash'
+    readonly description: string
+    readonly parameters: Readonly<Record<string, unknown>>
+  }
+}
+
+export interface C1ProviderNativeMetadata {
+  readonly api: 'openai-completions'
+  readonly reasoningFormat: 'text'
+  readonly responseFormat: 'text'
+  readonly streaming: false
+}
+
+export interface C1ProviderStructuralEnvelope {
+  readonly systemInstruction: string
+  readonly developerMessages: readonly string[]
+  readonly tools: readonly C1ProviderToolDefinition[]
+  readonly providerNativeMetadata: C1ProviderNativeMetadata
+  readonly structuralFingerprint: string
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value
+  Object.freeze(value)
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child)
+  return value
+}
+
+/**
+ * Frozen provider-facing structure for the C1 experiment. System/developer
+ * instructions and tool definitions are executor-owned; an authorized
+ * response source may serialize this envelope but may not replace it.
+ */
+export const C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE: C1ProviderStructuralEnvelope = deepFreeze({
+  systemInstruction: C1_SYSTEM_INSTRUCTION,
+  developerMessages: [],
+  tools: [
+    {
+      type: 'function',
+      function: {
+        name: 'read',
+        description: 'Read a repository source file.',
+        parameters: {
+          type: 'object',
+          properties: { path: { type: 'string' } },
+          required: ['path'],
+          additionalProperties: false
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'edit',
+        description: 'Edit a repository source file.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string' },
+            oldText: { type: 'string' },
+            newText: { type: 'string' }
+          },
+          required: ['path', 'oldText', 'newText'],
+          additionalProperties: false
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'bash',
+        description: 'Run a repository command.',
+        parameters: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+          additionalProperties: false
+        }
+      }
+    }
+  ],
+  providerNativeMetadata: {
+    api: 'openai-completions',
+    reasoningFormat: 'text',
+    responseFormat: 'text',
+    streaming: false
+  },
+  structuralFingerprint: C1_TOOL_STRUCTURE_FINGERPRINT
+})
 
 function fail(code: C1PreflightFailureCode, message: string): never {
   throw new C1PreflightFailure(code, message)
@@ -1492,6 +1586,8 @@ export interface C1LegExecutionResult {
    * be serialized into evidence artifacts.
    */
   readonly providerBoundMessages: readonly PiMessageView[]
+  /** Executor-owned structure that surrounds the model-visible messages. */
+  readonly structuralEnvelope: C1ProviderStructuralEnvelope
   readonly workingSet: ContextWorkingSet | null
   readonly transition: ContextTransition | null
   readonly materializedWorkingSetFingerprint: string
@@ -1806,7 +1902,6 @@ export class C1LegExecutor {
   constructor(
     private readonly options: {
       readonly providerBinding: C1StrictProviderBinding
-      readonly systemInstruction?: string
     }
   ) {}
 
@@ -1881,7 +1976,7 @@ export class C1LegExecutor {
         runId: input.runId,
         killSwitch,
         activeModeOptIn: input.failureInjection !== 'FALLBACK',
-        systemInstruction: this.options.systemInstruction ?? C1_SYSTEM_INSTRUCTION,
+        systemInstruction: C1_SYSTEM_INSTRUCTION,
         harness: 'PI'
       })
       if (composition.kind !== 'REWRITE_READY') {
@@ -1959,6 +2054,7 @@ export class C1LegExecutor {
     return {
       capture,
       providerBoundMessages: Object.freeze([...providerBoundMessages]),
+      structuralEnvelope: C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE,
       workingSet,
       transition,
       materializedWorkingSetFingerprint,
