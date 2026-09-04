@@ -224,6 +224,16 @@ export {
   type C1LiveUsage
 } from './c1-live-binding'
 export {
+  C1_LIVE_STUDY_DRY_RUN_ID,
+  C1_LIVE_STUDY_DRY_RUN_MODE,
+  runC1StudyDryRun,
+  type C1StudyDryRunArtifactSummary,
+  type C1StudyDryRunGate,
+  type C1StudyDryRunLegSummary,
+  type C1StudyDryRunOptions,
+  type C1StudyDryRunReport
+} from './c1-live-study'
+export {
   C1_AUTHORIZED_PROVIDER_MAX_TOKENS,
   C1_AUTHORIZED_PROVIDER_SOURCE_ID,
   C1AuthorizedProviderResponseSource,
