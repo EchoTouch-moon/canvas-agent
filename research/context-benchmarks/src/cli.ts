@@ -16,7 +16,7 @@ import {
 import { runC1TreatmentReadiness } from './c1-treatment-readiness'
 import { runC1LivePreflight } from './c1-live-preflight'
 import { runC1LiveBindingReadiness } from './c1-live-binding'
-import { runC1StudyDryRun } from './c1-live-study'
+import { runC1LiveStudy, runC1StudyDryRun } from './c1-live-study'
 
 async function main(): Promise<void> {
   const command = process.argv[2] ?? 'validate'
@@ -186,6 +186,45 @@ async function main(): Promise<void> {
     })
     console.log(JSON.stringify(report, null, 2))
     console.log(`C1_LIVE_STUDY_DRY_RUN_STATUS=${report.status}`)
+    if (report.status !== 'PASS') process.exitCode = 1
+    return
+  }
+  if (command === 'c1-live-study') {
+    if (process.env['CANVAS_C1_LIVE'] !== '1') {
+      console.log('C1 live study skipped: CANVAS_C1_LIVE=1 is required')
+      console.log('C1_LIVE_STUDY_STATUS=SKIPPED')
+      process.exitCode = 1
+      return
+    }
+    const apiKey = process.env['STEP_PLAN_API_KEY']
+    const studyId = process.env['CANVAS_C1_STUDY_ID']
+    const executionRevision = process.env['CANVAS_C1_EXECUTION_SHA']
+    if (apiKey === undefined || apiKey.length === 0) {
+      console.log('C1 live study skipped: STEP_PLAN_API_KEY is required')
+      console.log('C1_LIVE_STUDY_STATUS=SKIPPED')
+      process.exitCode = 1
+      return
+    }
+    if (studyId === undefined || studyId.length === 0) {
+      console.log('C1 live study skipped: CANVAS_C1_STUDY_ID is required')
+      console.log('C1_LIVE_STUDY_STATUS=SKIPPED')
+      process.exitCode = 1
+      return
+    }
+    if (executionRevision === undefined || executionRevision.length === 0) {
+      console.log('C1 live study skipped: CANVAS_C1_EXECUTION_SHA is required')
+      console.log('C1_LIVE_STUDY_STATUS=SKIPPED')
+      process.exitCode = 1
+      return
+    }
+    const report = await runC1LiveStudy({
+      repoRoot: resolve(researchRoot, '../..'),
+      studyId,
+      executionRevision,
+      apiKey
+    })
+    console.log(JSON.stringify(report, null, 2))
+    console.log(`C1_LIVE_STUDY_STATUS=${report.status}`)
     if (report.status !== 'PASS') process.exitCode = 1
     return
   }

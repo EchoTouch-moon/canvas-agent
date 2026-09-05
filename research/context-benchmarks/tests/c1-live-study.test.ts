@@ -1,17 +1,23 @@
 import { EventEmitter } from 'node:events'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import {
   C1AuthorizedProviderResponseSource,
+  C1LiveTaskObservationSource,
   C1_PREFLIGHT_ARTIFACT_NAMES,
   C1SandboxToolExecutor,
   C1ScriptedObservationSource,
   C1StudyOrchestrator,
   changedC1FixturePaths,
   createC1ObservedReadTrace,
+  loadC1FrozenStudy,
+  materializeFreshC1Fixture,
   nodeVersionSatisfiesC1Range,
+  runC1LiveStudy,
   runC1StudyDryRun,
+  runC1TaskOracles,
+  verifyC1FixtureBinding,
   writableScopePass
 } from '../src'
 
@@ -49,6 +55,134 @@ function amendedProviderResponse(input: {
 }
 
 describe('C1 study-level credential-free orchestration', () => {
+  it('uses a fixed content bootstrap and forwards only real tool observations', async () => {
+    if (!nodeVersionSatisfiesC1Range()) return
+
+    const study = await loadC1FrozenStudy(REPO_ROOT)
+    const task = study.tasks[0]
+    if (task === undefined) throw new Error('frozen C1 study has no task')
+    const fixtureBinding = await verifyC1FixtureBinding(study, task)
+    const fixture = await materializeFreshC1Fixture(fixtureBinding.sourcePath)
+    try {
+      const source = await C1LiveTaskObservationSource.fromFixture({
+        task,
+        runId: 'c1-20260905-c1-live-bootstrap-NATIVE-aaaaaaaa',
+        fixtureRoot: fixture.path
+      })
+      const expectedContent = await readFile(
+        join(fixture.path, task.expectedWritablePaths[0]!),
+        'utf8'
+      )
+      const bootstrapContent = source.initialObservation.messages
+        .filter((message) => message.role === 'toolResult')
+        .map((message) =>
+          Array.isArray(message.content)
+            ? message.content
+                .filter(
+                  (block): block is { readonly type: 'text'; readonly text: string } =>
+                    typeof block === 'object' &&
+                    block !== null &&
+                    'type' in block &&
+                    block.type === 'text' &&
+                    'text' in block &&
+                    typeof block.text === 'string'
+                )
+                .map((block) => block.text)
+                .join('')
+            : message.content ?? ''
+        )
+        .join('\n')
+      expect(bootstrapContent).toContain(expectedContent)
+      expect(source.initialObservation.sourceLifecycleSignals).toBeUndefined()
+
+      const toolObservation = {
+        ...source.initialObservation,
+        observationId: 'c1-live-after-tool'
+      }
+      expect(
+        source.next({
+          callOrdinal: 1,
+          previousObservation: source.initialObservation,
+          previousExecution: {} as never,
+          response: {} as never,
+          toolObservation
+        })
+      ).toBe(toolObservation)
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  it('runs frozen objective and regression oracles as task evidence', async () => {
+    if (!nodeVersionSatisfiesC1Range()) return
+
+    const study = await loadC1FrozenStudy(REPO_ROOT)
+    const task = study.tasks[0]
+    if (task === undefined) throw new Error('frozen C1 study has no task')
+    const fixtureBinding = await verifyC1FixtureBinding(study, task)
+    const fixture = await materializeFreshC1Fixture(fixtureBinding.sourcePath)
+    try {
+      const evaluation = await runC1TaskOracles({ task, fixtureRoot: fixture.path })
+
+      expect(evaluation.status).toBe('TASK_FAILURE')
+      expect(evaluation.taskOutcome).toBe('FAILURE')
+      expect(evaluation.objective.status).toBe('FAIL')
+      expect(evaluation.regression.status).toBe('PASS')
+      expect(evaluation.objective.stdoutSha256).toMatch(/^[0-9a-f]{64}$/)
+      expect(evaluation.regression.stderrSha256).toMatch(/^[0-9a-f]{64}$/)
+
+      const scopeFailure = await runC1TaskOracles({
+        task,
+        fixtureRoot: fixture.path,
+        writableScopePass: false
+      })
+      expect(scopeFailure.status).toBe('TASK_FAILURE')
+      expect(scopeFailure.taskOutcome).toBe('FAILURE')
+      expect(scopeFailure.writableScopePass).toBe(false)
+
+      const unavailable = await runC1TaskOracles({
+        task: {
+          ...task,
+          objectiveOracle: {
+            ...task.objectiveOracle,
+            args: ['-e', 'setTimeout(() => {}, 1000)'],
+            timeoutMs: 10
+          }
+        },
+        fixtureRoot: fixture.path
+      })
+      expect(unavailable.status).toBe('HARNESS_CONTRACT_FAILURE')
+      expect(unavailable.taskOutcome).toBe('NOT_OBSERVED')
+      expect(unavailable.objective.status).toBe('UNAVAILABLE')
+    } finally {
+      await fixture.cleanup()
+    }
+  }, 30_000)
+
+  it('rejects a mismatched live revision before claiming an identity or fetching', async () => {
+    const outputRoot = await mkdtemp(join('/tmp', 'canvas-c1-live-entrypoint-gate-test-'))
+    let fetchCalls = 0
+    try {
+      await expect(
+        runC1LiveStudy({
+          repoRoot: REPO_ROOT,
+          outputRoot,
+          studyId: 'c1-20260905-c1-feasibility-v1-dddddddd',
+          executionRevision: '0000000000000000000000000000000000000000',
+          apiKey: 'c1-test-only-api-key',
+          fetchImpl: async () => {
+            fetchCalls += 1
+            throw new Error('fetch must not be called')
+          }
+        })
+      ).rejects.toMatchObject({ code: 'CONTRACT_BINDING_MISMATCH' })
+      expect(await readdir(outputRoot)).toEqual([])
+      expect(fetchCalls).toBe(0)
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true })
+    }
+  })
+
   it('fails closed before claiming an identity outside the frozen Node range', async () => {
     if (nodeVersionSatisfiesC1Range()) return
 
