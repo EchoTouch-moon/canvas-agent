@@ -555,7 +555,7 @@ function serializedStudyArtifacts(input: {
     ...metadataEvidence(row),
     toolRequestCount: row.toolRequestEvidence.length,
     toolExecutionCount: row.toolEvents.length,
-    latencyStatus: input.dryRun ? 'NOT_OBSERVED_IN_DRY_RUN' : 'OBSERVED_IN_RUN'
+    latencyStatus: input.dryRun ? 'NOT_OBSERVED_IN_DRY_RUN' : 'NOT_INSTRUMENTED'
   }))
   const outcomeRows = input.completed.flatMap((leg) =>
     leg.result.evidence.map((row) => ({
@@ -968,9 +968,14 @@ async function runC1StudyWithFactories(
           requireRuntimeDifferenceForCall: (callOrdinal) =>
             options.requireRuntimeDifferenceForCall?.(plan, callOrdinal) ?? false,
           maxCalls: options.maxCalls ?? 24,
-          startedAtMs: 0,
-          nowMs: 0,
-          wallClockMs: 0,
+          ...(options.dryRun
+            ? {
+                startedAtMs: 0,
+                nowMs: 0,
+                wallClockMs: 0
+              }
+            : {}),
+          responseAbortSignal: responseAbortController.signal,
           killSwitch: legKillSwitch
         })
         const after = await computeC1FixtureContentSummary(fixture.path)

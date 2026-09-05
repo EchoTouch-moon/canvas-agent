@@ -1,10 +1,13 @@
 import { EventEmitter } from 'node:events'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   C1_PREFLIGHT_ARTIFACT_NAMES,
+  C1ScriptedObservationSource,
+  C1StudyOrchestrator,
   changedC1FixturePaths,
+  createC1ObservedReadTrace,
   nodeVersionSatisfiesC1Range,
   runC1StudyDryRun,
   writableScopePass
@@ -135,5 +138,68 @@ describe('C1 study-level credential-free orchestration', () => {
     expect(changedC1FixturePaths(before, after)).toEqual(['src/allowed.js', 'src/escape.js'])
     expect(writableScopePass(['src/allowed.js'], ['src/allowed.js'])).toBe(true)
     expect(writableScopePass(changedC1FixturePaths(before, after), ['src/allowed.js'])).toBe(false)
+  })
+
+  it('uses the real clock for non-dry-run wall-clock enforcement', async () => {
+    if (!nodeVersionSatisfiesC1Range()) return
+
+    const outputRoot = await mkdtemp(join('/tmp', 'canvas-c1-study-clock-test-'))
+    const realDateNow = Date.now.bind(Date)
+    const dateNow = vi.spyOn(Date, 'now')
+    let clockActive = false
+    let dateReads = 0
+    dateNow.mockImplementation(() => {
+      if (!clockActive) return realDateNow()
+      return dateReads++ === 0 ? 0 : 600_001
+    })
+    let responseCalls = 0
+    try {
+      const report = await new C1StudyOrchestrator({
+        repoRoot: REPO_ROOT,
+        outputRoot,
+        studyId: 'c1-20260905-c1-feasibility-v1-aaaaaaaa',
+        runId: 'C1_LIVE_CLOCK_LEG_TEST_V1',
+        executionMode: 'CREDENTIAL_FREE_CLOCK_REGRESSION',
+        responseSourceKind: 'SCRIPTED_FAKE',
+        dryRun: false,
+        maxCalls: 1,
+        responseSourceFactory: () => {
+          clockActive = true
+          return {
+            kind: 'SCRIPTED_FAKE' as const,
+            next: async () => {
+              responseCalls += 1
+              throw new Error('response source must not run after a wall-clock breach')
+            }
+          }
+        },
+        observationSourceFactory: (input) =>
+          new C1ScriptedObservationSource([
+            createC1ObservedReadTrace({
+              observationId: `${input.plan.runId}-initial`,
+              prompt: input.task.prompt,
+              fixtureFiles: [input.task.expectedWritablePaths[0] ?? 'src/target.js'],
+              taskPhase: 'INVESTIGATE'
+            })
+          ]),
+        toolExecutorFactory: () => ({
+          execute: async () => {
+            throw new Error('tool executor must not run after a wall-clock breach')
+          }
+        })
+      }).run()
+
+      expect(report.status).toBe('FAIL')
+      expect(report.studyTerminal).toBe(true)
+      expect(report.legsAttempted).toBe(1)
+      expect(report.legsCompleted).toBe(0)
+      expect(report.failures[0]?.code).toBe('BUDGET_BREACH')
+      expect(responseCalls).toBe(0)
+      expect(report.providerCalls).toBe(0)
+      expect(report.networkRequests).toBe(0)
+    } finally {
+      dateNow.mockRestore()
+      await rm(outputRoot, { recursive: true, force: true })
+    }
   })
 })
