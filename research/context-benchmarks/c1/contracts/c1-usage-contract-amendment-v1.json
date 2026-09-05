@@ -1,0 +1,144 @@
+{
+  "amendmentId": "C1_USAGE_CONTRACT_AMENDMENT_V1",
+  "schemaVersion": 1,
+  "status": "DRAFT",
+  "purpose": "Make Provider-dependent cache split availability explicit without changing the frozen C1 effectiveness design.",
+  "grantsProviderExecution": false,
+  "providerCallsDuringDrafting": 0,
+  "parentContract": {
+    "contractId": "C1_RUN_CONTRACT_V1",
+    "path": "research/context-benchmarks/c1/contracts/c1-run-contract-v1.json",
+    "sha256": "1c82e095973b5cf9b47787f99a6ad41dccfd50d3f68379c68c02e8bd36d6f9f4"
+  },
+  "supersedes": {
+    "contractId": "C1_RUN_CONTRACT_V1",
+    "scope": [
+      "providerUsage.cacheReadTokens",
+      "providerUsage.cacheWriteTokens"
+    ],
+    "allOtherClausesRemainUnchanged": true
+  },
+  "changeType": "PROVIDER_USAGE_CAPABILITY_SEMANTICS_ONLY",
+  "amendmentSha256": "PENDING_FREEZE",
+  "effectiveContractSha256": "PENDING_FREEZE",
+  "providerUsage": {
+    "usageSource": "PROVIDER_REPORTED",
+    "requiredNumericFields": [
+      "inputTokens",
+      "outputTokens",
+      "totalTokens"
+    ],
+    "capabilityAwareFields": [
+      "cacheReadTokens",
+      "cacheWriteTokens"
+    ],
+    "metricEncoding": {
+      "kind": "TAGGED_PROVIDER_METRIC",
+      "reported": {
+        "status": "REPORTED",
+        "valueType": "NON_NEGATIVE_INTEGER"
+      },
+      "unavailable": {
+        "status": "UNAVAILABLE",
+        "reason": "NOT_REPORTED_BY_PROVIDER",
+        "valueProperty": "MUST_BE_ABSENT"
+      },
+      "bareNullAllowed": false
+    },
+    "requiredFieldRules": {
+      "missing": "HARD_CONTRACT_FAILURE",
+      "wrongType": "HARD_CONTRACT_FAILURE",
+      "negative": "HARD_CONTRACT_FAILURE",
+      "localEstimate": "FORBIDDEN",
+      "derivedCacheWrite": "FORBIDDEN"
+    },
+    "cacheFieldRules": {
+      "absent": "UNAVAILABLE_NOT_REPORTED_BY_PROVIDER",
+      "explicitZero": "REPORTED_ZERO",
+      "presentMalformed": "HARD_CONTRACT_FAILURE",
+      "null": "HARD_CONTRACT_FAILURE",
+      "providerAlias": "ACCEPT_ONLY_IF_UNAMBIGUOUS"
+    }
+  },
+  "analysisImpact": {
+    "primaryEndpoint": {
+      "id": "provider_input_tokens",
+      "path": "providerReported.inputTokens",
+      "direction": "LOWER_IS_BETTER",
+      "changed": false
+    },
+    "cacheSplitEligibility": "NOT_ESTIMABLE_UNLESS_BOTH_CACHE_FIELDS_REPORTED",
+    "unavailableCacheSplitIsZero": false,
+    "unavailableCacheSplitIsPrimaryFailure": false,
+    "estimability": {
+      "taskEffectiveness": "ESTIMABLE",
+      "inputTokenEfficiency": "ESTIMABLE",
+      "totalTokenRegression": "ESTIMABLE",
+      "toolCallEfficiency": "ESTIMABLE",
+      "wallClockOutcomes": "ESTIMABLE",
+      "cacheEfficiency": "NOT_ESTIMABLE",
+      "coldContextCachePenalty": "NOT_ESTIMABLE"
+    },
+    "statisticalRulesChanged": false
+  },
+  "historicalAttempt": {
+    "attemptLabel": "C1 LIVE ATTEMPT #1",
+    "studyId": "c1-20260905-c1-feasibility-v1-35359a74",
+    "authorization": "VALID",
+    "identityStatus": "CONSUMED_RETIRED",
+    "executionRevision": "93fdb08ebf034860ab298e40770044e1aa4c67e6",
+    "provider": "step-plan",
+    "model": "step-3.7-flash",
+    "nodeVersion": "24.15.0",
+    "runManifestStatus": "FAIL",
+    "providerAttempts": 1,
+    "networkRequests": 1,
+    "providerCallPermits": 0,
+    "attemptedLegs": 1,
+    "completedLegs": 0,
+    "responseCalls": 0,
+    "toolExecutions": 0,
+    "terminalReason": "USAGE_CONTRACT_MISMATCH_MISSING_CACHE_WRITE_TOKENS",
+    "classification": "PROVIDER_USAGE_CAPABILITY_MISMATCH",
+    "effectivenessAdmissibility": "NOT_ADMISSIBLE",
+    "resume": "FORBIDDEN",
+    "reuse": "FORBIDDEN",
+    "rebind": "FORBIDDEN"
+  },
+  "unchangedBindings": [
+    "C1_PROTOCOL_V1",
+    "C1_A_MANIFEST_V1",
+    "assignmentMatrix",
+    "nativeRuntimeArms",
+    "primaryEndpoint",
+    "statisticalRules",
+    "budgets",
+    "fixtureIsolation",
+    "treatmentImplementation",
+    "metadataOnlyEvidence",
+    "singleUseTerminalRules",
+    "providerModelEndpointNodeBinding",
+    "fallbackPolicy",
+    "CR-004",
+    "Wave B"
+  ],
+  "freezeSequence": [
+    "ZERO_PROVIDER_LEAD_REVIEW",
+    "CANONICAL_FREEZE",
+    "INDEPENDENT_HASH_VERIFICATION",
+    "ADAPTER_IMPLEMENTATION",
+    "FIXTURE_AND_SCHEMA_REGRESSIONS",
+    "STUDY_ORCHESTRATOR_COMPATIBILITY_REGRESSION",
+    "NEW_AUTHORIZATION_RECORD",
+    "FRESH_STUDY_IDENTITY",
+    "SEPARATE_C1_LIVE_DECISION"
+  ],
+  "authorization": {
+    "adapterImplementation": "NO_GO_UNTIL_AMENDMENT_FROZEN",
+    "newStudyIdentity": "NO_GO",
+    "newProviderCalls": "NO_GO",
+    "c1Live": "NO_GO",
+    "cr004": "NO_GO",
+    "waveB": "NO_GO"
+  }
+}
