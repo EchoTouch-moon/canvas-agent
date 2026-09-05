@@ -120,7 +120,10 @@ export interface C1LiveOutboundRequest {
 
 export interface C1LiveResponseSource {
   readonly kind: C1LiveResponseSourceKind
-  next(request: C1LiveOutboundRequest): Promise<C1LiveModelResponse>
+  next(
+    request: C1LiveOutboundRequest,
+    options?: { readonly signal?: AbortSignal }
+  ): Promise<C1LiveModelResponse>
 }
 
 export interface C1LiveObservationSource {
@@ -720,6 +723,7 @@ export class C1LiveBindingTransport implements C1ProviderTransport {
     readonly budgetGuard: C1HardBudgetGuard
     readonly responseSource: C1LiveResponseSource
     readonly killSwitch?: RunKillSwitch
+    readonly signal?: AbortSignal
     readonly nowMs?: number
     readonly transportSendAttemptOrdinal?: number
     readonly onOutboundPermitted?: (input: {
@@ -777,7 +781,9 @@ export class C1LiveBindingTransport implements C1ProviderTransport {
       providerCallOrdinal: input.budgetGuard.ledger.providerCalls,
       transportSendAttemptOrdinal: input.transportSendAttemptOrdinal ?? this.attempts
     })
-    return input.responseSource.next(request)
+    return input.responseSource.next(request, {
+      ...(input.signal === undefined ? {} : { signal: input.signal })
+    })
   }
 }
 
@@ -984,6 +990,8 @@ export interface C1LiveBindingLegInput {
   readonly startedAtMs?: number
   readonly nowMs?: number
   readonly wallClockMs?: number
+  /** Aborts an in-flight provider request when the study operator stops. */
+  readonly responseAbortSignal?: AbortSignal
   readonly killSwitch?: RunKillSwitch
 }
 
@@ -1165,6 +1173,9 @@ export class C1LiveBindingDriver {
             budgetGuard: this.options.budgetGuard,
             responseSource: input.responseSource,
             killSwitch,
+            ...(input.responseAbortSignal === undefined
+              ? {}
+              : { signal: input.responseAbortSignal }),
             ...(input.nowMs !== undefined ? { nowMs: input.nowMs } : {}),
             transportSendAttemptOrdinal: transportSendAttempts + 1,
             onOutboundPermitted: ({ request, providerCallOrdinal, transportSendAttemptOrdinal }) =>

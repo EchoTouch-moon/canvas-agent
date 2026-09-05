@@ -457,8 +457,17 @@ export class C1AuthorizedProviderResponseSource implements C1LiveResponseSource 
     return this.requests
   }
 
-  async next(request: C1LiveOutboundRequest): Promise<C1LiveModelResponse> {
+  async next(
+    request: C1LiveOutboundRequest,
+    options: { readonly signal?: AbortSignal } = {}
+  ): Promise<C1LiveModelResponse> {
     assertRequestBinding(request, this.providerBinding)
+    if (options.signal?.aborted === true) {
+      throw new C1PreflightFailure(
+        'KILL_SWITCH_BLOCKED',
+        'authorized provider request was blocked by the operator stop signal'
+      )
+    }
     const envelope = request.structuralEnvelope
     const messages = providerMessages(request.providerBoundMessages, envelope)
     const body = {
@@ -471,7 +480,13 @@ export class C1AuthorizedProviderResponseSource implements C1LiveResponseSource 
       max_tokens: C1_AUTHORIZED_PROVIDER_MAX_TOKENS
     }
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs)
+    let timedOut = false
+    const timeout = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, this.requestTimeoutMs)
+    const onAbort = (): void => controller.abort()
+    options.signal?.addEventListener('abort', onAbort, { once: true })
     this.requests += 1
     let response: Response
     try {
@@ -486,10 +501,16 @@ export class C1AuthorizedProviderResponseSource implements C1LiveResponseSource 
         signal: controller.signal
       })
     } catch (error) {
-      if (controller.signal.aborted) {
+      if (timedOut) {
         throw new C1PreflightFailure(
           'DEADLINE_EXCEEDED',
           `authorized provider request exceeded ${this.requestTimeoutMs}ms`
+        )
+      }
+      if (options.signal?.aborted) {
+        throw new C1PreflightFailure(
+          'KILL_SWITCH_BLOCKED',
+          'authorized provider request was aborted by the operator stop signal'
         )
       }
       throw new C1PreflightFailure(
@@ -498,6 +519,7 @@ export class C1AuthorizedProviderResponseSource implements C1LiveResponseSource 
       )
     } finally {
       clearTimeout(timeout)
+      options.signal?.removeEventListener('abort', onAbort)
     }
     if (!response.ok) {
       throw new C1PreflightFailure(

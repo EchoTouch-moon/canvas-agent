@@ -808,6 +808,50 @@ describe('C1 authorized provider response source', () => {
     }
   })
 
+  it('aborts an in-flight provider request from an external operator signal', async () => {
+    const { providerBinding, task } = await bindingAndTask()
+    const operatorAbort = new AbortController()
+    let resolveFetchStarted!: () => void
+    const fetchStarted = new Promise<void>((resolve) => {
+      resolveFetchStarted = resolve
+    })
+    let requestSignal: AbortSignal | undefined
+    const source = new C1AuthorizedProviderResponseSource({
+      providerBinding,
+      apiKey: API_KEY_SENTINEL,
+      requestTimeoutMs: 60_000,
+      fetchImpl: async (_input, init) => {
+        requestSignal = init?.signal ?? undefined
+        resolveFetchStarted()
+        return await new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal
+          if (signal?.aborted) {
+            reject(new Error('fetch aborted'))
+            return
+          }
+          signal?.addEventListener('abort', () => reject(new Error('fetch aborted')), {
+            once: true
+          })
+        })
+      }
+    })
+    try {
+      const pending = source.next(requestFor(task, providerBinding.providerConfigHash), {
+        signal: operatorAbort.signal
+      })
+      await fetchStarted
+      operatorAbort.abort()
+      await expect(pending).rejects.toMatchObject({
+        code: 'KILL_SWITCH_BLOCKED',
+        message: 'authorized provider request was aborted by the operator stop signal'
+      })
+      expect(requestSignal?.aborted).toBe(true)
+      expect(source.requestCount).toBe(1)
+    } finally {
+      providerBinding.dispose()
+    }
+  })
+
   it('fails closed on HTTP errors and incomplete provider usage without exposing response bodies', async () => {
     const { providerBinding, task } = await bindingAndTask()
     try {

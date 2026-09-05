@@ -1,12 +1,17 @@
-import { resolve } from 'node:path'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   C1_LIVE_BINDING_ID,
+  C1JsonlLiveBindingEvidenceSink,
+  C1LiveBindingDriver,
   C1LiveBindingTransport,
   C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE,
   C1PreflightFailure,
   C1HardBudgetGuard,
+  C1ScriptedObservationSource,
   C1ScriptedResponseSource,
+  createC1ObservedReadTrace,
   captureC1PreflightArm,
   loadC1FrozenStudy,
   prepareC1StrictProvider,
@@ -256,5 +261,86 @@ describe('C1 live execution binding', () => {
       new C1PreflightFailure('BUDGET_BREACH', 'provider-call hard budget would be exceeded')
     )
     guard.endLeg({ wallClockMs: 0 })
+  })
+
+  it('latches the study when cumulative wall-clock exceeds the study ceiling', async () => {
+    const study = await loadC1FrozenStudy(REPO_ROOT)
+    const providerBinding = await prepareC1StrictProvider({
+      runIdentity: 'c1-20260905-study-wall-clock-test-aaaaaaaa'
+    })
+    const checkpointRoot = await mkdtemp(join('/tmp', 'canvas-c1-study-wall-clock-test-'))
+    try {
+      const task = study.tasks[0]!
+      const budgetGuard = new C1HardBudgetGuard({
+        perLeg: { maxProviderCalls: 1, maxToolCalls: 0, maxWallClockMs: 1_000 },
+        study: { maxProviderCalls: 3, maxToolCalls: 0, maxWallClockMs: 150, maxLegs: 3 }
+      })
+      const driver = new C1LiveBindingDriver({
+        providerBinding,
+        budgetGuard,
+        evidenceSink: new C1JsonlLiveBindingEvidenceSink(
+          join(checkpointRoot, 'checkpoints.jsonl')
+        )
+      })
+
+      const response = (prefix: string) => ({
+        responseId: `${prefix}-response`,
+        assistantMessageCount: 1,
+        assistantContent: `${prefix} complete`,
+        usage: {
+          inputTokens: 10,
+          outputTokens: 2,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalTokens: 12,
+          usageSource: 'SCRIPTED_FAKE' as const
+        },
+        toolRequests: [],
+        toolExecutions: [],
+        outcome: 'COMPLETE' as const
+      })
+      const observation = (prefix: string) =>
+        new C1ScriptedObservationSource([
+          createC1ObservedReadTrace({
+            observationId: `${prefix}-initial`,
+            prompt: task.prompt,
+            fixtureFiles: [task.expectedWritablePaths[0] ?? 'src/target.js'],
+            taskPhase: 'INVESTIGATE'
+          })
+        ])
+      const run = (prefix: string) =>
+        driver.runLeg({
+          studyId: 'c1-20260905-study-wall-clock-test-aaaaaaaa',
+          task,
+          stratum: task.stratum,
+          pairId: `${prefix}-pair`,
+          arm: 'NATIVE',
+          runId: `${prefix}-run-aaaaaaaa`,
+          fixtureContentSha256: task.fixtureRevision.fixtureContentSha256,
+          fixtureTreeObjectId: task.fixtureRevision.fixtureTreeObjectId,
+          runtimeSessionId: `${prefix}-session`,
+          observationSource: observation(prefix),
+          responseSource: new C1ScriptedResponseSource([response(prefix)]),
+          maxCalls: 1,
+          startedAtMs: 0,
+          nowMs: 0,
+          wallClockMs: 100
+        })
+
+      await run('first')
+      await expect(run('second')).rejects.toMatchObject({ code: 'BUDGET_BREACH' })
+      await expect(run('third')).rejects.toMatchObject({ code: 'BUDGET_BREACH' })
+
+      expect(driver.isStudyTerminal).toBe(true)
+      expect(budgetGuard.ledger).toEqual({
+        completedLegs: 1,
+        providerCalls: 2,
+        toolCalls: 0,
+        wallClockMs: 200
+      })
+    } finally {
+      await rm(checkpointRoot, { recursive: true, force: true })
+      providerBinding.dispose()
+    }
   })
 })

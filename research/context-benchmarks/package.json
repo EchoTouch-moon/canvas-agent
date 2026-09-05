@@ -17,7 +17,8 @@
     "benchmark:wave-a": "tsx src/cli.ts wave-a",
     "benchmark:c1-readiness": "tsx src/cli.ts c1-readiness",
     "benchmark:c1-live-preflight": "tsx src/cli.ts c1-live-preflight",
-    "benchmark:c1-live-binding": "tsx src/cli.ts c1-live-binding"
+    "benchmark:c1-live-binding": "tsx src/cli.ts c1-live-binding",
+    "benchmark:c1-live-study-dry-run": "tsx src/cli.ts c1-live-study-dry-run"
   },
   "dependencies": {
     "@canvas-agent/context-runtime": "workspace:*",
