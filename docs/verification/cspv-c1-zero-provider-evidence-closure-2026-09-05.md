@@ -33,7 +33,7 @@ The closure package contains only zero-provider evidence assets:
 | Check | Result | Evidence boundary |
 | --- | --- | --- |
 | C1 usage source map | `PASS / CANDIDATE` | Distinguishes C0 normalized usage from C1 Provider usage; does not authorize execution |
-| Formal treatment entry audit | `PASS / NODE24-CI-GATED` | Source guard plus a behavior probe through the formal orchestrator; Node23 local runs record `NOT_RUN_NODE_RANGE` |
+| Formal treatment entry audit | `PASS (Node24) / INCOMPLETE (outside range)` | Source guard plus a behavior probe through the formal orchestrator; an out-of-range local run cannot claim completion |
 | Existing C1-C readiness binding | `PASS / PRESERVED` | Existing zero-provider readiness remains bound to its recorded baseline, treatment revision and hashes |
 | Offline comparative adjudicator | `PASS` | Synthetic pairs cover frozen primary, reliability, secondary and lifecycle semantics |
 | Provider calls | `0` | No credential, response, or network path was opened |
@@ -73,21 +73,32 @@ executes a bounded behavior probe through `C1StudyOrchestrator` with
 tool executor. The probe reads the resulting metadata-only decision evidence
 and requires:
 
+- both arms to receive the same observed source-key set and message-content
+  fingerprint before treatment;
 - the actual Native and Runtime provider-bound source-key sets and semantic
   fingerprints differ;
 - the structural tool/system fingerprint and provider configuration hash are
   equal across arms;
+- a second formal-orchestrator run with the Runtime exclusion bypassed to fail
+  with `RUNTIME_CONTEXT_UNCHANGED` before the next Provider-bound call;
 - `fallbackSent=false`, `networkSent=false`, `providerCalls=0`, and the
   expected terminal stop occurs before the next leg.
 
 This probe is executable only in the repository's Node 24 range. A local Node
 23 run does not claim that the behavior probe executed: it records
-`behaviorProbe.status=NOT_RUN_NODE_RANGE`, while the required Node 24 CI run
-executes the probe. The scripted response source is a credential-free
-transport substitute only; it is not live Provider evidence.
+`behaviorProbe.status=NOT_RUN_NODE_RANGE` and the overall audit status is
+`INCOMPLETE`, while the required Node 24 CI run executes the probe. The
+scripted response source is a credential-free transport substitute only; it is
+not live Provider evidence.
 
-This is an entry and boundary audit. It does not claim that a live Provider run
-has occurred or that model-generated lifecycle signals have been observed.
+The positive probe gives both arms the same initial source-key set and message
+content, then supplies the same later observation boundary to both arms; only
+the Runtime policy receives the registered exclusion on that boundary. The
+negative run removes that exclusion while retaining the Runtime-difference
+requirement, so the shared formal path rejects the bypass rather than treating
+an unchanged Runtime context as a valid treatment. This is an entry and
+boundary audit. It does not claim that a live Provider run has occurred or
+that model-generated lifecycle signals have been observed.
 
 ## Offline adjudicator evidence
 

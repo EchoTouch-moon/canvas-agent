@@ -13,7 +13,11 @@ import {
   runC1TreatmentReadiness,
   type C1TreatmentReadinessReport
 } from './c1-treatment-readiness'
-import { C1StudyOrchestrator, type C1StudyOrchestrationReport } from './c1-live-study'
+import {
+  C1StudyOrchestrator,
+  type C1StudyLegFactoryInput,
+  type C1StudyOrchestrationReport
+} from './c1-live-study'
 import {
   C1SandboxToolExecutor,
   C1ScriptedObservationSource,
@@ -24,7 +28,7 @@ import { createC1ObservedReadTrace, nodeVersionSatisfiesC1Range } from './c1-liv
 export const C1_TREATMENT_ENTRY_AUDIT_ID = 'C1_TREATMENT_ENTRY_AUDIT_V1'
 export const C1_TREATMENT_ENTRY_SOURCE_RELATIVE_PATH = 'src/c1-live-study.ts'
 
-export type C1TreatmentEntryAuditStatus = 'PASS' | 'FAIL'
+export type C1TreatmentEntryAuditStatus = 'PASS' | 'FAIL' | 'INCOMPLETE'
 
 export interface C1TreatmentEntryAuditGate {
   readonly gateId: string
@@ -44,11 +48,15 @@ export interface C1TreatmentEntryBehaviorProbeReport {
   readonly legsCompleted: number
   readonly nativeProviderBoundSourceKeys: readonly string[]
   readonly runtimeProviderBoundSourceKeys: readonly string[]
+  readonly inputSourceKeysEqual: boolean
+  readonly inputMessageFingerprintEqual: boolean
   readonly nativeSemanticFingerprint: string | null
   readonly runtimeSemanticFingerprint: string | null
   readonly structuralFingerprintEqual: boolean
   readonly providerConfigHashEqual: boolean
   readonly providerBoundContextChanged: boolean
+  readonly treatmentBypassRejected: boolean
+  readonly treatmentBypassFailureCode: string | null
   readonly fallbackSent: false
   readonly networkSent: false
   readonly failure?: string
@@ -115,6 +123,8 @@ function parseJsonLines(content: string): readonly unknown[] {
 
 interface BehaviorEvidenceRow {
   readonly arm: 'NATIVE' | 'RUNTIME'
+  readonly callOrdinal: number
+  readonly contextStrategy: 'NATIVE_UNMANAGED' | 'RUNTIME_WORKING_SET'
   readonly providerBoundSourceKeys: readonly string[]
   readonly semanticFingerprint: string
   readonly structuralFingerprint: string
@@ -129,12 +139,18 @@ function parseBehaviorEvidenceRow(value: unknown): BehaviorEvidenceRow {
   }
   const record = value as Record<string, unknown>
   const arm = record['arm']
+  const callOrdinal = record['callOrdinal']
+  const contextStrategy = record['contextStrategy']
   const providerBoundSourceKeys = record['providerBoundSourceKeys']
   const semanticFingerprint = record['modelVisibleSemanticContextFingerprint']
   const structuralFingerprint = record['systemDeveloperToolStructuresFingerprint']
   const providerConfigHash = record['providerConfigHash']
   if (
     (arm !== 'NATIVE' && arm !== 'RUNTIME') ||
+    typeof callOrdinal !== 'number' ||
+    !Number.isSafeInteger(callOrdinal) ||
+    callOrdinal < 1 ||
+    (contextStrategy !== 'NATIVE_UNMANAGED' && contextStrategy !== 'RUNTIME_WORKING_SET') ||
     !Array.isArray(providerBoundSourceKeys) ||
     !providerBoundSourceKeys.every((key) => typeof key === 'string' && key.length > 0) ||
     typeof semanticFingerprint !== 'string' ||
@@ -150,6 +166,8 @@ function parseBehaviorEvidenceRow(value: unknown): BehaviorEvidenceRow {
   }
   return {
     arm,
+    callOrdinal,
+    contextStrategy,
     providerBoundSourceKeys,
     semanticFingerprint,
     structuralFingerprint,
@@ -159,8 +177,22 @@ function parseBehaviorEvidenceRow(value: unknown): BehaviorEvidenceRow {
   }
 }
 
+interface BehaviorInputRecord {
+  readonly sourceKeys: readonly string[]
+  readonly messageFingerprint: string
+}
+
 function sameSourceKeys(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((key, index) => key === right[index])
+}
+
+function treatmentDifferencePass(native: BehaviorEvidenceRow, runtime: BehaviorEvidenceRow): boolean {
+  return (
+    native.contextStrategy === 'NATIVE_UNMANAGED' &&
+    runtime.contextStrategy === 'RUNTIME_WORKING_SET' &&
+    !sameSourceKeys(native.providerBoundSourceKeys, runtime.providerBoundSourceKeys) &&
+    native.semanticFingerprint !== runtime.semanticFingerprint
+  )
 }
 
 function nodeRangeNotRunBehaviorProbe(): C1TreatmentEntryBehaviorProbeReport {
@@ -174,11 +206,15 @@ function nodeRangeNotRunBehaviorProbe(): C1TreatmentEntryBehaviorProbeReport {
     legsCompleted: 0,
     nativeProviderBoundSourceKeys: [],
     runtimeProviderBoundSourceKeys: [],
+    inputSourceKeysEqual: false,
+    inputMessageFingerprintEqual: false,
     nativeSemanticFingerprint: null,
     runtimeSemanticFingerprint: null,
     structuralFingerprintEqual: false,
     providerConfigHashEqual: false,
     providerBoundContextChanged: false,
+    treatmentBypassRejected: false,
+    treatmentBypassFailureCode: null,
     fallbackSent: false,
     networkSent: false
   }
@@ -198,11 +234,15 @@ function failedBehaviorProbe(
     legsCompleted: report?.legsCompleted ?? 0,
     nativeProviderBoundSourceKeys: [],
     runtimeProviderBoundSourceKeys: [],
+    inputSourceKeysEqual: false,
+    inputMessageFingerprintEqual: false,
     nativeSemanticFingerprint: null,
     runtimeSemanticFingerprint: null,
     structuralFingerprintEqual: false,
     providerConfigHashEqual: false,
     providerBoundContextChanged: false,
+    treatmentBypassRejected: false,
+    treatmentBypassFailureCode: null,
     fallbackSent: false,
     networkSent: false,
     failure
@@ -216,78 +256,158 @@ async function runFormalEntryBehaviorProbe(
 
   const outputRoot = await mkdtemp(join(tmpdir(), 'canvas-c1-entry-behavior-'))
   const signals = new EventEmitter()
-  try {
-    const report = await new C1StudyOrchestrator({
+  let bypassOutputRoot: string | null = null
+  const sharedObservations = new Map<string, ReturnType<typeof createC1ObservedReadTrace>>()
+  const inputRecords = new Map<'NATIVE' | 'RUNTIME', BehaviorInputRecord>()
+  const responseSourceFactory = async (input: C1StudyLegFactoryInput) => {
+    const writablePath = input.task.expectedWritablePaths[0]
+    if (writablePath === undefined) {
+      throw new Error(`formal behavior task ${input.task.taskId} has no writable path`)
+    }
+    const originalContent = await readFile(join(input.fixtureRoot, writablePath), 'utf8')
+    return new C1ScriptedResponseSource([
+      {
+        responseId: `${input.plan.runId}-response-01`,
+        assistantMessageCount: 1,
+        assistantContent: 'formal entry behavior probe',
+        usage: {
+          inputTokens: 10,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalTokens: 11,
+          usageSource: 'SCRIPTED_FAKE'
+        },
+        toolRequests: [],
+        toolExecutions: [],
+        outcome: 'CONTINUE'
+      },
+      {
+        responseId: `${input.plan.runId}-response-02`,
+        assistantMessageCount: 1,
+        assistantContent: 'formal entry behavior completion',
+        usage: {
+          inputTokens: 12,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalTokens: 13,
+          usageSource: 'SCRIPTED_FAKE'
+        },
+        toolRequests: [
+          {
+            toolCallId: `${input.plan.runId}-edit-02`,
+            toolName: 'edit',
+            argumentsJson: JSON.stringify({
+              path: writablePath,
+              oldText: originalContent,
+              newText: `${originalContent}\n/* formal entry behavior probe */\n`
+            })
+          }
+        ],
+        toolExecutions: [],
+        outcome: 'COMPLETE'
+      }
+    ])
+  }
+  const observationSourceFactory = (
+    input: C1StudyLegFactoryInput,
+    bypassRuntimeTreatment: boolean,
+    recordInput: boolean
+  ) => {
+    const writablePath = input.task.expectedWritablePaths[0]
+    if (writablePath === undefined) {
+      throw new Error(`formal behavior task ${input.task.taskId} has no writable path`)
+    }
+    const fixtureFiles = [writablePath, ...input.task.relevantSources.slice(0, 2)]
+    const sharedObservation =
+      sharedObservations.get(input.task.taskId) ??
+      createC1ObservedReadTrace({
+        observationId: `formal-entry-shared-${input.task.taskId}`,
+        prompt: input.task.prompt,
+        fixtureFiles: [...new Set(fixtureFiles)].sort(),
+        taskPhase: 'INVESTIGATE'
+      })
+    sharedObservations.set(input.task.taskId, sharedObservation)
+    const excludedToolCallKey = sharedObservation.currentTargetSourceKeys.find((key) =>
+      key.startsWith('run/tool-call://')
+    )
+    if (excludedToolCallKey === undefined) {
+      throw new Error(`formal behavior task ${input.task.taskId} has no tool-call source`)
+    }
+    const excludedCallId = excludedToolCallKey.slice('run/tool-call://'.length)
+    const excludedSourceKeys = [
+      excludedToolCallKey,
+      `run/tool-result://${excludedCallId}`
+    ].filter((key) => sharedObservation.currentTargetSourceKeys.includes(key))
+    if (excludedSourceKeys.length !== 2) {
+      throw new Error(`formal behavior task ${input.task.taskId} has an incomplete tool pair`)
+    }
+    const retainedSourceKeys = sharedObservation.currentTargetSourceKeys.filter(
+      (key) => !excludedSourceKeys.includes(key)
+    )
+    const changedObservation = {
+      ...sharedObservation,
+      observationId: `${sharedObservation.observationId}-${
+        bypassRuntimeTreatment ? 'bypass' : 'runtime-exclude'
+      }`,
+      currentTargetSourceKeys: bypassRuntimeTreatment
+        ? sharedObservation.currentTargetSourceKeys
+        : retainedSourceKeys,
+      excludedSourceKeys: bypassRuntimeTreatment ? [] : excludedSourceKeys
+    }
+    if (recordInput) {
+      inputRecords.set(input.plan.arm, {
+        sourceKeys: [...sharedObservation.currentTargetSourceKeys],
+        messageFingerprint: sha256(JSON.stringify(sharedObservation.messages))
+      })
+    }
+    return new C1ScriptedObservationSource([sharedObservation, changedObservation])
+  }
+  const runBehaviorStudy = async (input: {
+    readonly outputRoot: string
+    readonly studyId: string
+    readonly runId: string
+    readonly signalSource: EventEmitter
+    readonly bypassRuntimeTreatment: boolean
+    readonly recordInput: boolean
+  }): Promise<C1StudyOrchestrationReport> =>
+    new C1StudyOrchestrator({
       repoRoot,
-      outputRoot,
-      studyId: 'c1-20260905-c1-feasibility-v1-dddddddd',
-      runId: 'C1_FORMAL_ENTRY_BEHAVIOR_AUDIT_V1',
+      outputRoot: input.outputRoot,
+      studyId: input.studyId,
+      runId: input.runId,
       executionMode: 'CREDENTIAL_FREE_FORMAL_ENTRY_AUDIT',
       responseSourceKind: 'SCRIPTED_FAKE',
       dryRun: false,
-      maxCalls: 1,
-      signalSource: signals,
+      maxCalls: 2,
+      signalSource: input.signalSource,
       beforeLeg: (plan) => {
-        if (plan.legIndex === 2) signals.emit('SIGINT')
+        if (plan.legIndex === 2) input.signalSource.emit('SIGINT')
       },
-      responseSourceFactory: async (input) => {
-        const writablePath = input.task.expectedWritablePaths[0]
-        if (writablePath === undefined) {
-          throw new Error(`formal behavior task ${input.task.taskId} has no writable path`)
-        }
-        const originalContent = await readFile(join(input.fixtureRoot, writablePath), 'utf8')
-        return new C1ScriptedResponseSource([
-          {
-            responseId: `${input.plan.runId}-response-01`,
-            assistantMessageCount: 1,
-            assistantContent: 'formal entry behavior probe',
-            usage: {
-              inputTokens: 10,
-              outputTokens: 1,
-              cacheReadTokens: 0,
-              cacheWriteTokens: 0,
-              totalTokens: 11,
-              usageSource: 'SCRIPTED_FAKE'
-            },
-            toolRequests: [
-              {
-                toolCallId: `${input.plan.runId}-edit-01`,
-                toolName: 'edit',
-                argumentsJson: JSON.stringify({
-                  path: writablePath,
-                  oldText: originalContent,
-                  newText: `${originalContent}\n/* formal entry behavior probe */\n`
-                })
-              }
-            ],
-            toolExecutions: [],
-            outcome: 'COMPLETE'
-          }
-        ])
-      },
-      observationSourceFactory: (input) => {
-        const writablePath = input.task.expectedWritablePaths[0]
-        if (writablePath === undefined) {
-          throw new Error(`formal behavior task ${input.task.taskId} has no writable path`)
-        }
-        const fixtureFiles =
-          input.plan.arm === 'NATIVE'
-            ? [writablePath, ...input.task.relevantSources.slice(0, 2)]
-            : [writablePath]
-        return new C1ScriptedObservationSource([
-          createC1ObservedReadTrace({
-            observationId: `${input.plan.runId}-initial`,
-            prompt: input.task.prompt,
-            fixtureFiles: [...new Set(fixtureFiles)].sort(),
-            taskPhase: 'INVESTIGATE'
-          })
-        ])
-      },
-      toolExecutorFactory: (input) => new C1SandboxToolExecutor(input.fixtureRoot),
-      expectedProviderCallPermits: 2,
-      expectedResponseCalls: 2,
-      expectedToolExecutions: 2
+      responseSourceFactory,
+      observationSourceFactory: (factoryInput) =>
+        observationSourceFactory(
+          factoryInput,
+          input.bypassRuntimeTreatment,
+          input.recordInput
+        ),
+      toolExecutorFactory: (factoryInput) => new C1SandboxToolExecutor(factoryInput.fixtureRoot),
+      expectedProviderCallPermits: 4,
+      expectedResponseCalls: 4,
+      expectedToolExecutions: 2,
+      requireRuntimeDifferenceForCall: (plan, callOrdinal) =>
+        plan.arm === 'RUNTIME' && callOrdinal === 2
     }).run()
+  try {
+    const report = await runBehaviorStudy({
+      outputRoot,
+      studyId: 'c1-20260905-c1-feasibility-v1-dddddddd',
+      runId: 'C1_FORMAL_ENTRY_BEHAVIOR_AUDIT_V1',
+      signalSource: signals,
+      bypassRuntimeTreatment: false,
+      recordInput: true
+    })
 
     if (report.reportDir === null) {
       const details = report.failures
@@ -301,23 +421,59 @@ async function runFormalEntryBehaviorProbe(
     const rows = parseJsonLines(
       await readFile(join(report.reportDir, 'decision-evidence.jsonl'), 'utf8')
     ).map(parseBehaviorEvidenceRow)
-    const native = rows.find((row) => row.arm === 'NATIVE')
-    const runtime = rows.find((row) => row.arm === 'RUNTIME')
-    if (native === undefined || runtime === undefined || rows.length !== 2) {
+    const nativeRows = rows.filter((row) => row.arm === 'NATIVE')
+    const runtimeRows = rows.filter((row) => row.arm === 'RUNTIME')
+    const native = nativeRows.at(-1)
+    const runtime = runtimeRows.at(-1)
+    if (
+      native === undefined ||
+      runtime === undefined ||
+      nativeRows.length !== 2 ||
+      runtimeRows.length !== 2 ||
+      rows.length !== 4
+    ) {
       const details = report.failures
         .map((failure) => `${failure.code}: ${failure.message}`)
         .join('; ')
       return failedBehaviorProbe(
-        `formal behavior probe did not produce exactly one Native and Runtime row${details.length > 0 ? ` (${details})` : ''}`,
+        `formal behavior probe did not produce exactly two Native and Runtime rows${details.length > 0 ? ` (${details})` : ''}`,
         report
       )
     }
     const structuralFingerprintEqual =
       native.structuralFingerprint === runtime.structuralFingerprint
     const providerConfigHashEqual = native.providerConfigHash === runtime.providerConfigHash
-    const providerBoundContextChanged =
-      !sameSourceKeys(native.providerBoundSourceKeys, runtime.providerBoundSourceKeys) &&
-      native.semanticFingerprint !== runtime.semanticFingerprint
+    const providerBoundContextChanged = treatmentDifferencePass(native, runtime)
+    const nativeInput = inputRecords.get('NATIVE')
+    const runtimeInput = inputRecords.get('RUNTIME')
+    const inputSourceKeysEqual =
+      nativeInput !== undefined &&
+      runtimeInput !== undefined &&
+      sameSourceKeys(nativeInput.sourceKeys, runtimeInput.sourceKeys)
+    const inputMessageFingerprintEqual =
+      nativeInput !== undefined &&
+      runtimeInput !== undefined &&
+      nativeInput.messageFingerprint === runtimeInput.messageFingerprint
+    bypassOutputRoot = await mkdtemp(join(tmpdir(), 'canvas-c1-entry-bypass-'))
+    const bypassReport = await runBehaviorStudy({
+      outputRoot: bypassOutputRoot,
+      studyId: 'c1-20260905-c1-feasibility-v1-eeeeeeee',
+      runId: 'C1_FORMAL_ENTRY_TREATMENT_BYPASS_AUDIT_V1',
+      signalSource: new EventEmitter(),
+      bypassRuntimeTreatment: true,
+      recordInput: false
+    })
+    const treatmentBypassFailureCode =
+      bypassReport.failures.find((failure) => failure.code === 'RUNTIME_CONTEXT_UNCHANGED')
+        ?.code ?? null
+    const treatmentBypassRejected =
+      bypassReport.status === 'FAIL' &&
+      bypassReport.studyTerminal &&
+      bypassReport.providerCalls === 0 &&
+      bypassReport.networkRequests === 0 &&
+      bypassReport.legsAttempted === 2 &&
+      bypassReport.legsCompleted === 1 &&
+      treatmentBypassFailureCode === 'RUNTIME_CONTEXT_UNCHANGED'
     const pass =
       report.driverInstances === 1 &&
       report.providerCalls === 0 &&
@@ -330,9 +486,12 @@ async function runFormalEntryBehaviorProbe(
       runtime.fallbackSent === false &&
       native.networkSent === false &&
       runtime.networkSent === false &&
+      inputSourceKeysEqual &&
+      inputMessageFingerprintEqual &&
       structuralFingerprintEqual &&
       providerConfigHashEqual &&
-      providerBoundContextChanged
+      providerBoundContextChanged &&
+      treatmentBypassRejected
     return {
       status: pass ? 'PASS' : 'FAIL',
       executionMode: 'CREDENTIAL_FREE_FORMAL_ENTRY_AUDIT',
@@ -343,11 +502,15 @@ async function runFormalEntryBehaviorProbe(
       legsCompleted: report.legsCompleted,
       nativeProviderBoundSourceKeys: native.providerBoundSourceKeys,
       runtimeProviderBoundSourceKeys: runtime.providerBoundSourceKeys,
+      inputSourceKeysEqual,
+      inputMessageFingerprintEqual,
       nativeSemanticFingerprint: native.semanticFingerprint,
       runtimeSemanticFingerprint: runtime.semanticFingerprint,
       structuralFingerprintEqual,
       providerConfigHashEqual,
       providerBoundContextChanged,
+      treatmentBypassRejected,
+      treatmentBypassFailureCode,
       fallbackSent: false,
       networkSent: false,
       ...(pass
@@ -359,6 +522,9 @@ async function runFormalEntryBehaviorProbe(
   } catch (error) {
     return failedBehaviorProbe(error instanceof Error ? error.message : String(error))
   } finally {
+    if (bypassOutputRoot !== null) {
+      await rm(bypassOutputRoot, { recursive: true, force: true })
+    }
     await rm(outputRoot, { recursive: true, force: true })
   }
 }
@@ -457,13 +623,16 @@ export async function runC1TreatmentEntryAudit(
   const behaviorProbe = await runFormalEntryBehaviorProbe(repoRoot)
   const behaviorGate = gate(
     'formal_entry_behavior',
-    behaviorProbe.status !== 'FAIL',
+    behaviorProbe.status === 'PASS',
     `formal orchestrator behavior=${behaviorProbe.status};providerCalls=${behaviorProbe.providerCalls};networkRequests=${behaviorProbe.networkRequests}`
   )
   const gates = [...sourceAudit.gates, readinessGate, behaviorGate]
-  const status: C1TreatmentEntryAuditStatus = gates.every((item) => item.verdict === 'PASS')
-    ? 'PASS'
-    : 'FAIL'
+  const status: C1TreatmentEntryAuditStatus =
+    behaviorProbe.status === 'NOT_RUN_NODE_RANGE'
+      ? 'INCOMPLETE'
+      : gates.every((item) => item.verdict === 'PASS')
+        ? 'PASS'
+        : 'FAIL'
 
   return {
     auditId: C1_TREATMENT_ENTRY_AUDIT_ID,

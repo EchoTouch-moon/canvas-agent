@@ -9,9 +9,10 @@ import {
 describe('C1 formal treatment entry audit', () => {
   it('binds the formal Native/Runtime factory entry without provider execution', async () => {
     const report = await runC1TreatmentEntryAudit()
+    const node24 = nodeVersionSatisfiesC1Range()
 
     expect(report.auditId).toBe(C1_TREATMENT_ENTRY_AUDIT_ID)
-    expect(report.status).toBe('PASS')
+    expect(report.status).toBe(node24 ? 'PASS' : 'INCOMPLETE')
     expect(report.providerCalls).toBe(0)
     expect(report.networkRequests).toBe(0)
     expect(report.providerExecution).toBe('NOT_AUTHORIZED')
@@ -30,24 +31,34 @@ describe('C1 formal treatment entry audit', () => {
     })
     expect(report.behaviorProbe.providerCalls).toBe(0)
     expect(report.behaviorProbe.networkRequests).toBe(0)
-    if (nodeVersionSatisfiesC1Range()) {
+    if (node24) {
       expect(report.behaviorProbe).toMatchObject({
         status: 'PASS',
         driverInstances: 1,
         legsAttempted: 2,
         legsCompleted: 2,
+        inputSourceKeysEqual: true,
+        inputMessageFingerprintEqual: true,
         structuralFingerprintEqual: true,
         providerConfigHashEqual: true,
         providerBoundContextChanged: true,
+        treatmentBypassRejected: true,
+        treatmentBypassFailureCode: 'RUNTIME_CONTEXT_UNCHANGED',
         fallbackSent: false,
         networkSent: false
       })
       expect(report.behaviorProbe.nativeProviderBoundSourceKeys).not.toEqual(
         report.behaviorProbe.runtimeProviderBoundSourceKeys
       )
+      expect(report.status).toBe('PASS')
+      expect(report.gates.every((item) => item.verdict === 'PASS')).toBe(true)
     } else {
       expect(report.behaviorProbe.status).toBe('NOT_RUN_NODE_RANGE')
+      expect(report.status).toBe('INCOMPLETE')
+      expect(report.gates.find((item) => item.gateId === 'formal_entry_behavior')).toMatchObject({
+        verdict: 'FAIL'
+      })
+      expect(report.gates.every((item) => item.verdict === 'PASS')).toBe(false)
     }
-    expect(report.gates.every((item) => item.verdict === 'PASS')).toBe(true)
   })
 })

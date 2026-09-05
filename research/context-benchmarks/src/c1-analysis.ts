@@ -146,7 +146,7 @@ export interface C1SecondaryMetricAnalysis {
   readonly runtimeMedian: number | null
   /** Median of (Runtime - Native) computed within each matched pair. */
   readonly pairedMedianDifference: number | null
-  /** Median of the per-pair zero-safe relative differences. */
+  /** Paired median difference divided by the frozen Native-median denominator. */
   readonly pairedMedianRelativeIncrease: number | null
   readonly materialRegression: boolean
 }
@@ -475,7 +475,6 @@ function secondaryForMetric(
   const nativeValues: number[] = []
   const runtimeValues: number[] = []
   const pairedDifferences: number[] = []
-  const pairedRelativeIncreases: number[] = []
   for (const pair of pairs) {
     if (pair.native.legStatus !== 'COMPLETED' || pair.runtime.legStatus !== 'COMPLETED') continue
     const nativeMetric =
@@ -496,16 +495,21 @@ function secondaryForMetric(
     if (endpointId === 'provider_total_tokens' && nativeValue <= 0) continue
     nativeValues.push(nativeValue)
     runtimeValues.push(runtimeValue)
-    const difference = runtimeValue - nativeValue
-    pairedDifferences.push(difference)
-    const denominator =
-      endpointId === 'provider_total_tokens' ? nativeValue : Math.max(nativeValue, 1)
-    pairedRelativeIncreases.push(difference / denominator)
+    pairedDifferences.push(runtimeValue - nativeValue)
   }
   const nativeMedian = median(nativeValues)
   const runtimeMedian = median(runtimeValues)
   const pairedMedianDifference = median(pairedDifferences)
-  const pairedMedianRelativeIncrease = median(pairedRelativeIncreases)
+  const relativeDenominator =
+    nativeMedian === null
+      ? null
+      : endpointId === 'provider_total_tokens'
+        ? nativeMedian
+        : Math.max(nativeMedian, 1)
+  const pairedMedianRelativeIncrease =
+    pairedMedianDifference === null || relativeDenominator === null || relativeDenominator <= 0
+      ? null
+      : pairedMedianDifference / relativeDenominator
   const materialRegression =
     endpointId === 'provider_total_tokens'
       ? pairedMedianRelativeIncrease !== null && pairedMedianRelativeIncrease >= 0.1

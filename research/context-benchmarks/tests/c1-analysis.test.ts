@@ -295,7 +295,36 @@ describe('C1 offline adjudicator', () => {
       pairedMedianDifference: 20,
       materialRegression: false
     })
-    expect(toolEndpoint?.pairedMedianRelativeIncrease).toBeCloseTo((20 / 188 + 20 / 170) / 2)
+    expect(toolEndpoint?.pairedMedianRelativeIncrease).toBeCloseTo(20 / 138.5)
+  })
+
+  it('uses the Native median denominator for tool-call regression guards', () => {
+    const nativeToolCalls = [1, 1, 1, 1, 90, 90, 90, 90]
+    const runtimeToolCalls = nativeToolCalls.map((value) => value + 3)
+    const pairs = completePairs().map((pair, index) => {
+      const profileIndex = index % nativeToolCalls.length
+      const nativeToolCallsValue = nativeToolCalls[profileIndex]
+      const runtimeToolCallsValue = runtimeToolCalls[profileIndex]
+      if (nativeToolCallsValue === undefined || runtimeToolCallsValue === undefined) {
+        throw new Error('tool-call denominator profile is incomplete')
+      }
+      return {
+        ...pair,
+        native: nativeLeg(100, 150, nativeToolCallsValue, 1000),
+        runtime: runtimeLeg(70, 100, runtimeToolCallsValue, 900)
+      }
+    })
+    const result = adjudicateC1Study(studyFrom(pairs))
+    const toolEndpoint = result.secondary.find((item) => item.endpointId === 'tool_calls')
+
+    expect(toolEndpoint).toMatchObject({
+      status: 'ESTIMABLE',
+      nativeMedian: 45.5,
+      runtimeMedian: 48.5,
+      pairedMedianDifference: 3,
+      pairedMedianRelativeIncrease: 3 / 45.5,
+      materialRegression: false
+    })
   })
 
   it('keeps Cold Context Penalty signed and expressed in physical units', () => {
