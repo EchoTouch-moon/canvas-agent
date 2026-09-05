@@ -6,9 +6,9 @@
 
 ## 一页结论
 
-当前项目已经完成从“可观察、可审计的 Runtime 基础设施”到“比较实验准备”的工程收敛，但还没有得到 Context Runtime 相对 Native 的有效性答案。
+当前项目已经完成从“可观察、可审计的 Runtime 基础设施”到“比较实验准备”的工程收敛，但还没有得到 Context Runtime 相对 Native 的有效性答案。C1 usage amendment adapter 已随 #98 合并进入当前 `main`；下一步是完成一次不产生 Provider 调用的证据闭环。
 
-当前唯一近端主线是：先完成 #98 的有界技术审查并合并，随后在零 Provider 条件下完成用量口径、正式 treatment 入口和离线分析器的可复核闭环；这些门通过后，才能创建新的授权记录和新的 single-use study identity。
+当前唯一近端主线是：在零 Provider 条件下完成用量口径、正式 treatment 入口和离线分析器的可复核闭环；这些门通过后，才能创建新的授权记录和新的 single-use study identity。
 
 ```text
 C1 Live                 NO_GO
@@ -22,8 +22,8 @@ Wave B                  NO_GO
 
 | 项目 | 当前状态 | 绑定或解释 |
 | --- | --- | --- |
-| 远端 `main` | `08547b044f64fd842fde3634347abfcb96fbe642` | PR #97 合并后的当前研究基线；#98 尚未进入 `main` |
-| PR #98 | `OPEN / DRAFT / CI_PASS / REVIEW_PENDING` | head `95406b0045073f0eec15401446a68c4187265e05`；实现 usage amendment 的 adapter/validator/serialization 兼容层；CI 已通过，待有界技术审查 |
+| 远端 `main` | `583ecb74623b77dce2238f67faba1b2e046aaa9b` | PR #98 合并后的当前研究基线；main CI `33964296643` 的 `check` 与 `macos-electron` 均成功 |
+| PR #98 | `MERGED / CI_GREEN / IMPLEMENTATION_ACCEPTED` | rebased implementation `55d834483ba044099e0be8d64b95028becabb014`；merge commit `583ecb74623b77dce2238f67faba1b2e046aaa9b`；实现 usage amendment 的 adapter/validator/serialization 兼容层 |
 | `C1_USAGE_CONTRACT_AMENDMENT_V1` | `FROZEN / MERGED` | 只调整 provider cache split 的可用性语义；原 `C1_RUN_CONTRACT_V1` 保持不变 |
 | `C1_PROTOCOL_V1` | `FROZEN` | 比较问题、对照/处理臂、指标与裁决边界 |
 | `C1_A_MANIFEST_V1` | `FROZEN` | 4 个任务层、fixture、oracle、anchors 与身份绑定 |
@@ -79,24 +79,25 @@ separate owner authorization
 - [`C1 usage contract amendment`](../plan/cspv-c1-usage-contract-amendment-2026-09-05.md)
 - [`C0-L1 live evidence`](../verification/cspv-c0-l1-live-evidence-2026-09-01.md)
 - [`CR-005 interim evidence analysis`](../verification/context-runtime-cr-005-interim-evidence-analysis.md)
+- [`C1 zero-provider evidence closure candidate`](../verification/cspv-c1-zero-provider-evidence-closure-2026-09-05.md)
 
 ## 下一步执行顺序
 
 以下是当前允许的近端顺序：当前可执行的是步骤 1–2，且不产生 Provider 调用；步骤 3–5 是条件性后续，必须在前置门通过并获得新的明确授权后才能执行，不能从本页提前获得 Live 授权。
 
-### 1. 收口 #98
+### 1. 收口 #98 — 已完成
 
-由 owner 按仓库 review 规则完成 #98 有界技术审查、标记 Ready 并合并。合并后重新记录 exact `main` SHA 和对应 CI；不能把 #98 的 head 或旧授权自动当作新的执行基线。
+由 owner 按仓库 review 规则完成 #98 有界技术审查、标记 Ready 并合并。当前 exact `main` SHA 为 `583ecb74623b77dce2238f67faba1b2e046aaa9b`，对应 CI `33964296643` 已通过；不能把 #98 的 head 或旧授权自动当作新的执行基线。
 
-### 2. 做一次核心的零 Provider 证据闭环
+### 2. 做一次核心的零 Provider 证据闭环 — 候选证据已完成，待远端审查
 
-这个包应保持小而可审查，建议拆成独立 PR 或同一系列中的独立提交：
+这个包保持小而可审查，当前已在本地隔离分支完成，待远端 CI 与有界审查确认。正式入口行为测试在 Node 24 CI 中执行；Node 23 本地运行的入口审计总状态为 `INCOMPLETE`、行为探针记录 `NOT_RUN_NODE_RANGE`，不把未执行的行为证据写成已通过：
 
 1. **用量字段来源表**：明确 C0 normalized usage 与 C1 provider response 的原始字段、缓存是否包含、归一化变换、缺失状态和可参与的终点；禁止把 C0/C1 的 token 口径拼接或重复相加。
-2. **正式 treatment 入口审计**：绑定真实 live launcher、Native/Runtime factories、内容哈希和 executed revision，证明正式入口怎样从工具观察进入 frozen treatment；不得用 dry-run 预造 lifecycle 轨迹冒充自然 live 行为。
-3. **分析器离线验收**：用合成 pair 覆盖 `BETTER/WORSE/TRADE-OFF/INCONCLUSIVE`、缺失、失败、零分母、attrition、停止和 `NOT_ESTIMABLE`，并验证结果与冻结合同一致。
+2. **正式 treatment 入口审计**：绑定真实 live launcher、Native/Runtime factories、内容哈希和 executed revision，另经 `C1StudyOrchestrator → factory → driver` 的零网络行为测试核对相同输入下的实际 provider-bound context 差异，并验证绕过 treatment 会被拒绝；不得用 dry-run 预造 lifecycle 轨迹冒充自然 live 行为。
+3. **分析器离线验收**：用合成 pair 覆盖 `BETTER/WORSE/TRADE-OFF/INCONCLUSIVE`、缺失用量证据失效率、逐 pair 次指标差值、带单位 Cold Context Penalty、失败、零分母、停止和 `NOT_ESTIMABLE`，并验证结果与冻结合同一致。
 
-这一步的分类是核心研究闭环，不是产品 UI、第二 Provider、LLM planner 或 CR-004 Active Rewrite；Provider calls 必须保持为 0。
+本次验证的分类是核心研究闭环，不是产品 UI、第二 Provider、LLM planner 或 CR-004 Active Rewrite；本地验证期间 Provider calls 与 network requests 均为 0。
 
 ### 3. 重新冻结并申请新的 Live 决定
 
@@ -122,7 +123,7 @@ separate owner authorization
 ## 明确禁止的动作
 
 - 恢复、复用或重新绑定 `c1-20260905-c1-feasibility-v1-35359a74`。
-- 在 #98 合并前创建新的 C1 study identity 或发起 Provider call。
+- 禁止在零 Provider 证据闭环完成并获得新的明确授权前创建新的 C1 study identity 或发起 Provider call。
 - 修改 `C1_RUN_CONTRACT_V1`、C1-A/B/C 冻结文件、assignment、primary endpoint、统计裁决或历史 Run 证据以适配首次 Live 失败。
 - 把 `UNAVAILABLE` 当作 0、估算值或由其他字段推导出的 cache split。
 - 把 C0/C1 的不同 usage pipeline 直接合并成一个 token 结果。
