@@ -38,10 +38,12 @@ import {
   loadC1FrozenStudy,
   materializeFreshC1Fixture,
   nodeVersionSatisfiesC1Range,
+  observedC1SourceKeys,
   prepareC1StrictProvider,
   type C1AgentObservation,
   type C1FrozenStudy,
   type C1LegExecutionResult,
+  type C1OracleSpec,
   type C1OperatorKillSwitch,
   type C1PreflightLegPlan,
   type C1PreflightTask,
@@ -53,6 +55,9 @@ import {
   writableScopePass,
   writeIndependentC1Artifacts
 } from './c1-live-preflight'
+import { C1AuthorizedProviderResponseSource } from './c1-authorized-provider'
+import { buildSanitizedChildEnvironment, runProcess } from './fixture-generator'
+import type { PiMessageView } from '@canvas-agent/pi-context-integration'
 import {
   C1JsonlLiveBindingEvidenceSink,
   C1LiveBindingDriver,
@@ -75,8 +80,34 @@ import {
  */
 export const C1_LIVE_STUDY_DRY_RUN_ID = 'C1_LIVE_STUDY_DRY_RUN_V1'
 export const C1_LIVE_STUDY_DRY_RUN_MODE = 'CREDENTIAL_FREE_STUDY_DRY_RUN'
+export const C1_LIVE_STUDY_RUN_ID = 'C1_LIVE_STUDY_V1'
+export const C1_LIVE_STUDY_MODE = 'LIVE_AUTHORIZED_PROVIDER_C1_FEASIBILITY_V1'
+export const C1_LIVE_BOOTSTRAP_SOURCE = 'FIXED_FIXTURE_README_BOOTSTRAP'
+export const C1_LIVE_BOOTSTRAP_FILES = Object.freeze(['README.md'] as const)
 
 export type C1StudyDryRunStatus = 'PASS' | 'FAIL'
+
+export type C1TaskOracleStatus = 'PASS' | 'FAIL' | 'UNAVAILABLE'
+export type C1TaskEvaluationStatus = 'PASS' | 'TASK_FAILURE' | 'HARNESS_CONTRACT_FAILURE'
+
+export interface C1TaskOracleEvidence {
+  readonly status: C1TaskOracleStatus
+  readonly exitCode: number | null
+  readonly expectedExitCode: number
+  readonly timedOut: boolean
+  readonly outputLimitExceeded: boolean
+  readonly durationMs: number
+  readonly stdoutSha256: string
+  readonly stderrSha256: string
+}
+
+export interface C1TaskEvaluation {
+  readonly status: C1TaskEvaluationStatus
+  readonly taskOutcome: 'SUCCESS' | 'FAILURE' | 'NOT_OBSERVED'
+  readonly writableScopePass: boolean
+  readonly objective: C1TaskOracleEvidence
+  readonly regression: C1TaskOracleEvidence
+}
 
 export interface C1StudyDryRunOptions {
   readonly repoRoot?: string
@@ -113,16 +144,32 @@ export type C1StudyToolExecutorFactory = (
   input: C1StudyLegFactoryInput
 ) => C1LiveToolExecutor | Promise<C1LiveToolExecutor>
 
+export interface C1StudyTaskEvaluationInput {
+  readonly study: C1FrozenStudy
+  readonly plan: C1PreflightLegPlan
+  readonly task: C1PreflightTask
+  readonly fixtureRoot: string
+  readonly result: C1LiveBindingLegResult
+  readonly changedPaths: readonly string[]
+}
+
+export type C1StudyTaskEvaluator = (
+  input: C1StudyTaskEvaluationInput
+) => C1TaskEvaluation | Promise<C1TaskEvaluation>
+
 export interface C1StudyOrchestratorOptions extends C1StudyDryRunOptions {
   readonly runId: string
   readonly executionMode: string
   readonly responseSourceKind: C1LiveResponseSourceKind
   readonly dryRun: boolean
+  readonly executionRevision?: string
   /** Maximum provider turns per leg; live defaults to the frozen 24-turn ceiling. */
   readonly maxCalls?: number
   readonly responseSourceFactory: C1StudyResponseSourceFactory
   readonly observationSourceFactory: C1StudyObservationSourceFactory
   readonly toolExecutorFactory: C1StudyToolExecutorFactory
+  /** Optional frozen objective/regression evaluator; absent for readiness dry-runs. */
+  readonly evaluateTask?: C1StudyTaskEvaluator
   readonly providerCalls?: () => number
   readonly networkRequests?: () => number
   readonly expectedProviderCallPermits?: number
@@ -164,9 +211,12 @@ export interface C1StudyDryRunLegSummary {
 
 export interface C1StudyLegSummary extends Omit<
   C1StudyDryRunLegSummary,
-  'fixtureChangedByDryRunTool'
+  'fixtureChangedByDryRunTool' | 'writableScopePass'
 > {
   readonly fixtureChangedByTool: boolean
+  readonly writableScopePass: boolean
+  readonly taskOutcome?: C1TaskEvaluation['taskOutcome']
+  readonly taskEvaluation?: C1TaskEvaluation
 }
 
 export interface C1StudyDryRunArtifactSummary {
@@ -178,6 +228,7 @@ export interface C1StudyDryRunArtifactSummary {
 export interface C1StudyDryRunReport {
   readonly runId: typeof C1_LIVE_STUDY_DRY_RUN_ID
   readonly executionMode: typeof C1_LIVE_STUDY_DRY_RUN_MODE
+  readonly initialObservationSource: 'SCRIPTED_DRY_RUN'
   readonly status: C1StudyDryRunStatus
   readonly nodeVersion: string
   readonly provider: typeof C1_PROVIDER_ID
@@ -216,7 +267,9 @@ export interface C1StudyOrchestrationReport {
   readonly runId: string
   readonly status: C1StudyDryRunStatus
   readonly executionMode: string
+  readonly initialObservationSource: 'SCRIPTED_DRY_RUN' | typeof C1_LIVE_BOOTSTRAP_SOURCE
   readonly responseSourceKind: C1LiveResponseSourceKind
+  readonly executionRevision: string | null
   readonly nodeVersion: string
   readonly provider: typeof C1_PROVIDER_ID
   readonly model: typeof C1_MODEL_ID
@@ -253,10 +306,11 @@ interface CompletedLeg {
   readonly result: C1LiveBindingLegResult
   readonly fixtureHashVerified: true
   readonly changedPaths: readonly string[]
-  readonly writableScopePass: true
+  readonly writableScopePass: boolean
   readonly fixtureCleaned: true
   readonly fixtureChangedByTool: boolean
   readonly legDir: string
+  readonly taskEvaluation?: C1TaskEvaluation
 }
 
 function sha256(value: string): string {
@@ -284,11 +338,11 @@ function failureOf(error: unknown): {
 
 function safeFixturePath(root: string, value: string): string {
   if (isAbsolute(value)) {
-    throw new C1PreflightFailure('FIXTURE_BINDING_MISMATCH', 'dry-run tool path must be relative')
+    throw new C1PreflightFailure('FIXTURE_BINDING_MISMATCH', 'C1 tool path must be relative')
   }
   const absolute = resolve(root, value)
   if (absolute !== resolve(root) && !absolute.startsWith(`${resolve(root)}${sep}`)) {
-    throw new C1PreflightFailure('FIXTURE_BINDING_MISMATCH', 'dry-run tool path escapes fixture')
+    throw new C1PreflightFailure('FIXTURE_BINDING_MISMATCH', 'C1 tool path escapes fixture')
   }
   return absolute
 }
@@ -330,6 +384,132 @@ class C1DryRunObservationSource implements C1LiveObservationSource {
       )
     }
     return toolObservation
+  }
+}
+
+/**
+ * The live task source provides a fixed, content-bearing bootstrap observation
+ * and then forwards only observations produced by the real sandbox tool loop.
+ * It does not inject lifecycle signals or task metadata into the Runtime arm.
+ */
+export class C1LiveTaskObservationSource implements C1LiveObservationSource {
+  readonly initialObservation: C1AgentObservation
+
+  private constructor(initialObservation: C1AgentObservation) {
+    this.initialObservation = initialObservation
+  }
+
+  static async fromFixture(input: {
+    readonly task: C1PreflightTask
+    readonly runId: string
+    readonly fixtureRoot: string
+  }): Promise<C1LiveTaskObservationSource> {
+    const fixtureFiles = C1_LIVE_BOOTSTRAP_FILES
+    const messages: PiMessageView[] = [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: input.task.prompt }]
+      }
+    ]
+    for (const [index, file] of fixtureFiles.entries()) {
+      const callId = `c1-live-bootstrap-${input.runId}-${String(index + 1).padStart(2, '0')}`
+      const content = await readFile(safeFixturePath(input.fixtureRoot, file), 'utf8')
+      messages.push({
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolCall',
+            id: callId,
+            name: 'read',
+            arguments: { path: file }
+          }
+        ]
+      })
+      messages.push({
+        role: 'toolResult',
+        content: [{ type: 'text', text: content }],
+        toolCallId: callId,
+        toolName: 'read',
+        isError: false
+      })
+    }
+    const observationId = `${input.runId}-bootstrap`
+    const sourceKeys = observedC1SourceKeys(messages, observationId, 0)
+    return new C1LiveTaskObservationSource({
+      observationId,
+      messages: Object.freeze(messages),
+      taskPhase: 'INVESTIGATE',
+      currentTargetSourceKeys: sourceKeys,
+      excludedSourceKeys: [],
+      latestVerificationSourceKeys: [],
+      recentEvidenceSourceKeys: [],
+      previousWorkingSetId: null
+    })
+  }
+
+  next(input: {
+    readonly callOrdinal: number
+    readonly previousObservation: C1AgentObservation
+    readonly previousExecution: C1LegExecutionResult
+    readonly response: C1LiveModelResponse
+    readonly toolObservation?: C1AgentObservation
+  }): C1AgentObservation {
+    if (input.toolObservation === undefined) {
+      throw new C1PreflightFailure(
+        'PREFLIGHT_FAILURE',
+        `live observation ${input.callOrdinal} did not receive a tool observation`
+      )
+    }
+    return input.toolObservation
+  }
+}
+
+async function runC1Oracle(
+  spec: C1OracleSpec,
+  fixtureRoot: string
+): Promise<C1TaskOracleEvidence> {
+  const result = await runProcess(process.execPath, spec.args, {
+    cwd: fixtureRoot,
+    timeoutMs: spec.timeoutMs,
+    env: buildSanitizedChildEnvironment()
+  })
+  const unavailable =
+    result.exitCode === null || result.timedOut || result.outputLimitExceeded
+  return {
+    status: unavailable
+      ? 'UNAVAILABLE'
+      : result.exitCode === spec.expectedExitCode
+        ? 'PASS'
+        : 'FAIL',
+    exitCode: result.exitCode,
+    expectedExitCode: spec.expectedExitCode,
+    timedOut: result.timedOut,
+    outputLimitExceeded: result.outputLimitExceeded,
+    durationMs: result.durationMs,
+    stdoutSha256: sha256(result.stdout),
+    stderrSha256: sha256(result.stderr)
+  }
+}
+
+/** Run the frozen C1 objective and regression oracles without persisting raw output. */
+export async function runC1TaskOracles(input: {
+  readonly task: C1PreflightTask
+  readonly fixtureRoot: string
+}): Promise<C1TaskEvaluation> {
+  const objective = await runC1Oracle(input.task.objectiveOracle, input.fixtureRoot)
+  const regression = await runC1Oracle(input.task.regressionOracle, input.fixtureRoot)
+  const oracleUnavailable = objective.status === 'UNAVAILABLE' || regression.status === 'UNAVAILABLE'
+  const oraclePass = objective.status === 'PASS' && regression.status === 'PASS'
+  return {
+    status: oracleUnavailable
+      ? 'HARNESS_CONTRACT_FAILURE'
+      : oraclePass
+        ? 'PASS'
+        : 'TASK_FAILURE',
+    taskOutcome: oracleUnavailable ? 'NOT_OBSERVED' : oraclePass ? 'SUCCESS' : 'FAILURE',
+    writableScopePass: true,
+    objective,
+    regression
   }
 }
 
@@ -465,6 +645,7 @@ function serializedStudyArtifacts(input: {
   readonly study: C1FrozenStudy
   readonly runId: string
   readonly executionMode: string
+  readonly executionRevision: string | null
   readonly responseSourceKind: C1LiveResponseSourceKind
   readonly dryRun: boolean
   readonly studyId: string
@@ -488,6 +669,8 @@ function serializedStudyArtifacts(input: {
   const manifest = {
     runId: input.runId,
     executionMode: input.executionMode,
+    executionRevision: input.executionRevision,
+    initialObservationSource: input.dryRun ? 'SCRIPTED_DRY_RUN' : C1_LIVE_BOOTSTRAP_SOURCE,
     status: input.status,
     dryRun: input.dryRun,
     nodeVersion: process.versions.node,
@@ -560,8 +743,15 @@ function serializedStudyArtifacts(input: {
   const outcomeRows = input.completed.flatMap((leg) =>
     leg.result.evidence.map((row) => ({
       ...metadataEvidence(row),
-      taskOutcome: input.dryRun ? 'NOT_OBSERVED_IN_DRY_RUN' : row.taskOutcome,
-      ...(input.dryRun ? { syntheticModelOutcome: row.taskOutcome } : {}),
+      taskOutcome: input.dryRun
+        ? 'NOT_OBSERVED_IN_DRY_RUN'
+        : leg.taskEvaluation?.taskOutcome ?? 'NOT_OBSERVED',
+      ...(input.dryRun
+        ? { syntheticModelOutcome: row.taskOutcome }
+        : {
+            modelOutcome: row.taskOutcome,
+            ...(leg.taskEvaluation === undefined ? {} : { taskEvaluation: leg.taskEvaluation })
+          }),
       freshSandbox: true,
       sandboxReused: false,
       fixtureContentSha256: leg.task.fixtureRevision.fixtureContentSha256,
@@ -738,7 +928,11 @@ async function runC1StudyWithFactories(
   const baseReport = {
     runId: options.runId,
     executionMode: options.executionMode,
+    initialObservationSource: options.dryRun
+      ? ('SCRIPTED_DRY_RUN' as const)
+      : C1_LIVE_BOOTSTRAP_SOURCE,
     responseSourceKind: options.responseSourceKind,
+    executionRevision: options.executionRevision ?? null,
     nodeVersion,
     provider: C1_PROVIDER_ID,
     model: C1_MODEL_ID,
@@ -988,6 +1182,20 @@ async function runC1StudyWithFactories(
             `changed paths for ${plan.runId} are outside the frozen writable scope: ${changedPaths.join(', ')}`
           )
         }
+        const taskEvaluation = await options.evaluateTask?.({
+          study,
+          plan,
+          task,
+          fixtureRoot: fixture.path,
+          result,
+          changedPaths
+        })
+        if (taskEvaluation?.status === 'HARNESS_CONTRACT_FAILURE') {
+          throw new C1PreflightFailure(
+            'HARNESS_CONTRACT_FAILURE',
+            `frozen task oracle was unavailable for ${plan.runId}`
+          )
+        }
         cleanupAttempted = true
         await fixture.cleanup()
         fixtureCleaned = true
@@ -1013,9 +1221,10 @@ async function runC1StudyWithFactories(
           sandboxReused: false,
           fixtureHashVerified: true,
           changedPaths,
-          writableScopePass: true,
+          writableScopePass: writableScope,
           fixtureCleaned: true,
           fixtureChangedByTool: changedPaths.length > 0,
+          ...(taskEvaluation === undefined ? {} : { taskEvaluation }),
           providerCalls: options.providerCalls?.() ?? 0,
           networkRequests: options.networkRequests?.() ?? 0,
           providerCallPermits: result.providerCallPermits,
@@ -1032,10 +1241,11 @@ async function runC1StudyWithFactories(
           result,
           fixtureHashVerified: true,
           changedPaths,
-          writableScopePass: true,
+          writableScopePass: writableScope,
           fixtureCleaned: true,
           fixtureChangedByTool: changedPaths.length > 0,
-          legDir
+          legDir,
+          ...(taskEvaluation === undefined ? {} : { taskEvaluation })
         })
         providerCallPermits += result.providerCallPermits
         responseCalls += result.evidence.length
@@ -1126,6 +1336,7 @@ async function runC1StudyWithFactories(
       study,
       runId: options.runId,
       executionMode: options.executionMode,
+      executionRevision: options.executionRevision ?? null,
       responseSourceKind: options.responseSourceKind,
       dryRun: options.dryRun,
       studyId,
@@ -1246,13 +1457,20 @@ function summarizeLeg(leg: CompletedLeg): C1StudyLegSummary {
     writableScopePass: leg.writableScopePass,
     fixtureCleaned: leg.fixtureCleaned,
     fixtureChangedByTool: leg.fixtureChangedByTool,
-    sandboxReused: false
+    sandboxReused: false,
+    ...(leg.taskEvaluation === undefined
+      ? {}
+      : {
+          taskOutcome: leg.taskEvaluation.taskOutcome,
+          taskEvaluation: leg.taskEvaluation
+        })
   }
 }
 
 function summarizeDryRunLeg(leg: C1StudyLegSummary): C1StudyDryRunLegSummary {
   return {
     ...leg,
+    writableScopePass: true,
     fixtureChangedByDryRunTool: true
   }
 }
@@ -1263,6 +1481,167 @@ export class C1StudyOrchestrator {
   run(): Promise<C1StudyOrchestrationReport> {
     return runC1StudyWithFactories(this.options)
   }
+}
+
+/** Verify the checkout binding before a live identity can be claimed. */
+export async function assertC1LiveExecutionRevision(
+  repoRoot: string,
+  expectedRevision: string
+): Promise<void> {
+  if (!/^[0-9a-f]{40}$/.test(expectedRevision)) {
+    throw new C1PreflightFailure(
+      'CONTRACT_BINDING_MISMATCH',
+      'C1 live execution revision must be a 40-character lowercase commit SHA'
+    )
+  }
+  const result = await runProcess('git', ['rev-parse', 'HEAD'], {
+    cwd: repoRoot,
+    timeoutMs: 30_000,
+    env: buildSanitizedChildEnvironment()
+  })
+  if (result.exitCode !== 0 || result.timedOut || result.outputLimitExceeded) {
+    throw new C1PreflightFailure(
+      'CONTRACT_BINDING_MISMATCH',
+      'unable to resolve the current C1 live execution revision'
+    )
+  }
+  if (result.stdout.trim() !== expectedRevision) {
+    throw new C1PreflightFailure(
+      'CONTRACT_BINDING_MISMATCH',
+      `C1 live execution revision mismatch: expected ${expectedRevision}, received ${result.stdout.trim()}`
+    )
+  }
+}
+
+/** A live run must start from a clean checkout; ignored live output is allowed. */
+export async function assertC1LiveWorktreeClean(repoRoot: string): Promise<void> {
+  const result = await runProcess('git', ['status', '--porcelain', '--untracked-files=all'], {
+    cwd: repoRoot,
+    timeoutMs: 30_000,
+    env: buildSanitizedChildEnvironment()
+  })
+  if (result.exitCode !== 0 || result.timedOut || result.outputLimitExceeded) {
+    throw new C1PreflightFailure(
+      'CONTRACT_BINDING_MISMATCH',
+      'unable to verify that the C1 live execution worktree is clean'
+    )
+  }
+  if (result.stdout.trim().length > 0) {
+    throw new C1PreflightFailure(
+      'CONTRACT_BINDING_MISMATCH',
+      'C1 live execution requires a clean worktree before identity claim'
+    )
+  }
+}
+
+export interface C1LiveStudyOptions {
+  readonly repoRoot?: string
+  readonly outputRoot?: string
+  readonly authorization: C1LiveAuthorization
+  /** Memory-only credential; this value is never passed to an evidence writer. */
+  readonly apiKey: string
+  readonly fetchImpl?: typeof fetch
+  readonly requestTimeoutMs?: number
+  readonly signalSource?: C1SignalSource
+}
+
+export interface C1LiveAuthorization {
+  readonly decision: 'AUTHORIZED'
+  readonly studyId: string
+  readonly executionRevision: string
+}
+
+function assertC1LiveAuthorization(value: unknown): asserts value is C1LiveAuthorization {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new C1PreflightFailure(
+      'NOT_AUTHORIZED',
+      'C1 live study requires an explicit AUTHORIZED capability'
+    )
+  }
+  const authorization = value as Record<string, unknown>
+  if (
+    authorization['decision'] !== 'AUTHORIZED' ||
+    typeof authorization['studyId'] !== 'string' ||
+    authorization['studyId'].length === 0 ||
+    typeof authorization['executionRevision'] !== 'string' ||
+    authorization['executionRevision'].length === 0
+  ) {
+    throw new C1PreflightFailure(
+      'NOT_AUTHORIZED',
+      'C1 live study authorization is missing or does not bind a study and execution revision'
+    )
+  }
+}
+
+/**
+ * The only real C1 study entrypoint. It uses the same study orchestrator as
+ * readiness, replacing only the scripted response source with the authorized
+ * Provider source and enabling the frozen task oracles.
+ */
+export async function runC1LiveStudy(
+  options: C1LiveStudyOptions
+): Promise<C1StudyOrchestrationReport> {
+  assertC1LiveAuthorization(options.authorization)
+  const { studyId, executionRevision } = options.authorization
+  const repoRoot = options.repoRoot ?? resolve(import.meta.dirname, '..', '..', '..')
+  await assertC1LiveExecutionRevision(repoRoot, executionRevision)
+  await assertC1LiveWorktreeClean(repoRoot)
+  if (typeof options.apiKey !== 'string' || options.apiKey.length === 0) {
+    throw new C1PreflightFailure(
+      'PROVIDER_PREPARATION_FAILURE',
+      'C1 live study requires STEP_PLAN_API_KEY in memory'
+    )
+  }
+  const upstreamFetch = options.fetchImpl ?? globalThis.fetch
+  if (typeof upstreamFetch !== 'function') {
+    throw new C1PreflightFailure('PROVIDER_PREPARATION_FAILURE', 'global fetch is unavailable')
+  }
+  let providerAttempts = 0
+  let networkRequests = 0
+  const countedFetch: typeof fetch = async (input, init) => {
+    networkRequests += 1
+    return upstreamFetch(input, init)
+  }
+
+  return new C1StudyOrchestrator({
+    repoRoot,
+    studyId,
+    runId: C1_LIVE_STUDY_RUN_ID,
+    executionRevision,
+    executionMode: C1_LIVE_STUDY_MODE,
+    responseSourceKind: 'AUTHORIZED_PROVIDER',
+    dryRun: false,
+    maxCalls: 24,
+    ...(options.outputRoot === undefined ? {} : { outputRoot: options.outputRoot }),
+    ...(options.signalSource === undefined ? {} : { signalSource: options.signalSource }),
+    responseSourceFactory: (input) => {
+      const source = new C1AuthorizedProviderResponseSource({
+        providerBinding: input.providerBinding,
+        apiKey: options.apiKey,
+        fetchImpl: countedFetch,
+        ...(options.requestTimeoutMs === undefined
+          ? {}
+          : { requestTimeoutMs: options.requestTimeoutMs })
+      })
+      return {
+        kind: 'AUTHORIZED_PROVIDER' as const,
+        next: async (request, sourceOptions) => {
+          providerAttempts += 1
+          return source.next(request, sourceOptions)
+        }
+      }
+    },
+    observationSourceFactory: (input) =>
+      C1LiveTaskObservationSource.fromFixture({
+        task: input.task,
+        runId: input.plan.runId,
+        fixtureRoot: input.fixtureRoot
+      }),
+    toolExecutorFactory: (input) => new C1SandboxToolExecutor(input.fixtureRoot),
+    evaluateTask: ({ task, fixtureRoot }) => runC1TaskOracles({ task, fixtureRoot }),
+    providerCalls: () => providerAttempts,
+    networkRequests: () => networkRequests
+  }).run()
 }
 
 function dryRunEditPath(input: C1StudyLegFactoryInput): string {
@@ -1312,6 +1691,7 @@ export async function runC1StudyDryRun(
     ...result,
     runId: C1_LIVE_STUDY_DRY_RUN_ID,
     executionMode: C1_LIVE_STUDY_DRY_RUN_MODE,
+    initialObservationSource: 'SCRIPTED_DRY_RUN',
     providerCalls: 0,
     networkRequests: 0,
     fakeProviderCallPermits: result.providerCallPermits,

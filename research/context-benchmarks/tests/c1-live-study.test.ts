@@ -1,17 +1,24 @@
 import { EventEmitter } from 'node:events'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import {
   C1AuthorizedProviderResponseSource,
+  C1LiveTaskObservationSource,
   C1_PREFLIGHT_ARTIFACT_NAMES,
   C1SandboxToolExecutor,
+  C1ScriptedResponseSource,
   C1ScriptedObservationSource,
   C1StudyOrchestrator,
   changedC1FixturePaths,
   createC1ObservedReadTrace,
+  loadC1FrozenStudy,
+  materializeFreshC1Fixture,
   nodeVersionSatisfiesC1Range,
+  runC1LiveStudy,
   runC1StudyDryRun,
+  runC1TaskOracles,
+  verifyC1FixtureBinding,
   writableScopePass
 } from '../src'
 
@@ -49,6 +56,248 @@ function amendedProviderResponse(input: {
 }
 
 describe('C1 study-level credential-free orchestration', () => {
+  it('uses a fixed non-ground-truth bootstrap and forwards only real tool observations', async () => {
+    if (!nodeVersionSatisfiesC1Range()) return
+
+    const study = await loadC1FrozenStudy(REPO_ROOT)
+    const task = study.tasks[0]
+    if (task === undefined) throw new Error('frozen C1 study has no task')
+    const fixtureBinding = await verifyC1FixtureBinding(study, task)
+    const fixture = await materializeFreshC1Fixture(fixtureBinding.sourcePath)
+    try {
+      const source = await C1LiveTaskObservationSource.fromFixture({
+        task,
+        runId: 'c1-20260905-c1-live-bootstrap-NATIVE-aaaaaaaa',
+        fixtureRoot: fixture.path
+      })
+      const expectedBootstrapContent = await readFile(join(fixture.path, 'README.md'), 'utf8')
+      const bootstrapPaths = source.initialObservation.messages
+        .filter((message) => message.role === 'assistant')
+        .flatMap((message) =>
+          Array.isArray(message.content)
+            ? message.content
+                .filter(
+                  (block): block is {
+                    readonly type: 'toolCall'
+                    readonly arguments: { readonly path?: unknown }
+                  } =>
+                    typeof block === 'object' &&
+                    block !== null &&
+                    'type' in block &&
+                    block.type === 'toolCall' &&
+                    'arguments' in block &&
+                    typeof block.arguments === 'object' &&
+                    block.arguments !== null
+                )
+                .map((block) => block.arguments.path)
+                .filter((path): path is string => typeof path === 'string')
+            : []
+        )
+      expect(bootstrapPaths).toEqual(['README.md'])
+      const bootstrapContent = source.initialObservation.messages
+        .filter((message) => message.role === 'toolResult')
+        .map((message) =>
+          Array.isArray(message.content)
+            ? message.content
+                .filter(
+                  (block): block is { readonly type: 'text'; readonly text: string } =>
+                    typeof block === 'object' &&
+                    block !== null &&
+                    'type' in block &&
+                    block.type === 'text' &&
+                    'text' in block &&
+                    typeof block.text === 'string'
+                )
+                .map((block) => block.text)
+                .join('')
+            : message.content ?? ''
+        )
+        .join('\n')
+      expect(bootstrapContent).toContain(expectedBootstrapContent)
+      expect(source.initialObservation.sourceLifecycleSignals).toBeUndefined()
+
+      const toolObservation = {
+        ...source.initialObservation,
+        observationId: 'c1-live-after-tool'
+      }
+      expect(
+        source.next({
+          callOrdinal: 1,
+          previousObservation: source.initialObservation,
+          previousExecution: {} as never,
+          response: {} as never,
+          toolObservation
+        })
+      ).toBe(toolObservation)
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  it('runs frozen objective and regression oracles as task evidence', async () => {
+    if (!nodeVersionSatisfiesC1Range()) return
+
+    const study = await loadC1FrozenStudy(REPO_ROOT)
+    const task = study.tasks[0]
+    if (task === undefined) throw new Error('frozen C1 study has no task')
+    const fixtureBinding = await verifyC1FixtureBinding(study, task)
+    const fixture = await materializeFreshC1Fixture(fixtureBinding.sourcePath)
+    try {
+      const evaluation = await runC1TaskOracles({ task, fixtureRoot: fixture.path })
+
+      expect(evaluation.status).toBe('TASK_FAILURE')
+      expect(evaluation.taskOutcome).toBe('FAILURE')
+      expect(evaluation.objective.status).toBe('FAIL')
+      expect(evaluation.regression.status).toBe('PASS')
+      expect(evaluation.objective.stdoutSha256).toMatch(/^[0-9a-f]{64}$/)
+      expect(evaluation.regression.stderrSha256).toMatch(/^[0-9a-f]{64}$/)
+
+      expect(evaluation.writableScopePass).toBe(true)
+
+      const unavailable = await runC1TaskOracles({
+        task: {
+          ...task,
+          objectiveOracle: {
+            ...task.objectiveOracle,
+            args: ['-e', 'setTimeout(() => {}, 1000)'],
+            timeoutMs: 10
+          }
+        },
+        fixtureRoot: fixture.path
+      })
+      expect(unavailable.status).toBe('HARNESS_CONTRACT_FAILURE')
+      expect(unavailable.taskOutcome).toBe('NOT_OBSERVED')
+      expect(unavailable.objective.status).toBe('UNAVAILABLE')
+    } finally {
+      await fixture.cleanup()
+    }
+  }, 30_000)
+
+  it('reports writable-scope violations as hard failures before task oracle classification', async () => {
+    if (!nodeVersionSatisfiesC1Range()) return
+
+    const outputRoot = await mkdtemp(join('/tmp', 'canvas-c1-study-scope-gate-test-'))
+    let taskOracleCalls = 0
+    try {
+      const report = await new C1StudyOrchestrator({
+        repoRoot: REPO_ROOT,
+        outputRoot,
+        studyId: 'c1-20260905-c1-feasibility-v1-eeeeeeee',
+        runId: 'C1_WRITABLE_SCOPE_GATE_REGRESSION_V1',
+        executionMode: 'CREDENTIAL_FREE_SCOPE_GATE_REGRESSION',
+        responseSourceKind: 'SCRIPTED_FAKE',
+        dryRun: false,
+        maxCalls: 1,
+        responseSourceFactory: async (input) => {
+          const path = 'README.md'
+          const originalContent = await readFile(join(input.fixtureRoot, path), 'utf8')
+          return new C1ScriptedResponseSource([
+            {
+              responseId: `${input.plan.runId}-response-01`,
+              assistantMessageCount: 1,
+              assistantContent: 'scope gate regression',
+              usage: {
+                inputTokens: 10,
+                outputTokens: 5,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                totalTokens: 15,
+                usageSource: 'SCRIPTED_FAKE'
+              },
+              toolRequests: [
+                {
+                  toolCallId: `${input.plan.runId}-edit-01`,
+                  toolName: 'edit',
+                  argumentsJson: JSON.stringify({
+                    path,
+                    oldText: originalContent,
+                    newText: `${originalContent}\nSCOPE_GATE_REGRESSION\n`
+                  })
+                }
+              ],
+              toolExecutions: [],
+              outcome: 'COMPLETE'
+            }
+          ])
+        },
+        observationSourceFactory: (input) =>
+          new C1ScriptedObservationSource([
+            createC1ObservedReadTrace({
+              observationId: `${input.plan.runId}-initial`,
+              prompt: input.task.prompt,
+              fixtureFiles: ['README.md'],
+              taskPhase: 'INVESTIGATE'
+            })
+          ]),
+        toolExecutorFactory: (input) => new C1SandboxToolExecutor(input.fixtureRoot),
+        evaluateTask: async (input) => {
+          taskOracleCalls += 1
+          return runC1TaskOracles({ task: input.task, fixtureRoot: input.fixtureRoot })
+        }
+      }).run()
+
+      expect(report.status).toBe('FAIL')
+      expect(report.legsAttempted).toBe(1)
+      expect(report.legsCompleted).toBe(0)
+      expect(report.failures[0]?.code).toBe('WRITABLE_SCOPE_FAILURE')
+      expect(taskOracleCalls).toBe(0)
+      expect(report.fixtureSandboxesCreated).toBe(1)
+      expect(report.fixtureSandboxesCleaned).toBe(1)
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('rejects direct live entrypoint calls without an explicit authorization capability', async () => {
+    const outputRoot = await mkdtemp(join('/tmp', 'canvas-c1-live-authorization-gate-test-'))
+    let fetchCalls = 0
+    try {
+      await expect(
+        runC1LiveStudy({
+          repoRoot: REPO_ROOT,
+          outputRoot,
+          authorization: undefined as never,
+          apiKey: 'c1-test-only-api-key',
+          fetchImpl: async () => {
+            fetchCalls += 1
+            throw new Error('fetch must not be called')
+          }
+        })
+      ).rejects.toMatchObject({ code: 'NOT_AUTHORIZED' })
+      expect(await readdir(outputRoot)).toEqual([])
+      expect(fetchCalls).toBe(0)
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a mismatched live revision before claiming an identity or fetching', async () => {
+    const outputRoot = await mkdtemp(join('/tmp', 'canvas-c1-live-entrypoint-gate-test-'))
+    let fetchCalls = 0
+    try {
+      await expect(
+        runC1LiveStudy({
+          repoRoot: REPO_ROOT,
+          outputRoot,
+          authorization: {
+            decision: 'AUTHORIZED',
+            studyId: 'c1-20260905-c1-feasibility-v1-dddddddd',
+            executionRevision: '0000000000000000000000000000000000000000'
+          },
+          apiKey: 'c1-test-only-api-key',
+          fetchImpl: async () => {
+            fetchCalls += 1
+            throw new Error('fetch must not be called')
+          }
+        })
+      ).rejects.toMatchObject({ code: 'CONTRACT_BINDING_MISMATCH' })
+      expect(await readdir(outputRoot)).toEqual([])
+      expect(fetchCalls).toBe(0)
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true })
+    }
+  })
+
   it('fails closed before claiming an identity outside the frozen Node range', async () => {
     if (nodeVersionSatisfiesC1Range()) return
 

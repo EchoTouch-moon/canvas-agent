@@ -95,6 +95,7 @@ export type C1PreflightOrder = 'NATIVE_THEN_RUNTIME' | 'RUNTIME_THEN_NATIVE'
 
 export type C1PreflightFailureCode =
   | 'NODE_RANGE_MISMATCH'
+  | 'NOT_AUTHORIZED'
   | 'CONTRACT_BINDING_MISMATCH'
   | 'ASSIGNMENT_BINDING_MISMATCH'
   | 'MANIFEST_BINDING_MISMATCH'
@@ -117,6 +118,7 @@ export type C1PreflightFailureCode =
   | 'KILL_SWITCH_BLOCKED'
   | 'REPLAY_MISMATCH'
   | 'EVIDENCE_WRITE_FAILURE'
+  | 'HARNESS_CONTRACT_FAILURE'
   | 'PREFLIGHT_FAILURE'
 
 export class C1PreflightFailure extends Error {
@@ -545,10 +547,24 @@ export interface C1PreflightTask {
   }
   readonly prompt: string
   readonly promptSha256: string
+  readonly objectiveOracle: C1OracleSpec
+  readonly regressionOracle: C1OracleSpec
   readonly expectedWritablePaths: readonly string[]
   readonly relevantSources: readonly string[]
   readonly distractorSources: readonly string[]
   readonly requiredLaterSources: readonly string[]
+}
+
+/**
+ * The executable oracle contract frozen by C1-A. The live runner resolves
+ * `node` to the current Node executable, but never accepts an arbitrary
+ * command from the manifest.
+ */
+export interface C1OracleSpec {
+  readonly command: 'node'
+  readonly args: readonly string[]
+  readonly expectedExitCode: number
+  readonly timeoutMs: number
 }
 
 export interface C1Assignment {
@@ -589,6 +605,33 @@ export interface C1FrozenStudy {
   }
 }
 
+function parseOracleSpec(value: unknown, label: string): C1OracleSpec {
+  const record = asRecord(value, label)
+  const command = stringField(record, 'command', `${label}.command`)
+  if (command !== 'node') {
+    fail('MANIFEST_BINDING_MISMATCH', `${label}.command must be node`)
+  }
+  const args = stringArrayField(record, 'args', `${label}.args`)
+  if (args.length === 0) {
+    fail('MANIFEST_BINDING_MISMATCH', `${label}.args must not be empty`)
+  }
+  const expectedExitCode = intField(
+    record,
+    'expectedExitCode',
+    `${label}.expectedExitCode`
+  )
+  const timeoutMs = intField(record, 'timeoutMs', `${label}.timeoutMs`)
+  if (timeoutMs < 1) {
+    fail('MANIFEST_BINDING_MISMATCH', `${label}.timeoutMs must be positive`)
+  }
+  return {
+    command,
+    args,
+    expectedExitCode,
+    timeoutMs
+  }
+}
+
 function parseTask(value: unknown): C1PreflightTask {
   const record = asRecord(value, 'manifest task')
   const fixtureRevision = asRecord(record['fixtureRevision'], 'task.fixtureRevision')
@@ -622,6 +665,14 @@ function parseTask(value: unknown): C1PreflightTask {
     },
     prompt,
     promptSha256,
+    objectiveOracle: parseOracleSpec(
+      record['objectiveOracle'],
+      `task ${stringField(record, 'taskId')}.objectiveOracle`
+    ),
+    regressionOracle: parseOracleSpec(
+      record['regressionOracle'],
+      `task ${stringField(record, 'taskId')}.regressionOracle`
+    ),
     expectedWritablePaths: stringArrayField(record, 'expectedWritablePaths'),
     relevantSources: stringArrayField(record, 'relevantSources'),
     distractorSources: stringArrayField(record, 'distractorSources'),
@@ -2654,6 +2705,18 @@ function adversarialTask(): C1PreflightTask {
     },
     prompt: 'preflight',
     promptSha256: sha256Bytes('preflight'),
+    objectiveOracle: {
+      command: 'node',
+      args: ['-e', 'process.exit(0)'],
+      expectedExitCode: 0,
+      timeoutMs: 1_000
+    },
+    regressionOracle: {
+      command: 'node',
+      args: ['-e', 'process.exit(0)'],
+      expectedExitCode: 0,
+      timeoutMs: 1_000
+    },
     expectedWritablePaths: ['src/target.js'],
     relevantSources: ['metadata-only-test-field'],
     distractorSources: ['metadata-only-test-field'],
