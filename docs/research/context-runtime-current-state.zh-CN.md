@@ -1,12 +1,12 @@
 # Context Runtime 当前状态索引
 
-更新时间：2026-09-05（Asia/Shanghai）
+更新时间：2026-09-06（Asia/Shanghai）
 
 > 本页是 Context Runtime 研究状态的当前入口。它只记录已经合并、已经审查或明确授权的事实；历史计划和历史报告保留原貌，但不再单独承担当前授权依据。任何新的 Provider 执行都必须以最新授权记录为准，不能从本页或旧计划自动推导。
 
 ## 一页结论
 
-当前项目已经完成从“可观察、可审计的 Runtime 基础设施”到“比较实验准备”的工程收敛，但还没有得到 Context Runtime 相对 Native 的有效性答案。C1 usage amendment adapter 与零 Provider 证据闭环均已合并进入当前 `main`；下一步是完成新的 Live 授权记录并等待 owner 单独签署。
+当前项目已经完成从“可观察、可审计的 Runtime 基础设施”到“比较实验准备”的工程收敛，但还没有得到 Context Runtime 相对 Native 的有效性答案。C1 usage amendment adapter、零 Provider 证据闭环与 live entrypoint 均已合并进入当前 `main`；Authorization V3 草案已绑定当前 exact `main`，下一步是完成有界审查并等待 owner 单独签署。
 
 当前唯一近端主线是：基于已完成的零 Provider 闭环，准备并审查一份绑定当前 exact `main`、effective usage contract 和 fresh single-use identity 的新授权记录；在 owner 单独签署前不 claim identity、不发起 Provider 调用。
 
@@ -22,9 +22,10 @@ Wave B                  NO_GO
 
 | 项目 | 当前状态 | 绑定或解释 |
 | --- | --- | --- |
-| 远端 `main` | `816c13c15ef8247ec9f27c981e025283be4e366b` | PR #100 合并后的当前研究基线；main CI `33970829132` 的 `check` 与 `macos-electron` 均成功 |
+| 远端 `main` | `4d5e39a9b337d6cabdc84d450680bc54ad85561b` | PR #102 合并后的当前研究基线；合并后 CI `33983852204` 的 `check` 与 `macos-electron` 均成功 |
 | PR #98 | `MERGED / CI_GREEN / IMPLEMENTATION_ACCEPTED` | implementation `55d834483ba044099e0be8d64b95028becabb014`；merge commit `583ecb74623b77dce2238f67faba1b2e046aaa9b`；实现 usage amendment 的 adapter/validator/serialization 兼容层 |
 | PR #100 | `MERGED / CI_GREEN / ZERO_PROVIDER_CLOSURE_ACCEPTED` | merge commit `816c13c15ef8247ec9f27c981e025283be4e366b`；补齐 usage source map、正式 treatment 入口审计和离线 adjudicator 证据闭环 |
+| PR #102 | `MERGED / CI_GREEN / LIVE_ENTRYPOINT_ACCEPTED` | merge commit `4d5e39a9b337d6cabdc84d450680bc54ad85561b`；实现正式 C1 live entrypoint 的授权、ground-truth-free bootstrap、scope gate 与 execution provenance |
 | `C1_USAGE_CONTRACT_AMENDMENT_V1` | `FROZEN / MERGED` | 只调整 provider cache split 的可用性语义；原 `C1_RUN_CONTRACT_V1` 保持不变 |
 | `C1_PROTOCOL_V1` | `FROZEN` | 比较问题、对照/处理臂、指标与裁决边界 |
 | `C1_A_MANIFEST_V1` | `FROZEN` | 4 个任务层、fixture、oracle、anchors 与身份绑定 |
@@ -78,7 +79,8 @@ separate owner authorization
 - [`C1 live authorization gate`](../plan/cspv-c1-live-authorization-gate-2026-09-02.md)
 - [`retired C1 live authorization record`](../plan/cspv-c1-live-authorization-record-2026-09-04.md)
 - [`C1 usage contract amendment`](../plan/cspv-c1-usage-contract-amendment-2026-09-05.md)
-- [`C1 Live authorization record V2`](../plan/cspv-c1-live-authorization-record-2026-09-05-v2.md)
+- [`C1 Live authorization record V2 (historical / superseded)`](../plan/cspv-c1-live-authorization-record-2026-09-05-v2.md)
+- [`C1 Live authorization record V3 (draft)`](../plan/cspv-c1-live-authorization-record-2026-09-06-v3.md)
 - [`C0-L1 live evidence`](../verification/cspv-c0-l1-live-evidence-2026-09-01.md)
 - [`CR-005 interim evidence analysis`](../verification/context-runtime-cr-005-interim-evidence-analysis.md)
 - [`C1 zero-provider evidence closure`](../verification/cspv-c1-zero-provider-evidence-closure-2026-09-05.md)
@@ -101,18 +103,18 @@ separate owner authorization
 
 本次验证的分类是核心研究闭环，不是产品 UI、第二 Provider、LLM planner 或 CR-004 Active Rewrite；本地验证期间 Provider calls 与 network requests 均为 0。
 
-### 3. 准备新的 Live 授权记录 — 当前进行中
+### 3. 准备新的 Live 授权记录 — V3 草案已完成，待有界审查与 owner 签署
 
-零 Provider 闭环通过后，创建新的、仍待 owner 签署的 authorization record，绑定：
+基于零 Provider 闭环与已合并的 live entrypoint，Authorization V3 草案已绑定：
 
-- 合并后的 exact `main` SHA；
+- 合并后的 exact `main` SHA `4d5e39a...`；
 - #98 implementation revision；
 - amendment hash 与 effective contract hash；
 - C1-A/B/C hashes；
 - 固定 provider/model/config、seed、预算和 assignment；
 - fresh single-use study identity。
 
-旧 identity 不得恢复。当前候选 identity 仅写入为 `NOT CLAIMED / NOT RESERVED`；Live 决定仍须由 owner 单独签署，不能由 readiness、本索引或 Draft 文档自动授予。
+V3 当前仍是 `DRAFT / ZERO PROVIDER / PENDING OWNER AUTHORIZATION`。旧 identity 与 V2 candidate 均不得恢复或复用；V3 候选 identity 仅写入为 `NOT CLAIMED / NOT RESERVED`。Live 决定仍须由 owner 单独签署，不能由 readiness、本索引或 Draft 文档自动授予。
 
 ### 4. 执行一场固定 C1 study — 条件性后续
 
