@@ -33,7 +33,7 @@ The closure package contains only zero-provider evidence assets:
 | Check | Result | Evidence boundary |
 | --- | --- | --- |
 | C1 usage source map | `PASS / CANDIDATE` | Distinguishes C0 normalized usage from C1 Provider usage; does not authorize execution |
-| Formal treatment entry audit | `PASS` | Factory-injected formal entry is separated from the scripted dry-run wrapper |
+| Formal treatment entry audit | `PASS / NODE24-CI-GATED` | Source guard plus a behavior probe through the formal orchestrator; Node23 local runs record `NOT_RUN_NODE_RANGE` |
 | Existing C1-C readiness binding | `PASS / PRESERVED` | Existing zero-provider readiness remains bound to its recorded baseline, treatment revision and hashes |
 | Offline comparative adjudicator | `PASS` | Synthetic pairs cover frozen primary, reliability, secondary and lifecycle semantics |
 | Provider calls | `0` | No credential, response, or network path was opened |
@@ -67,6 +67,25 @@ the following boundaries:
 - synthetic lifecycle markers are not injected by the formal entry;
 - the existing C1-C readiness result remains `PASS` with `providerCalls=0`.
 
+It also records `formalEntrySourceSha256` for the audited formal-entry body and
+executes a bounded behavior probe through `C1StudyOrchestrator` with
+`dryRun=false`, two frozen first legs, scripted responses, and the real sandbox
+tool executor. The probe reads the resulting metadata-only decision evidence
+and requires:
+
+- the actual Native and Runtime provider-bound source-key sets and semantic
+  fingerprints differ;
+- the structural tool/system fingerprint and provider configuration hash are
+  equal across arms;
+- `fallbackSent=false`, `networkSent=false`, `providerCalls=0`, and the
+  expected terminal stop occurs before the next leg.
+
+This probe is executable only in the repository's Node 24 range. A local Node
+23 run does not claim that the behavior probe executed: it records
+`behaviorProbe.status=NOT_RUN_NODE_RANGE`, while the required Node 24 CI run
+executes the probe. The scripted response source is a credential-free
+transport substitute only; it is not live Provider evidence.
+
 This is an entry and boundary audit. It does not claim that a live Provider run
 has occurred or that model-generated lifecycle signals have been observed.
 
@@ -83,6 +102,12 @@ The exercised cases cover:
 - per-stratum and pooled coverage requirements;
 - task non-inferiority and Runtime attrition;
 - protected secondary regression guards;
+- missing core usage counted as evidence attrition without converting the task
+  outcome into a task failure;
+- paired-difference secondary statistics rather than a difference of arm
+  medians;
+- signed, unit-bearing Cold Context Penalty deltas with anchor and lineage
+  validation;
 - missing usage and zero-denominator handling without imputation;
 - aborted/stopped/infrastructure classifications;
 - lifecycle `ESTIMABLE`, `NOT_ESTIMABLE` and `NOT_APPLICABLE` preservation.

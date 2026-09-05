@@ -91,11 +91,11 @@ separate owner authorization
 
 ### 2. 做一次核心的零 Provider 证据闭环 — 候选证据已完成，待远端审查
 
-这个包保持小而可审查，当前已在本地隔离分支完成，待远端 CI 与有界审查确认：
+这个包保持小而可审查，当前已在本地隔离分支完成，待远端 CI 与有界审查确认。正式入口行为测试在 Node 24 CI 中执行；Node 23 本地运行只记录 `NOT_RUN_NODE_RANGE`，不把未执行的行为证据写成已通过：
 
 1. **用量字段来源表**：明确 C0 normalized usage 与 C1 provider response 的原始字段、缓存是否包含、归一化变换、缺失状态和可参与的终点；禁止把 C0/C1 的 token 口径拼接或重复相加。
-2. **正式 treatment 入口审计**：绑定真实 live launcher、Native/Runtime factories、内容哈希和 executed revision，证明正式入口怎样从工具观察进入 frozen treatment；不得用 dry-run 预造 lifecycle 轨迹冒充自然 live 行为。
-3. **分析器离线验收**：用合成 pair 覆盖 `BETTER/WORSE/TRADE-OFF/INCONCLUSIVE`、缺失、失败、零分母、attrition、停止和 `NOT_ESTIMABLE`，并验证结果与冻结合同一致。
+2. **正式 treatment 入口审计**：绑定真实 live launcher、Native/Runtime factories、内容哈希和 executed revision，另经 `C1StudyOrchestrator → factory → driver` 的零网络行为测试核对实际 provider-bound context 差异；不得用 dry-run 预造 lifecycle 轨迹冒充自然 live 行为。
+3. **分析器离线验收**：用合成 pair 覆盖 `BETTER/WORSE/TRADE-OFF/INCONCLUSIVE`、缺失用量证据失效率、逐 pair 次指标差值、带单位 Cold Context Penalty、失败、零分母、停止和 `NOT_ESTIMABLE`，并验证结果与冻结合同一致。
 
 本次验证的分类是核心研究闭环，不是产品 UI、第二 Provider、LLM planner 或 CR-004 Active Rewrite；本地验证期间 Provider calls 与 network requests 均为 0。
 

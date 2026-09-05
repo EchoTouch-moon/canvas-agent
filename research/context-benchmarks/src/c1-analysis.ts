@@ -11,17 +11,10 @@ export type C1AnalysisEndpointStatus = 'ESTIMABLE' | 'NOT_ESTIMABLE' | 'NOT_APPL
 export type C1AnalysisArm = 'NATIVE' | 'RUNTIME'
 export type C1AnalysisTaskOutcome = 'SUCCESS' | 'FAILURE' | 'NOT_OBSERVED'
 export type C1AnalysisStudyStatus =
-  | 'COMPLETED'
-  | 'STOPPED'
-  | 'HARNESS_CONTRACT_FAILURE'
-  | 'INFRASTRUCTURE_FAILURE'
+  'COMPLETED' | 'STOPPED' | 'HARNESS_CONTRACT_FAILURE' | 'INFRASTRUCTURE_FAILURE'
 
 export type C1AnalysisLegStatus =
-  | 'COMPLETED'
-  | 'INFRASTRUCTURE_FAILURE'
-  | 'HARNESS_CONTRACT_FAILURE'
-  | 'ABORTED'
-  | 'STOPPED'
+  'COMPLETED' | 'INFRASTRUCTURE_FAILURE' | 'HARNESS_CONTRACT_FAILURE' | 'ABORTED' | 'STOPPED'
 
 export type C1AnalysisMetric =
   | {
@@ -51,8 +44,35 @@ export type C1AnalysisLifecycleMeasurement =
 export interface C1AnalysisLifecycleEvidence {
   readonly removalPrecision: C1AnalysisLifecycleMeasurement
   readonly rehydrationRecoveryRate: C1AnalysisLifecycleMeasurement
-  readonly coldContextPenalty: C1AnalysisLifecycleMeasurement
+  readonly coldContextPenalty: C1AnalysisColdContextPenaltyEvidence
 }
+
+export interface C1AnalysisColdContextInterval {
+  /** Non-negative interval values; the derived penalty may be signed. */
+  readonly inputTokens: number
+  readonly toolCalls: number
+  readonly wallClockMs: number
+}
+
+export type C1AnalysisColdContextPenaltyEvidence =
+  | {
+      readonly status: 'ESTIMABLE'
+      readonly native: C1AnalysisColdContextInterval
+      readonly runtime: C1AnalysisColdContextInterval
+      readonly anchorA: string
+      readonly anchorB: string
+      readonly runtimeOriginatingRemoveTransitionId: string
+      readonly runtimeRehydrateTransitionId: string
+      readonly lineageValid: true
+    }
+  | {
+      readonly status: 'NOT_ESTIMABLE'
+      readonly reason: string
+    }
+  | {
+      readonly status: 'NOT_APPLICABLE'
+      readonly reason: string
+    }
 
 export type C1RuntimeTreatmentState = 'ACTIVE' | 'INACTIVE' | 'NO_OPPORTUNITY'
 
@@ -61,6 +81,8 @@ export interface C1AnalysisLeg {
   readonly legStatus: C1AnalysisLegStatus
   readonly taskOutcome: C1AnalysisTaskOutcome
   readonly inputTokens: C1AnalysisMetric
+  /** Required provider-reported core usage retained for evidence completeness. */
+  readonly outputTokens: C1AnalysisMetric
   readonly totalTokens: C1AnalysisMetric
   readonly toolCalls: C1AnalysisMetric
   readonly wallClockMs: C1AnalysisMetric
@@ -122,8 +144,10 @@ export interface C1SecondaryMetricAnalysis {
   readonly minimumCoveragePass: boolean
   readonly nativeMedian: number | null
   readonly runtimeMedian: number | null
-  readonly relativeIncrease: number | null
-  readonly absoluteIncrease: number | null
+  /** Median of (Runtime - Native) computed within each matched pair. */
+  readonly pairedMedianDifference: number | null
+  /** Median of the per-pair zero-safe relative differences. */
+  readonly pairedMedianRelativeIncrease: number | null
   readonly materialRegression: boolean
 }
 
@@ -140,15 +164,15 @@ export interface C1OutcomeAnalysis {
 export interface C1ReliabilityAnalysis {
   readonly nativeInvalidLegs: number
   readonly runtimeInvalidLegs: number
+  /** Includes incomplete core provider-usage evidence, not only stopped legs. */
+  readonly nativeEvidenceAttrition: number
+  readonly runtimeEvidenceAttrition: number
   readonly runtimeOperationalSuccessMinimumPass: boolean
   readonly betterInvalidLegGatePass: boolean
 }
 
-export interface C1LifecycleEndpointAnalysis {
-  readonly endpointId:
-    | 'removal_precision'
-    | 'rehydration_recovery_rate'
-    | 'cold_context_penalty'
+export interface C1LifecycleRateEndpointAnalysis {
+  readonly endpointId: 'removal_precision' | 'rehydration_recovery_rate'
   readonly status: C1AnalysisEndpointStatus
   readonly numerator: number | null
   readonly denominator: number | null
@@ -156,6 +180,21 @@ export interface C1LifecycleEndpointAnalysis {
   readonly notEstimableCount: number
   readonly notApplicableCount: number
 }
+
+export interface C1ColdContextPenaltyAnalysis {
+  readonly endpointId: 'cold_context_penalty'
+  readonly status: C1AnalysisEndpointStatus
+  readonly eligiblePairs: number
+  /** Runtime interval minus Native interval, preserving the physical unit. */
+  readonly medianInputTokenDelta: number | null
+  readonly medianToolCallDelta: number | null
+  readonly medianWallClockDeltaMs: number | null
+  readonly notEstimableCount: number
+  readonly notApplicableCount: number
+}
+
+export type C1LifecycleEndpointAnalysis =
+  C1LifecycleRateEndpointAnalysis | C1ColdContextPenaltyAnalysis
 
 export interface C1StratumAnalysis {
   readonly stratum: C1AnalysisStratum
@@ -233,10 +272,7 @@ function validateMetric(metric: C1AnalysisMetric, label: string): void {
     }
     return
   }
-  if (
-    metric.reason !== 'NOT_REPORTED_BY_PROVIDER' &&
-    metric.reason !== 'MISSING_EVIDENCE'
-  ) {
+  if (metric.reason !== 'NOT_REPORTED_BY_PROVIDER' && metric.reason !== 'MISSING_EVIDENCE') {
     throw new C1OfflineAnalysisInputError(`${label} has an unsupported unavailable reason`)
   }
 }
@@ -257,6 +293,37 @@ function validateLifecycleMeasurement(
   }
 }
 
+function validateColdContextInterval(interval: C1AnalysisColdContextInterval, label: string): void {
+  for (const key of ['inputTokens', 'toolCalls', 'wallClockMs'] as const) {
+    const value = interval[key]
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new C1OfflineAnalysisInputError(`${label}.${key} must be a non-negative integer`)
+    }
+  }
+}
+
+function validateColdContextEvidence(
+  evidence: C1AnalysisColdContextPenaltyEvidence,
+  label: string
+): void {
+  if (evidence.status !== 'ESTIMABLE') return
+  validateColdContextInterval(evidence.native, `${label}.native`)
+  validateColdContextInterval(evidence.runtime, `${label}.runtime`)
+  for (const [key, value] of Object.entries({
+    anchorA: evidence.anchorA,
+    anchorB: evidence.anchorB,
+    runtimeOriginatingRemoveTransitionId: evidence.runtimeOriginatingRemoveTransitionId,
+    runtimeRehydrateTransitionId: evidence.runtimeRehydrateTransitionId
+  })) {
+    if (typeof value !== 'string' || value.length === 0) {
+      throw new C1OfflineAnalysisInputError(`${label}.${key} must be a non-empty string`)
+    }
+  }
+  if (evidence.lineageValid !== true) {
+    throw new C1OfflineAnalysisInputError(`${label} must carry valid REMOVE/REHYDRATE lineage`)
+  }
+}
+
 function validateLeg(leg: C1AnalysisLeg, expectedArm: C1AnalysisArm, label: string): void {
   if (leg.arm !== expectedArm) throw new C1OfflineAnalysisInputError(`${label} arm mismatch`)
   const completed = leg.legStatus === 'COMPLETED'
@@ -267,12 +334,15 @@ function validateLeg(leg: C1AnalysisLeg, expectedArm: C1AnalysisArm, label: stri
     throw new C1OfflineAnalysisInputError(`${label} invalid leg has an observed task outcome`)
   }
   if (expectedArm === 'NATIVE' && leg.runtimeTreatment !== undefined) {
-    throw new C1OfflineAnalysisInputError(`${label} Native leg must not carry Runtime treatment state`)
+    throw new C1OfflineAnalysisInputError(
+      `${label} Native leg must not carry Runtime treatment state`
+    )
   }
   if (expectedArm === 'RUNTIME' && leg.runtimeTreatment === undefined) {
     throw new C1OfflineAnalysisInputError(`${label} Runtime leg is missing treatment state`)
   }
   validateMetric(leg.inputTokens, `${label}.inputTokens`)
+  validateMetric(leg.outputTokens, `${label}.outputTokens`)
   validateMetric(leg.totalTokens, `${label}.totalTokens`)
   validateMetric(leg.toolCalls, `${label}.toolCalls`)
   validateMetric(leg.wallClockMs, `${label}.wallClockMs`)
@@ -295,7 +365,7 @@ function validateStudyInput(study: C1AnalysisStudy): void {
       pair.lifecycle.rehydrationRecoveryRate,
       `${pair.pairId}.rehydrationRecoveryRate`
     )
-    validateLifecycleMeasurement(
+    validateColdContextEvidence(
       pair.lifecycle.coldContextPenalty,
       `${pair.pairId}.coldContextPenalty`
     )
@@ -315,7 +385,8 @@ function signFlipPValue(deltas: readonly number[]): number | null {
     let statistic = 0
     for (let index = 0; index < magnitudes.length; index += 1) {
       const magnitude = magnitudes[index]
-      if (magnitude === undefined) throw new C1OfflineAnalysisInputError('missing sign-flip magnitude')
+      if (magnitude === undefined)
+        throw new C1OfflineAnalysisInputError('missing sign-flip magnitude')
       statistic += (assignment & (1 << index)) === 0 ? -magnitude : magnitude
     }
     if (statistic >= observed) extremeCount += 1
@@ -341,6 +412,13 @@ function metricValue(metric: C1AnalysisMetric): number | null {
   return metric.status === 'REPORTED' ? metric.value : null
 }
 
+function legHasEvidenceAttrition(leg: C1AnalysisLeg): boolean {
+  if (leg.legStatus !== 'COMPLETED') return true
+  return [leg.inputTokens, leg.outputTokens, leg.totalTokens].some(
+    (metric) => metric.status !== 'REPORTED'
+  )
+}
+
 function primaryForStratum(
   stratum: C1AnalysisStratum,
   pairs: readonly C1AnalysisPair[]
@@ -356,11 +434,17 @@ function primaryForStratum(
     const nativeInput = metricValue(pair.native.inputTokens)
     const runtimeInput = metricValue(pair.runtime.inputTokens)
     if (nativeInput === null || runtimeInput === null) {
-      exclusions.push({ pairId: pair.pairId, reason: 'INPUT_USAGE_UNAVAILABLE' })
+      exclusions.push({
+        pairId: pair.pairId,
+        reason: 'INPUT_USAGE_UNAVAILABLE'
+      })
       continue
     }
     if (nativeInput <= 0) {
-      exclusions.push({ pairId: pair.pairId, reason: 'NATIVE_DENOMINATOR_ZERO' })
+      exclusions.push({
+        pairId: pair.pairId,
+        reason: 'NATIVE_DENOMINATOR_ZERO'
+      })
       continue
     }
     const delta = nativeInput - runtimeInput
@@ -390,6 +474,8 @@ function secondaryForMetric(
 ): C1SecondaryMetricAnalysis {
   const nativeValues: number[] = []
   const runtimeValues: number[] = []
+  const pairedDifferences: number[] = []
+  const pairedRelativeIncreases: number[] = []
   for (const pair of pairs) {
     if (pair.native.legStatus !== 'COMPLETED' || pair.runtime.legStatus !== 'COMPLETED') continue
     const nativeMetric =
@@ -407,59 +493,57 @@ function secondaryForMetric(
     const nativeValue = metricValue(nativeMetric)
     const runtimeValue = metricValue(runtimeMetric)
     if (nativeValue === null || runtimeValue === null) continue
+    if (endpointId === 'provider_total_tokens' && nativeValue <= 0) continue
     nativeValues.push(nativeValue)
     runtimeValues.push(runtimeValue)
+    const difference = runtimeValue - nativeValue
+    pairedDifferences.push(difference)
+    const denominator =
+      endpointId === 'provider_total_tokens' ? nativeValue : Math.max(nativeValue, 1)
+    pairedRelativeIncreases.push(difference / denominator)
   }
   const nativeMedian = median(nativeValues)
   const runtimeMedian = median(runtimeValues)
-  const absoluteIncrease =
-    nativeMedian === null || runtimeMedian === null ? null : runtimeMedian - nativeMedian
-  const denominator =
-    endpointId === 'provider_total_tokens'
-      ? nativeMedian
-      : Math.max(nativeMedian ?? 0, endpointId === 'tool_calls' ? 1 : 1)
-  const relativeIncrease =
-    absoluteIncrease === null || denominator === null || denominator <= 0
-      ? null
-      : absoluteIncrease / denominator
+  const pairedMedianDifference = median(pairedDifferences)
+  const pairedMedianRelativeIncrease = median(pairedRelativeIncreases)
   const materialRegression =
     endpointId === 'provider_total_tokens'
-      ? relativeIncrease !== null && relativeIncrease >= 0.1
+      ? pairedMedianRelativeIncrease !== null && pairedMedianRelativeIncrease >= 0.1
       : endpointId === 'tool_calls'
-        ? absoluteIncrease !== null &&
-          relativeIncrease !== null &&
-          absoluteIncrease >= 2 &&
-          relativeIncrease >= 0.2
-        : absoluteIncrease !== null &&
-          relativeIncrease !== null &&
-          absoluteIncrease >= 5000 &&
-          relativeIncrease >= 0.2
+        ? pairedMedianDifference !== null &&
+          pairedMedianRelativeIncrease !== null &&
+          pairedMedianDifference >= 2 &&
+          pairedMedianRelativeIncrease >= 0.2
+        : pairedMedianDifference !== null &&
+          pairedMedianRelativeIncrease !== null &&
+          pairedMedianDifference >= 5000 &&
+          pairedMedianRelativeIncrease >= 0.2
   return {
     endpointId,
-    status: nativeValues.length >= 6 ? 'ESTIMABLE' : 'NOT_ESTIMABLE',
-    eligiblePairs: nativeValues.length,
-    minimumCoveragePass: nativeValues.length >= 6,
+    status: pairedDifferences.length >= 6 ? 'ESTIMABLE' : 'NOT_ESTIMABLE',
+    eligiblePairs: pairedDifferences.length,
+    minimumCoveragePass: pairedDifferences.length >= 6,
     nativeMedian,
     runtimeMedian,
-    relativeIncrease,
-    absoluteIncrease,
+    pairedMedianDifference,
+    pairedMedianRelativeIncrease,
     materialRegression
   }
 }
 
-function lifecycleEndpoint(
-  endpointId: C1LifecycleEndpointAnalysis['endpointId'],
+function lifecycleRateEndpoint(
+  endpointId: C1LifecycleRateEndpointAnalysis['endpointId'],
   pairs: readonly C1AnalysisPair[]
-): C1LifecycleEndpointAnalysis {
-  const measurements = pairs.map((pair) => {
-    if (endpointId === 'removal_precision') return pair.lifecycle.removalPrecision
-    if (endpointId === 'rehydration_recovery_rate') {
-      return pair.lifecycle.rehydrationRecoveryRate
-    }
-    return pair.lifecycle.coldContextPenalty
-  })
+): C1LifecycleRateEndpointAnalysis {
+  const measurements = pairs.map((pair) =>
+    endpointId === 'removal_precision'
+      ? pair.lifecycle.removalPrecision
+      : pair.lifecycle.rehydrationRecoveryRate
+  )
   const estimable = measurements.filter(
-    (measurement): measurement is Extract<C1AnalysisLifecycleMeasurement, { status: 'ESTIMABLE' }> =>
+    (
+      measurement
+    ): measurement is Extract<C1AnalysisLifecycleMeasurement, { status: 'ESTIMABLE' }> =>
       measurement.status === 'ESTIMABLE'
   )
   const notEstimableCount = measurements.filter(
@@ -492,6 +576,63 @@ function lifecycleEndpoint(
   }
 }
 
+function coldContextPenaltyEndpoint(
+  pairs: readonly C1AnalysisPair[]
+): C1ColdContextPenaltyAnalysis {
+  const measurements = pairs.map((pair) => pair.lifecycle.coldContextPenalty)
+  const estimable = measurements.filter(
+    (
+      measurement
+    ): measurement is Extract<C1AnalysisColdContextPenaltyEvidence, { status: 'ESTIMABLE' }> =>
+      measurement.status === 'ESTIMABLE'
+  )
+  const notEstimableCount = measurements.filter(
+    (measurement) => measurement.status === 'NOT_ESTIMABLE'
+  ).length
+  const notApplicableCount = measurements.filter(
+    (measurement) => measurement.status === 'NOT_APPLICABLE'
+  ).length
+  if (estimable.length === 0) {
+    return {
+      endpointId: 'cold_context_penalty',
+      status: notApplicableCount === measurements.length ? 'NOT_APPLICABLE' : 'NOT_ESTIMABLE',
+      eligiblePairs: 0,
+      medianInputTokenDelta: null,
+      medianToolCallDelta: null,
+      medianWallClockDeltaMs: null,
+      notEstimableCount,
+      notApplicableCount
+    }
+  }
+  const inputTokenDeltas = estimable.map(
+    (measurement) => measurement.runtime.inputTokens - measurement.native.inputTokens
+  )
+  const toolCallDeltas = estimable.map(
+    (measurement) => measurement.runtime.toolCalls - measurement.native.toolCalls
+  )
+  const wallClockDeltas = estimable.map(
+    (measurement) => measurement.runtime.wallClockMs - measurement.native.wallClockMs
+  )
+  return {
+    endpointId: 'cold_context_penalty',
+    status: 'ESTIMABLE',
+    eligiblePairs: estimable.length,
+    medianInputTokenDelta: median(inputTokenDeltas),
+    medianToolCallDelta: median(toolCallDeltas),
+    medianWallClockDeltaMs: median(wallClockDeltas),
+    notEstimableCount,
+    notApplicableCount
+  }
+}
+
+function lifecycleEndpoint(
+  endpointId: C1LifecycleEndpointAnalysis['endpointId'],
+  pairs: readonly C1AnalysisPair[]
+): C1LifecycleEndpointAnalysis {
+  if (endpointId === 'cold_context_penalty') return coldContextPenaltyEndpoint(pairs)
+  return lifecycleRateEndpoint(endpointId, pairs)
+}
+
 function lifecycleEvidenceIssue(pairs: readonly C1AnalysisPair[]): boolean {
   return pairs.some((pair) => pair.lifecycleEvidenceIssue === true)
 }
@@ -517,8 +658,8 @@ function buildStratumAnalysis(
     primary,
     secondary,
     lifecycle,
-    nativeInvalidLegs: pairs.filter((pair) => pair.native.legStatus !== 'COMPLETED').length,
-    runtimeInvalidLegs: pairs.filter((pair) => pair.runtime.legStatus !== 'COMPLETED').length,
+    nativeInvalidLegs: pairs.filter((pair) => legHasEvidenceAttrition(pair.native)).length,
+    runtimeInvalidLegs: pairs.filter((pair) => legHasEvidenceAttrition(pair.runtime)).length,
     nativeTaskFailures: pairs.filter(
       (pair) => pair.native.legStatus === 'COMPLETED' && pair.native.taskOutcome === 'FAILURE'
     ).length,
@@ -579,9 +720,7 @@ function failureClassification(study: C1AnalysisStudy): {
     }
   }
   if (
-    study.pairs.some((pair) =>
-      [pair.native.legStatus, pair.runtime.legStatus].includes('STOPPED')
-    )
+    study.pairs.some((pair) => [pair.native.legStatus, pair.runtime.legStatus].includes('STOPPED'))
   ) {
     return {
       classification: 'STUDY_STOPPED',
@@ -593,8 +732,7 @@ function failureClassification(study: C1AnalysisStudy): {
 
 function treatmentIsActive(pairs: readonly C1AnalysisPair[]): boolean {
   return !pairs.some(
-    (pair) =>
-      pair.runtime.runtimeTreatment === 'INACTIVE' && pair.runtime.legStatus === 'COMPLETED'
+    (pair) => pair.runtime.runtimeTreatment === 'INACTIVE' && pair.runtime.legStatus === 'COMPLETED'
   )
 }
 
@@ -664,6 +802,8 @@ function reliabilityAnalysis(strata: readonly C1StratumAnalysis[]): C1Reliabilit
   return {
     nativeInvalidLegs,
     runtimeInvalidLegs,
+    nativeEvidenceAttrition: nativeInvalidLegs,
+    runtimeEvidenceAttrition: runtimeInvalidLegs,
     runtimeOperationalSuccessMinimumPass: runtimeInvalidLegs <= 1,
     betterInvalidLegGatePass: nativeInvalidLegs <= 1 && runtimeInvalidLegs <= 1
   }
@@ -672,18 +812,17 @@ function reliabilityAnalysis(strata: readonly C1StratumAnalysis[]): C1Reliabilit
 function keySecondaryCoveragePass(strata: readonly C1StratumAnalysis[]): boolean {
   return strata.every((stratum) =>
     stratum.secondary
-      .filter((endpoint) =>
-        endpoint.endpointId === 'provider_total_tokens' ||
-        endpoint.endpointId === 'tool_calls' ||
-        endpoint.endpointId === 'wall_clock_ms'
+      .filter(
+        (endpoint) =>
+          endpoint.endpointId === 'provider_total_tokens' ||
+          endpoint.endpointId === 'tool_calls' ||
+          endpoint.endpointId === 'wall_clock_ms'
       )
       .every((endpoint) => endpoint.minimumCoveragePass)
   )
 }
 
-function hasProtectedSecondaryRegression(
-  secondary: readonly C1SecondaryMetricAnalysis[]
-): boolean {
+function hasProtectedSecondaryRegression(secondary: readonly C1SecondaryMetricAnalysis[]): boolean {
   return secondary.some((endpoint) => endpoint.materialRegression)
 }
 
@@ -695,7 +834,10 @@ function chooseDecision(input: {
   readonly outcomes: C1OutcomeAnalysis
   readonly reliability: C1ReliabilityAnalysis
   readonly treatmentActive: boolean
-}): { readonly decision: C1AnalysisDecision; readonly reasons: readonly string[] } {
+}): {
+  readonly decision: C1AnalysisDecision
+  readonly reasons: readonly string[]
+} {
   const reasons: string[] = []
   if (input.study.sharedExternalFailure === true) {
     return {
@@ -716,7 +858,10 @@ function chooseDecision(input: {
     }
   }
   if (!input.treatmentActive) {
-    return { decision: 'INCONCLUSIVE', reasons: ['Runtime treatment was inactive'] }
+    return {
+      decision: 'INCONCLUSIVE',
+      reasons: ['Runtime treatment was inactive']
+    }
   }
   if (input.reliability.runtimeInvalidLegs >= 3) {
     return {
@@ -811,9 +956,7 @@ export function adjudicateC1Study(study: C1AnalysisStudy): C1OfflineAnalysisResu
     pooled.minimumCoveragePass &&
     primaryStrata.every(
       (stratum) =>
-        stratum.medianDelta !== null &&
-        stratum.medianDelta >= 0 &&
-        stratum.signFlipPValue !== null
+        stratum.medianDelta !== null && stratum.medianDelta >= 0 && stratum.signFlipPValue !== null
     ) &&
     pooledMedianReduction !== null &&
     pooledMedianReduction >= 0.1 &&

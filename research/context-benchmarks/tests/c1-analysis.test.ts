@@ -12,35 +12,76 @@ import {
 
 const reported = reportedC1AnalysisMetric
 
-const lifecycleByStratum: Record<(typeof C1_ANALYSIS_STRATA)[number], C1AnalysisLifecycleEvidence> = {
-  localized_investigation_distractors: {
-    removalPrecision: { status: 'ESTIMABLE', numerator: 1, denominator: 1 },
-    rehydrationRecoveryRate: { status: 'NOT_ESTIMABLE', reason: 'no registered demand' },
-    coldContextPenalty: { status: 'NOT_APPLICABLE', reason: 'T1 is not a delayed-recovery task' }
-  },
-  multi_file_multi_source: {
-    removalPrecision: { status: 'ESTIMABLE', numerator: 1, denominator: 1 },
-    rehydrationRecoveryRate: { status: 'NOT_ESTIMABLE', reason: 'no registered demand' },
-    coldContextPenalty: { status: 'NOT_APPLICABLE', reason: 'T2 is not a delayed-recovery task' }
-  },
-  failure_diagnosis_recovery: {
-    removalPrecision: { status: 'NOT_ESTIMABLE', reason: 'not eligible for T3' },
-    rehydrationRecoveryRate: { status: 'NOT_ESTIMABLE', reason: 'not eligible for T3' },
-    coldContextPenalty: { status: 'NOT_APPLICABLE', reason: 'T3 has no cold anchor' }
-  },
-  delayed_context_recovery: {
-    removalPrecision: { status: 'ESTIMABLE', numerator: 1, denominator: 1 },
-    rehydrationRecoveryRate: { status: 'ESTIMABLE', numerator: 1, denominator: 1 },
-    coldContextPenalty: { status: 'ESTIMABLE', numerator: 1, denominator: 1 }
+const lifecycleByStratum: Record<(typeof C1_ANALYSIS_STRATA)[number], C1AnalysisLifecycleEvidence> =
+  {
+    localized_investigation_distractors: {
+      removalPrecision: { status: 'ESTIMABLE', numerator: 1, denominator: 1 },
+      rehydrationRecoveryRate: {
+        status: 'NOT_ESTIMABLE',
+        reason: 'no registered demand'
+      },
+      coldContextPenalty: {
+        status: 'NOT_APPLICABLE',
+        reason: 'T1 is not a delayed-recovery task'
+      }
+    },
+    multi_file_multi_source: {
+      removalPrecision: { status: 'ESTIMABLE', numerator: 1, denominator: 1 },
+      rehydrationRecoveryRate: {
+        status: 'NOT_ESTIMABLE',
+        reason: 'no registered demand'
+      },
+      coldContextPenalty: {
+        status: 'NOT_APPLICABLE',
+        reason: 'T2 is not a delayed-recovery task'
+      }
+    },
+    failure_diagnosis_recovery: {
+      removalPrecision: {
+        status: 'NOT_ESTIMABLE',
+        reason: 'not eligible for T3'
+      },
+      rehydrationRecoveryRate: {
+        status: 'NOT_ESTIMABLE',
+        reason: 'not eligible for T3'
+      },
+      coldContextPenalty: {
+        status: 'NOT_APPLICABLE',
+        reason: 'T3 has no cold anchor'
+      }
+    },
+    delayed_context_recovery: {
+      removalPrecision: { status: 'ESTIMABLE', numerator: 1, denominator: 1 },
+      rehydrationRecoveryRate: {
+        status: 'ESTIMABLE',
+        numerator: 1,
+        denominator: 1
+      },
+      coldContextPenalty: {
+        status: 'ESTIMABLE',
+        native: { inputTokens: 100, toolCalls: 4, wallClockMs: 1000 },
+        runtime: { inputTokens: 90, toolCalls: 3, wallClockMs: 900 },
+        anchorA: 'wrong-path-triage-complete',
+        anchorB: 'first-focused-oracle-after-parser-fix',
+        runtimeOriginatingRemoveTransitionId: 't4-remove-evaluate',
+        runtimeRehydrateTransitionId: 't4-rehydrate-evaluate',
+        lineageValid: true
+      }
+    }
   }
-}
 
-function nativeLeg(inputTokens = 100, totalTokens = 150, toolCalls = 4, wallClockMs = 1000): C1AnalysisLeg {
+function nativeLeg(
+  inputTokens = 100,
+  totalTokens = 150,
+  toolCalls = 4,
+  wallClockMs = 1000
+): C1AnalysisLeg {
   return {
     arm: 'NATIVE',
     legStatus: 'COMPLETED',
     taskOutcome: 'SUCCESS',
     inputTokens: reported(inputTokens),
+    outputTokens: reported(50),
     totalTokens: reported(totalTokens),
     toolCalls: reported(toolCalls),
     wallClockMs: reported(wallClockMs)
@@ -59,6 +100,7 @@ function runtimeLeg(
     legStatus: 'COMPLETED',
     taskOutcome: 'SUCCESS',
     inputTokens: reported(inputTokens),
+    outputTokens: reported(40),
     totalTokens: reported(totalTokens),
     toolCalls: reported(toolCalls),
     wallClockMs: reported(wallClockMs),
@@ -79,7 +121,10 @@ function completePairs(): C1AnalysisPair[] {
   )
 }
 
-function studyFrom(pairs: readonly C1AnalysisPair[], overrides: Partial<C1AnalysisStudy> = {}): C1AnalysisStudy {
+function studyFrom(
+  pairs: readonly C1AnalysisPair[],
+  overrides: Partial<C1AnalysisStudy> = {}
+): C1AnalysisStudy {
   return {
     studyStatus: 'COMPLETED',
     pairs,
@@ -102,7 +147,9 @@ describe('C1 offline adjudicator', () => {
       runtimeInvalidLegs: 0,
       betterInvalidLegGatePass: true
     })
-    expect(result.lifecycle.find((item) => item.endpointId === 'rehydration_recovery_rate')).toMatchObject({
+    expect(
+      result.lifecycle.find((item) => item.endpointId === 'rehydration_recovery_rate')
+    ).toMatchObject({
       status: 'ESTIMABLE',
       numerator: 8,
       denominator: 8
@@ -120,7 +167,9 @@ describe('C1 offline adjudicator', () => {
 
     expect(result.overallDecision).toBe('TRADE_OFF')
     expect(result.primary.qualifies).toBe(true)
-    expect(result.secondary.find((item) => item.endpointId === 'provider_total_tokens')).toMatchObject({
+    expect(
+      result.secondary.find((item) => item.endpointId === 'provider_total_tokens')
+    ).toMatchObject({
       materialRegression: true
     })
   })
@@ -161,7 +210,7 @@ describe('C1 offline adjudicator', () => {
     expect(result.reliability.runtimeInvalidLegs).toBe(0)
   })
 
-  it('returns INCONCLUSIVE with NOT_ESTIMABLE primary coverage when usage is missing', () => {
+  it('counts missing core usage as evidence attrition without converting task outcome to failure', () => {
     const pairs = completePairs().map((pair) =>
       pair.stratum === C1_ANALYSIS_STRATA[0] && Number(pair.pairId.slice(-2)) <= 3
         ? {
@@ -174,7 +223,13 @@ describe('C1 offline adjudicator', () => {
     )
     const result = adjudicateC1Study(studyFrom(pairs))
 
-    expect(result.overallDecision).toBe('INCONCLUSIVE')
+    expect(result.overallDecision).toBe('WORSE')
+    expect(result.outcomes.runtimeTaskFailures).toBe(0)
+    expect(result.outcomes.additionalRuntimeFailures).toBe(0)
+    expect(result.reliability).toMatchObject({
+      runtimeInvalidLegs: 3,
+      runtimeEvidenceAttrition: 3
+    })
     expect(result.primary.status).toBe('NOT_ESTIMABLE')
     expect(result.primary.strata[0]).toMatchObject({
       eligiblePairs: 5,
@@ -185,11 +240,104 @@ describe('C1 offline adjudicator', () => {
     })
   })
 
+  it('blocks BETTER when missing core usage is spread across two Runtime strata', () => {
+    const pairs = completePairs().map((pair) => {
+      const missingRuntimeUsage =
+        (pair.stratum === C1_ANALYSIS_STRATA[0] && pair.pairId.endsWith('01')) ||
+        (pair.stratum === C1_ANALYSIS_STRATA[1] && pair.pairId.endsWith('01'))
+      return missingRuntimeUsage
+        ? {
+            ...pair,
+            runtime: runtimeLeg(70, 100, 3, 900, {
+              inputTokens: unavailableC1AnalysisMetric('NOT_REPORTED_BY_PROVIDER')
+            })
+          }
+        : pair
+    })
+    const result = adjudicateC1Study(studyFrom(pairs))
+
+    expect(result.overallDecision).toBe('INCONCLUSIVE')
+    expect(result.outcomes.runtimeTaskFailures).toBe(0)
+    expect(result.reliability).toMatchObject({
+      runtimeInvalidLegs: 2,
+      runtimeEvidenceAttrition: 2,
+      runtimeOperationalSuccessMinimumPass: false,
+      betterInvalidLegGatePass: false
+    })
+    expect(result.primary.strata[0]?.eligiblePairs).toBe(7)
+    expect(result.primary.strata[1]?.eligiblePairs).toBe(7)
+  })
+
+  it('computes protected secondary endpoints from paired differences', () => {
+    const nativeToolCalls = [170, 125, 65, 188, 114, 182, 152, 5]
+    const runtimeToolCalls = [190, 50, 85, 208, 46, 156, 172, 25]
+    const pairs = completePairs().map((pair, index) => {
+      const profileIndex = index % nativeToolCalls.length
+      const nativeToolCallsValue = nativeToolCalls[profileIndex]
+      const runtimeToolCallsValue = runtimeToolCalls[profileIndex]
+      if (nativeToolCallsValue === undefined || runtimeToolCallsValue === undefined) {
+        throw new Error('secondary profile is incomplete')
+      }
+      return {
+        ...pair,
+        native: nativeLeg(100, 150, nativeToolCallsValue, 1000),
+        runtime: runtimeLeg(70, 100, runtimeToolCallsValue, 900)
+      }
+    })
+    const result = adjudicateC1Study(studyFrom(pairs))
+    const toolEndpoint = result.secondary.find((item) => item.endpointId === 'tool_calls')
+
+    expect(toolEndpoint).toMatchObject({
+      status: 'ESTIMABLE',
+      eligiblePairs: 32,
+      nativeMedian: 138.5,
+      runtimeMedian: 120.5,
+      pairedMedianDifference: 20,
+      materialRegression: false
+    })
+    expect(toolEndpoint?.pairedMedianRelativeIncrease).toBeCloseTo((20 / 188 + 20 / 170) / 2)
+  })
+
+  it('keeps Cold Context Penalty signed and expressed in physical units', () => {
+    const pairs = completePairs().map((pair) =>
+      pair.stratum === 'delayed_context_recovery'
+        ? {
+            ...pair,
+            lifecycle: {
+              ...pair.lifecycle,
+              coldContextPenalty: {
+                status: 'ESTIMABLE' as const,
+                native: { inputTokens: 100, toolCalls: 4, wallClockMs: 1000 },
+                runtime: {
+                  inputTokens: 5100,
+                  toolCalls: 100,
+                  wallClockMs: 500000
+                },
+                anchorA: 'wrong-path-triage-complete',
+                anchorB: 'first-focused-oracle-after-parser-fix',
+                runtimeOriginatingRemoveTransitionId: 't4-remove-evaluate',
+                runtimeRehydrateTransitionId: 't4-rehydrate-evaluate',
+                lineageValid: true as const
+              }
+            }
+          }
+        : pair
+    )
+    const result = adjudicateC1Study(studyFrom(pairs))
+    const endpoint = result.lifecycle.find((item) => item.endpointId === 'cold_context_penalty')
+
+    expect(endpoint).toMatchObject({
+      status: 'ESTIMABLE',
+      eligiblePairs: 8,
+      medianInputTokenDelta: 5000,
+      medianToolCallDelta: 96,
+      medianWallClockDeltaMs: 499000
+    })
+  })
+
   it('excludes a zero Native denominator without producing NaN or changing the raw pair evidence', () => {
     const pairs = completePairs().map((pair, index) =>
-      index === 0
-        ? { ...pair, native: nativeLeg(0, 150, 4, 1000) }
-        : pair
+      index === 0 ? { ...pair, native: nativeLeg(0, 150, 4, 1000) } : pair
     )
     const result = adjudicateC1Study(studyFrom(pairs))
     const firstStratum = result.primary.strata[0]
@@ -198,7 +346,10 @@ describe('C1 offline adjudicator', () => {
       eligiblePairs: 7,
       betterCoveragePass: true,
       exclusions: [
-        { pairId: expect.stringContaining('localized_investigation_distractors'), reason: 'NATIVE_DENOMINATOR_ZERO' }
+        {
+          pairId: expect.stringContaining('localized_investigation_distractors'),
+          reason: 'NATIVE_DENOMINATOR_ZERO'
+        }
       ]
     })
     expect(result.primary.pooledMedianReduction).not.toBeNaN()
@@ -227,13 +378,15 @@ describe('C1 offline adjudicator', () => {
   })
 
   it('keeps a stopped study terminal and never converts lifecycle NOT_ESTIMABLE to zero', () => {
-    const pairs = completePairs().slice(0, 1).map((pair) => ({
-      ...pair,
-      runtime: runtimeLeg(70, 100, 3, 900, {
-        legStatus: 'STOPPED',
-        taskOutcome: 'NOT_OBSERVED'
-      })
-    }))
+    const pairs = completePairs()
+      .slice(0, 1)
+      .map((pair) => ({
+        ...pair,
+        runtime: runtimeLeg(70, 100, 3, 900, {
+          legStatus: 'STOPPED',
+          taskOutcome: 'NOT_OBSERVED'
+        })
+      }))
     const result = adjudicateC1Study(
       studyFrom(pairs, {
         studyStatus: 'STOPPED'
@@ -243,7 +396,9 @@ describe('C1 offline adjudicator', () => {
     expect(result.overallDecision).toBe('INCONCLUSIVE')
     expect(result.failureClassification).toBe('STUDY_STOPPED')
     expect(result.primary.status).toBe('NOT_ESTIMABLE')
-    expect(result.lifecycle.find((item) => item.endpointId === 'rehydration_recovery_rate')).toMatchObject({
+    expect(
+      result.lifecycle.find((item) => item.endpointId === 'rehydration_recovery_rate')
+    ).toMatchObject({
       status: 'NOT_ESTIMABLE',
       numerator: null,
       denominator: null,

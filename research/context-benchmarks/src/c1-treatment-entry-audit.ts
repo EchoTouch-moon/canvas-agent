@@ -1,5 +1,8 @@
-import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { createHash } from 'node:crypto'
+import { EventEmitter } from 'node:events'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import {
   C1_C_ASSIGNMENT_MATRIX_SHA256,
   C1_C_CONTRACT_SHA256,
@@ -10,6 +13,13 @@ import {
   runC1TreatmentReadiness,
   type C1TreatmentReadinessReport
 } from './c1-treatment-readiness'
+import { C1StudyOrchestrator, type C1StudyOrchestrationReport } from './c1-live-study'
+import {
+  C1SandboxToolExecutor,
+  C1ScriptedObservationSource,
+  C1ScriptedResponseSource
+} from './c1-live-binding'
+import { createC1ObservedReadTrace, nodeVersionSatisfiesC1Range } from './c1-live-preflight'
 
 export const C1_TREATMENT_ENTRY_AUDIT_ID = 'C1_TREATMENT_ENTRY_AUDIT_V1'
 export const C1_TREATMENT_ENTRY_SOURCE_RELATIVE_PATH = 'src/c1-live-study.ts'
@@ -20,6 +30,28 @@ export interface C1TreatmentEntryAuditGate {
   readonly gateId: string
   readonly verdict: 'PASS' | 'FAIL'
   readonly observed: string
+}
+
+export type C1TreatmentEntryBehaviorProbeStatus = 'PASS' | 'NOT_RUN_NODE_RANGE' | 'FAIL'
+
+export interface C1TreatmentEntryBehaviorProbeReport {
+  readonly status: C1TreatmentEntryBehaviorProbeStatus
+  readonly executionMode: 'CREDENTIAL_FREE_FORMAL_ENTRY_AUDIT'
+  readonly providerCalls: 0
+  readonly networkRequests: 0
+  readonly driverInstances: 1 | 0
+  readonly legsAttempted: number
+  readonly legsCompleted: number
+  readonly nativeProviderBoundSourceKeys: readonly string[]
+  readonly runtimeProviderBoundSourceKeys: readonly string[]
+  readonly nativeSemanticFingerprint: string | null
+  readonly runtimeSemanticFingerprint: string | null
+  readonly structuralFingerprintEqual: boolean
+  readonly providerConfigHashEqual: boolean
+  readonly providerBoundContextChanged: boolean
+  readonly fallbackSent: false
+  readonly networkSent: false
+  readonly failure?: string
 }
 
 export interface C1TreatmentEntryAuditReport {
@@ -45,6 +77,7 @@ export interface C1TreatmentEntryAuditReport {
     readonly contractSha256: typeof C1_C_CONTRACT_SHA256
     readonly assignmentMatrixSha256: typeof C1_C_ASSIGNMENT_MATRIX_SHA256
     readonly taskManifestSha256: typeof C1_C_TASK_MANIFEST_SHA256
+    readonly formalEntrySourceSha256: string
   }
   readonly dryRunBoundary: {
     readonly scriptedSourcesAreWrapperOnly: boolean
@@ -54,6 +87,7 @@ export interface C1TreatmentEntryAuditReport {
     C1TreatmentReadinessReport,
     'overallVerdict' | 'providerCalls' | 'contractBinding'
   >
+  readonly behaviorProbe: C1TreatmentEntryBehaviorProbeReport
   readonly gates: readonly C1TreatmentEntryAuditGate[]
 }
 
@@ -65,6 +99,268 @@ function findRequired(source: string, marker: string): number {
   const index = source.indexOf(marker)
   if (index < 0) throw new Error(`treatment entry audit marker not found: ${marker}`)
   return index
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex')
+}
+
+function parseJsonLines(content: string): readonly unknown[] {
+  return content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as unknown)
+}
+
+interface BehaviorEvidenceRow {
+  readonly arm: 'NATIVE' | 'RUNTIME'
+  readonly providerBoundSourceKeys: readonly string[]
+  readonly semanticFingerprint: string
+  readonly structuralFingerprint: string
+  readonly providerConfigHash: string
+  readonly fallbackSent: false
+  readonly networkSent: false
+}
+
+function parseBehaviorEvidenceRow(value: unknown): BehaviorEvidenceRow {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('formal behavior evidence row is not an object')
+  }
+  const record = value as Record<string, unknown>
+  const arm = record['arm']
+  const providerBoundSourceKeys = record['providerBoundSourceKeys']
+  const semanticFingerprint = record['modelVisibleSemanticContextFingerprint']
+  const structuralFingerprint = record['systemDeveloperToolStructuresFingerprint']
+  const providerConfigHash = record['providerConfigHash']
+  if (
+    (arm !== 'NATIVE' && arm !== 'RUNTIME') ||
+    !Array.isArray(providerBoundSourceKeys) ||
+    !providerBoundSourceKeys.every((key) => typeof key === 'string' && key.length > 0) ||
+    typeof semanticFingerprint !== 'string' ||
+    semanticFingerprint.length === 0 ||
+    typeof structuralFingerprint !== 'string' ||
+    structuralFingerprint.length === 0 ||
+    typeof providerConfigHash !== 'string' ||
+    providerConfigHash.length === 0 ||
+    record['fallbackSent'] !== false ||
+    record['networkSent'] !== false
+  ) {
+    throw new Error('formal behavior evidence row is incomplete')
+  }
+  return {
+    arm,
+    providerBoundSourceKeys,
+    semanticFingerprint,
+    structuralFingerprint,
+    providerConfigHash,
+    fallbackSent: false,
+    networkSent: false
+  }
+}
+
+function sameSourceKeys(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((key, index) => key === right[index])
+}
+
+function nodeRangeNotRunBehaviorProbe(): C1TreatmentEntryBehaviorProbeReport {
+  return {
+    status: 'NOT_RUN_NODE_RANGE',
+    executionMode: 'CREDENTIAL_FREE_FORMAL_ENTRY_AUDIT',
+    providerCalls: 0,
+    networkRequests: 0,
+    driverInstances: 0,
+    legsAttempted: 0,
+    legsCompleted: 0,
+    nativeProviderBoundSourceKeys: [],
+    runtimeProviderBoundSourceKeys: [],
+    nativeSemanticFingerprint: null,
+    runtimeSemanticFingerprint: null,
+    structuralFingerprintEqual: false,
+    providerConfigHashEqual: false,
+    providerBoundContextChanged: false,
+    fallbackSent: false,
+    networkSent: false
+  }
+}
+
+function failedBehaviorProbe(
+  failure: string,
+  report?: C1StudyOrchestrationReport
+): C1TreatmentEntryBehaviorProbeReport {
+  return {
+    status: 'FAIL',
+    executionMode: 'CREDENTIAL_FREE_FORMAL_ENTRY_AUDIT',
+    providerCalls: 0,
+    networkRequests: 0,
+    driverInstances: report?.driverInstances ?? 0,
+    legsAttempted: report?.legsAttempted ?? 0,
+    legsCompleted: report?.legsCompleted ?? 0,
+    nativeProviderBoundSourceKeys: [],
+    runtimeProviderBoundSourceKeys: [],
+    nativeSemanticFingerprint: null,
+    runtimeSemanticFingerprint: null,
+    structuralFingerprintEqual: false,
+    providerConfigHashEqual: false,
+    providerBoundContextChanged: false,
+    fallbackSent: false,
+    networkSent: false,
+    failure
+  }
+}
+
+async function runFormalEntryBehaviorProbe(
+  repoRoot: string
+): Promise<C1TreatmentEntryBehaviorProbeReport> {
+  if (!nodeVersionSatisfiesC1Range()) return nodeRangeNotRunBehaviorProbe()
+
+  const outputRoot = await mkdtemp(join(tmpdir(), 'canvas-c1-entry-behavior-'))
+  const signals = new EventEmitter()
+  try {
+    const report = await new C1StudyOrchestrator({
+      repoRoot,
+      outputRoot,
+      studyId: 'c1-20260905-c1-feasibility-v1-dddddddd',
+      runId: 'C1_FORMAL_ENTRY_BEHAVIOR_AUDIT_V1',
+      executionMode: 'CREDENTIAL_FREE_FORMAL_ENTRY_AUDIT',
+      responseSourceKind: 'SCRIPTED_FAKE',
+      dryRun: false,
+      maxCalls: 1,
+      signalSource: signals,
+      beforeLeg: (plan) => {
+        if (plan.legIndex === 2) signals.emit('SIGINT')
+      },
+      responseSourceFactory: async (input) => {
+        const writablePath = input.task.expectedWritablePaths[0]
+        if (writablePath === undefined) {
+          throw new Error(`formal behavior task ${input.task.taskId} has no writable path`)
+        }
+        const originalContent = await readFile(join(input.fixtureRoot, writablePath), 'utf8')
+        return new C1ScriptedResponseSource([
+          {
+            responseId: `${input.plan.runId}-response-01`,
+            assistantMessageCount: 1,
+            assistantContent: 'formal entry behavior probe',
+            usage: {
+              inputTokens: 10,
+              outputTokens: 1,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              totalTokens: 11,
+              usageSource: 'SCRIPTED_FAKE'
+            },
+            toolRequests: [
+              {
+                toolCallId: `${input.plan.runId}-edit-01`,
+                toolName: 'edit',
+                argumentsJson: JSON.stringify({
+                  path: writablePath,
+                  oldText: originalContent,
+                  newText: `${originalContent}\n/* formal entry behavior probe */\n`
+                })
+              }
+            ],
+            toolExecutions: [],
+            outcome: 'COMPLETE'
+          }
+        ])
+      },
+      observationSourceFactory: (input) => {
+        const writablePath = input.task.expectedWritablePaths[0]
+        if (writablePath === undefined) {
+          throw new Error(`formal behavior task ${input.task.taskId} has no writable path`)
+        }
+        const fixtureFiles =
+          input.plan.arm === 'NATIVE'
+            ? [writablePath, ...input.task.relevantSources.slice(0, 2)]
+            : [writablePath]
+        return new C1ScriptedObservationSource([
+          createC1ObservedReadTrace({
+            observationId: `${input.plan.runId}-initial`,
+            prompt: input.task.prompt,
+            fixtureFiles: [...new Set(fixtureFiles)].sort(),
+            taskPhase: 'INVESTIGATE'
+          })
+        ])
+      },
+      toolExecutorFactory: (input) => new C1SandboxToolExecutor(input.fixtureRoot),
+      expectedProviderCallPermits: 2,
+      expectedResponseCalls: 2,
+      expectedToolExecutions: 2
+    }).run()
+
+    if (report.reportDir === null) {
+      const details = report.failures
+        .map((failure) => `${failure.code}: ${failure.message}`)
+        .join('; ')
+      return failedBehaviorProbe(
+        `formal behavior probe produced no report directory${details.length > 0 ? ` (${details})` : ''}`,
+        report
+      )
+    }
+    const rows = parseJsonLines(
+      await readFile(join(report.reportDir, 'decision-evidence.jsonl'), 'utf8')
+    ).map(parseBehaviorEvidenceRow)
+    const native = rows.find((row) => row.arm === 'NATIVE')
+    const runtime = rows.find((row) => row.arm === 'RUNTIME')
+    if (native === undefined || runtime === undefined || rows.length !== 2) {
+      const details = report.failures
+        .map((failure) => `${failure.code}: ${failure.message}`)
+        .join('; ')
+      return failedBehaviorProbe(
+        `formal behavior probe did not produce exactly one Native and Runtime row${details.length > 0 ? ` (${details})` : ''}`,
+        report
+      )
+    }
+    const structuralFingerprintEqual =
+      native.structuralFingerprint === runtime.structuralFingerprint
+    const providerConfigHashEqual = native.providerConfigHash === runtime.providerConfigHash
+    const providerBoundContextChanged =
+      !sameSourceKeys(native.providerBoundSourceKeys, runtime.providerBoundSourceKeys) &&
+      native.semanticFingerprint !== runtime.semanticFingerprint
+    const pass =
+      report.driverInstances === 1 &&
+      report.providerCalls === 0 &&
+      report.networkRequests === 0 &&
+      report.legsAttempted === 2 &&
+      report.legsCompleted === 2 &&
+      report.operatorSignal === 'SIGINT' &&
+      report.failures.some((failure) => failure.code === 'KILL_SWITCH_BLOCKED') &&
+      native.fallbackSent === false &&
+      runtime.fallbackSent === false &&
+      native.networkSent === false &&
+      runtime.networkSent === false &&
+      structuralFingerprintEqual &&
+      providerConfigHashEqual &&
+      providerBoundContextChanged
+    return {
+      status: pass ? 'PASS' : 'FAIL',
+      executionMode: 'CREDENTIAL_FREE_FORMAL_ENTRY_AUDIT',
+      providerCalls: 0,
+      networkRequests: 0,
+      driverInstances: report.driverInstances,
+      legsAttempted: report.legsAttempted,
+      legsCompleted: report.legsCompleted,
+      nativeProviderBoundSourceKeys: native.providerBoundSourceKeys,
+      runtimeProviderBoundSourceKeys: runtime.providerBoundSourceKeys,
+      nativeSemanticFingerprint: native.semanticFingerprint,
+      runtimeSemanticFingerprint: runtime.semanticFingerprint,
+      structuralFingerprintEqual,
+      providerConfigHashEqual,
+      providerBoundContextChanged,
+      fallbackSent: false,
+      networkSent: false,
+      ...(pass
+        ? {}
+        : {
+            failure: 'formal entry behavior did not satisfy all provider-bound checks'
+          })
+    }
+  } catch (error) {
+    return failedBehaviorProbe(error instanceof Error ? error.message : String(error))
+  } finally {
+    await rm(outputRoot, { recursive: true, force: true })
+  }
 }
 
 function auditFormalEntrySource(source: string): {
@@ -130,10 +426,10 @@ function auditFormalEntrySource(source: string): {
 }
 
 /**
- * Audit the formal C1 Native/Runtime entry surface without starting the study
- * or resolving credentials. The source audit deliberately reports the dry-run
- * wrapper separately so scripted lifecycle traces cannot be mistaken for live
- * treatment behavior.
+ * Audit the formal C1 Native/Runtime entry surface without resolving
+ * credentials. The source audit deliberately reports the dry-run wrapper
+ * separately, while the behavior probe exercises the same orchestrator entry
+ * with scripted responses so source-shape checks cannot stand in for behavior.
  */
 export async function runC1TreatmentEntryAudit(
   repoRoot: string = resolve(import.meta.dirname, '..', '..', '..')
@@ -158,7 +454,13 @@ export async function runC1TreatmentEntryAudit(
     bindingPass,
     `readiness=${readiness.overallVerdict};providerCalls=${readiness.providerCalls};treatmentRevision=${readinessBinding.treatmentRevision}`
   )
-  const gates = [...sourceAudit.gates, readinessGate]
+  const behaviorProbe = await runFormalEntryBehaviorProbe(repoRoot)
+  const behaviorGate = gate(
+    'formal_entry_behavior',
+    behaviorProbe.status !== 'FAIL',
+    `formal orchestrator behavior=${behaviorProbe.status};providerCalls=${behaviorProbe.providerCalls};networkRequests=${behaviorProbe.networkRequests}`
+  )
+  const gates = [...sourceAudit.gates, readinessGate, behaviorGate]
   const status: C1TreatmentEntryAuditStatus = gates.every((item) => item.verdict === 'PASS')
     ? 'PASS'
     : 'FAIL'
@@ -185,7 +487,8 @@ export async function runC1TreatmentEntryAudit(
       readinessId: C1_C_READINESS_ID,
       contractSha256: C1_C_CONTRACT_SHA256,
       assignmentMatrixSha256: C1_C_ASSIGNMENT_MATRIX_SHA256,
-      taskManifestSha256: C1_C_TASK_MANIFEST_SHA256
+      taskManifestSha256: C1_C_TASK_MANIFEST_SHA256,
+      formalEntrySourceSha256: sha256(sourceAudit.formalBody)
     },
     dryRunBoundary: {
       scriptedSourcesAreWrapperOnly: sourceAudit.gates.some(
@@ -201,6 +504,7 @@ export async function runC1TreatmentEntryAudit(
       providerCalls: readiness.providerCalls,
       contractBinding: readiness.contractBinding
     },
+    behaviorProbe,
     gates
   }
 }
