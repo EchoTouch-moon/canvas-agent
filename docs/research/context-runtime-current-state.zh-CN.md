@@ -6,9 +6,9 @@
 
 ## 一页结论
 
-当前项目已经完成从“可观察、可审计的 Runtime 基础设施”到“比较实验准备”的工程收敛，但还没有得到 Context Runtime 相对 Native 的有效性答案。C1 usage amendment adapter 已随 #98 合并进入当前 `main`；下一步是完成一次不产生 Provider 调用的证据闭环。
+当前项目已经完成从“可观察、可审计的 Runtime 基础设施”到“比较实验准备”的工程收敛，但还没有得到 Context Runtime 相对 Native 的有效性答案。C1 usage amendment adapter 与零 Provider 证据闭环均已合并进入当前 `main`；下一步是完成新的 Live 授权记录并等待 owner 单独签署。
 
-当前唯一近端主线是：在零 Provider 条件下完成用量口径、正式 treatment 入口和离线分析器的可复核闭环；这些门通过后，才能创建新的授权记录和新的 single-use study identity。
+当前唯一近端主线是：基于已完成的零 Provider 闭环，准备并审查一份绑定当前 exact `main`、effective usage contract 和 fresh single-use identity 的新授权记录；在 owner 单独签署前不 claim identity、不发起 Provider 调用。
 
 ```text
 C1 Live                 NO_GO
@@ -22,8 +22,9 @@ Wave B                  NO_GO
 
 | 项目 | 当前状态 | 绑定或解释 |
 | --- | --- | --- |
-| 远端 `main` | `583ecb74623b77dce2238f67faba1b2e046aaa9b` | PR #98 合并后的当前研究基线；main CI `33964296643` 的 `check` 与 `macos-electron` 均成功 |
-| PR #98 | `MERGED / CI_GREEN / IMPLEMENTATION_ACCEPTED` | rebased implementation `55d834483ba044099e0be8d64b95028becabb014`；merge commit `583ecb74623b77dce2238f67faba1b2e046aaa9b`；实现 usage amendment 的 adapter/validator/serialization 兼容层 |
+| 远端 `main` | `816c13c15ef8247ec9f27c981e025283be4e366b` | PR #100 合并后的当前研究基线；main CI `33970829132` 的 `check` 与 `macos-electron` 均成功 |
+| PR #98 | `MERGED / CI_GREEN / IMPLEMENTATION_ACCEPTED` | implementation `55d834483ba044099e0be8d64b95028becabb014`；merge commit `583ecb74623b77dce2238f67faba1b2e046aaa9b`；实现 usage amendment 的 adapter/validator/serialization 兼容层 |
+| PR #100 | `MERGED / CI_GREEN / ZERO_PROVIDER_CLOSURE_ACCEPTED` | merge commit `816c13c15ef8247ec9f27c981e025283be4e366b`；补齐 usage source map、正式 treatment 入口审计和离线 adjudicator 证据闭环 |
 | `C1_USAGE_CONTRACT_AMENDMENT_V1` | `FROZEN / MERGED` | 只调整 provider cache split 的可用性语义；原 `C1_RUN_CONTRACT_V1` 保持不变 |
 | `C1_PROTOCOL_V1` | `FROZEN` | 比较问题、对照/处理臂、指标与裁决边界 |
 | `C1_A_MANIFEST_V1` | `FROZEN` | 4 个任务层、fixture、oracle、anchors 与身份绑定 |
@@ -31,7 +32,7 @@ Wave B                  NO_GO
 | C1 treatment readiness | `FROZEN / PASS` | provider-bound Native fidelity、Runtime treatment 与 T4 cold/restored 证据已通过零 Provider readiness |
 | C1 study orchestration | `MERGED / ACCEPTED` | 64-leg 顺序执行、隔离 sandbox、七类 metadata-only evidence、terminal/kill-switch |
 | 首次 C1 Live attempt | `TERMINAL / NOT ADMISSIBLE` | study `c1-20260905-c1-feasibility-v1-35359a74`；1 次 provider/network attempt、0 个 completed leg、usage capability mismatch |
-| 首次 study identity | `CONSUMED / RETIRED` | 永不 resume、reuse 或 rebind；不能用 #98 修复后继续该 identity |
+| 首次 study identity | `CONSUMED / RETIRED` | 永不 resume、reuse 或 rebind；不能用 #98 或后续修复继续该 identity |
 | CR-005 | `CLOSED_AS_STOPPED_EXPERIMENT` | Run 1/Run 2 保留；没有把 C5/C6 伪装成补跑结果 |
 | CSPV-B0/B1 | `POLICY_CAPABILITY_GAP → PASS` | 原 oracle 先暴露缺口，B1 在不改 frozen suite 的条件下修复并通过 |
 
@@ -77,21 +78,22 @@ separate owner authorization
 - [`C1 live authorization gate`](../plan/cspv-c1-live-authorization-gate-2026-09-02.md)
 - [`retired C1 live authorization record`](../plan/cspv-c1-live-authorization-record-2026-09-04.md)
 - [`C1 usage contract amendment`](../plan/cspv-c1-usage-contract-amendment-2026-09-05.md)
+- [`C1 Live authorization record V2`](../plan/cspv-c1-live-authorization-record-2026-09-05-v2.md)
 - [`C0-L1 live evidence`](../verification/cspv-c0-l1-live-evidence-2026-09-01.md)
 - [`CR-005 interim evidence analysis`](../verification/context-runtime-cr-005-interim-evidence-analysis.md)
-- [`C1 zero-provider evidence closure candidate`](../verification/cspv-c1-zero-provider-evidence-closure-2026-09-05.md)
+- [`C1 zero-provider evidence closure`](../verification/cspv-c1-zero-provider-evidence-closure-2026-09-05.md)
 
 ## 下一步执行顺序
 
-以下是当前允许的近端顺序：当前可执行的是步骤 1–2，且不产生 Provider 调用；步骤 3–5 是条件性后续，必须在前置门通过并获得新的明确授权后才能执行，不能从本页提前获得 Live 授权。
+以下是当前允许的近端顺序：步骤 1–3 已完成或正在进行且不产生 Provider 调用；步骤 4–5 必须在新的授权记录获得 owner 明确签署后才能执行，不能从本页提前获得 Live 授权。
 
 ### 1. 收口 #98 — 已完成
 
-由 owner 按仓库 review 规则完成 #98 有界技术审查、标记 Ready 并合并。当前 exact `main` SHA 为 `583ecb74623b77dce2238f67faba1b2e046aaa9b`，对应 CI `33964296643` 已通过；不能把 #98 的 head 或旧授权自动当作新的执行基线。
+由 owner 按仓库 review 规则完成 #98 有界技术审查、标记 Ready 并合并。#98 implementation 为 `55d834483ba044099e0be8d64b95028becabb014`，merge 后的历史基线为 `583ecb74623b77dce2238f67faba1b2e046aaa9b`；不能把 #98 的 head 或旧授权自动当作新的执行基线。
 
-### 2. 做一次核心的零 Provider 证据闭环 — 候选证据已完成，待远端审查
+### 2. 做一次核心的零 Provider 证据闭环 — 已完成
 
-这个包保持小而可审查，当前已在本地隔离分支完成，待远端 CI 与有界审查确认。正式入口行为测试在 Node 24 CI 中执行；Node 23 本地运行的入口审计总状态为 `INCOMPLETE`、行为探针记录 `NOT_RUN_NODE_RANGE`，不把未执行的行为证据写成已通过：
+这个包保持小而可审查，PR #100 已合并且 `main` CI `33970829132` 的 `check` 与 `macos-electron` 均通过。正式入口行为测试在 Node 24 CI 中执行；Node 23 本地运行的入口审计总状态为 `INCOMPLETE`、行为探针记录 `NOT_RUN_NODE_RANGE`，不把未执行的行为证据写成已通过：
 
 1. **用量字段来源表**：明确 C0 normalized usage 与 C1 provider response 的原始字段、缓存是否包含、归一化变换、缺失状态和可参与的终点；禁止把 C0/C1 的 token 口径拼接或重复相加。
 2. **正式 treatment 入口审计**：绑定真实 live launcher、Native/Runtime factories、内容哈希和 executed revision，另经 `C1StudyOrchestrator → factory → driver` 的零网络行为测试核对相同输入下的实际 provider-bound context 差异，并验证绕过 treatment 会被拒绝；不得用 dry-run 预造 lifecycle 轨迹冒充自然 live 行为。
@@ -99,9 +101,9 @@ separate owner authorization
 
 本次验证的分类是核心研究闭环，不是产品 UI、第二 Provider、LLM planner 或 CR-004 Active Rewrite；本地验证期间 Provider calls 与 network requests 均为 0。
 
-### 3. 重新冻结并申请新的 Live 决定
+### 3. 准备新的 Live 授权记录 — 当前进行中
 
-只有上述闭环通过后，才创建新的 authorization record，绑定：
+零 Provider 闭环通过后，创建新的、仍待 owner 签署的 authorization record，绑定：
 
 - 合并后的 exact `main` SHA；
 - #98 implementation revision；
@@ -110,20 +112,20 @@ separate owner authorization
 - 固定 provider/model/config、seed、预算和 assignment；
 - fresh single-use study identity。
 
-旧 identity 不得恢复。Live 决定仍须由 owner 单独签署，不能由 readiness 或本索引自动授予。
+旧 identity 不得恢复。当前候选 identity 仅写入为 `NOT CLAIMED / NOT RESERVED`；Live 决定仍须由 owner 单独签署，不能由 readiness、本索引或 Draft 文档自动授予。
 
-### 4. 执行一场固定 C1 study
+### 4. 执行一场固定 C1 study — 条件性后续
 
 获得新的明确授权后，才按 32 pairs / 64 legs、concurrency=1、固定 assignment 和既有 hard-stop 规则执行。失败任务、基础设施失败、usage 不完整、撤销/恢复和证据写入失败必须分别保留；不得 retry-until-success，也不得为了补齐矩阵而恢复 terminal study。
 
-### 5. 做结果综合并结束本轮判断
+### 5. 做结果综合并结束本轮判断 — 条件性后续
 
 至少报告 paired primary endpoint、任务结果、Runtime attrition、provider usage、tool trajectory、REMOVE/REHYDRATE、恢复代价与不确定性。最终允许的结果包括 `BETTER`、`WORSE`、`TRADE-OFF` 或 `INCONCLUSIVE`；token 下降本身不能压过任务质量和可靠性。
 
 ## 明确禁止的动作
 
 - 恢复、复用或重新绑定 `c1-20260905-c1-feasibility-v1-35359a74`。
-- 禁止在零 Provider 证据闭环完成并获得新的明确授权前创建新的 C1 study identity 或发起 Provider call。
+- 禁止在新的明确授权前 claim、创建或使用新的 C1 study identity，或发起 Provider call；Draft 中的候选字符串不代表已 claim。
 - 修改 `C1_RUN_CONTRACT_V1`、C1-A/B/C 冻结文件、assignment、primary endpoint、统计裁决或历史 Run 证据以适配首次 Live 失败。
 - 把 `UNAVAILABLE` 当作 0、估算值或由其他字段推导出的 cache split。
 - 把 C0/C1 的不同 usage pipeline 直接合并成一个 token 结果。
