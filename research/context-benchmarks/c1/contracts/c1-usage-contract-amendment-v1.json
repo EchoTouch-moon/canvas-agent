@@ -41,7 +41,9 @@
       "unavailable": {
         "status": "UNAVAILABLE",
         "reason": "NOT_REPORTED_BY_PROVIDER",
-        "valueProperty": "MUST_BE_ABSENT"
+        "valueProperty": "MUST_BE_ABSENT",
+        "scope": "PER_RESPONSE",
+        "doesNotAssertPermanentProviderInability": true
       },
       "bareNullAllowed": false
     },
@@ -76,8 +78,14 @@
       "totalTokenRegression": "ESTIMABLE",
       "toolCallEfficiency": "ESTIMABLE",
       "wallClockOutcomes": "ESTIMABLE",
-      "cacheEfficiency": "NOT_ESTIMABLE",
-      "coldContextCachePenalty": "NOT_ESTIMABLE"
+      "cacheEfficiency": {
+        "whenRequiredCacheMetricsReported": "ESTIMABLE",
+        "otherwise": "NOT_ESTIMABLE"
+      },
+      "coldContextCachePenalty": {
+        "whenRequiredCacheMetricsReported": "ESTIMABLE",
+        "otherwise": "NOT_ESTIMABLE"
+      }
     },
     "statisticalRulesChanged": false
   },
@@ -93,11 +101,12 @@
     "runManifestStatus": "FAIL",
     "providerAttempts": 1,
     "networkRequests": 1,
-    "providerCallPermits": 0,
+    "outboundPermittedCheckpoints": 1,
     "attemptedLegs": 1,
     "completedLegs": 0,
     "responseCalls": 0,
     "toolExecutions": 0,
+    "completedLegProviderPermitAggregate": 0,
     "terminalReason": "USAGE_CONTRACT_MISMATCH_MISSING_CACHE_WRITE_TOKENS",
     "classification": "PROVIDER_USAGE_CAPABILITY_MISMATCH",
     "effectivenessAdmissibility": "NOT_ADMISSIBLE",

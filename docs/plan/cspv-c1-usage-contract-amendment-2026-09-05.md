@@ -179,6 +179,10 @@ The following semantics are frozen by this amendment:
 - Cache efficiency and any cache-dependent Cold Context Penalty are
   `NOT_ESTIMABLE` when the required cache split is unavailable. No cache
   quantity may be reconstructed from the remaining counters.
+- `NOT_REPORTED_BY_PROVIDER` is a per-response provenance state. It means that
+  the response contained no contract-recognized field for that metric; it does
+  not assert that the Provider can never report the metric in another response
+  or future capability version.
 - The amendment does not convert the first terminal attempt into effectiveness
   data. That attempt remains `PROVIDER_USAGE_CAPABILITY_MISMATCH` and is not
   admissible for Native-vs-Runtime effectiveness analysis.
@@ -228,11 +232,12 @@ Provider/model:           step-plan / step-3.7-flash
 Run manifest status:      FAIL
 Provider attempts:       1
 Network requests:        1
-Provider permits:        0
+Outbound-permitted checkpoints: 1
 Attempted legs:          1
 Completed legs:          0
 Response calls:           0
 Tool executions:         0
+Completed-leg provider-permit aggregate: 0
 Terminal reason:         USAGE_CONTRACT_MISMATCH / missing cacheWriteTokens
 Classification:           PROVIDER_USAGE_CAPABILITY_MISMATCH
 Task effectiveness:       NOT_ADMISSIBLE
