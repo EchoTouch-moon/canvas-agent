@@ -8,7 +8,7 @@
 
 当前项目已经完成从“可观察、可审计的 Runtime 基础设施”到“比较实验准备”的工程收敛，但还没有得到 Context Runtime 相对 Native 的有效性答案。
 
-当前唯一近端主线是：先合并已经通过技术审查的 #98，随后在零 Provider 条件下完成用量口径、正式 treatment 入口和离线分析器的可复核闭环；这些门通过后，才能创建新的授权记录和新的 single-use study identity。
+当前唯一近端主线是：先完成 #98 的有界技术审查并合并，随后在零 Provider 条件下完成用量口径、正式 treatment 入口和离线分析器的可复核闭环；这些门通过后，才能创建新的授权记录和新的 single-use study identity。
 
 ```text
 C1 Live                 NO_GO
@@ -23,7 +23,7 @@ Wave B                  NO_GO
 | 项目 | 当前状态 | 绑定或解释 |
 | --- | --- | --- |
 | 远端 `main` | `08547b044f64fd842fde3634347abfcb96fbe642` | PR #97 合并后的当前研究基线；#98 尚未进入 `main` |
-| PR #98 | `OPEN / DRAFT / ACCEPTED` | head `95406b0045073f0eec15401446a68c4187265e05`；实现 usage amendment 的 adapter/validator/serialization 兼容层；CI 已通过 |
+| PR #98 | `OPEN / DRAFT / CI_PASS / REVIEW_PENDING` | head `95406b0045073f0eec15401446a68c4187265e05`；实现 usage amendment 的 adapter/validator/serialization 兼容层；CI 已通过，待有界技术审查 |
 | `C1_USAGE_CONTRACT_AMENDMENT_V1` | `FROZEN / MERGED` | 只调整 provider cache split 的可用性语义；原 `C1_RUN_CONTRACT_V1` 保持不变 |
 | `C1_PROTOCOL_V1` | `FROZEN` | 比较问题、对照/处理臂、指标与裁决边界 |
 | `C1_A_MANIFEST_V1` | `FROZEN` | 4 个任务层、fixture、oracle、anchors 与身份绑定 |
@@ -41,7 +41,7 @@ Wave B                  NO_GO
 
 - C0-L1 已在真实 Step Plan 交互中捕获 provider-reported usage，并完成 lifecycle observability、持久化和 replay 证据；其中 Node23 运行保留为 usage-seam validation，Node24 运行才是受控 runtime evidence。
 - C1 的 zero-provider readiness 已证明 Native 与 Runtime 的 provider-bound 请求边界可区分，T4 的 `REMOVE → cold materialization → provider-bound absence → REHYDRATE → provider-bound restoration` 链条成立。
-- #98 的实现和回归已证明缺失 cache-write 不再被伪造为零，而是进入带 provenance 的 `UNAVAILABLE / NOT_REPORTED_BY_PROVIDER`；核心 `inputTokens/outputTokens/totalTokens` 仍必须由 Provider 报告。
+- #98 分支的回归表明：缺失 cache-write 从硬失败改为显式 `UNAVAILABLE / NOT_REPORTED_BY_PROVIDER`，不以零代替缺失；核心 `inputTokens/outputTokens/totalTokens` 仍必须由 Provider 报告。
 
 ### 目前没有的效果证据
 
@@ -82,11 +82,11 @@ separate owner authorization
 
 ## 下一步执行顺序
 
-以下是当前允许的近端顺序；除 #98 合并流程外，其余均为零 Provider 工作，不能提前获得 Live 授权。
+以下是当前允许的近端顺序：当前可执行的是步骤 1–2，且不产生 Provider 调用；步骤 3–5 是条件性后续，必须在前置门通过并获得新的明确授权后才能执行，不能从本页提前获得 Live 授权。
 
 ### 1. 收口 #98
 
-由 owner 按仓库 review 规则将 #98 标记 Ready、完成 review 并合并。合并后重新记录 exact `main` SHA 和对应 CI；不能把 #98 的 head 或旧授权自动当作新的执行基线。
+由 owner 按仓库 review 规则完成 #98 有界技术审查、标记 Ready 并合并。合并后重新记录 exact `main` SHA 和对应 CI；不能把 #98 的 head 或旧授权自动当作新的执行基线。
 
 ### 2. 做一次核心的零 Provider 证据闭环
 
