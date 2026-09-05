@@ -253,3 +253,41 @@ export {
   type C1AuthorizedProviderResponseSourceOptions,
   type C1AuthorizedProviderToolDefinition
 } from './c1-authorized-provider'
+export {
+  C1_USAGE_SOURCE_MAP_RELATIVE_PATH,
+  C1UsageSourceMapFailure,
+  validateC1UsageSourceMap,
+  type C1UsageSourceMap
+} from './c1-usage-source-map'
+export {
+  C1_TREATMENT_ENTRY_AUDIT_ID,
+  C1_TREATMENT_ENTRY_SOURCE_RELATIVE_PATH,
+  runC1TreatmentEntryAudit,
+  type C1TreatmentEntryAuditGate,
+  type C1TreatmentEntryAuditReport,
+  type C1TreatmentEntryAuditStatus
+} from './c1-treatment-entry-audit'
+export {
+  C1_ANALYSIS_STRATA,
+  C1OfflineAnalysisInputError,
+  adjudicateC1Study,
+  reportedC1AnalysisMetric,
+  unavailableC1AnalysisMetric,
+  type C1AnalysisArm,
+  type C1AnalysisDecision,
+  type C1AnalysisLifecycleEvidence,
+  type C1AnalysisLifecycleMeasurement,
+  type C1AnalysisLeg,
+  type C1AnalysisLegStatus,
+  type C1AnalysisMetric,
+  type C1AnalysisPair,
+  type C1AnalysisStudy,
+  type C1AnalysisStudyStatus,
+  type C1AnalysisStratum,
+  type C1AnalysisTaskOutcome,
+  type C1AnalysisEndpointStatus,
+  type C1OfflineAnalysisResult,
+  type C1OutcomeAnalysis,
+  type C1PrimaryAnalysis,
+  type C1SecondaryMetricAnalysis
+} from './c1-analysis'

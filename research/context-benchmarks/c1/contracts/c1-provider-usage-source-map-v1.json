@@ -1,0 +1,163 @@
+{
+  "sourceMapId": "C1_PROVIDER_USAGE_SOURCE_MAP_V1",
+  "schemaVersion": 1,
+  "status": "DRAFT_ZERO_PROVIDER_EVIDENCE_CANDIDATE",
+  "providerExecution": "NOT_AUTHORIZED",
+  "purpose": "Trace C0 and C1 usage fields without combining their ledgers or inventing unavailable values.",
+  "frozenInputs": {
+    "c1RunContract": "C1_RUN_CONTRACT_V1",
+    "c1UsageAmendment": "C1_USAGE_CONTRACT_AMENDMENT_V1",
+    "c1PrimaryEndpoint": "providerReported.inputTokens"
+  },
+  "ledgers": {
+    "c0": {
+      "pipelineId": "C0_PI_MESSAGE_END_NORMALIZED_USAGE_V1",
+      "sourceModule": "packages/pi-context-integration/src/smoke/c0-provider-usage.ts",
+      "sourceBoundary": "assistant message_end observed by the Pi session",
+      "recordType": "C0ProviderUsageRecord",
+      "rawFieldNames": {
+        "inputTokens": "input",
+        "outputTokens": "output",
+        "cacheReadTokens": "cacheRead",
+        "cacheWriteTokens": "cacheWrite",
+        "totalTokens": "totalTokens"
+      },
+      "normalizedPaths": {
+        "inputTokens": "record.inputTokens",
+        "outputTokens": "record.outputTokens",
+        "cacheReadTokens": "record.cacheReadTokens",
+        "cacheWriteTokens": "record.cacheWriteTokens",
+        "totalTokens": "record.totalTokens",
+        "usageSource": "record.usageSource"
+      },
+      "missingSemantics": "All five numeric fields become null and usageSource becomes UNAVAILABLE; a zero totalTokens is also not COMPLETE in this C0 normalizer.",
+      "aggregate": "C0ProviderUsageLedger.reportedTotals",
+      "durableArtifact": "C0 usage.jsonl",
+      "usableForC1": false
+    },
+    "c1": {
+      "pipelineId": "C1_AUTHORIZED_PROVIDER_RESPONSE_USAGE_V1",
+      "sourceModule": "research/context-benchmarks/src/c1-authorized-provider.ts",
+      "sourceBoundary": "authorized provider response.usage before C1LiveModelResponse is returned",
+      "recordType": "C1ProviderReportedUsage",
+      "normalizedPaths": {
+        "inputTokens": "response.usage.inputTokens",
+        "outputTokens": "response.usage.outputTokens",
+        "cacheReadTokens": "response.usage.cacheReadTokens",
+        "cacheWriteTokens": "response.usage.cacheWriteTokens",
+        "totalTokens": "response.usage.totalTokens",
+        "usageSource": "response.usage.usageSource"
+      },
+      "usageSource": "PROVIDER_REPORTED",
+      "cacheMetricEncoding": {
+        "reported": "{ status: REPORTED, value: non-negative integer }",
+        "unavailable": "{ status: UNAVAILABLE, reason: NOT_REPORTED_BY_PROVIDER }",
+        "unavailableScope": "PER_RESPONSE",
+        "zeroIsReported": true,
+        "localEstimation": false,
+        "derivedCacheSplit": false
+      },
+      "durableArtifact": "provider-usage-ledger.jsonl",
+      "usableForC1": true
+    }
+  },
+  "fieldMap": [
+    {
+      "canonicalField": "inputTokens",
+      "c0RawFields": ["input"],
+      "c0NormalizedPath": "C0ProviderUsageRecord.inputTokens",
+      "c1RawFields": ["prompt_tokens", "input_tokens", "inputTokens"],
+      "c1NestedRawFields": [],
+      "c1NormalizedPath": "C1ProviderReportedUsage.inputTokens",
+      "requirement": "C1_PRIMARY_PROVIDER_INPUT_TOKENS",
+      "absent": "HARD_CONTRACT_FAILURE"
+    },
+    {
+      "canonicalField": "outputTokens",
+      "c0RawFields": ["output"],
+      "c0NormalizedPath": "C0ProviderUsageRecord.outputTokens",
+      "c1RawFields": ["completion_tokens", "output_tokens", "outputTokens"],
+      "c1NestedRawFields": [],
+      "c1NormalizedPath": "C1ProviderReportedUsage.outputTokens",
+      "requirement": "C1_CORE_PROVIDER_USAGE",
+      "absent": "HARD_CONTRACT_FAILURE"
+    },
+    {
+      "canonicalField": "cacheReadTokens",
+      "c0RawFields": ["cacheRead"],
+      "c0NormalizedPath": "C0ProviderUsageRecord.cacheReadTokens",
+      "c1RawFields": ["cached_tokens", "prompt_cache_hit_tokens", "cacheReadTokens"],
+      "c1NestedRawFields": ["prompt_tokens_details.cached_tokens"],
+      "c1NormalizedPath": "C1ProviderReportedUsage.cacheReadTokens",
+      "requirement": "C1_CAPABILITY_AWARE_CACHE_SPLIT",
+      "absent": "UNAVAILABLE / NOT_REPORTED_BY_PROVIDER",
+      "malformedPresent": "HARD_CONTRACT_FAILURE"
+    },
+    {
+      "canonicalField": "cacheWriteTokens",
+      "c0RawFields": ["cacheWrite"],
+      "c0NormalizedPath": "C0ProviderUsageRecord.cacheWriteTokens",
+      "c1RawFields": ["cache_write_tokens", "cacheWriteTokens"],
+      "c1NestedRawFields": ["prompt_tokens_details.cache_write_tokens"],
+      "c1NormalizedPath": "C1ProviderReportedUsage.cacheWriteTokens",
+      "requirement": "C1_CAPABILITY_AWARE_CACHE_SPLIT",
+      "absent": "UNAVAILABLE / NOT_REPORTED_BY_PROVIDER",
+      "malformedPresent": "HARD_CONTRACT_FAILURE"
+    },
+    {
+      "canonicalField": "totalTokens",
+      "c0RawFields": ["totalTokens"],
+      "c0NormalizedPath": "C0ProviderUsageRecord.totalTokens",
+      "c1RawFields": ["total_tokens", "totalTokens"],
+      "c1NestedRawFields": [],
+      "c1NormalizedPath": "C1ProviderReportedUsage.totalTokens",
+      "requirement": "C1_CORE_PROVIDER_USAGE",
+      "absent": "HARD_CONTRACT_FAILURE"
+    }
+  ],
+  "endpointEligibility": [
+    {
+      "endpointId": "provider_input_tokens",
+      "sourcePath": "C1ProviderReportedUsage.inputTokens",
+      "eligibleWhen": "Both arms have provider-reported finite non-negative inputTokens and Native inputTokens is positive.",
+      "unavailable": "Exclude only the affected pair from this endpoint; do not impute."
+    },
+    {
+      "endpointId": "provider_total_tokens",
+      "sourcePath": "C1ProviderReportedUsage.totalTokens",
+      "eligibleWhen": "Both arms have provider-reported finite non-negative totalTokens.",
+      "unavailable": "Exclude only the affected pair from this endpoint; do not impute."
+    },
+    {
+      "endpointId": "cache_efficiency",
+      "sourcePath": "C1ProviderReportedUsage.cacheReadTokens + C1ProviderReportedUsage.cacheWriteTokens",
+      "eligibleWhen": "Both required cache metrics are REPORTED for the observations needed by the endpoint.",
+      "unavailable": "NOT_ESTIMABLE when either required cache split is UNAVAILABLE."
+    },
+    {
+      "endpointId": "cold_context_cache_penalty",
+      "sourcePath": "C1ProviderReportedUsage.cacheReadTokens + C1ProviderReportedUsage.cacheWriteTokens",
+      "eligibleWhen": "Both required cache metrics are REPORTED and the frozen T4 A/B anchors and lineage are valid.",
+      "unavailable": "NOT_ESTIMABLE when a required cache split or common anchor is unavailable."
+    }
+  ],
+  "nonCombinationRules": [
+    "C0ProviderUsageLedger and C1 provider-usage-ledger.jsonl are separate ledgers.",
+    "C0 numeric null is not converted into a C1 tagged metric.",
+    "C1 UNAVAILABLE is not zero, null-with-implicit-semantics, estimated, or derived.",
+    "Provider-reported input/output/total values are never reconstructed from prompt length, message count, or another ledger.",
+    "Cache read/write fields are not added to the primary input-token endpoint."
+  ],
+  "verification": {
+    "providerCalls": 0,
+    "networkRequests": 0,
+    "requiredTests": [
+      "c0 and c1 ledgers remain structurally distinct",
+      "all C1 core fields are required",
+      "reported zero remains REPORTED(0)",
+      "absent cache field becomes tagged UNAVAILABLE",
+      "malformed cache field remains a hard failure",
+      "cache-dependent endpoints are conditional, not permanently NOT_ESTIMABLE"
+    ]
+  }
+}
