@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  C1AuthorizedProviderResponseSource,
   C1_PREFLIGHT_ARTIFACT_NAMES,
   C1ScriptedObservationSource,
   C1StudyOrchestrator,
@@ -199,6 +200,92 @@ describe('C1 study-level credential-free orchestration', () => {
       expect(report.networkRequests).toBe(0)
     } finally {
       dateNow.mockRestore()
+      await rm(outputRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('aborts an in-flight authorized fetch through the study kill switch', async () => {
+    if (!nodeVersionSatisfiesC1Range()) return
+
+    const outputRoot = await mkdtemp(join('/tmp', 'canvas-c1-study-abort-test-'))
+    const signals = new EventEmitter()
+    let resolveFetchStarted!: () => void
+    const fetchStarted = new Promise<void>((resolveFetch) => {
+      resolveFetchStarted = resolveFetch
+    })
+    let fetchCalls = 0
+    let fetchSignal: AbortSignal | undefined
+    const factoryLegIndexes: number[] = []
+    try {
+      const runPromise = new C1StudyOrchestrator({
+        repoRoot: REPO_ROOT,
+        outputRoot,
+        studyId: 'c1-20260905-c1-feasibility-v1-bbbbbbbb',
+        runId: 'C1_LIVE_ABORT_INTEGRATION_TEST_V1',
+        executionMode: 'CREDENTIAL_FREE_ABORT_REGRESSION',
+        responseSourceKind: 'AUTHORIZED_PROVIDER',
+        dryRun: false,
+        maxCalls: 1,
+        signalSource: signals,
+        responseSourceFactory: (input) => {
+          factoryLegIndexes.push(input.plan.legIndex)
+          return new C1AuthorizedProviderResponseSource({
+            providerBinding: input.providerBinding,
+            apiKey: 'c1-test-only-api-key',
+            requestTimeoutMs: 60_000,
+            fetchImpl: async (_input, init) => {
+              fetchCalls += 1
+              fetchSignal = init?.signal ?? undefined
+              resolveFetchStarted()
+              return await new Promise<Response>((_resolveResponse, reject) => {
+                const signal = init?.signal
+                if (signal?.aborted) {
+                  reject(new Error('synthetic fetch aborted'))
+                  return
+                }
+                signal?.addEventListener(
+                  'abort',
+                  () => reject(new Error('synthetic fetch aborted')),
+                  {
+                    once: true
+                  }
+                )
+              })
+            }
+          })
+        },
+        observationSourceFactory: (input) =>
+          new C1ScriptedObservationSource([
+            createC1ObservedReadTrace({
+              observationId: `${input.plan.runId}-initial`,
+              prompt: input.task.prompt,
+              fixtureFiles: [input.task.expectedWritablePaths[0] ?? 'src/target.js'],
+              taskPhase: 'INVESTIGATE'
+            })
+          ]),
+        toolExecutorFactory: () => ({
+          execute: async () => {
+            throw new Error('tool executor must not run during the hanging fetch')
+          }
+        })
+      }).run()
+
+      await fetchStarted
+      signals.emit('SIGINT')
+      const report = await runPromise
+
+      expect(fetchCalls).toBe(1)
+      expect(fetchSignal?.aborted).toBe(true)
+      expect(report.failures.some((failure) => failure.code === 'KILL_SWITCH_BLOCKED')).toBe(true)
+      expect(report.studyTerminal).toBe(true)
+      expect(report.legsAttempted).toBe(1)
+      expect(report.legsCompleted).toBe(0)
+      expect(report.fixtureSandboxesCreated).toBe(1)
+      expect(report.fixtureSandboxesCleaned).toBe(1)
+      expect(factoryLegIndexes).toEqual([0])
+      expect(report.providerCalls).toBe(0)
+      expect(report.networkRequests).toBe(0)
+    } finally {
       await rm(outputRoot, { recursive: true, force: true })
     }
   })
