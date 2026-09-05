@@ -193,8 +193,8 @@ describe('C1 authorized provider response source', () => {
         usage: {
           inputTokens: 21,
           outputTokens: 5,
-          cacheReadTokens: 3,
-          cacheWriteTokens: 0,
+          cacheReadTokens: { status: 'REPORTED', value: 3 },
+          cacheWriteTokens: { status: 'REPORTED', value: 0 },
           totalTokens: 26,
           usageSource: 'PROVIDER_REPORTED'
         }
@@ -852,7 +852,7 @@ describe('C1 authorized provider response source', () => {
     }
   })
 
-  it('fails closed on HTTP errors and incomplete provider usage without exposing response bodies', async () => {
+  it('fails closed on HTTP/core usage errors and preserves cache capability semantics', async () => {
     const { providerBinding, task } = await bindingAndTask()
     try {
       const httpSource = new C1AuthorizedProviderResponseSource({
@@ -870,13 +870,63 @@ describe('C1 authorized provider response source', () => {
         code: 'PROVIDER_PREPARATION_FAILURE',
         message: 'authorized provider returned HTTP 503'
       })
+      const missingCacheWrite = await new C1AuthorizedProviderResponseSource({
+        providerBinding,
+        apiKey: API_KEY_SENTINEL,
+        fetchImpl: async () =>
+          providerResponse({
+            id: 'missing-cache-write-response',
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 2,
+              total_tokens: 12,
+              cached_tokens: 0
+            }
+          })
+      }).next(requestFor(task, providerBinding.providerConfigHash))
+      expect(missingCacheWrite.usage).toMatchObject({
+        inputTokens: 10,
+        outputTokens: 2,
+        totalTokens: 12,
+        cacheReadTokens: { status: 'REPORTED', value: 0 },
+        cacheWriteTokens: {
+          status: 'UNAVAILABLE',
+          reason: 'NOT_REPORTED_BY_PROVIDER'
+        },
+        usageSource: 'PROVIDER_REPORTED'
+      })
+
+      const bothCacheFieldsAbsent = await new C1AuthorizedProviderResponseSource({
+        providerBinding,
+        apiKey: API_KEY_SENTINEL,
+        fetchImpl: async () =>
+          providerResponse({
+            id: 'both-cache-fields-absent-response',
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 2,
+              total_tokens: 12
+            }
+          })
+      }).next(requestFor(task, providerBinding.providerConfigHash))
+      expect(bothCacheFieldsAbsent.usage).toMatchObject({
+        cacheReadTokens: {
+          status: 'UNAVAILABLE',
+          reason: 'NOT_REPORTED_BY_PROVIDER'
+        },
+        cacheWriteTokens: {
+          status: 'UNAVAILABLE',
+          reason: 'NOT_REPORTED_BY_PROVIDER'
+        }
+      })
+
       await expect(
         new C1AuthorizedProviderResponseSource({
           providerBinding,
           apiKey: API_KEY_SENTINEL,
           fetchImpl: async () =>
             providerResponse({
-              id: 'incomplete-usage-response',
+              id: 'incomplete-core-usage-response',
               usage: { prompt_tokens: 10, total_tokens: 10 }
             })
         }).next(requestFor(task, providerBinding.providerConfigHash))
@@ -888,19 +938,60 @@ describe('C1 authorized provider response source', () => {
           apiKey: API_KEY_SENTINEL,
           fetchImpl: async () =>
             providerResponse({
-              id: 'missing-cache-write-response',
+              id: 'malformed-cache-write-response',
               usage: {
                 prompt_tokens: 10,
                 completion_tokens: 2,
                 total_tokens: 12,
-                cached_tokens: 0
+                cache_write_tokens: 'derived-from-input'
               }
             })
         }).next(requestFor(task, providerBinding.providerConfigHash))
-      ).rejects.toMatchObject({
-        code: 'USAGE_CONTRACT_MISMATCH',
-        message: 'provider usage is missing cacheWriteTokens'
+      ).rejects.toMatchObject({ code: 'USAGE_CONTRACT_MISMATCH' })
+    } finally {
+      providerBinding.dispose()
+    }
+  })
+
+  it('accepts amended usage through the driver and persists unavailable cache provenance', async () => {
+    const { providerBinding, task } = await bindingAndTask()
+    try {
+      const { result, calls, checkpointText } = await runAuthorizedDriver({
+        providerBinding,
+        task,
+        responses: [
+          providerResponse({
+            id: 'amended-usage-driver-response-01',
+            usage: {
+              prompt_tokens: 21,
+              completion_tokens: 5,
+              total_tokens: 26,
+              cached_tokens: 3
+            }
+          })
+        ],
+        runId: 'c1-20260905-amended-usage-driver-native-aaaaaaaa',
+        pairId: 'c1-amended-usage-driver-p01'
       })
+
+      expect(result.status).toBe('COMPLETED')
+      expect(result.evidence).toHaveLength(1)
+      expect(result.evidence[0]?.usage).toEqual({
+        inputTokens: 21,
+        outputTokens: 5,
+        cacheReadTokens: { status: 'REPORTED', value: 3 },
+        cacheWriteTokens: {
+          status: 'UNAVAILABLE',
+          reason: 'NOT_REPORTED_BY_PROVIDER'
+        },
+        totalTokens: 26,
+        usageSource: 'PROVIDER_REPORTED'
+      })
+      expect(calls).toHaveLength(1)
+      expect(checkpointText).toContain(
+        '"cacheWriteTokens":{"status":"UNAVAILABLE","reason":"NOT_REPORTED_BY_PROVIDER"}'
+      )
+      expect(checkpointText).not.toContain('cacheWriteTokens":0')
     } finally {
       providerBinding.dispose()
     }
