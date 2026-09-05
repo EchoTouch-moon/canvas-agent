@@ -1,5 +1,7 @@
 # Context Runtime v0.3 Experiment Plan
 
+> Current status and next action: [`Context Runtime 当前状态索引`](../research/context-runtime-current-state.zh-CN.md)。本文保留历史实验定义与当时的 overlay；其中旧的 `ACTIVE`/`awaiting review` 标签不构成当前执行授权。
+
 - **Status:** REBASELINED — CR-001–CR-003 closed; the CR-005 Shadow evidence line is complete as a stopped experiment; CR-004 was not executed and remains `NO_GO`; Phase 2 policy validation is the next gated research line
 - **Depends on:** `docs/architecture/context-runtime-v0.3-direction.md`
 - **Domain proposals:** `PROPOSAL-030-context-source-universe-model.md`, `PROPOSAL-031-context-working-set-planner.md`
@@ -216,8 +218,9 @@ v0.4 runtime advancement: NOT AUTHORIZED
 The original sections in this plan preserve the historical definitions and
 acceptance intent of CR-001 through CR-008. Their earlier `ACTIVE`, `awaiting
 review` and sequencing labels must not be read as current execution authority.
-The current research truth is maintained in the [Context Runtime v0.3 Research
-Rebaseline](../research/context-runtime-v0.3-research-rebaseline-2026-08-13.md).
+The current research truth is maintained in the [Context Runtime current-state
+index](../research/context-runtime-current-state.zh-CN.md). The rebaseline
+document remains the historical Phase 1/2 overlay.
 
 ```text
 Phase 1 — Observability, Shadow Infrastructure & Benchmark Evidence

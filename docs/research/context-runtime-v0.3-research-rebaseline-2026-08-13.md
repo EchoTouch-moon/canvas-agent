@@ -1,5 +1,7 @@
 # Context Runtime v0.3 Research Rebaseline — 2026-08-13
 
+> Current status index: [`Context Runtime 当前状态索引`](./context-runtime-current-state.zh-CN.md)。本文保留当时的 Phase 1/2 rebaseline；历史状态与旧授权标签不构成当前执行授权。
+
 - **Status:** FROZEN FOR REVIEW — documentation-only research rebaseline
 - **Provider execution:** `NO_GO` / `0` calls authorized by this document
 - **Active rewrite:** `NO_GO`
@@ -242,8 +244,8 @@ This task package is documentation-only. It must not change:
 - provider credentials, live-output artifacts or execution permissions.
 
 The old experiment plan remains useful as a historical definition of the
-CR-001–CR-008 work packages. Its current-status overlay must point readers to
-this rebaseline so the historical `ACTIVE`/`awaiting review` labels are not
+CR-001–CR-008 work packages. Its current-status overlay points to the current
+state index above so the historical `ACTIVE`/`awaiting review` labels are not
 mistaken for the current project state.
 
 ## 8. Exit condition for this phase of planning
