@@ -45,7 +45,8 @@ import {
   nodeVersionSatisfiesC1Range,
   observedC1SourceKeys,
   prepareC1StrictProvider,
-  validateC1ProviderUsage
+  validateC1ProviderUsage,
+  type C1ProviderReportedUsage
 } from './c1-live-preflight'
 import { runProcess } from './fixture-generator'
 
@@ -64,15 +65,17 @@ export const C1_LIVE_BINDING_STUDY_ID = 'c1-live-binding-readiness-study-v1'
 export type C1LiveResponseSourceKind = 'SCRIPTED_FAKE' | 'AUTHORIZED_PROVIDER'
 export type C1LiveTaskOutcome = 'CONTINUE' | 'COMPLETE' | 'FAILED'
 
-export interface C1LiveUsage {
+export interface C1ScriptedUsage {
   readonly inputTokens: number
   readonly outputTokens: number
   readonly cacheReadTokens: number
   readonly cacheWriteTokens: number
   readonly totalTokens: number
   /** SCRIPTED_FAKE is synthetic shape evidence, not provider usage. */
-  readonly usageSource: 'SCRIPTED_FAKE' | 'PROVIDER_REPORTED'
+  readonly usageSource: 'SCRIPTED_FAKE'
 }
+
+export type C1LiveUsage = C1ScriptedUsage | C1ProviderReportedUsage
 
 export interface C1LiveToolRequest {
   readonly toolCallId: string

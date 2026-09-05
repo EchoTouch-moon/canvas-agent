@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   C1AuthorizedProviderResponseSource,
   C1_PREFLIGHT_ARTIFACT_NAMES,
+  C1SandboxToolExecutor,
   C1ScriptedObservationSource,
   C1StudyOrchestrator,
   changedC1FixturePaths,
@@ -15,6 +16,37 @@ import {
 } from '../src'
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..', '..')
+
+function amendedProviderResponse(input: {
+  readonly id: string
+  readonly finishReason?: string
+  readonly toolCalls?: readonly unknown[]
+  readonly usage?: Record<string, unknown>
+}): Response {
+  return new Response(
+    JSON.stringify({
+      id: input.id,
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: 'amendment compatibility response',
+            ...(input.toolCalls === undefined ? {} : { tool_calls: input.toolCalls })
+          },
+          finish_reason: input.finishReason ?? 'stop'
+        }
+      ],
+      usage: input.usage ?? {
+        prompt_tokens: 21,
+        completion_tokens: 5,
+        total_tokens: 26,
+        cached_tokens: 3
+      }
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } }
+  )
+}
 
 describe('C1 study-level credential-free orchestration', () => {
   it('fails closed before claiming an identity outside the frozen Node range', async () => {
@@ -289,4 +321,104 @@ describe('C1 study-level credential-free orchestration', () => {
       await rm(outputRoot, { recursive: true, force: true })
     }
   })
+
+  it('keeps the first study leg valid when the provider omits cache-write usage', async () => {
+    if (!nodeVersionSatisfiesC1Range()) return
+
+    const outputRoot = await mkdtemp(join('/tmp', 'canvas-c1-study-usage-amendment-test-'))
+    const signals = new EventEmitter()
+    const factoryLegIndexes: number[] = []
+    let fetchCalls = 0
+    try {
+      const report = await new C1StudyOrchestrator({
+        repoRoot: REPO_ROOT,
+        outputRoot,
+        studyId: 'c1-20260905-c1-feasibility-v1-cccccccc',
+        runId: 'C1_USAGE_AMENDMENT_COMPATIBILITY_TEST_V1',
+        executionMode: 'CREDENTIAL_FREE_USAGE_AMENDMENT_REGRESSION',
+        responseSourceKind: 'AUTHORIZED_PROVIDER',
+        dryRun: false,
+        maxCalls: 2,
+        signalSource: signals,
+        beforeLeg: (plan) => {
+          if (plan.legIndex === 1) signals.emit('SIGINT')
+        },
+        responseSourceFactory: async (input) => {
+          factoryLegIndexes.push(input.plan.legIndex)
+          const editPath = input.task.expectedWritablePaths[0]
+          if (editPath === undefined) throw new Error('usage compatibility task has no edit path')
+          const originalContent = await readFile(join(input.fixtureRoot, editPath), 'utf8')
+          let responseIndex = 0
+          const responses = [
+            amendedProviderResponse({
+              id: `${input.plan.runId}-response-01`,
+              finishReason: 'tool_calls',
+              toolCalls: [
+                {
+                  id: `${input.plan.runId}-edit-01`,
+                  type: 'function',
+                  function: {
+                    name: 'edit',
+                    arguments: JSON.stringify({
+                      path: editPath,
+                      oldText: originalContent,
+                      newText: `AMENDMENT_COMPATIBILITY_PROBE_${String(input.plan.legIndex)}\n`
+                    })
+                  }
+                }
+              ]
+            }),
+            amendedProviderResponse({
+              id: `${input.plan.runId}-response-02`
+            })
+          ]
+          return new C1AuthorizedProviderResponseSource({
+            providerBinding: input.providerBinding,
+            apiKey: 'c1-test-only-api-key',
+            fetchImpl: async () => {
+              fetchCalls += 1
+              const response = responses[responseIndex]
+              responseIndex += 1
+              if (response === undefined) throw new Error('usage compatibility response exhausted')
+              return response
+            }
+          })
+        },
+        observationSourceFactory: (input) =>
+          new C1ScriptedObservationSource([
+            createC1ObservedReadTrace({
+              observationId: `${input.plan.runId}-initial`,
+              prompt: input.task.prompt,
+              fixtureFiles: [input.task.expectedWritablePaths[0] ?? 'src/target.js'],
+              taskPhase: 'INVESTIGATE'
+            })
+          ]),
+        toolExecutorFactory: (input) => new C1SandboxToolExecutor(input.fixtureRoot),
+        expectedProviderCallPermits: 2,
+        expectedResponseCalls: 2,
+        expectedToolExecutions: 1
+      }).run()
+
+      expect(report.status).toBe('FAIL')
+      expect(report.legsAttempted).toBe(1)
+      expect(report.legsCompleted).toBe(1)
+      expect(report.studyTerminal).toBe(true)
+      expect(report.operatorSignal).toBe('SIGINT')
+      expect(report.providerCalls).toBe(0)
+      expect(report.networkRequests).toBe(0)
+      expect(fetchCalls).toBe(2)
+      expect(factoryLegIndexes).toEqual([0])
+
+      const usageLedger = await readFile(
+        join(report.reportDir!, 'provider-usage-ledger.jsonl'),
+        'utf8'
+      )
+      expect(usageLedger).toContain(
+        '"cacheWriteTokens":{"status":"UNAVAILABLE","reason":"NOT_REPORTED_BY_PROVIDER"}'
+      )
+      expect(usageLedger).toContain('"usageSource":"PROVIDER_REPORTED"')
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true })
+    }
+  }, 60_000)
 })

@@ -345,21 +345,68 @@ function assertNodeVersion(version: string = process.versions.node): void {
   }
 }
 
+export type C1ProviderMetric =
+  | {
+      readonly status: 'REPORTED'
+      readonly value: number
+    }
+  | {
+      readonly status: 'UNAVAILABLE'
+      readonly reason: 'NOT_REPORTED_BY_PROVIDER'
+    }
+
 export interface C1ProviderReportedUsage {
   readonly inputTokens: number
   readonly outputTokens: number
-  readonly cacheReadTokens: number
-  readonly cacheWriteTokens: number
+  readonly cacheReadTokens: C1ProviderMetric
+  readonly cacheWriteTokens: C1ProviderMetric
   readonly totalTokens: number
   readonly usageSource: 'PROVIDER_REPORTED'
 }
 
-/** Validate the normalized message_end usage boundary without inventing values. */
+function providerMetricField(record: JsonRecord, key: string): C1ProviderMetric {
+  const value = record[key]
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    fail('USAGE_CONTRACT_MISMATCH', `provider usage ${key} must be a tagged metric`)
+  }
+  const metric = value as JsonRecord
+  if (metric['status'] === 'REPORTED') {
+    const reported = metric['value']
+    if (!Number.isSafeInteger(reported) || (reported as number) < 0) {
+      fail('USAGE_CONTRACT_MISMATCH', `provider usage ${key}.value must be a non-negative integer`)
+    }
+    if (Object.prototype.hasOwnProperty.call(metric, 'reason')) {
+      fail('USAGE_CONTRACT_MISMATCH', `provider usage ${key}.REPORTED must not contain reason`)
+    }
+    return { status: 'REPORTED', value: reported as number }
+  }
+  if (metric['status'] === 'UNAVAILABLE') {
+    if (metric['reason'] !== 'NOT_REPORTED_BY_PROVIDER') {
+      fail(
+        'USAGE_CONTRACT_MISMATCH',
+        `provider usage ${key}.UNAVAILABLE must cite NOT_REPORTED_BY_PROVIDER`
+      )
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(metric, 'value') ||
+      Object.prototype.hasOwnProperty.call(metric, 'tokens')
+    ) {
+      fail('USAGE_CONTRACT_MISMATCH', `provider usage ${key}.UNAVAILABLE must not contain tokens`)
+    }
+    return { status: 'UNAVAILABLE', reason: 'NOT_REPORTED_BY_PROVIDER' }
+  }
+  fail('USAGE_CONTRACT_MISMATCH', `provider usage ${key} has an unknown metric status`)
+}
+
+/** Validate the amended normalized message_end usage boundary without inventing values. */
 export function validateC1ProviderUsage(value: unknown): C1ProviderReportedUsage {
-  const record = asRecord(value, 'provider usage')
-  const numberField = (key: keyof Omit<C1ProviderReportedUsage, 'usageSource'>): number => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    fail('USAGE_CONTRACT_MISMATCH', 'provider usage must be an object')
+  }
+  const record = value as JsonRecord
+  const numberField = (key: 'inputTokens' | 'outputTokens' | 'totalTokens'): number => {
     const candidate = record[key]
-    if (!Number.isInteger(candidate) || (candidate as number) < 0) {
+    if (!Number.isSafeInteger(candidate) || (candidate as number) < 0) {
       fail('USAGE_CONTRACT_MISMATCH', `provider usage ${key} must be a non-negative integer`)
     }
     return candidate as number
@@ -370,8 +417,8 @@ export function validateC1ProviderUsage(value: unknown): C1ProviderReportedUsage
   return {
     inputTokens: numberField('inputTokens'),
     outputTokens: numberField('outputTokens'),
-    cacheReadTokens: numberField('cacheReadTokens'),
-    cacheWriteTokens: numberField('cacheWriteTokens'),
+    cacheReadTokens: providerMetricField(record, 'cacheReadTokens'),
+    cacheWriteTokens: providerMetricField(record, 'cacheWriteTokens'),
     totalTokens: numberField('totalTokens'),
     usageSource: 'PROVIDER_REPORTED'
   }
@@ -2842,8 +2889,8 @@ async function runAdversarialReadinessProbes(
     validateC1ProviderUsage({
       inputTokens: 1,
       outputTokens: 1,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
+      cacheReadTokens: { status: 'REPORTED', value: 0 },
+      cacheWriteTokens: { status: 'REPORTED', value: 0 },
       totalTokens: 2,
       usageSource: 'PROVIDER_REPORTED'
     }).usageSource === 'PROVIDER_REPORTED'
@@ -2861,8 +2908,8 @@ async function runAdversarialReadinessProbes(
     validateC1ProviderUsage({
       inputTokens: 1,
       outputTokens: 1,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
+      cacheReadTokens: { status: 'REPORTED', value: 0 },
+      cacheWriteTokens: { status: 'REPORTED', value: 0 },
       totalTokens: 2,
       usageSource: 'LOCAL_ESTIMATE'
     })

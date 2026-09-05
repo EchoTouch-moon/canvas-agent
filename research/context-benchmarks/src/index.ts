@@ -177,6 +177,7 @@ export {
   type C1PreflightTask,
   type C1ProviderBoundCapture,
   type C1ProviderNativeMetadata,
+  type C1ProviderMetric,
   type C1ProviderStructuralEnvelope,
   type C1ProviderToolDefinition,
   type C1ProviderTransport,

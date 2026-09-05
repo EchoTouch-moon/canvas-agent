@@ -163,16 +163,16 @@ describe('C1 live runner credential-free preflight', () => {
       validateC1ProviderUsage({
         inputTokens: 10,
         outputTokens: 4,
-        cacheReadTokens: 2,
-        cacheWriteTokens: 1,
+        cacheReadTokens: { status: 'REPORTED', value: 2 },
+        cacheWriteTokens: { status: 'REPORTED', value: 1 },
         totalTokens: 17,
         usageSource: 'PROVIDER_REPORTED'
       })
     ).toEqual({
       inputTokens: 10,
       outputTokens: 4,
-      cacheReadTokens: 2,
-      cacheWriteTokens: 1,
+      cacheReadTokens: { status: 'REPORTED', value: 2 },
+      cacheWriteTokens: { status: 'REPORTED', value: 1 },
       totalTokens: 17,
       usageSource: 'PROVIDER_REPORTED'
     })
@@ -189,6 +189,64 @@ describe('C1 live runner credential-free preflight', () => {
         'provider usage must be marked PROVIDER_REPORTED'
       )
     )
+  })
+
+  it('enforces tagged cache metric availability without accepting estimates or ambiguity', () => {
+    expect(
+      validateC1ProviderUsage({
+        inputTokens: 10,
+        outputTokens: 4,
+        cacheReadTokens: {
+          status: 'UNAVAILABLE',
+          reason: 'NOT_REPORTED_BY_PROVIDER'
+        },
+        cacheWriteTokens: { status: 'REPORTED', value: 0 },
+        totalTokens: 14,
+        usageSource: 'PROVIDER_REPORTED'
+      })
+    ).toMatchObject({
+      cacheReadTokens: {
+        status: 'UNAVAILABLE',
+        reason: 'NOT_REPORTED_BY_PROVIDER'
+      },
+      cacheWriteTokens: { status: 'REPORTED', value: 0 }
+    })
+
+    for (const usage of [
+      {
+        inputTokens: 10,
+        outputTokens: 4,
+        cacheReadTokens: {
+          status: 'UNAVAILABLE',
+          reason: 'NOT_REPORTED_BY_PROVIDER'
+        },
+        cacheWriteTokens: {
+          status: 'UNAVAILABLE',
+          reason: 'NOT_REPORTED_BY_PROVIDER',
+          value: 0
+        },
+        totalTokens: 14,
+        usageSource: 'PROVIDER_REPORTED'
+      },
+      {
+        inputTokens: 10,
+        outputTokens: 4,
+        cacheReadTokens: { status: 'REPORTED', value: -1 },
+        cacheWriteTokens: { status: 'REPORTED', value: 0 },
+        totalTokens: 14,
+        usageSource: 'PROVIDER_REPORTED'
+      },
+      {
+        inputTokens: 10,
+        outputTokens: 4,
+        cacheReadTokens: 0,
+        cacheWriteTokens: { status: 'REPORTED', value: 0 },
+        totalTokens: 14,
+        usageSource: 'PROVIDER_REPORTED'
+      }
+    ]) {
+      expect(() => validateC1ProviderUsage(usage)).toThrowError(C1PreflightFailure)
+    }
   })
 
   it('routes observed Pi source identities through the shared Runtime treatment executor', async () => {

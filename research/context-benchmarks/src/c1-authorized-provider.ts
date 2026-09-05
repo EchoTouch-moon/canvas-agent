@@ -11,6 +11,7 @@ import {
   C1_PROVIDER_ID,
   C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE,
   C1PreflightFailure,
+  type C1ProviderMetric,
   type C1ProviderStructuralEnvelope,
   type C1ProviderToolDefinition,
   type C1StrictProviderBinding
@@ -68,11 +69,6 @@ function nonNegativeInteger(value: unknown, label: string): number {
     )
   }
   return value as number
-}
-
-function optionalNonNegativeInteger(value: unknown, label: string): number | undefined {
-  if (value === undefined) return undefined
-  return nonNegativeInteger(value, label)
 }
 
 function textFromContent(content: PiMessageView['content'], label: string): string {
@@ -239,53 +235,84 @@ function canonicalJson(value: unknown): string {
   throw new C1PreflightFailure('PREFLIGHT_FAILURE', 'structural envelope is not JSON serializable')
 }
 
-function usageValue(usage: JsonRecord, keys: readonly string[], label: string): number {
+function numericValuesIfPresent(
+  record: JsonRecord,
+  keys: readonly string[],
+  label: string
+): readonly number[] {
+  const values: number[] = []
   for (const key of keys) {
-    const value = usage[key]
-    if (value !== undefined) return nonNegativeInteger(value, label)
+    if (Object.prototype.hasOwnProperty.call(record, key)) {
+      values.push(nonNegativeInteger(record[key], `${label} (${key})`))
+    }
   }
-  throw new C1PreflightFailure('USAGE_CONTRACT_MISMATCH', `provider usage is missing ${label}`)
+  return values
 }
 
-function nestedUsageValue(
+function nestedNumericValuesIfPresent(
   usage: JsonRecord,
   detailsKey: string,
   keys: readonly string[],
   label: string
-): number | undefined {
+): readonly number[] {
+  if (!Object.prototype.hasOwnProperty.call(usage, detailsKey)) return []
   const detailsValue = usage[detailsKey]
-  if (detailsValue !== undefined) {
-    const details = asRecord(detailsValue, `provider usage.${detailsKey}`)
-    for (const key of keys) {
-      const value = optionalNonNegativeInteger(details[key], label)
-      if (value !== undefined) return value
-    }
+  if (typeof detailsValue !== 'object' || detailsValue === null || Array.isArray(detailsValue)) {
+    throw new C1PreflightFailure(
+      'USAGE_CONTRACT_MISMATCH',
+      `provider usage.${detailsKey} must be an object`
+    )
   }
-  return undefined
+  return numericValuesIfPresent(detailsValue as JsonRecord, keys, `${label} (${detailsKey})`)
+}
+
+function consistentNumericValue(values: readonly number[], label: string): number | undefined {
+  if (values.length === 0) return undefined
+  const first = values[0]!
+  if (values.some((value) => value !== first)) {
+    throw new C1PreflightFailure(
+      'USAGE_CONTRACT_MISMATCH',
+      `provider usage ${label} aliases disagree`
+    )
+  }
+  return first
+}
+
+function usageValue(usage: JsonRecord, keys: readonly string[], label: string): number {
+  const value = consistentNumericValue(numericValuesIfPresent(usage, keys, label), label)
+  if (value === undefined) {
+    throw new C1PreflightFailure('USAGE_CONTRACT_MISMATCH', `provider usage is missing ${label}`)
+  }
+  return value
+}
+
+function cacheMetric(
+  usage: JsonRecord,
+  topLevelKeys: readonly string[],
+  nestedKeys: readonly string[],
+  label: string
+): C1ProviderMetric {
+  const value = consistentNumericValue(
+    [
+      ...numericValuesIfPresent(usage, topLevelKeys, label),
+      ...nestedNumericValuesIfPresent(usage, 'prompt_tokens_details', nestedKeys, label)
+    ],
+    label
+  )
+  if (value === undefined) {
+    return { status: 'UNAVAILABLE', reason: 'NOT_REPORTED_BY_PROVIDER' }
+  }
+  return { status: 'REPORTED', value }
 }
 
 function providerUsage(value: unknown): C1LiveModelResponse['usage'] {
-  const usage = asRecord(value, 'provider response.usage')
-  // C1 requires every normalized token counter. Provider-specific aliases are
-  // accepted, but an omitted cache counter is incomplete evidence, not zero.
-  const cacheRead =
-    usageValueIfPresent(usage, ['cached_tokens', 'prompt_cache_hit_tokens', 'cacheReadTokens']) ??
-    nestedUsageValue(usage, 'prompt_tokens_details', ['cached_tokens'], 'cacheReadTokens')
-  if (cacheRead === undefined) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new C1PreflightFailure(
       'USAGE_CONTRACT_MISMATCH',
-      'provider usage is missing cacheReadTokens'
+      'provider response.usage must be an object'
     )
   }
-  const cacheWrite =
-    usageValueIfPresent(usage, ['cache_write_tokens', 'cacheWriteTokens']) ??
-    nestedUsageValue(usage, 'prompt_tokens_details', ['cache_write_tokens'], 'cacheWriteTokens')
-  if (cacheWrite === undefined) {
-    throw new C1PreflightFailure(
-      'USAGE_CONTRACT_MISMATCH',
-      'provider usage is missing cacheWriteTokens'
-    )
-  }
+  const usage = value as JsonRecord
   return {
     inputTokens: usageValue(usage, ['prompt_tokens', 'input_tokens', 'inputTokens'], 'inputTokens'),
     outputTokens: usageValue(
@@ -293,19 +320,21 @@ function providerUsage(value: unknown): C1LiveModelResponse['usage'] {
       ['completion_tokens', 'output_tokens', 'outputTokens'],
       'outputTokens'
     ),
-    cacheReadTokens: cacheRead,
-    cacheWriteTokens: cacheWrite,
+    cacheReadTokens: cacheMetric(
+      usage,
+      ['cached_tokens', 'prompt_cache_hit_tokens', 'cacheReadTokens'],
+      ['cached_tokens'],
+      'cacheReadTokens'
+    ),
+    cacheWriteTokens: cacheMetric(
+      usage,
+      ['cache_write_tokens', 'cacheWriteTokens'],
+      ['cache_write_tokens'],
+      'cacheWriteTokens'
+    ),
     totalTokens: usageValue(usage, ['total_tokens', 'totalTokens'], 'totalTokens'),
     usageSource: 'PROVIDER_REPORTED'
   }
-}
-
-function usageValueIfPresent(usage: JsonRecord, keys: readonly string[]): number | undefined {
-  for (const key of keys) {
-    const value = usage[key]
-    if (value !== undefined) return nonNegativeInteger(value, key)
-  }
-  return undefined
 }
 
 function providerResponse(value: unknown): C1LiveModelResponse {
