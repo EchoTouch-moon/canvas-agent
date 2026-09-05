@@ -1,6 +1,6 @@
 # CSPV-C1 Usage Contract Amendment V1 — Draft 2026-09-05
 
-Status: `DRAFT / ZERO PROVIDER / LEAD REVIEW REQUIRED`
+Status: `FROZEN / ZERO PROVIDER / C1_USAGE_CONTRACT_AMENDMENT_V1`
 
 Amendment: `C1_USAGE_CONTRACT_AMENDMENT_V1`
 
@@ -15,8 +15,8 @@ Provider/network calls.
 ## 1. Decision boundary
 
 The original `C1_RUN_CONTRACT_V1` remains frozen and preserved. This amendment
-is additive: after it is accepted and frozen, the effective C1 execution
-contract is the original contract plus this usage-capability amendment.
+is additive: the effective C1 execution contract is the original contract plus
+this usage-capability amendment.
 
 The amendment changes only the interpretation and normalized representation of
 the two Provider-dependent cache split fields:
@@ -215,10 +215,63 @@ C1_RUN_CONTRACT_V1 SHA-256:
 1c82e095973b5cf9b47787f99a6ad41dccfd50d3f68379c68c02e8bd36d6f9f4
 ```
 
-The amendment will receive its own canonical hash only in a later freeze
-commit. No self-referential hash is claimed in this draft.
+## 7. Canonical freeze and hashes
 
-## 7. Historical provenance of the consumed attempt
+The machine-readable amendment is frozen with these two independent digests:
+
+```text
+Amendment SHA-256:  6d9d15e5a0acd1acfbf2232fe59e2c9c4ee289e7fd580fc3afe2d0c627ae3740
+Effective SHA-256:   d67901ce0ee2aee47baa3ea734264135506066826391ec511035d09d716e7cbd
+```
+
+Canonicalization for both digests is:
+
+```text
+encoding:              UTF-8
+object keys:           lexicographic Unicode code-point order at every depth
+arrays:                preserve order
+strings:               standard JSON escaping
+numbers:               JSON/ECMAScript numeric serialization
+whitespace:            none
+trailing newline:      none
+hash:                  SHA-256 of canonical UTF-8 bytes
+```
+
+The hash inputs and order are deliberately non-circular:
+
+1. `amendmentSha256` is SHA-256 of the canonical JSON of the complete machine
+   amendment with both `amendmentSha256` and `effectiveContractSha256`
+   replaced by the literal string `SELF`.
+2. The computed amendment digest is written into the machine contract.
+3. `effectiveContractSha256` is SHA-256 of the canonical JSON of this exact
+   binding envelope:
+
+   ```json
+   {
+     "effectiveContractId": "C1_RUN_CONTRACT_V1+C1_USAGE_CONTRACT_AMENDMENT_V1",
+     "parentContractSha256": "<C1_RUN_CONTRACT_V1 SHA-256>",
+     "amendmentId": "C1_USAGE_CONTRACT_AMENDMENT_V1",
+     "amendmentSha256": "<computed amendment SHA-256>",
+     "supersedes": {
+       "contractId": "C1_RUN_CONTRACT_V1",
+       "scope": [
+         "providerUsage.cacheReadTokens",
+         "providerUsage.cacheWriteTokens"
+       ],
+       "allOtherClausesRemainUnchanged": true
+     }
+   }
+   ```
+
+4. The effective digest is written into the machine contract and both digests
+   are independently recomputed from the checked-in JSON. Any mismatch is a
+   freeze failure.
+
+The machine contract records the same algorithm and input boundaries. These
+hashes identify the amendment and its binding to the original contract; they
+do not authorize a Provider call.
+
+## 8. Historical provenance of the consumed attempt
 
 ```text
 Attempt:                 C1 LIVE ATTEMPT #1
@@ -228,23 +281,23 @@ Identity status:          CONSUMED / RETIRED
 Execution revision:      93fdb08ebf034860ab298e40770044e1aa4c67e6
 Contract:                C1_RUN_CONTRACT_V1
 Contract SHA-256:        1c82e095973b5cf9b47787f99a6ad41dccfd50d3f68379c68c02e8bd36d6f9f4
-Provider/model:           step-plan / step-3.7-flash
-Run manifest status:      FAIL
-Provider attempts:       1
-Network requests:        1
-Outbound-permitted checkpoints: 1
-Attempted legs:          1
-Completed legs:          0
-Response calls:           0
-Tool executions:         0
+Provider/model:                        step-plan / step-3.7-flash
+Run manifest status:                   FAIL
+Provider attempts:                    1
+Network requests:                     1
+Outbound-permitted checkpoints:       1
+Attempted legs:                       1
+Completed legs:                       0
+Response calls:                        0
+Tool executions:                      0
 Completed-leg provider-permit aggregate: 0
-Terminal reason:         USAGE_CONTRACT_MISMATCH / missing cacheWriteTokens
-Classification:           PROVIDER_USAGE_CAPABILITY_MISMATCH
-Task effectiveness:       NOT_ADMISSIBLE
-Treatment effectiveness:  NOT_ADMISSIBLE
-Resume:                   FORBIDDEN
-Reuse:                    FORBIDDEN
-Rebind:                   FORBIDDEN
+Terminal reason:                      USAGE_CONTRACT_MISMATCH / missing cacheWriteTokens
+Classification:                       PROVIDER_USAGE_CAPABILITY_MISMATCH
+Task effectiveness:                   NOT_ADMISSIBLE
+Treatment effectiveness:              NOT_ADMISSIBLE
+Resume:                               FORBIDDEN
+Reuse:                                FORBIDDEN
+Rebind:                               FORBIDDEN
 ```
 
 The retired identity must never be resumed, reused, or rebound under this
@@ -256,7 +309,7 @@ The durable evidence is referenced by study identity and artifact basename;
 raw Provider payloads, prompts, assistant text, tool arguments, tool results,
 credentials, and authorization headers are not committed by this amendment.
 
-## 8. Acceptance criteria before implementation
+## 9. Acceptance criteria before implementation
 
 The following must be completed in order:
 
@@ -286,13 +339,13 @@ local estimate or derived cache write         → hard mismatch
 tagged status survives evidence serialization → PASS
 ```
 
-## 9. Current authorization state
+## 10. Current authorization state
 
 ```text
 Old C1 Live study               TERMINAL / CLOSED
 Old study identity              CONSUMED / RETIRED
 Zero-provider compatibility     CLOSED
-C1_USAGE_CONTRACT_AMENDMENT_V1 DRAFT / REVIEW REQUIRED
+C1_USAGE_CONTRACT_AMENDMENT_V1 FROZEN
 Adapter implementation          NO_GO until amendment freeze
 New study identity              NO_GO
 New Provider calls              NO_GO

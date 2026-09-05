@@ -1,7 +1,7 @@
 {
   "amendmentId": "C1_USAGE_CONTRACT_AMENDMENT_V1",
   "schemaVersion": 1,
-  "status": "DRAFT",
+  "status": "FROZEN",
   "purpose": "Make Provider-dependent cache split availability explicit without changing the frozen C1 effectiveness design.",
   "grantsProviderExecution": false,
   "providerCallsDuringDrafting": 0,
@@ -19,8 +19,35 @@
     "allOtherClausesRemainUnchanged": true
   },
   "changeType": "PROVIDER_USAGE_CAPABILITY_SEMANTICS_ONLY",
-  "amendmentSha256": "PENDING_FREEZE",
-  "effectiveContractSha256": "PENDING_FREEZE",
+  "amendmentSha256": "6d9d15e5a0acd1acfbf2232fe59e2c9c4ee289e7fd580fc3afe2d0c627ae3740",
+  "effectiveContractSha256": "d67901ce0ee2aee47baa3ea734264135506066826391ec511035d09d716e7cbd",
+  "hashing": {
+    "canonicalization": {
+      "encoding": "UTF-8",
+      "objectKeyOrder": "LEXICOGRAPHIC_UNICODE_CODE_POINT_AT_EVERY_DEPTH",
+      "arrayOrder": "PRESERVED",
+      "stringEscaping": "STANDARD_JSON",
+      "numberSerialization": "JSON_ECMASCRIPT_NUMERIC_SERIALIZATION",
+      "whitespace": "NONE",
+      "trailingNewline": false,
+      "digest": "SHA-256"
+    },
+    "amendmentHashInput": "CANONICAL_JSON_OF_WHOLE_MACHINE_AMENDMENT_WITH_amendmentSha256_AND_effectiveContractSha256_REPLACED_BY_LITERAL_SELF",
+    "effectiveContractHashInput": {
+      "effectiveContractId": "C1_RUN_CONTRACT_V1+C1_USAGE_CONTRACT_AMENDMENT_V1",
+      "parentContractSha256": "THE_PARENT_CONTRACT_SHA256",
+      "amendmentId": "C1_USAGE_CONTRACT_AMENDMENT_V1",
+      "amendmentSha256": "THE_COMPUTED_AMENDMENT_SHA256",
+      "supersedes": "THE_EXACT_SUPERSEDES_OBJECT"
+    },
+    "hashOrder": [
+      "COMPUTE_AMENDMENT_SHA256_WITH_BOTH_DIGEST_FIELDS_AS_SELF",
+      "WRITE_AMENDMENT_SHA256",
+      "COMPUTE_EFFECTIVE_CONTRACT_SHA256_FROM_BINDING_ENVELOPE",
+      "WRITE_EFFECTIVE_CONTRACT_SHA256",
+      "INDEPENDENTLY_RECOMPUTE_BOTH_DIGESTS"
+    ]
+  },
   "providerUsage": {
     "usageSource": "PROVIDER_REPORTED",
     "requiredNumericFields": [
