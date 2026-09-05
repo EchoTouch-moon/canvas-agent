@@ -82,7 +82,8 @@ export const C1_LIVE_STUDY_DRY_RUN_ID = 'C1_LIVE_STUDY_DRY_RUN_V1'
 export const C1_LIVE_STUDY_DRY_RUN_MODE = 'CREDENTIAL_FREE_STUDY_DRY_RUN'
 export const C1_LIVE_STUDY_RUN_ID = 'C1_LIVE_STUDY_V1'
 export const C1_LIVE_STUDY_MODE = 'LIVE_AUTHORIZED_PROVIDER_C1_FEASIBILITY_V1'
-export const C1_LIVE_BOOTSTRAP_SOURCE = 'FIXED_FIXTURE_CONTENT_BOOTSTRAP'
+export const C1_LIVE_BOOTSTRAP_SOURCE = 'FIXED_FIXTURE_README_BOOTSTRAP'
+export const C1_LIVE_BOOTSTRAP_FILES = Object.freeze(['README.md'] as const)
 
 export type C1StudyDryRunStatus = 'PASS' | 'FAIL'
 
@@ -150,7 +151,6 @@ export interface C1StudyTaskEvaluationInput {
   readonly fixtureRoot: string
   readonly result: C1LiveBindingLegResult
   readonly changedPaths: readonly string[]
-  readonly writableScopePass: boolean
 }
 
 export type C1StudyTaskEvaluator = (
@@ -404,14 +404,7 @@ export class C1LiveTaskObservationSource implements C1LiveObservationSource {
     readonly runId: string
     readonly fixtureRoot: string
   }): Promise<C1LiveTaskObservationSource> {
-    const writablePath = input.task.expectedWritablePaths[0]
-    if (writablePath === undefined) {
-      throw new C1PreflightFailure(
-        'FIXTURE_BINDING_MISMATCH',
-        `task ${input.task.taskId} has no writable path for live bootstrap`
-      )
-    }
-    const fixtureFiles = uniqueSorted([writablePath, ...input.task.relevantSources.slice(0, 2)])
+    const fixtureFiles = C1_LIVE_BOOTSTRAP_FILES
     const messages: PiMessageView[] = [
       {
         role: 'user',
@@ -502,14 +495,11 @@ async function runC1Oracle(
 export async function runC1TaskOracles(input: {
   readonly task: C1PreflightTask
   readonly fixtureRoot: string
-  readonly writableScopePass?: boolean
 }): Promise<C1TaskEvaluation> {
   const objective = await runC1Oracle(input.task.objectiveOracle, input.fixtureRoot)
   const regression = await runC1Oracle(input.task.regressionOracle, input.fixtureRoot)
   const oracleUnavailable = objective.status === 'UNAVAILABLE' || regression.status === 'UNAVAILABLE'
-  const writableScopePass = input.writableScopePass ?? true
-  const oraclePass =
-    writableScopePass && objective.status === 'PASS' && regression.status === 'PASS'
+  const oraclePass = objective.status === 'PASS' && regression.status === 'PASS'
   return {
     status: oracleUnavailable
       ? 'HARNESS_CONTRACT_FAILURE'
@@ -517,7 +507,7 @@ export async function runC1TaskOracles(input: {
         ? 'PASS'
         : 'TASK_FAILURE',
     taskOutcome: oracleUnavailable ? 'NOT_OBSERVED' : oraclePass ? 'SUCCESS' : 'FAILURE',
-    writableScopePass,
+    writableScopePass: true,
     objective,
     regression
   }
@@ -1186,25 +1176,24 @@ async function runC1StudyWithFactories(
         const afterSnapshot = await snapshotC1Fixture(fixture.path)
         const changedPaths = changedC1FixturePaths(beforeSnapshot, afterSnapshot)
         const writableScope = writableScopePass(changedPaths, task.expectedWritablePaths)
+        if (!writableScope) {
+          throw new C1PreflightFailure(
+            'WRITABLE_SCOPE_FAILURE',
+            `changed paths for ${plan.runId} are outside the frozen writable scope: ${changedPaths.join(', ')}`
+          )
+        }
         const taskEvaluation = await options.evaluateTask?.({
           study,
           plan,
           task,
           fixtureRoot: fixture.path,
           result,
-          changedPaths,
-          writableScopePass: writableScope
+          changedPaths
         })
         if (taskEvaluation?.status === 'HARNESS_CONTRACT_FAILURE') {
           throw new C1PreflightFailure(
             'HARNESS_CONTRACT_FAILURE',
             `frozen task oracle was unavailable for ${plan.runId}`
-          )
-        }
-        if (taskEvaluation === undefined && !writableScope) {
-          throw new C1PreflightFailure(
-            'WRITABLE_SCOPE_FAILURE',
-            `changed paths for ${plan.runId} are outside the frozen writable scope: ${changedPaths.join(', ')}`
           )
         }
         cleanupAttempted = true
@@ -1548,13 +1537,40 @@ export async function assertC1LiveWorktreeClean(repoRoot: string): Promise<void>
 export interface C1LiveStudyOptions {
   readonly repoRoot?: string
   readonly outputRoot?: string
-  readonly studyId: string
-  readonly executionRevision: string
+  readonly authorization: C1LiveAuthorization
   /** Memory-only credential; this value is never passed to an evidence writer. */
   readonly apiKey: string
   readonly fetchImpl?: typeof fetch
   readonly requestTimeoutMs?: number
   readonly signalSource?: C1SignalSource
+}
+
+export interface C1LiveAuthorization {
+  readonly decision: 'AUTHORIZED'
+  readonly studyId: string
+  readonly executionRevision: string
+}
+
+function assertC1LiveAuthorization(value: unknown): asserts value is C1LiveAuthorization {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new C1PreflightFailure(
+      'NOT_AUTHORIZED',
+      'C1 live study requires an explicit AUTHORIZED capability'
+    )
+  }
+  const authorization = value as Record<string, unknown>
+  if (
+    authorization['decision'] !== 'AUTHORIZED' ||
+    typeof authorization['studyId'] !== 'string' ||
+    authorization['studyId'].length === 0 ||
+    typeof authorization['executionRevision'] !== 'string' ||
+    authorization['executionRevision'].length === 0
+  ) {
+    throw new C1PreflightFailure(
+      'NOT_AUTHORIZED',
+      'C1 live study authorization is missing or does not bind a study and execution revision'
+    )
+  }
 }
 
 /**
@@ -1565,8 +1581,10 @@ export interface C1LiveStudyOptions {
 export async function runC1LiveStudy(
   options: C1LiveStudyOptions
 ): Promise<C1StudyOrchestrationReport> {
+  assertC1LiveAuthorization(options.authorization)
+  const { studyId, executionRevision } = options.authorization
   const repoRoot = options.repoRoot ?? resolve(import.meta.dirname, '..', '..', '..')
-  await assertC1LiveExecutionRevision(repoRoot, options.executionRevision)
+  await assertC1LiveExecutionRevision(repoRoot, executionRevision)
   await assertC1LiveWorktreeClean(repoRoot)
   if (typeof options.apiKey !== 'string' || options.apiKey.length === 0) {
     throw new C1PreflightFailure(
@@ -1587,9 +1605,9 @@ export async function runC1LiveStudy(
 
   return new C1StudyOrchestrator({
     repoRoot,
-    studyId: options.studyId,
+    studyId,
     runId: C1_LIVE_STUDY_RUN_ID,
-    executionRevision: options.executionRevision,
+    executionRevision,
     executionMode: C1_LIVE_STUDY_MODE,
     responseSourceKind: 'AUTHORIZED_PROVIDER',
     dryRun: false,
@@ -1620,8 +1638,7 @@ export async function runC1LiveStudy(
         fixtureRoot: input.fixtureRoot
       }),
     toolExecutorFactory: (input) => new C1SandboxToolExecutor(input.fixtureRoot),
-    evaluateTask: ({ task, fixtureRoot, writableScopePass }) =>
-      runC1TaskOracles({ task, fixtureRoot, writableScopePass }),
+    evaluateTask: ({ task, fixtureRoot }) => runC1TaskOracles({ task, fixtureRoot }),
     providerCalls: () => providerAttempts,
     networkRequests: () => networkRequests
   }).run()

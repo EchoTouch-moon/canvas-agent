@@ -247,6 +247,7 @@ export {
   type C1StudyDryRunOptions,
   type C1StudyDryRunReport,
   type C1StudyDryRunStatus,
+  type C1LiveAuthorization,
   type C1LiveStudyOptions,
   type C1TaskEvaluation,
   type C1TaskEvaluationStatus,

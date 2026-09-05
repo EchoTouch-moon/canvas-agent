@@ -219,8 +219,11 @@ async function main(): Promise<void> {
     }
     const report = await runC1LiveStudy({
       repoRoot: resolve(researchRoot, '../..'),
-      studyId,
-      executionRevision,
+      authorization: {
+        decision: 'AUTHORIZED',
+        studyId,
+        executionRevision
+      },
       apiKey
     })
     console.log(JSON.stringify(report, null, 2))
