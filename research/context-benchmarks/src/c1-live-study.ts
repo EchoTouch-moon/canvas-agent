@@ -513,6 +513,19 @@ export async function runC1TaskOracles(input: {
   }
 }
 
+function applyWritableScopeAdjudication(
+  evaluation: C1TaskEvaluation,
+  writableScopePass: boolean
+): C1TaskEvaluation {
+  if (writableScopePass) return { ...evaluation, writableScopePass: true }
+  return {
+    ...evaluation,
+    status: 'TASK_FAILURE',
+    taskOutcome: 'FAILURE',
+    writableScopePass: false
+  }
+}
+
 function dryRunResponses(input: {
   readonly runId: string
   readonly editPath: string
@@ -1176,13 +1189,7 @@ async function runC1StudyWithFactories(
         const afterSnapshot = await snapshotC1Fixture(fixture.path)
         const changedPaths = changedC1FixturePaths(beforeSnapshot, afterSnapshot)
         const writableScope = writableScopePass(changedPaths, task.expectedWritablePaths)
-        if (!writableScope) {
-          throw new C1PreflightFailure(
-            'WRITABLE_SCOPE_FAILURE',
-            `changed paths for ${plan.runId} are outside the frozen writable scope: ${changedPaths.join(', ')}`
-          )
-        }
-        const taskEvaluation = await options.evaluateTask?.({
+        const evaluatedTask = await options.evaluateTask?.({
           study,
           plan,
           task,
@@ -1190,12 +1197,16 @@ async function runC1StudyWithFactories(
           result,
           changedPaths
         })
-        if (taskEvaluation?.status === 'HARNESS_CONTRACT_FAILURE') {
+        if (evaluatedTask?.status === 'HARNESS_CONTRACT_FAILURE') {
           throw new C1PreflightFailure(
             'HARNESS_CONTRACT_FAILURE',
             `frozen task oracle was unavailable for ${plan.runId}`
           )
         }
+        const taskEvaluation =
+          evaluatedTask === undefined
+            ? undefined
+            : applyWritableScopeAdjudication(evaluatedTask, writableScope)
         cleanupAttempted = true
         await fixture.cleanup()
         fixtureCleaned = true

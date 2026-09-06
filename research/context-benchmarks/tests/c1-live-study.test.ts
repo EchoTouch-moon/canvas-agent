@@ -173,10 +173,11 @@ describe('C1 study-level credential-free orchestration', () => {
     }
   }, 30_000)
 
-  it('reports writable-scope violations as hard failures before task oracle classification', async () => {
+  it('classifies out-of-scope task changes after running the task oracle', async () => {
     if (!nodeVersionSatisfiesC1Range()) return
 
     const outputRoot = await mkdtemp(join('/tmp', 'canvas-c1-study-scope-gate-test-'))
+    const signals = new EventEmitter()
     let taskOracleCalls = 0
     try {
       const report = await new C1StudyOrchestrator({
@@ -188,6 +189,10 @@ describe('C1 study-level credential-free orchestration', () => {
         responseSourceKind: 'SCRIPTED_FAKE',
         dryRun: false,
         maxCalls: 1,
+        signalSource: signals,
+        beforeLeg: (plan) => {
+          if (plan.legIndex === 2) signals.emit('SIGINT')
+        },
         responseSourceFactory: async (input) => {
           const path = 'README.md'
           const originalContent = await readFile(join(input.fixtureRoot, path), 'utf8')
@@ -237,12 +242,97 @@ describe('C1 study-level credential-free orchestration', () => {
       }).run()
 
       expect(report.status).toBe('FAIL')
-      expect(report.legsAttempted).toBe(1)
-      expect(report.legsCompleted).toBe(0)
-      expect(report.failures[0]?.code).toBe('WRITABLE_SCOPE_FAILURE')
-      expect(taskOracleCalls).toBe(0)
-      expect(report.fixtureSandboxesCreated).toBe(1)
-      expect(report.fixtureSandboxesCleaned).toBe(1)
+      expect(report.operatorSignal).toBe('SIGINT')
+      expect(report.legsAttempted).toBe(2)
+      expect(report.legsCompleted).toBe(2)
+      expect(taskOracleCalls).toBe(2)
+      expect(report.failures.some((failure) => failure.code === 'WRITABLE_SCOPE_FAILURE')).toBe(
+        false
+      )
+      expect(report.legs.every((leg) => leg.changedPaths.includes('README.md'))).toBe(true)
+      expect(report.legs.every((leg) => leg.writableScopePass)).toBe(false)
+      expect(
+        report.legs.every((leg) => leg.taskEvaluation?.status === 'TASK_FAILURE')
+      ).toBe(true)
+      expect(report.legs.every((leg) => leg.taskOutcome === 'FAILURE')).toBe(true)
+      expect(report.fixtureSandboxesCreated).toBe(2)
+      expect(report.fixtureSandboxesCleaned).toBe(2)
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('treats an empty changeset as in-scope and lets the task oracle classify failure', async () => {
+    if (!nodeVersionSatisfiesC1Range()) return
+
+    const outputRoot = await mkdtemp(join('/tmp', 'canvas-c1-study-empty-change-test-'))
+    const signals = new EventEmitter()
+    let taskOracleCalls = 0
+    try {
+      const report = await new C1StudyOrchestrator({
+        repoRoot: REPO_ROOT,
+        outputRoot,
+        studyId: 'c1-20260905-c1-feasibility-v1-ffffffff',
+        runId: 'C1_EMPTY_CHANGESET_ADJUDICATION_REGRESSION_V1',
+        executionMode: 'CREDENTIAL_FREE_EMPTY_CHANGESET_REGRESSION',
+        responseSourceKind: 'SCRIPTED_FAKE',
+        dryRun: false,
+        maxCalls: 1,
+        signalSource: signals,
+        beforeLeg: (plan) => {
+          if (plan.legIndex === 2) signals.emit('SIGINT')
+        },
+        responseSourceFactory: (input) =>
+          new C1ScriptedResponseSource([
+            {
+              responseId: `${input.plan.runId}-response-01`,
+              assistantMessageCount: 1,
+              assistantContent: 'no file change',
+              usage: {
+                inputTokens: 10,
+                outputTokens: 5,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                totalTokens: 15,
+                usageSource: 'SCRIPTED_FAKE'
+              },
+              toolRequests: [],
+              toolExecutions: [],
+              outcome: 'COMPLETE'
+            }
+          ]),
+        observationSourceFactory: (input) =>
+          new C1ScriptedObservationSource([
+            createC1ObservedReadTrace({
+              observationId: `${input.plan.runId}-initial`,
+              prompt: input.task.prompt,
+              fixtureFiles: ['README.md'],
+              taskPhase: 'INVESTIGATE'
+            })
+          ]),
+        toolExecutorFactory: (input) => new C1SandboxToolExecutor(input.fixtureRoot),
+        evaluateTask: async (input) => {
+          taskOracleCalls += 1
+          return runC1TaskOracles({ task: input.task, fixtureRoot: input.fixtureRoot })
+        }
+      }).run()
+
+      expect(report.status).toBe('FAIL')
+      expect(report.operatorSignal).toBe('SIGINT')
+      expect(report.legsAttempted).toBe(2)
+      expect(report.legsCompleted).toBe(2)
+      expect(taskOracleCalls).toBe(2)
+      expect(report.failures.some((failure) => failure.code === 'WRITABLE_SCOPE_FAILURE')).toBe(
+        false
+      )
+      expect(report.legs.every((leg) => leg.changedPaths.length === 0)).toBe(true)
+      expect(report.legs.every((leg) => leg.writableScopePass)).toBe(true)
+      expect(
+        report.legs.every((leg) => leg.taskEvaluation?.status === 'TASK_FAILURE')
+      ).toBe(true)
+      expect(report.legs.every((leg) => leg.taskOutcome === 'FAILURE')).toBe(true)
+      expect(report.fixtureSandboxesCreated).toBe(2)
+      expect(report.fixtureSandboxesCleaned).toBe(2)
     } finally {
       await rm(outputRoot, { recursive: true, force: true })
     }
@@ -418,6 +508,7 @@ describe('C1 study-level credential-free orchestration', () => {
     ])
 
     expect(changedC1FixturePaths(before, after)).toEqual(['src/allowed.js', 'src/escape.js'])
+    expect(writableScopePass([], ['src/allowed.js'])).toBe(true)
     expect(writableScopePass(['src/allowed.js'], ['src/allowed.js'])).toBe(true)
     expect(writableScopePass(changedC1FixturePaths(before, after), ['src/allowed.js'])).toBe(false)
   })
