@@ -1353,9 +1353,9 @@ export function writableScopePass(
   changedPaths: readonly string[],
   expectedWritablePaths: readonly string[]
 ): boolean {
-  return (
-    changedPaths.length > 0 && changedPaths.every((path) => expectedWritablePaths.includes(path))
-  )
+  // Scope is a containment invariant. An empty change set is in scope; the
+  // task oracle decides whether the agent completed the requested work.
+  return changedPaths.every((path) => expectedWritablePaths.includes(path))
 }
 
 export interface C1PreflightIdentity {
