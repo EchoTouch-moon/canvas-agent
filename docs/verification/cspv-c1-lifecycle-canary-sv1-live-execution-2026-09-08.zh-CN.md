@@ -103,6 +103,12 @@ Provider：Step Plan / `step-3.7-flash`，无 fallback，Runtime-only 单臂。
 - 腿**仍不计入** `completedLegs`：到达终止 outcome 不等于满足冻结序列，`legStatus` 仍为 `INCOMPLETE`、`finalOracle` 仍为 `UNOBSERVED`；
 - 不伪造 `CONTINUE`、不改变模型结果、不吞掉失败、不补造 usage；
 - **不新增任何请求**：终止型 outcome 本身就让驱动 `break`，第 2 次出站永不发生（测试以 `served===1` 锁定）；
+- **不会在模型终止后执行工具**：LIVE 路径下 `outcome === 'COMPLETE'` 必然 `toolRequests.length === 0`
+  （`src/c1-authorized-provider.ts:385-397`：只要存在 tool call，或 `finish_reason` 为 `tool_calls`/`function_call`，
+  一律归一化为 `CONTINUE`；只有 `finish_reason === 'stop'` 才是 `COMPLETE`）。因此把响应交回驱动
+  不会引入"模型已终止却仍执行工具"的新副作用。只有手写 FAKE 脚本才可能构造 `COMPLETE` + tool requests 的形态，
+  该形态受临时 fixture sandbox（`finally` 中 `rm -rf`）与预算守卫约束，现有测试均未构造它；
+  本修复不为这一 LIVE 不可达形态增加推测性防护；
 - 发送前的 lifecycle gate（hard boundary #3）位置不变，仍在内层 source 之前；
 - 合同序列化未触及，`contractSha256` 仍为 `7c4577a2…`（既有定向测试继续锚定）。
 
