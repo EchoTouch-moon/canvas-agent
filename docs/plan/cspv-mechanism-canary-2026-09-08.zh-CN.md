@@ -1,6 +1,8 @@
 # 独立只读机制 Canary：待 owner 授权
 
-状态：执行器已准备；真实 Provider 调用尚未授权、尚未执行。
+状态：已于 2026-09-08 经 owner 授权执行一次（studyId `c1-mechanism-20260908-312fad65`），
+结果 FAIL / CANARY_STOP（Native 仅读取一次，未形成两次独立读取条件），身份已永久消耗。
+结果详见[执行报告](../verification/cspv-c1-mechanism-canary-live-execution-2026-09-08.zh-CN.md)。
 这是一项独立机制诊断，不是 C1 V4 恢复、64-leg 矩阵补跑或任务效用实验。
 
 ## 要回答的问题
