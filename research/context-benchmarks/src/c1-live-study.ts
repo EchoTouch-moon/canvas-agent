@@ -408,8 +408,11 @@ export class C1LiveTaskObservationSource implements C1LiveObservationSource {
     readonly task: C1PreflightTask
     readonly runId: string
     readonly fixtureRoot: string
+    /** Canary-specific bootstrap override; defaults to the global frozen list.
+     * Existing C1/V4/canary contracts are unaffected unless they opt in. */
+    readonly bootstrapFiles?: readonly string[]
   }): Promise<C1LiveTaskObservationSource> {
-    const fixtureFiles = C1_LIVE_BOOTSTRAP_FILES
+    const fixtureFiles = input.bootstrapFiles ?? C1_LIVE_BOOTSTRAP_FILES
     const messages: PiMessageView[] = [
       {
         role: 'user',

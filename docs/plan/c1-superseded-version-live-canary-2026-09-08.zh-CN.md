@@ -13,8 +13,14 @@ Native/Runtime 对照留给 Effectiveness A/B（§11.5）。
 
 **不依赖模型制造冗余行为。** V1–V3 失败的根因是要求模型做"它认为冗余"的读取。本次轨迹中每一次工具调用
 都对任务必需：第一次 read 是 edit 的前提（内容未知），README read 是取得未知 marker 的前提。
-因此 bootstrap 必须为空——`src/a.js` 与 README 内容**均不得预先出现在模型可见上下文**
-（现有 harness 的 `C1_LIVE_BOOTSTRAP_FILES=['README.md']` 在本合同中显式置空，作为实现绑定项冻结）。
+因此 `src/a.js` 与 README 内容**均不得预先出现在模型可见上下文**
+（现有 harness 的 `C1_LIVE_BOOTSTRAP_FILES=['README.md']` 在本合同被 canary 专属覆盖）。
+
+> **实现期修订（2026-09-08，设计意图不变）**：观察管线存在全局不变量
+> `observedC1SourceKeys`——零来源观察直接拒绝（PREFLIGHT_FAILURE）。真正"空 bootstrap"必须削弱该共享
+> 不变量，违反硬边界 1（不得为本诊断改全局语义）。因此 bootstrap 修正为**中性单文件 `AGENTS.md`**
+> （纯合成、不含任何诊断内容），同样满足设计意图：src/a.js 与 README 对模型仍完全未知，
+> 没有任何任务必需的调用可被跳过。中性文件及其内容哈希一并进入合同与 contractSha256。
 
 ## 1. 合同（`C1_LIFECYCLE_CANARY_SV1`，冻结项）
 
@@ -27,7 +33,7 @@ Native/Runtime 对照留给 Effectiveness A/B（§11.5）。
 | 工具上限 | ≤3 tool executions |
 | 时间预算 | leg 120 秒 / 全程 120 秒 |
 | 输出上限 | 沿用适配器每请求 max_tokens=16384（非用量估计） |
-| Bootstrap | **空**（无 bootstrap 读取对） |
+| Bootstrap | **中性 `AGENTS.md`**（canary 专属覆盖；见 §0 实现期修订，内容与哈希入合同） |
 | 记录 | metadata-only checkpoints + 每调用 `C1_LIFECYCLE_REPLAY_RECORD`；不保存凭据、原始文件内容、read result 文本、oldText/newText |
 
 ### Fixture（纯合成，fresh）
