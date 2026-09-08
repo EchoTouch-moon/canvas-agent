@@ -3,6 +3,10 @@
 日期：2026-09-08。承接 [V1 计划](cspv-mechanism-canary-2026-09-08.zh-CN.md) 与
 [V1 执行报告](../verification/cspv-c1-mechanism-canary-live-execution-2026-09-08.zh-CN.md)。
 
+状态：已于 2026-09-08 经 owner 授权执行一次（studyId `c1-mechanism-20260908-2d05cb78`），
+结果 FAIL / CANARY_STOP——V2 提示仍未诱导第二次读取，与 V1 同形。身份已永久消耗。
+结果详见[V2 执行报告](../verification/cspv-c1-mechanism-canary-v2-live-execution-2026-09-08.zh-CN.md)。
+
 ## 为什么有 V2
 
 V1（`C1_MECHANISM_CANARY_V1`）真实执行结果为 CANARY_STOP：模型读取 README 一次后直接作答，
