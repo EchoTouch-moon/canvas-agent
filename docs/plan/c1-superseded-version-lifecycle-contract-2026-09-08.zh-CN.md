@@ -114,12 +114,28 @@ lifecycleUnknownCount（按原因码分桶）
 
 ## 11. 验证路径（顺序固定，live 需新授权）
 
-1. 定向单测：五条触发合同逐条正/反例；no-op edit；UNKNOWN 桶；协议连续性；保护规则。
-2. 假源机制验证：沿用 canary 执行器通路，候选由 duplicate-read 替换为 SUPERSEDED_VERSION；
-   脚本化"read→edit→后续请求"轨迹，断言 REMOVE SUPERSEDED ×对、bound 仅剩当前证据、持续保持。
-3. Prevalence 复测：用正式 policy（非离线工具）离线 replay V4 轨迹，
-   对比 §3 合同检出率与离线工具的 84.2% 下界是否一致（一致性检查，非性能指标）。
-4. 机制 canary live（新合同、新身份、**新 owner 授权**）：真实 Provider 上验证纯 evict。
+1. ✅ 定向单测：五条触发合同逐条正/反例；no-op edit；UNKNOWN 桶；协议连续性；保护规则（20 项，`086fd0a`）。
+2. ✅ 假源机制验证：真实驱动 + 真实沙箱 edit 的脚本化"read→edit→后续请求"轨迹，
+   Runtime 首个编辑后请求 REMOVE SUPERSEDED ×2 并持续保持（`a860304`）。
+3. **历史 replay 能力（已拆分，3a 完成）**：
+   - 3a ✅ Historical compatibility adjudication：判定历史 V4 durable evidence 是否具备正式 replay 输入。
+     结论 `NOT_EXECUTABLE_FROM_DURABLE_EVIDENCE / EVIDENCE_CAPABILITY_GAP`——metadata-only 合同主动
+     禁止持久化消息流与原始参数；禁止以 manifest/changedPaths/oracle 补齐。84.2% 保留为
+     ground-truth-assisted observational baseline。详见
+     [裁定报告](../verification/cspv-c1-superseded-version-replay-capability-2026-09-08.zh-CN.md)。
+   - 3b ✅ Fingerprint-only replay evidence 合同落地：`C1_LIFECYCLE_REPLAY_RECORD`（存输入不存判定），
+     判定可重算并与执行期移除对账；唯一失败模式 CONTRACT_CONFLICT，UNKNOWN 不计为错误
+     （8 项定向测试）。今后 replay 验收采用逐腿 reconciliation：
+
+     | 正式 replay | 观察基线 | 结论 |
+     | --- | --- | --- |
+     | SUPERSEDED | stale | MATCH |
+     | NOT_SUPERSEDED / NOT_CANDIDATE | no stale | MATCH |
+     | UNKNOWN | 任意 | EXPLAINED_GAP（保守正确性，非错误） |
+     | SUPERSEDED | no stale | **CONTRACT_CONFLICT** |
+     | NOT_SUPERSEDED | stale 且五条件可观测 | **CONTRACT_CONFLICT** |
+4. 机制 canary live（新合同、新身份、**新 owner 授权**）：真实 Provider 上验证纯 evict，
+   并在执行期持久化 fingerprint-only replay evidence，使首次真实干预全链条可 replay。
 5. Effectiveness A/B 设计评审：只在预选存在机会的 task 上配对，Dose 为自变量。
    在此之前 **64-leg 维持 NO_GO**。
 

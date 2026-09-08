@@ -63,7 +63,7 @@ function validRelativePath(path: unknown): path is string {
   )
 }
 
-interface ReadPair {
+export interface ReadPair {
   readonly callId: string
   readonly path: string
   readonly v1Fingerprint: string
@@ -71,16 +71,34 @@ interface ReadPair {
   readonly messageIndex: number
 }
 
-interface Mutation {
+export interface Mutation {
   readonly path: string
   readonly callId: string
+  readonly tool: 'edit' | 'write'
   readonly messageIndex: number
+}
+
+/** toolCall/toolResult id occurrence counts used by the pair collectors. */
+export function c1PairIdCounts(messages: readonly PiMessageView[]): Map<string, number> {
+  const idCounts = new Map<string, number>()
+  for (const message of messages) {
+    for (const block of blocks(message)) {
+      if (block['type'] === 'toolCall' && typeof block['id'] === 'string') {
+        idCounts.set(block['id'], (idCounts.get(block['id']) ?? 0) + 1)
+      }
+    }
+    if (message.role === 'toolResult' && message.toolCallId !== undefined) {
+      idCounts.set(message.toolCallId, (idCounts.get(message.toolCallId) ?? 0) + 1)
+    }
+  }
+  return idCounts
 }
 
 /** Strict, isolated read call/result pair detection (same guards as the
  * duplicate-read candidate): single-toolCall assistant message, clean paired
- * text result, exact {path} arguments, unambiguous ids. */
-function collectReadPairs(
+ * text result, exact {path} arguments, unambiguous ids.
+ * Exported so lifecycle replay evidence derives from the identical collector. */
+export function collectReadPairs(
   messages: readonly PiMessageView[],
   idCounts: ReadonlyMap<string, number>,
   currentTarget: ReadonlySet<string>
@@ -139,8 +157,9 @@ function collectReadPairs(
 }
 
 /** Successful edit/write executions: isolated single-toolCall assistant
- * message with a string path, paired non-error toolResult. */
-function collectSuccessfulMutations(
+ * message with a string path, paired non-error toolResult.
+ * Exported so lifecycle replay evidence derives from the identical collector. */
+export function collectSuccessfulMutations(
   messages: readonly PiMessageView[],
   idCounts: ReadonlyMap<string, number>
 ): Mutation[] {
@@ -170,7 +189,7 @@ function collectSuccessfulMutations(
     if (typeof args !== 'object' || args === null || Array.isArray(args)) continue
     const path = (args as Record<string, unknown>)['path']
     if (!validRelativePath(path)) continue
-    mutations.push({ path, callId: call['id'], messageIndex: index })
+    mutations.push({ path, callId: call['id'], tool: call['name'], messageIndex: index })
   }
   return mutations
 }
@@ -181,17 +200,7 @@ export function applyC1SupersededVersionPolicy(
   options: C1SupersededVersionPolicyOptions = {}
 ): C1AgentObservation {
   const messages = observation.messages
-  const idCounts = new Map<string, number>()
-  for (const message of messages) {
-    for (const block of blocks(message)) {
-      if (block['type'] === 'toolCall' && typeof block['id'] === 'string') {
-        idCounts.set(block['id'], (idCounts.get(block['id']) ?? 0) + 1)
-      }
-    }
-    if (message.role === 'toolResult' && message.toolCallId !== undefined) {
-      idCounts.set(message.toolCallId, (idCounts.get(message.toolCallId) ?? 0) + 1)
-    }
-  }
+  const idCounts = c1PairIdCounts(messages)
   const currentTarget = new Set(observation.currentTargetSourceKeys)
   const protectedKeys = new Set([
     ...observation.latestVerificationSourceKeys,
