@@ -4,6 +4,10 @@
 [V1](cspv-c1-mechanism-canary-live-execution-2026-09-08.zh-CN.md) 与
 [V2](../verification/cspv-c1-mechanism-canary-v2-live-execution-2026-09-08.zh-CN.md) 执行报告。
 
+状态：已于 2026-09-08 经 owner 授权执行一次（studyId `c1-mechanism-20260908-4fa2ce0e`），
+结果 FAIL / CANARY_STOP——模型 0 次读取直接作答（总是比提示要求少读一次的模式第三次复现）。
+身份已永久消耗。结果详见[V3 执行报告](../verification/cspv-c1-mechanism-canary-v3-live-execution-2026-09-08.zh-CN.md)。
+
 ## 从两次真实执行学到的
 
 V1/V2 均为 CANARY_STOP：step-3.7-flash 在 bootstrap 已含 README 内容时不会自发重读，
