@@ -19,8 +19,15 @@ Definitions (frozen for the 2026-09-08 report):
   re-reads, so refresh is expected to be 0.)
 - Persistence: number of subsequent calls (j..leg end) in which the stale
   evidence remains model-visible (nothing removes it in either arm).
-- Dose estimate: fixture file size in bytes for P; tokens ~= bytes / 4
-  (rough upper-bound estimate, reported separately from counts).
+- Dose metrics (four, kept distinct):
+  staleEvents; staleElementCallExposures (sum of per-event persistence);
+  uniqueCallsWithStaleEvidence (calls carrying >=1 active stale element);
+  maxConcurrentStaleElements (per leg, then study max).
+- Attribution strength: single-writable tasks allow exact edit->file
+  attribution; multi-writable tasks are a leg-level upper bound only.
+- Source-size proxy: fixture file size in bytes for P; tokens ~= bytes / 4
+  (rough proxy, NOT an actual intervention dose - real dose is measured at
+  composition time as removedTokens / tokenRatio).
 """
 import hashlib
 import json
@@ -140,6 +147,14 @@ def analyze(checkpoints_path, manifest_path, repo_root):
             file_path = fixture / event["path"]
             if file_path.exists():
                 dose_bytes[event["path"]] = file_path.stat().st_size
+        # unique calls carrying >=1 active stale element, and peak concurrency
+        active_per_call = defaultdict(int)
+        for event in stale_events:
+            for ordinal in range(event["staleFromCall"], total_calls + 1):
+                active_per_call[ordinal] += 1
+        unique_calls_with_stale = len(active_per_call)
+        max_concurrent = max(active_per_call.values(), default=0)
+        exact_attribution = len(task["writable"]) == 1
         results.append(
             {
                 "runId": run_id,
@@ -152,13 +167,23 @@ def analyze(checkpoints_path, manifest_path, repo_root):
                 "changedPaths": sorted(leg_changed),
                 "taskOutcome": changed.get(run_id, {}).get("taskOutcome"),
                 "staleEvents": stale_events,
+                "uniqueCallsWithStaleEvidence": unique_calls_with_stale,
+                "maxConcurrentStaleElements": max_concurrent,
+                "attribution": "EXACT" if exact_attribution else "LEG_LEVEL_UPPER_BOUND",
                 "staleDoseBytes": dose_bytes,
             }
         )
         totals["legs"] += 1
+        totals["calls"] += total_calls
         totals["legsWithStale"] += bool(stale_events)
+        totals["legsWithStaleExact"] += bool(stale_events) and exact_attribution
+        totals["legsWithStaleUpperBoundOnly"] += bool(stale_events) and not exact_attribution
         totals["staleEvents"] += len(stale_events)
-        totals["persistenceCalls"] += sum(e["persistenceCalls"] for e in stale_events)
+        totals["staleElementCallExposures"] += sum(e["persistenceCalls"] for e in stale_events)
+        totals["uniqueCallsWithStaleEvidence"] += unique_calls_with_stale
+        totals["maxConcurrentStaleElements"] = max(
+            totals["maxConcurrentStaleElements"], max_concurrent
+        )
         totals["refreshReReads"] += sum(e["refreshReRead"] for e in stale_events)
         totals["unknownPathReads"] += unknown_reads
         totals["reads"] += len(reads)
