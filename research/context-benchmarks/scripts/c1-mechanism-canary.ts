@@ -18,6 +18,7 @@ const report = await runC1MechanismCanary({
   outputRoot: resolve(outputRoot),
   studyId: binding.studyId,
   executionRevision: binding.executionRevision,
+  contractSha256: binding.contractSha256,
   ...(mode === '--live'
     ? {
         authorization: binding,

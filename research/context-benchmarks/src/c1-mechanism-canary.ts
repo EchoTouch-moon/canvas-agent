@@ -40,39 +40,81 @@ const MARKER = 'COBALT-17'
 const CONTENT = `# Synthetic mechanism diagnostic\nThe diagnostic marker is ${MARKER}.\nThis file contains no project or personal data.\n`
 const PROMPT =
   'This is a read-only mechanism diagnostic. Call read on README.md twice, one call at a time, even though the bootstrap already contains it. Then reply with only the diagnostic marker from that file. Do not call edit or bash or any other tool. Do not read any other path.'
-export const C1_MECHANISM_CANARY_CONTRACT = Object.freeze({
-  contractId: 'C1_MECHANISM_CANARY_V1',
-  studyKind: 'CONTROLLED_MECHANISM_NOT_EFFECTIVENESS',
-  policyId: C1_DUPLICATE_READ_POLICY_ID,
-  provider: 'step-plan',
-  model: 'step-3.7-flash',
-  arms: ['NATIVE', 'RUNTIME'],
-  maxLegs: 2,
-  maxRequestsPerLeg: 3,
-  maxRequests: 6,
-  maxReadExecutionsPerLeg: 2,
-  maxToolExecutions: 4,
-  requestTimeoutMs: 30000,
-  maxWallClockMsPerLeg: 120000,
-  maxWallClockMs: 240000,
-  maxOutputTokensPerRequest: C1_AUTHORIZED_PROVIDER_MAX_TOKENS,
-  fixture: {
-    kind: 'INLINE_SYNTHETIC',
-    path: 'README.md',
-    contentSha256: sha256(CONTENT),
-    fixtureContentSha256: sha256(`${sha256(CONTENT)}  README.md\n`),
-    gitTreeObjectId: inlineTreeId()
-  },
-  promptSha256: sha256(PROMPT),
-  allowedTool: 'read',
-  allowedPath: 'README.md',
-  terminalIdentity: 'SINGLE_USE_NO_RESUME',
-  fallback: 'NONE',
-  efficacyClaims: false
-})
+// V2: the first live attempt showed the model answering after a single read.
+// The revised prompt gives the second read a concrete purpose (the file may
+// have changed) and forbids replying before both reads complete. Everything
+// else — fixture, budgets, tool scope, gates — is identical to V1 so the
+// prompt is the only changed variable.
+const PROMPT_V2 =
+  'This is a read-only mechanism diagnostic. The file README.md may change between reads, so one earlier read or the bootstrap copy is not enough. Step 1: call read on README.md. Step 2: call read on README.md again as a separate step to confirm whether the content changed. Step 3: only after both reads return the same diagnostic marker, reply with exactly that marker and nothing else. Do not call edit or bash or any other tool. Do not read any other path. Do not reply before both read results are present.'
+function buildMechanismCanaryContract(contractId: string, prompt: string) {
+  return Object.freeze({
+    contractId,
+    studyKind: 'CONTROLLED_MECHANISM_NOT_EFFECTIVENESS',
+    policyId: C1_DUPLICATE_READ_POLICY_ID,
+    provider: 'step-plan',
+    model: 'step-3.7-flash',
+    arms: ['NATIVE', 'RUNTIME'],
+    maxLegs: 2,
+    maxRequestsPerLeg: 3,
+    maxRequests: 6,
+    maxReadExecutionsPerLeg: 2,
+    maxToolExecutions: 4,
+    requestTimeoutMs: 30000,
+    maxWallClockMsPerLeg: 120000,
+    maxWallClockMs: 240000,
+    maxOutputTokensPerRequest: C1_AUTHORIZED_PROVIDER_MAX_TOKENS,
+    fixture: {
+      kind: 'INLINE_SYNTHETIC',
+      path: 'README.md',
+      contentSha256: sha256(CONTENT),
+      fixtureContentSha256: sha256(`${sha256(CONTENT)}  README.md\n`),
+      gitTreeObjectId: inlineTreeId()
+    },
+    promptSha256: sha256(prompt),
+    allowedTool: 'read',
+    allowedPath: 'README.md',
+    terminalIdentity: 'SINGLE_USE_NO_RESUME',
+    fallback: 'NONE',
+    efficacyClaims: false
+  })
+}
+export type C1MechanismCanaryContract = ReturnType<typeof buildMechanismCanaryContract>
+export const C1_MECHANISM_CANARY_CONTRACT = buildMechanismCanaryContract(
+  'C1_MECHANISM_CANARY_V1',
+  PROMPT
+)
+export const C1_MECHANISM_CANARY_CONTRACT_V2 = buildMechanismCanaryContract(
+  'C1_MECHANISM_CANARY_V2',
+  PROMPT_V2
+)
 export const C1_MECHANISM_CANARY_CONTRACT_SHA256 = sha256(
   JSON.stringify(C1_MECHANISM_CANARY_CONTRACT)
 )
+export const C1_MECHANISM_CANARY_CONTRACT_V2_SHA256 = sha256(
+  JSON.stringify(C1_MECHANISM_CANARY_CONTRACT_V2)
+)
+const CANARY_CONTRACTS_BY_SHA: ReadonlyMap<string, C1MechanismCanaryContract> = new Map([
+  [C1_MECHANISM_CANARY_CONTRACT_SHA256, C1_MECHANISM_CANARY_CONTRACT],
+  [C1_MECHANISM_CANARY_CONTRACT_V2_SHA256, C1_MECHANISM_CANARY_CONTRACT_V2]
+])
+const CANARY_PROMPTS_BY_CONTRACT: ReadonlyMap<string, string> = new Map([
+  ['C1_MECHANISM_CANARY_V1', PROMPT],
+  ['C1_MECHANISM_CANARY_V2', PROMPT_V2]
+])
+/** Resolve the frozen contract a binding refers to; defaults to V1 when omitted. */
+export function resolveC1MechanismCanaryContract(
+  contractSha256?: string
+): { contract: C1MechanismCanaryContract; contractSha256: string; prompt: string } {
+  const resolvedSha = contractSha256 ?? C1_MECHANISM_CANARY_CONTRACT_SHA256
+  const contract = CANARY_CONTRACTS_BY_SHA.get(resolvedSha)
+  if (!contract) throw new Error('Unknown canary contract binding')
+  return {
+    contract,
+    contractSha256: resolvedSha,
+    prompt: CANARY_PROMPTS_BY_CONTRACT.get(contract.contractId)!
+  }
+}
 
 export interface C1MechanismCanaryAuthorization {
   readonly decision: 'AUTHORIZED'
@@ -116,13 +158,17 @@ export async function runC1MechanismCanary(options: {
   readonly outputRoot: string
   readonly studyId: string
   readonly executionRevision: string
+  /** Selects the frozen contract version; defaults to V1. */
+  readonly contractSha256?: string
   readonly authorization?: C1MechanismCanaryAuthorization
   /** Invoked only after all local gates and exclusive identity claim. */
   readonly getApiKey?: () => string
   /** Only the FAKE mode accepts a scripted test source. */
   readonly fakeSourceFactory?: (arm: 'NATIVE' | 'RUNTIME') => C1LiveResponseSource
 }) {
-  const contract = C1_MECHANISM_CANARY_CONTRACT
+  const { contract, contractSha256, prompt } = resolveC1MechanismCanaryContract(
+    options.contractSha256
+  )
   if (!nodeVersionSatisfiesC1Range()) throw new Error('Canary requires Node 24')
   if (!/^c1-mechanism-\d{8}-[a-f0-9]{8}$/.test(options.studyId))
     throw new Error('Invalid canary study identity')
@@ -132,7 +178,7 @@ export async function runC1MechanismCanary(options: {
       auth?.decision !== 'AUTHORIZED' ||
       auth.studyId !== options.studyId ||
       auth.executionRevision !== options.executionRevision ||
-      auth.contractSha256 !== C1_MECHANISM_CANARY_CONTRACT_SHA256 ||
+      auth.contractSha256 !== contractSha256 ||
       options.fakeSourceFactory !== undefined ||
       options.getApiKey === undefined
     ) {
@@ -155,7 +201,7 @@ export async function runC1MechanismCanary(options: {
     await writeExclusiveDurable(join(registry, `${options.studyId}.json`), {
       studyId: options.studyId,
       executionRevision: options.executionRevision,
-      contractSha256: C1_MECHANISM_CANARY_CONTRACT_SHA256,
+      contractSha256: contractSha256,
       consumed: true,
       resume: 'FORBIDDEN'
     })
@@ -187,7 +233,7 @@ export async function runC1MechanismCanary(options: {
   try {
     await writeExclusiveDurable(join(reportDir, 'binding.json'), {
       contract,
-      contractSha256: C1_MECHANISM_CANARY_CONTRACT_SHA256,
+      contractSha256: contractSha256,
       studyId: options.studyId,
       executionRevision: options.executionRevision,
       mode: options.mode,
@@ -225,7 +271,7 @@ export async function runC1MechanismCanary(options: {
             fixtureTreeObjectId: inlineTreeId(),
             fixtureContentSha256: summary.sha256
           },
-          prompt: PROMPT,
+          prompt: prompt,
           promptSha256: contract.promptSha256,
           // Not executed: this diagnostic evaluates the final in-memory response only.
           objectiveOracle: { command: 'node', args: [], expectedExitCode: 0, timeoutMs: 1 },
@@ -387,7 +433,7 @@ export async function runC1MechanismCanary(options: {
   }
   const report = {
     contractId: contract.contractId,
-    contractSha256: C1_MECHANISM_CANARY_CONTRACT_SHA256,
+    contractSha256: contractSha256,
     executionRevision: options.executionRevision,
     studyId: options.studyId,
     mode: options.mode,

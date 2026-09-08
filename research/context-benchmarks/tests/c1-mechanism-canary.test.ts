@@ -5,7 +5,11 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import {
   runC1MechanismCanary,
-  C1_MECHANISM_CANARY_CONTRACT_SHA256
+  resolveC1MechanismCanaryContract,
+  C1_MECHANISM_CANARY_CONTRACT,
+  C1_MECHANISM_CANARY_CONTRACT_SHA256,
+  C1_MECHANISM_CANARY_CONTRACT_V2,
+  C1_MECHANISM_CANARY_CONTRACT_V2_SHA256
 } from '../src/c1-mechanism-canary'
 import { C1ScriptedResponseSource } from '../src/c1-live-binding'
 
@@ -227,6 +231,81 @@ describe('independent read-only mechanism canary', () => {
       ])
     } finally {
       await rm(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('mechanism canary contract versions', () => {
+  it('keeps V1 byte-identical and resolves each contract strictly by SHA-256', () => {
+    expect(C1_MECHANISM_CANARY_CONTRACT_SHA256).toBe(
+      'eac271d5b01ebb6b3bfe5d899737acf21cc878b95ab9ea2ad72b56892c2a250d'
+    )
+    expect(C1_MECHANISM_CANARY_CONTRACT_V2.contractId).toBe('C1_MECHANISM_CANARY_V2')
+    expect(C1_MECHANISM_CANARY_CONTRACT_V2_SHA256).not.toBe(C1_MECHANISM_CANARY_CONTRACT_SHA256)
+    const { promptSha256: v1Prompt, ...v1Rest } = C1_MECHANISM_CANARY_CONTRACT
+    const { promptSha256: v2Prompt, ...v2Rest } = C1_MECHANISM_CANARY_CONTRACT_V2
+    expect(v2Rest).toEqual({ ...v1Rest, contractId: 'C1_MECHANISM_CANARY_V2' })
+    expect(v2Prompt).not.toBe(v1Prompt)
+    expect(resolveC1MechanismCanaryContract().contract.contractId).toBe('C1_MECHANISM_CANARY_V1')
+    expect(
+      resolveC1MechanismCanaryContract(C1_MECHANISM_CANARY_CONTRACT_V2_SHA256).contract.contractId
+    ).toBe('C1_MECHANISM_CANARY_V2')
+    expect(
+      resolveC1MechanismCanaryContract(C1_MECHANISM_CANARY_CONTRACT_V2_SHA256).prompt
+    ).toContain('Do not reply before both read results are present')
+    expect(() => resolveC1MechanismCanaryContract('f'.repeat(64))).toThrow('Unknown canary contract')
+  })
+
+  it('runs the V2 contract end to end in fake mode and records the V2 binding', async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), 'canary-v2-fake-'))
+    try {
+      const result = await runC1MechanismCanary({
+        mode: 'FAKE',
+        repoRoot,
+        outputRoot,
+        studyId: 'c1-mechanism-20260908-eeeeeeee',
+        executionRevision: 'fake-only',
+        contractSha256: C1_MECHANISM_CANARY_CONTRACT_V2_SHA256
+      })
+      expect(result.status).toBe('PASS')
+      expect(result.contractId).toBe('C1_MECHANISM_CANARY_V2')
+      expect(result.contractSha256).toBe(C1_MECHANISM_CANARY_CONTRACT_V2_SHA256)
+      expect(result.legs.map((leg) => leg.changedCalls)).toEqual([[], [2, 3]])
+      const binding = JSON.parse(
+        await readFile(join(outputRoot, 'c1-mechanism-20260908-eeeeeeee', 'binding.json'), 'utf8')
+      )
+      expect(binding.contract.contractId).toBe('C1_MECHANISM_CANARY_V2')
+      expect(binding.contractSha256).toBe(C1_MECHANISM_CANARY_CONTRACT_V2_SHA256)
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a live authorization whose contract SHA selects a different version', async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), 'canary-v2-auth-'))
+    const getApiKey = vi.fn(() => 'credential-canary')
+    try {
+      await expect(
+        runC1MechanismCanary({
+          mode: 'LIVE',
+          repoRoot,
+          outputRoot,
+          studyId: 'c1-mechanism-20260908-ffffffff',
+          executionRevision: '0'.repeat(40),
+          contractSha256: C1_MECHANISM_CANARY_CONTRACT_V2_SHA256,
+          getApiKey,
+          authorization: {
+            decision: 'AUTHORIZED',
+            studyId: 'c1-mechanism-20260908-ffffffff',
+            executionRevision: '0'.repeat(40),
+            contractSha256: C1_MECHANISM_CANARY_CONTRACT_SHA256
+          }
+        })
+      ).rejects.toThrow('authorization')
+      expect(getApiKey).not.toHaveBeenCalled()
+      expect(await readdir(outputRoot)).toEqual([])
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true })
     }
   })
 })
