@@ -9,9 +9,11 @@ import {
   C1_MECHANISM_CANARY_CONTRACT,
   C1_MECHANISM_CANARY_CONTRACT_SHA256,
   C1_MECHANISM_CANARY_CONTRACT_V2,
-  C1_MECHANISM_CANARY_CONTRACT_V2_SHA256
+  C1_MECHANISM_CANARY_CONTRACT_V2_SHA256,
+  C1_MECHANISM_CANARY_CONTRACT_V3,
+  C1_MECHANISM_CANARY_CONTRACT_V3_SHA256
 } from '../src/c1-mechanism-canary'
-import { C1ScriptedResponseSource } from '../src/c1-live-binding'
+import { C1ScriptedResponseSource, type C1LiveModelResponse } from '../src/c1-live-binding'
 
 const repoRoot = resolve(import.meta.dirname, '../../..')
 
@@ -304,6 +306,155 @@ describe('mechanism canary contract versions', () => {
       ).rejects.toThrow('authorization')
       expect(getApiKey).not.toHaveBeenCalled()
       expect(await readdir(outputRoot)).toEqual([])
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true })
+    }
+  })
+})
+
+const singleReadResponses = (): C1LiveModelResponse[] => [
+  {
+    responseId: 'single-read-1',
+    assistantMessageCount: 1,
+    assistantContent: '',
+    usage: {
+      inputTokens: 10,
+      outputTokens: 2,
+      totalTokens: 12,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      usageSource: 'SCRIPTED_FAKE'
+    },
+    toolRequests: [
+      { toolCallId: 'single-read-call-1', toolName: 'read', argumentsJson: '{"path":"README.md"}' }
+    ],
+    toolExecutions: [],
+    outcome: 'CONTINUE'
+  },
+  {
+    responseId: 'single-read-2',
+    assistantMessageCount: 1,
+    assistantContent: 'COBALT-17',
+    usage: {
+      inputTokens: 10,
+      outputTokens: 2,
+      totalTokens: 12,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      usageSource: 'SCRIPTED_FAKE'
+    },
+    toolRequests: [],
+    toolExecutions: [],
+    outcome: 'COMPLETE'
+  }
+]
+
+describe('mechanism canary V3 bootstrap-duplicate design', () => {
+  it('resolves V3 and keeps the exact-two-reads gate on V1 and V2 only', () => {
+    const resolved = resolveC1MechanismCanaryContract(C1_MECHANISM_CANARY_CONTRACT_V3_SHA256)
+    expect(resolved.contract.contractId).toBe('C1_MECHANISM_CANARY_V3')
+    expect(resolved.prompt).toContain('Call read on README.md once')
+    const { promptSha256: v2Prompt, ...v2Rest } = C1_MECHANISM_CANARY_CONTRACT_V2
+    const { promptSha256: v3Prompt, ...v3Rest } = C1_MECHANISM_CANARY_CONTRACT_V3
+    expect(v3Rest).toEqual({ ...v2Rest, contractId: 'C1_MECHANISM_CANARY_V3' })
+    expect(v3Prompt).not.toBe(v2Prompt)
+  })
+
+  it('removes the stale bootstrap read pair on the real Runtime path after a single model read', async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), 'canary-v3-single-read-'))
+    try {
+      const result = await runC1MechanismCanary({
+        mode: 'FAKE',
+        repoRoot,
+        outputRoot,
+        studyId: 'c1-mechanism-20260908-11111111',
+        executionRevision: 'fake-only',
+        contractSha256: C1_MECHANISM_CANARY_CONTRACT_V3_SHA256,
+        fakeSourceFactory: () => new C1ScriptedResponseSource(singleReadResponses())
+      })
+      expect(result.status).toBe('PASS')
+      expect(result.fakeResponses).toBe(4)
+      expect(result.legs.map((leg) => [leg.arm, leg.tools, leg.changedCalls])).toEqual([
+        ['NATIVE', 1, []],
+        ['RUNTIME', 1, [2]]
+      ])
+      const runtime = result.callAccounting.calls
+        .filter((call) => call.arm === 'RUNTIME')
+        .at(-1)!
+      // The bootstrap removal is a fresh decision at call 2, so nothing is
+      // "carried" yet; carried removals are asserted in the sustained test.
+      expect(runtime.receipt?.carriedRemovedSourceKeys).toEqual([])
+      const decisions = runtime.receipt?.decisionDetails ?? []
+      const removals = decisions.filter((decision) => decision.kind === 'REMOVE')
+      expect(removals).toHaveLength(2)
+      expect(
+        removals.every(
+          (decision) =>
+            decision.reasonCodes.includes('SUPERSEDED') &&
+            decision.sourceVersionId.length > 0 &&
+            decision.sourceKey.includes('bootstrap')
+        )
+      ).toBe(true)
+      const additions = decisions.filter((decision) => decision.kind === 'ADD')
+      expect(additions).toHaveLength(2)
+      expect(
+        additions.every(
+          (decision) =>
+            decision.reasonCodes.includes('CURRENT_TARGET') &&
+            decision.sourceKey.includes('single-read-call-1')
+        )
+      ).toBe(true)
+      const bound = runtime.receipt?.providerBoundSourceKeys ?? []
+      expect(bound).toHaveLength(2)
+      expect(bound.every((key) => key.includes('single-read-call-1'))).toBe(true)
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('sustains the bootstrap removal across a later request under V3', async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), 'canary-v3-sustained-'))
+    try {
+      const result = await runC1MechanismCanary({
+        mode: 'FAKE',
+        repoRoot,
+        outputRoot,
+        studyId: 'c1-mechanism-20260908-33333333',
+        executionRevision: 'fake-only',
+        contractSha256: C1_MECHANISM_CANARY_CONTRACT_V3_SHA256
+      })
+      expect(result.status).toBe('PASS')
+      expect(result.legs.map((leg) => leg.changedCalls)).toEqual([[], [2, 3]])
+      const lastRuntime = result.callAccounting.calls
+        .filter((call) => call.arm === 'RUNTIME')
+        .at(-1)!
+      const carried = lastRuntime.receipt?.carriedRemovedSourceKeys ?? []
+      expect(carried).toHaveLength(2)
+      expect(carried.every((key) => key.includes('bootstrap'))).toBe(true)
+      expect(lastRuntime.receipt?.providerBoundSourceKeys).toHaveLength(2)
+      expect(lastRuntime.receipt?.carriedRemovalEvidence?.[0]?.removalTransitionId).toBeTruthy()
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('still fails the same single-read trace under the V1 exact-two-reads gate', async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), 'canary-v1-single-read-'))
+    try {
+      const result = await runC1MechanismCanary({
+        mode: 'FAKE',
+        repoRoot,
+        outputRoot,
+        studyId: 'c1-mechanism-20260908-22222222',
+        executionRevision: 'fake-only',
+        fakeSourceFactory: () => new C1ScriptedResponseSource(singleReadResponses())
+      })
+      expect(result).toMatchObject({
+        status: 'FAIL',
+        attemptedLegs: 1,
+        unexecutedLegs: 1
+      })
+      expect(result.legs[0]).toMatchObject({ arm: 'NATIVE', status: 'FAIL', tools: 1 })
     } finally {
       await rm(outputRoot, { recursive: true, force: true })
     }

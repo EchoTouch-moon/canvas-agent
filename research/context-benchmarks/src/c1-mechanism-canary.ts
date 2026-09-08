@@ -47,6 +47,24 @@ const PROMPT =
 // prompt is the only changed variable.
 const PROMPT_V2 =
   'This is a read-only mechanism diagnostic. The file README.md may change between reads, so one earlier read or the bootstrap copy is not enough. Step 1: call read on README.md. Step 2: call read on README.md again as a separate step to confirm whether the content changed. Step 3: only after both reads return the same diagnostic marker, reply with exactly that marker and nothing else. Do not call edit or bash or any other tool. Do not read any other path. Do not reply before both read results are present.'
+// V3: both live attempts showed the model will not re-read content it has
+// already seen. But the duplicate-read condition the policy acts on does not
+// require two model reads: the bootstrap already contributes one same-path,
+// same-content read pair, so a single model read creates the duplicate the
+// Runtime arm must remove. V3 therefore asks for exactly one read and relaxes
+// the read-count gate from "exactly two" to "at least one". The mechanism
+// question is unchanged: remove the older duplicate pair, keep the freshest,
+// sustain the removal, and preserve tool-protocol continuity.
+const PROMPT_V3 =
+  'This is a read-only mechanism diagnostic. Call read on README.md once, then reply with only the diagnostic marker from that file. Do not call edit or bash or any other tool. Do not read any other path.'
+/** Successful-read expectations per frozen contract; lives outside the
+ * serialized contract JSON exactly like the rest of the gate logic. */
+const CANARY_READ_GATES_BY_CONTRACT_ID: ReadonlyMap<string, { min: number; max: number }> =
+  new Map([
+    ['C1_MECHANISM_CANARY_V1', { min: 2, max: 2 }],
+    ['C1_MECHANISM_CANARY_V2', { min: 2, max: 2 }],
+    ['C1_MECHANISM_CANARY_V3', { min: 1, max: 2 }]
+  ])
 function buildMechanismCanaryContract(contractId: string, prompt: string) {
   return Object.freeze({
     contractId,
@@ -88,19 +106,28 @@ export const C1_MECHANISM_CANARY_CONTRACT_V2 = buildMechanismCanaryContract(
   'C1_MECHANISM_CANARY_V2',
   PROMPT_V2
 )
+export const C1_MECHANISM_CANARY_CONTRACT_V3 = buildMechanismCanaryContract(
+  'C1_MECHANISM_CANARY_V3',
+  PROMPT_V3
+)
 export const C1_MECHANISM_CANARY_CONTRACT_SHA256 = sha256(
   JSON.stringify(C1_MECHANISM_CANARY_CONTRACT)
 )
 export const C1_MECHANISM_CANARY_CONTRACT_V2_SHA256 = sha256(
   JSON.stringify(C1_MECHANISM_CANARY_CONTRACT_V2)
 )
+export const C1_MECHANISM_CANARY_CONTRACT_V3_SHA256 = sha256(
+  JSON.stringify(C1_MECHANISM_CANARY_CONTRACT_V3)
+)
 const CANARY_CONTRACTS_BY_SHA: ReadonlyMap<string, C1MechanismCanaryContract> = new Map([
   [C1_MECHANISM_CANARY_CONTRACT_SHA256, C1_MECHANISM_CANARY_CONTRACT],
-  [C1_MECHANISM_CANARY_CONTRACT_V2_SHA256, C1_MECHANISM_CANARY_CONTRACT_V2]
+  [C1_MECHANISM_CANARY_CONTRACT_V2_SHA256, C1_MECHANISM_CANARY_CONTRACT_V2],
+  [C1_MECHANISM_CANARY_CONTRACT_V3_SHA256, C1_MECHANISM_CANARY_CONTRACT_V3]
 ])
 const CANARY_PROMPTS_BY_CONTRACT: ReadonlyMap<string, string> = new Map([
   ['C1_MECHANISM_CANARY_V1', PROMPT],
-  ['C1_MECHANISM_CANARY_V2', PROMPT_V2]
+  ['C1_MECHANISM_CANARY_V2', PROMPT_V2],
+  ['C1_MECHANISM_CANARY_V3', PROMPT_V3]
 ])
 /** Resolve the frozen contract a binding refers to; defaults to V1 when omitted. */
 export function resolveC1MechanismCanaryContract(
@@ -392,9 +419,12 @@ export async function runC1MechanismCanary(options: {
         const changedCalls = result.evidence
           .filter((row) => row.runtimeContextChanged)
           .map((row) => row.callOrdinal)
+        const readGate = CANARY_READ_GATES_BY_CONTRACT_ID.get(contract.contractId)
+        if (!readGate) throw new Error('Canary read gate missing for contract')
         const pass =
           result.finalOutcome === 'COMPLETE' &&
-          tools === 2 &&
+          tools >= readGate.min &&
+          tools <= readGate.max &&
           answerMatched &&
           result.evidence.every((row) =>
             row.toolEvents.every((tool) => tool.result === 'SUCCESS')
