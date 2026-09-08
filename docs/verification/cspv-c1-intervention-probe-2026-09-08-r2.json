@@ -1,0 +1,273 @@
+{
+  "experimentId": "C1_INTERVENTION_REACHABILITY_OFFLINE_V1",
+  "status": "PASS",
+  "scope": "CONTROLLED_DUPLICATE_READ_MECHANISM_NOT_NATURAL_TASK_EFFECTIVENESS",
+  "providerCalls": 0,
+  "networkRequests": 0,
+  "variants": [
+    {
+      "variant": "FROZEN_OBSERVATION_BASELINE",
+      "status": "PASS",
+      "fakeResponses": 6,
+      "completedLegs": 2,
+      "inputMessageFingerprintsEqual": true,
+      "structuralFingerprintsEqual": true,
+      "changedCalls": [],
+      "removalDecisionEntries": 0,
+      "boundaryEvidence": [
+        {
+          "arm": "NATIVE",
+          "callOrdinal": 1,
+          "changed": false,
+          "eligible": false,
+          "semanticFingerprint": "23eb6fb5d3e7f9274d308ad5b4cfc6c7f23acb9fe7936382c024c8763b4664aa",
+          "sourceKeys": [
+            "run/tool-call://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-result://c1-live-bootstrap-shared-probe-observation-01"
+          ]
+        },
+        {
+          "arm": "NATIVE",
+          "callOrdinal": 2,
+          "changed": false,
+          "eligible": false,
+          "semanticFingerprint": "07712b719b557203405197de0aacfbf1bc94784a66242623a7e3a5f7ca7dafcf",
+          "sourceKeys": [
+            "run/tool-call://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-call://probe-read-1",
+            "run/tool-result://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-result://probe-read-1"
+          ]
+        },
+        {
+          "arm": "NATIVE",
+          "callOrdinal": 3,
+          "changed": false,
+          "eligible": false,
+          "semanticFingerprint": "3c49550c4ca3d647c5546fb3c0d6084a74247e71fc0366386850557630e4d2ea",
+          "sourceKeys": [
+            "run/tool-call://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-call://probe-read-1",
+            "run/tool-call://probe-read-2",
+            "run/tool-result://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-result://probe-read-1",
+            "run/tool-result://probe-read-2"
+          ]
+        },
+        {
+          "arm": "RUNTIME",
+          "callOrdinal": 1,
+          "changed": false,
+          "eligible": false,
+          "semanticFingerprint": "23eb6fb5d3e7f9274d308ad5b4cfc6c7f23acb9fe7936382c024c8763b4664aa",
+          "sourceKeys": [
+            "run/tool-call://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-result://c1-live-bootstrap-shared-probe-observation-01"
+          ]
+        },
+        {
+          "arm": "RUNTIME",
+          "callOrdinal": 2,
+          "changed": false,
+          "eligible": false,
+          "semanticFingerprint": "07712b719b557203405197de0aacfbf1bc94784a66242623a7e3a5f7ca7dafcf",
+          "sourceKeys": [
+            "run/tool-call://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-call://probe-read-1",
+            "run/tool-result://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-result://probe-read-1"
+          ]
+        },
+        {
+          "arm": "RUNTIME",
+          "callOrdinal": 3,
+          "changed": false,
+          "eligible": false,
+          "semanticFingerprint": "3c49550c4ca3d647c5546fb3c0d6084a74247e71fc0366386850557630e4d2ea",
+          "sourceKeys": [
+            "run/tool-call://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-call://probe-read-1",
+            "run/tool-call://probe-read-2",
+            "run/tool-result://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-result://probe-read-1",
+            "run/tool-result://probe-read-2"
+          ]
+        }
+      ],
+      "inputEvidence": [
+        {
+          "arm": "NATIVE",
+          "callOrdinal": 1,
+          "fingerprint": "092f3adc3260da1e48062ebf79b6902f10e32db15d6d88e06a99be1643b91dd9"
+        },
+        {
+          "arm": "NATIVE",
+          "callOrdinal": 2,
+          "fingerprint": "e797df20ef2d59ac4407e94914d24d96b6134b59167a65f2c9bce391b3860ffb"
+        },
+        {
+          "arm": "NATIVE",
+          "callOrdinal": 3,
+          "fingerprint": "177bbc974b4d527da27a1aa8d81b3abf16f732e44c4f545e7a9cea89e4bc20d9"
+        },
+        {
+          "arm": "RUNTIME",
+          "callOrdinal": 1,
+          "fingerprint": "092f3adc3260da1e48062ebf79b6902f10e32db15d6d88e06a99be1643b91dd9"
+        },
+        {
+          "arm": "RUNTIME",
+          "callOrdinal": 2,
+          "fingerprint": "e797df20ef2d59ac4407e94914d24d96b6134b59167a65f2c9bce391b3860ffb"
+        },
+        {
+          "arm": "RUNTIME",
+          "callOrdinal": 3,
+          "fingerprint": "177bbc974b4d527da27a1aa8d81b3abf16f732e44c4f545e7a9cea89e4bc20d9"
+        }
+      ],
+      "stop": "INTENTIONAL_AFTER_ONE_PAIR",
+      "failureCodes": [
+        "KILL_SWITCH_BLOCKED"
+      ],
+      "terminalReason": "operator kill switch blocked the next leg",
+      "providerCalls": 0,
+      "networkRequests": 0
+    },
+    {
+      "variant": "C1_DUPLICATE_READ_CANDIDATE_V1",
+      "status": "PASS",
+      "fakeResponses": 6,
+      "completedLegs": 2,
+      "inputMessageFingerprintsEqual": true,
+      "structuralFingerprintsEqual": true,
+      "changedCalls": [
+        2,
+        3
+      ],
+      "removalDecisionEntries": 4,
+      "boundaryEvidence": [
+        {
+          "arm": "NATIVE",
+          "callOrdinal": 1,
+          "changed": false,
+          "eligible": false,
+          "semanticFingerprint": "23eb6fb5d3e7f9274d308ad5b4cfc6c7f23acb9fe7936382c024c8763b4664aa",
+          "sourceKeys": [
+            "run/tool-call://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-result://c1-live-bootstrap-shared-probe-observation-01"
+          ]
+        },
+        {
+          "arm": "NATIVE",
+          "callOrdinal": 2,
+          "changed": false,
+          "eligible": false,
+          "semanticFingerprint": "07712b719b557203405197de0aacfbf1bc94784a66242623a7e3a5f7ca7dafcf",
+          "sourceKeys": [
+            "run/tool-call://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-call://probe-read-1",
+            "run/tool-result://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-result://probe-read-1"
+          ]
+        },
+        {
+          "arm": "NATIVE",
+          "callOrdinal": 3,
+          "changed": false,
+          "eligible": false,
+          "semanticFingerprint": "3c49550c4ca3d647c5546fb3c0d6084a74247e71fc0366386850557630e4d2ea",
+          "sourceKeys": [
+            "run/tool-call://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-call://probe-read-1",
+            "run/tool-call://probe-read-2",
+            "run/tool-result://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-result://probe-read-1",
+            "run/tool-result://probe-read-2"
+          ]
+        },
+        {
+          "arm": "RUNTIME",
+          "callOrdinal": 1,
+          "changed": false,
+          "eligible": false,
+          "semanticFingerprint": "23eb6fb5d3e7f9274d308ad5b4cfc6c7f23acb9fe7936382c024c8763b4664aa",
+          "sourceKeys": [
+            "run/tool-call://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-result://c1-live-bootstrap-shared-probe-observation-01"
+          ]
+        },
+        {
+          "arm": "RUNTIME",
+          "callOrdinal": 2,
+          "changed": true,
+          "eligible": true,
+          "semanticFingerprint": "5e1fd66e67ba74602bbdce6ead72d94bf292d8bffcee335c663f32dc3ce347fd",
+          "sourceKeys": [
+            "run/tool-call://probe-read-1",
+            "run/tool-result://probe-read-1"
+          ]
+        },
+        {
+          "arm": "RUNTIME",
+          "callOrdinal": 3,
+          "changed": true,
+          "eligible": true,
+          "semanticFingerprint": "4249db31c3949912c2162441d47f63b686029cd60890c130db60804ed90906d0",
+          "sourceKeys": [
+            "run/tool-call://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-call://probe-read-2",
+            "run/tool-result://c1-live-bootstrap-shared-probe-observation-01",
+            "run/tool-result://probe-read-2"
+          ]
+        }
+      ],
+      "inputEvidence": [
+        {
+          "arm": "NATIVE",
+          "callOrdinal": 1,
+          "fingerprint": "092f3adc3260da1e48062ebf79b6902f10e32db15d6d88e06a99be1643b91dd9"
+        },
+        {
+          "arm": "NATIVE",
+          "callOrdinal": 2,
+          "fingerprint": "e797df20ef2d59ac4407e94914d24d96b6134b59167a65f2c9bce391b3860ffb"
+        },
+        {
+          "arm": "NATIVE",
+          "callOrdinal": 3,
+          "fingerprint": "177bbc974b4d527da27a1aa8d81b3abf16f732e44c4f545e7a9cea89e4bc20d9"
+        },
+        {
+          "arm": "RUNTIME",
+          "callOrdinal": 1,
+          "fingerprint": "092f3adc3260da1e48062ebf79b6902f10e32db15d6d88e06a99be1643b91dd9"
+        },
+        {
+          "arm": "RUNTIME",
+          "callOrdinal": 2,
+          "fingerprint": "e797df20ef2d59ac4407e94914d24d96b6134b59167a65f2c9bce391b3860ffb"
+        },
+        {
+          "arm": "RUNTIME",
+          "callOrdinal": 3,
+          "fingerprint": "177bbc974b4d527da27a1aa8d81b3abf16f732e44c4f545e7a9cea89e4bc20d9"
+        }
+      ],
+      "stop": "INTENTIONAL_AFTER_ONE_PAIR",
+      "failureCodes": [
+        "KILL_SWITCH_BLOCKED"
+      ],
+      "terminalReason": "operator kill switch blocked the next leg",
+      "providerCalls": 0,
+      "networkRequests": 0
+    }
+  ],
+  "existingLifecycleReadiness": "PASS",
+  "limitations": [
+    "Scripted responses are not provider behavior.",
+    "Synthetic usage cannot estimate efficiency.",
+    "V4 metadata lacks read content; historical duplicate opportunities remain unknown.",
+    "Existing readiness covers controlled restoration; this candidate only supersedes duplicate reads."
+  ]
+}
