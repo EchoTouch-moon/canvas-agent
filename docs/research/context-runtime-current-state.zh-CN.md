@@ -45,7 +45,9 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
   未持久化”的证据缺口——`checkpoints.jsonl` 只剩 1 条许可、`permitsWithoutRecordedResponse=1`，该次响应的
   tool-request 数与 usage 结构性缺失。修复提交 `cf0d45b47ffb1d35f1630e993675b50c53777455`：先让驱动落盘已知响应，
   再抛出同一个 `CANARY_STOP`；裁决、failureCode、finalStage 与“腿不计入完成”的分类均不变，合同 SHA 不变，
-  历史 live 原件不回填。定向复现先红后绿，C1 相关 9 文件 84 项回归全绿，`tsc` 干净。
+  历史 live 原件不回填。定向复现先红后绿，C1 相关 9 文件 85 项回归全绿，`tsc` 干净；
+  经有界审查确认为 approve-with-nits，两项文档精度问题（源码行数 +15/−2、提前终止腿上
+  `answerMatched`/`changedCalls` 现按证据求值）已如实修正并补锁定测试。
 - 下一项需 owner 决策，不自动执行：①SV2 诊断设计（触发条件完全由 harness 构造，不再依赖模型自愿行为）；
   或②接受机制层负结果，转入生命周期合同 §11.5 的 effectiveness A/B 设计（Intervention Dose 为自变量）。
   两者都需新合同、新身份、新授权。V4 与四次 Canary 身份永不恢复、补跑或重绑定；64-leg 维持 NO_GO。

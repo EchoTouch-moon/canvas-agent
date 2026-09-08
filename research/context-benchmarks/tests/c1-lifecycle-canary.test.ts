@@ -270,6 +270,35 @@ describe('C1_LIFECYCLE_CANARY_SV1 (Runtime-only pure-evict canary)', () => {
     }
   }, 60000)
 
+  it('still fails when an early answer happens to match the frozen marker', async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), 'lifecycle-canary-early-match-'))
+    try {
+      // The model answers with the marker on the first call but never runs the
+      // frozen read -> edit -> read sequence: a matching answer must not buy a PASS.
+      const source = new C1ScriptedResponseSource([c1LifecycleCanaryScriptedResponses()[3]!])
+      const report = await runC1LifecycleCanary({
+        ...fakeOptions(outputRoot, 'c1-lifecycle-20260908-99999903'),
+        fakeSourceFactory: () => ({
+          kind: 'SCRIPTED_FAKE' as const,
+          next: async (request: Parameters<(typeof source)['next']>[0]) => source.next(request)
+        })
+      })
+      expect(report.status).toBe('FAIL')
+      expect(report.failureCode).toBe('CANARY_STOP')
+      expect(report.finalStage).toBe('EXPECT_READ_A')
+      // answerMatched now reflects the served response instead of being frozen at
+      // its default by the throw. The verdict is unaffected: failureCode is
+      // non-null and finalStage never reaches TERMINAL.
+      expect(report.answerMatched).toBe(true)
+      expect(report.completedLegs).toBe(0)
+      expect(report.toolResults).toHaveLength(0)
+      expect(report.callAccounting.allRecorded.normalizedResponses).toBe(1)
+      expect(report.callAccounting.allRecorded.permitsWithoutRecordedResponse).toBe(0)
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true })
+    }
+  }, 60000)
+
   it('keeps a permitted call with no returned response unknown instead of zero', async () => {
     const outputRoot = await mkdtemp(join(tmpdir(), 'lifecycle-canary-no-response-'))
     try {

@@ -88,7 +88,7 @@ Provider：Step Plan / `step-3.7-flash`，无 fallback，Runtime-only 单臂。
 ## 4. 修复（本地、零 Provider）
 
 修复提交：`cf0d45b47ffb1d35f1630e993675b50c53777455`（分支 `codex/qwen-sv1-response-evidence`，基于 `0120932`）。
-范围仅 `src/c1-lifecycle-canary.ts`（+16/−2）与其定向测试；不改共享驱动、不改冻结合同、不改任何原始证据。
+范围仅 `src/c1-lifecycle-canary.ts`（+15/−2）与其定向测试；不改共享驱动、不改冻结合同、不改任何原始证据。
 
 行为变化：
 
@@ -99,7 +99,7 @@ Provider：Step Plan / `step-3.7-flash`，无 fallback，Runtime-only 单臂。
 刻意保持不变的项（防止把 PASS 写成放宽断言的产物）：
 
 - 裁决仍为 `FAIL`，`failureCode=CANARY_STOP`，`failureMessage` 逐字不变；
-- `finalStage`、`answerMatched` 的取值逻辑不变；
+- `finalStage` 取值不变：只有 `stage === 'EXPECT_COMPLETE'` 才转 `TERMINAL`，提前终止时仍停在原阶段；
 - 腿**仍不计入** `completedLegs`：到达终止 outcome 不等于满足冻结序列，`legStatus` 仍为 `INCOMPLETE`、`finalOracle` 仍为 `UNOBSERVED`；
 - 不伪造 `CONTINUE`、不改变模型结果、不吞掉失败、不补造 usage；
 - **不新增任何请求**：终止型 outcome 本身就让驱动 `break`，第 2 次出站永不发生（测试以 `served===1` 锁定）；
@@ -111,6 +111,14 @@ Provider：Step Plan / `step-3.7-flash`，无 fallback，Runtime-only 单臂。
   本修复不为这一 LIVE 不可达形态增加推测性防护；
 - 发送前的 lifecycle gate（hard boundary #3）位置不变，仍在内层 source 之前；
 - 合同序列化未触及，`contractSha256` 仍为 `7c4577a2…`（既有定向测试继续锚定）。
+
+**一处如实披露的口径变化（审查提出）**：`answerMatched`、`changedCalls`、`carriedRemovedAtFinalCall`
+在提前终止腿上此前因包装内抛错而被**整段跳过**，永远停在默认值（`false` / `[]` / `[]`）；修复后
+`runLeg` 正常返回，这三个字段按已持久化的响应与证据求值，因此可能为 `true` 或非空。
+这更真实（本次 SV1 live 事件三者恰好仍为 `false`/`[]`/`[]`，故该次报告的这些字段值不变），
+且**不能改变裁决**：`pass` 同时要求 `failureCode === null` 与 `finalStage === 'TERMINAL'`，提前终止腿两者都不满足。
+新增定向测试锁定该点：模型第 1 次调用就答出正确 marker 时，`answerMatched=true` 而状态仍
+`FAIL / CANARY_STOP`、`finalStage=EXPECT_READ_A`、`completedLegs=0`——"答对"买不到 PASS。
 
 历史 live 证据**不回填**：`c1-lifecycle-20260908-d4b4f5dc` 的 report/checkpoints 保持缺口原貌，
 修复只对今后的执行生效。
@@ -141,23 +149,26 @@ Tests  1 failed | 8 passed (9)
 
 ```text
 pnpm exec tsc --noEmit                                    TSC_EXIT=0
-pnpm exec vitest run tests/c1-lifecycle-canary.test.ts     9 passed (9)
+pnpm exec vitest run tests/c1-lifecycle-canary.test.ts    10 passed (10)
 ```
 
-C1 相关回归（9 个文件、84 项，全绿）：
+C1 相关回归（9 个文件、85 项，全绿）：
 
 ```text
 ✓ tests/c1-superseded-version-policy.test.ts      (20 tests)
 ✓ tests/c1-lifecycle-replay-evidence.test.ts      ( 9 tests)
 ✓ tests/c1-superseded-version-probe.test.ts       ( 1 test )
 ✓ tests/c1-live-binding.test.ts                   ( 8 tests)
-✓ tests/c1-lifecycle-canary.test.ts               ( 9 tests)
+✓ tests/c1-lifecycle-canary.test.ts               (10 tests)
 ✓ tests/c1-carried-removals.test.ts               ( 5 tests)
 ✓ tests/c1-failure-accounting.test.ts             (10 tests)
 ✓ tests/c1-duplicate-read-policy.test.ts          (11 tests)
 ✓ tests/c1-mechanism-canary.test.ts               (11 tests)
-Test Files  9 passed (9)      Tests  84 passed (84)
+Test Files  9 passed (9)      Tests  85 passed (85)
 ```
+
+（上方 §5.1 红灯记录的 `8 passed (9)` 是修复前当次运行的原貌，当时该文件为 9 项；
+第 10 项"提前答对 marker 仍 FAIL"是审查后补加的口径锁定测试，见 §4 披露段。）
 
 ### 5.3 边界覆盖
 
@@ -165,6 +176,7 @@ Test Files  9 passed (9)      Tests  84 passed (84)
 | --- | --- | --- |
 | 正常终止（4 调用 / 3 工具 / gate 全过） | 既有 `runs the full scripted trajectory…` | PASS，`changedCalls=[3,4]` |
 | 响应后诊断失败（提前 COMPLETE） | 新增测试（本次修复） | FAIL，响应已落盘 |
+| 提前终止但答案恰好匹配 marker | 新增 `still fails when an early answer happens to match…` | `answerMatched=true`，状态仍 FAIL/`CANARY_STOP`、`finalStage=EXPECT_READ_A`、`completedLegs=0`——"答对"买不到 PASS |
 | 许可后无响应（source 抛错） | 新增 `keeps a permitted call with no returned response unknown…` | `permitsWithoutRecordedResponse=1`、`NOT_RECORDED`、`receipt=null`、`toolExecutionsNotRecorded=null`（缺失保持未知，不记 0） |
 | 许可前失败（授权/身份门） | 既有 `rejects a wrong live authorization…` | 不 claim 身份、不读凭据、输出目录为空 |
 | 发送前 gate 失败（不发第 3 请求） | 既有 `blocks the third outbound request…` | `served=2`，硬边界 #3 保持 |
