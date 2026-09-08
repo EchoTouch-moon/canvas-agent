@@ -196,6 +196,113 @@ describe('C1_LIFECYCLE_CANARY_SV1 (Runtime-only pure-evict canary)', () => {
     }
   }, 60000)
 
+  it('persists the returned response before an early completion stops the diagnostic', async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), 'lifecycle-canary-early-complete-'))
+    try {
+      // Offline mirror of live study c1-lifecycle-20260908-d4b4f5dc: the model
+      // answered on the first call without requesting any tool, so the frozen
+      // sequence never left EXPECT_READ_A.
+      const earlyComplete = [
+        {
+          ...c1LifecycleCanaryScriptedResponses()[3]!,
+          responseId: 'lifecycle-early-1',
+          assistantContent: 'no marker available'
+        }
+      ]
+      let served = 0
+      const source = new C1ScriptedResponseSource(earlyComplete)
+      const report = await runC1LifecycleCanary({
+        ...fakeOptions(outputRoot, 'c1-lifecycle-20260908-99999901'),
+        fakeSourceFactory: () => ({
+          kind: 'SCRIPTED_FAKE' as const,
+          next: async (request: Parameters<(typeof source)['next']>[0]) => {
+            served += 1
+            return source.next(request)
+          }
+        })
+      })
+      // The diagnostic verdict is unchanged by persisting the evidence.
+      expect(report.status).toBe('FAIL')
+      expect(report.failureCode).toBe('CANARY_STOP')
+      expect(report.failureMessage).toBe(
+        'CANARY_STOP: model completed before the sequence reached EXPECT_COMPLETE'
+      )
+      expect(report.finalStage).toBe('EXPECT_READ_A')
+      expect(report.answerMatched).toBe(false)
+      expect(report.completedLegs).toBe(0)
+      expect(report.toolResults).toHaveLength(0)
+      // The terminal outcome ends the leg: no second request is issued.
+      expect(served).toBe(1)
+      expect(report.fakeResponses).toBe(1)
+      expect(report.providerCalls).toBe(0)
+      expect(report.networkRequests).toBe(0)
+
+      // The received normalized response is durable evidence, not lost with the stop.
+      const accounting = report.callAccounting.allRecorded
+      expect(accounting.outboundPermits).toBe(1)
+      expect(accounting.normalizedResponses).toBe(1)
+      expect(accounting.permitsWithoutRecordedResponse).toBe(0)
+      expect(accounting.responseRecorded).toBe(1)
+      expect(accounting.recordedResponseUsage.totalTokens).toBe(12)
+      const call = report.callAccounting.calls[0]!
+      expect(call.responseStatus).toBe('NORMALIZED_RESPONSE_RECEIVED')
+      expect(call.legStatus).toBe('INCOMPLETE')
+      expect(call.finalOracle).toBe('UNOBSERVED')
+      expect(call.receipt?.taskOutcome).toBe('COMPLETE')
+      expect(call.receipt?.toolCalls).toBe(0)
+      expect(call.toolExecutionsNotRecorded).toBe(0)
+
+      const checkpoints = await readFile(
+        join(outputRoot, 'c1-lifecycle-20260908-99999901', 'checkpoints.jsonl'),
+        'utf8'
+      )
+      const phases = checkpoints
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line).phase as string)
+      expect(phases).toEqual([
+        'OUTBOUND_PERMITTED',
+        'RESPONSE_RECEIVED',
+        'RESPONSE_RECORDED'
+      ])
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true })
+    }
+  }, 60000)
+
+  it('keeps a permitted call with no returned response unknown instead of zero', async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), 'lifecycle-canary-no-response-'))
+    try {
+      let served = 0
+      const report = await runC1LifecycleCanary({
+        ...fakeOptions(outputRoot, 'c1-lifecycle-20260908-99999902'),
+        fakeSourceFactory: () => ({
+          kind: 'SCRIPTED_FAKE' as const,
+          next: async () => {
+            served += 1
+            throw new Error('simulated transport failure after the outbound permit')
+          }
+        })
+      })
+      expect(report.status).toBe('FAIL')
+      expect(served).toBe(1)
+      expect(report.completedLegs).toBe(0)
+      const accounting = report.callAccounting.allRecorded
+      expect(accounting.outboundPermits).toBe(1)
+      expect(accounting.normalizedResponses).toBe(0)
+      expect(accounting.permitsWithoutRecordedResponse).toBe(1)
+      expect(accounting.responseRecorded).toBe(0)
+      expect(accounting.recordedResponseUsage.totalTokens).toBe(0)
+      const call = report.callAccounting.calls[0]!
+      expect(call.responseStatus).toBe('NOT_RECORDED')
+      expect(call.receipt).toBeNull()
+      // Absent evidence stays absent: it is never backfilled as a zero-tool response.
+      expect(call.toolExecutionsNotRecorded).toBeNull()
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true })
+    }
+  }, 60000)
+
   it('rejects a wrong live authorization before identity claim or credential access', async () => {
     const outputRoot = await mkdtemp(join(tmpdir(), 'lifecycle-canary-auth-'))
     const getApiKey = vi.fn(() => 'credential')
