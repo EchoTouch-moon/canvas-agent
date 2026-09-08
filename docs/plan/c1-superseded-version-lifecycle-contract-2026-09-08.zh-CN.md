@@ -1,6 +1,8 @@
 # SUPERSEDED_VERSION Lifecycle Contract（设计 v1，冻结候选）
 
-日期：2026-09-08。状态：设计文档，未实现、未授权任何真实执行。
+日期：2026-09-08。状态：设计已冻结；§11 验证路径第 1–2 步已完成
+（`src/c1-superseded-version-policy.ts` + 20 项定向单测 + 驱动级假源机制验证各就各位，
+见提交 `086fd0a` 及后续）。未授权任何真实执行。
 承接：[Prevalence Study](../research/c1-superseded-version-prevalence-2026-09-08.zh-CN.md)（自然出现率精确下界 84.2%）、
 [duplicate-read 观察报告](../research/c1-duplicate-read-observability-2026-09-08.zh-CN.md)、机制 Canary V1–V3 执行报告。
 本文件定义的不是启发式压缩规则，而是 **Context Runtime 的生命周期语义**：
