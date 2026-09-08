@@ -136,6 +136,13 @@ lifecycleUnknownCount（按原因码分桶）
      | NOT_SUPERSEDED | stale 且五条件可观测 | **CONTRACT_CONFLICT** |
 4. 机制 canary live（新合同、新身份、**新 owner 授权**）：真实 Provider 上验证纯 evict，
    并在执行期持久化 fingerprint-only replay evidence，使首次真实干预全链条可 replay。
+   - **状态（2026-09-08 夜间增补，不改动上文）**：`ATTEMPTED / NOT_PASSED`。`C1_LIFECYCLE_CANARY_SV1`
+     已实现于 `0120932`，owner 授权后真实执行一次（study `c1-lifecycle-20260908-d4b4f5dc`），
+     结果 `FAIL / CANARY_STOP`：模型 0 次工具调用直接作答，`finalStage=EXPECT_READ_A`，
+     未到达第 3 次请求的 lifecycle gate，因此纯 evict 与 replay 全链条**未在真实 Provider 上被证明**。
+     该次执行暴露的"响应已返回但诊断提前终止导致响应证据未持久化"缺口已在 `cf0d45b` 本地修复
+     （合同与本验证路径不变，历史原件不回填）。再次尝试需新合同、新身份、新授权。详见
+     [SV1 执行与证据缺口裁定](../verification/cspv-c1-lifecycle-canary-sv1-live-execution-2026-09-08.zh-CN.md)。
 5. Effectiveness A/B 设计评审：只在预选存在机会的 task 上配对，Dose 为自变量。
    在此之前 **64-leg 维持 NO_GO**。
 
