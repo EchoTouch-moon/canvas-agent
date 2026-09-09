@@ -17,7 +17,9 @@ process.stdout.write(
       pairCount: contract.design.pairCount,
       totalLegs: contract.design.totalLegs,
       armOrderQuota: contract.design.armOrderQuota,
+      qualificationGate: contract.design.qualificationGate,
       pairAssignments: contract.pairAssignments,
+      providerConfigHash: contract.executionBinding.providerConfigHash,
       runContractSha256: contract.runContractSha256,
       execution: 'NO_PROVIDER'
     },
