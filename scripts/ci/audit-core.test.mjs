@@ -1,12 +1,31 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { coreFindings, isCoreAuditPath } from './audit-core.mjs'
+import {
+  assertWorkspaceClassification,
+  classifyWorkspaceDirectories,
+  coreFindings,
+  discoverWorkspaceDirectories,
+  isCoreAuditPath
+} from './audit-core.mjs'
 import { coreFormatPaths } from './format-core.mjs'
 
 test('classifies only headless workspace paths as core', () => {
   assert.equal(isCoreAuditPath('packages__context-runtime>zod'), true)
   assert.equal(isCoreAuditPath('research__context-benchmarks>foo>bar'), true)
   assert.equal(isCoreAuditPath('apps__desktop>shadcn>cosmiconfig>js-yaml'), false)
+})
+
+test('classifies every current workspace and rejects drift', () => {
+  const discovered = discoverWorkspaceDirectories(process.cwd())
+  const classification = assertWorkspaceClassification(process.cwd())
+  assert.deepEqual(classification.discovered, discovered)
+  assert.deepEqual(classification.unknown, [])
+  assert.deepEqual(classification.core.concat(classification.referenceClient).sort(), discovered)
+  assert.deepEqual(classifyWorkspaceDirectories(['packages/context-memory']), {
+    core: [],
+    referenceClient: [],
+    unknown: ['packages/context-memory']
+  })
 })
 
 test('fails core audit when one advisory reaches a core path', () => {
