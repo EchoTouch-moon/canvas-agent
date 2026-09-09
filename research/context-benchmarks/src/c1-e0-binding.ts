@@ -3,7 +3,12 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { z } from 'zod'
 import { C1_AUTHORIZED_PROVIDER_MAX_TOKENS } from './c1-authorized-provider'
-import { C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE } from './c1-live-preflight'
+import {
+  C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE,
+  C1_MODEL_ID,
+  C1_PROVIDER_ENDPOINT,
+  C1_PROVIDER_ID
+} from './c1-live-preflight'
 
 export const C1_E0_ENROLLMENT_MANIFEST_ID = 'C1_EFFECTIVENESS_E0_ENROLLMENT_V1'
 export const C1_E0_ENROLLMENT_MANIFEST_RELATIVE_PATH =
@@ -66,10 +71,10 @@ export function hashCanonicalC1E0(value: unknown): string {
  * part of this binding.
  */
 export const C1_E0_PROVIDER_REQUEST_CONFIG = Object.freeze({
-  provider: C1_E0_PROVIDER,
-  endpoint: C1_E0_ENDPOINT,
+  provider: C1_PROVIDER_ID,
+  endpoint: C1_PROVIDER_ENDPOINT,
   request: {
-    model: C1_E0_MODEL,
+    model: C1_MODEL_ID,
     max_tokens: C1_AUTHORIZED_PROVIDER_MAX_TOKENS,
     temperature: null,
     top_p: null,
@@ -525,6 +530,13 @@ export function assertC1E0RunContract(
   }
   if (contract.executionBinding.providerConfigHash !== C1_E0_PROVIDER_CONFIG_HASH) {
     throw new Error('E0 provider configuration binding mismatch')
+  }
+  if (
+    C1_E0_PROVIDER !== C1_PROVIDER_ID ||
+    C1_E0_MODEL !== C1_MODEL_ID ||
+    C1_E0_ENDPOINT !== C1_PROVIDER_ENDPOINT
+  ) {
+    throw new Error('E0 provider constants drifted from the authorized provider implementation')
   }
   const binding = contract.enrollmentBinding
   if (
