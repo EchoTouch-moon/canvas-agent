@@ -88,6 +88,7 @@ Native/Runtime trajectory ordinal。
 - 远端 Context Runtime CI：run `34325494016` passed。
 - PR A Enrollment/Run Binding：run `34325818925` passed。
 - Revision 3 PR #113 headless CI：run `34329669313` passed（Node 24）。
+- Typed policy-boundary follow-up headless CI：run `34330408833` passed（Node 24）。
 - `git diff --check` 与相对 markdown link scan：passed。
 
 本地曾有一次未修改的 `worker-runtime/tests/local-cli-runner.test.ts` 进程组取消场景超时；单独重跑 14/14
