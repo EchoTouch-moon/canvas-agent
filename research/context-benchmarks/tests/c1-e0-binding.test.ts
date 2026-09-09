@@ -53,8 +53,12 @@ describe('C1 E0 enrollment and run binding', () => {
     expect(contract.design.pairCount).toBe(4)
     expect(contract.design.totalLegs).toBe(8)
     expect(contract.design.armOrderQuota).toEqual({ nativeThenRuntime: 2, runtimeThenNative: 2 })
-    expect(contract.pairAssignments.filter((assignment) => assignment.order === 'NATIVE_THEN_RUNTIME')).toHaveLength(2)
-    expect(contract.pairAssignments.filter((assignment) => assignment.order === 'RUNTIME_THEN_NATIVE')).toHaveLength(2)
+    expect(
+      contract.pairAssignments.filter((assignment) => assignment.order === 'NATIVE_THEN_RUNTIME')
+    ).toHaveLength(2)
+    expect(
+      contract.pairAssignments.filter((assignment) => assignment.order === 'RUNTIME_THEN_NATIVE')
+    ).toHaveLength(2)
     expect(contract.pairAssignments.map((assignment) => assignment.taskId)).toEqual([
       'c1-t2-multi-file-migration-v1',
       'c1-t1-localized-distractor-v1',
@@ -110,7 +114,9 @@ describe('C1 E0 enrollment and run binding', () => {
       ...first,
       taskId: 'c1-t1-localized-distractor-v1'
     }
-    expect(() => assertC1E0RunContract(mutatedAssignment, enrollment)).toThrow(/run contract hash mismatch/)
+    expect(() => assertC1E0RunContract(mutatedAssignment, enrollment)).toThrow(
+      /run contract hash mismatch/
+    )
   })
 
   it('uses canonical object-key ordering while preserving array order', () => {

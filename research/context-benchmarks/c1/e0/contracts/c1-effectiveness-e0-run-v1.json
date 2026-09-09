@@ -26,10 +26,7 @@
     "candidateCount": 2,
     "selectionAlgorithmId": "C1_E0_STRATIFIED_SHA256_V1",
     "selectionSeed": "c1-e0-enrollment-selection-20260909",
-    "selectedTaskIds": [
-      "c1-t2-multi-file-migration-v1",
-      "c1-t1-localized-distractor-v1"
-    ]
+    "selectedTaskIds": ["c1-t2-multi-file-migration-v1", "c1-t1-localized-distractor-v1"]
   },
   "policyBinding": {
     "policyId": "C1_SUPERSEDED_VERSION_POLICY_V1",

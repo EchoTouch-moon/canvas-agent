@@ -66,7 +66,11 @@ const c1E0EnrollmentRuleSchema = z
 
 const c1E0CandidateSchema = z
   .object({
-    taskId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/),
+    taskId: z
+      .string()
+      .min(1)
+      .max(128)
+      .regex(/^[A-Za-z0-9._-]+$/),
     stratum: z.string().min(1),
     taskManifestPath: z.literal(C1_E0_TASK_MANIFEST_RELATIVE_PATH),
     fixtureTreeObjectId: gitHashSchema,
@@ -138,7 +142,10 @@ export function computeC1E0EnrollmentManifestSha256(manifest: unknown): string {
   return hashCanonicalC1E0(replaceSelfHash(manifest, 'manifestSha256'))
 }
 
-function candidateDigest(manifest: Pick<C1E0EnrollmentManifest, 'selectionSeed'>, candidate: Pick<C1E0EnrollmentCandidate, 'stratum' | 'taskId'>): string {
+function candidateDigest(
+  manifest: Pick<C1E0EnrollmentManifest, 'selectionSeed'>,
+  candidate: Pick<C1E0EnrollmentCandidate, 'stratum' | 'taskId'>
+): string {
   return sha256C1E0(`${manifest.selectionSeed}:${candidate.stratum}:${candidate.taskId}`)
 }
 
@@ -165,10 +172,15 @@ export function selectC1E0CandidateTaskIds(
   const byStratum = new Map<string, ReturnType<typeof rankedCandidates>[number]>()
   for (const entry of rankedCandidates(manifest)) {
     const current = byStratum.get(entry.candidate.stratum)
-    if (current === undefined || entry.digest < current.digest) byStratum.set(entry.candidate.stratum, entry)
+    if (current === undefined || entry.digest < current.digest)
+      byStratum.set(entry.candidate.stratum, entry)
   }
-  const selected = [...byStratum.values()].sort((left, right) => left.digest.localeCompare(right.digest))
-  const selectedIds = new Set(selected.slice(0, C1_E0_PAIR_COUNT).map((entry) => entry.candidate.taskId))
+  const selected = [...byStratum.values()].sort((left, right) =>
+    left.digest.localeCompare(right.digest)
+  )
+  const selectedIds = new Set(
+    selected.slice(0, C1_E0_PAIR_COUNT).map((entry) => entry.candidate.taskId)
+  )
   for (const entry of rankedCandidates(manifest)) {
     if (selectedIds.size >= C1_E0_PAIR_COUNT) break
     selectedIds.add(entry.candidate.taskId)
@@ -179,7 +191,10 @@ export function selectC1E0CandidateTaskIds(
     .map((entry) => entry.candidate.taskId)
 }
 
-function expectedArmOrder(seed: string, pairOrdinal: number): 'NATIVE_THEN_RUNTIME' | 'RUNTIME_THEN_NATIVE' {
+function expectedArmOrder(
+  seed: string,
+  pairOrdinal: number
+): 'NATIVE_THEN_RUNTIME' | 'RUNTIME_THEN_NATIVE' {
   const orderRanks = [1, 2, 3, 4].sort((left, right) =>
     sha256C1E0(`${seed}:arm:${left}`).localeCompare(sha256C1E0(`${seed}:arm:${right}`))
   )
@@ -219,7 +234,8 @@ function assertEnrollmentManifestShape(manifest: C1E0EnrollmentManifest): void {
     throw new Error('E0 enrollment manifest hash mismatch')
   }
   const candidateIds = new Set(manifest.candidates.map((candidate) => candidate.taskId))
-  if (candidateIds.size !== manifest.candidates.length) throw new Error('E0 candidate taskId is duplicated')
+  if (candidateIds.size !== manifest.candidates.length)
+    throw new Error('E0 candidate taskId is duplicated')
   if (new Set(manifest.selectedTaskIds).size !== manifest.selectedTaskIds.length) {
     throw new Error('E0 selectedTaskIds contains duplicates')
   }
@@ -239,7 +255,12 @@ function assertEnrollmentManifestShape(manifest: C1E0EnrollmentManifest): void {
       throw new Error(`E0 excluded candidate is not a non-selected candidate: ${taskId}`)
     }
   }
-  if (manifest.candidates.some((candidate) => !manifest.selectedTaskIds.includes(candidate.taskId) && !excludedIds.has(candidate.taskId))) {
+  if (
+    manifest.candidates.some(
+      (candidate) =>
+        !manifest.selectedTaskIds.includes(candidate.taskId) && !excludedIds.has(candidate.taskId)
+    )
+  ) {
     throw new Error('E0 candidate is neither selected nor explicitly excluded')
   }
 }
@@ -260,7 +281,8 @@ function objectField(value: unknown, label: string): Record<string, unknown> {
 }
 
 function stringField(value: unknown, label: string): string {
-  if (typeof value !== 'string' || value.length === 0) throw new Error(`${label} must be a non-empty string`)
+  if (typeof value !== 'string' || value.length === 0)
+    throw new Error(`${label} must be a non-empty string`)
   return value
 }
 
@@ -278,18 +300,35 @@ function assertCandidateReferences(
   }
   for (const candidate of enrollment.candidates) {
     const task = byId.get(candidate.taskId)
-    if (task === undefined) throw new Error(`E0 candidate task is absent from C1 manifest: ${candidate.taskId}`)
+    if (task === undefined)
+      throw new Error(`E0 candidate task is absent from C1 manifest: ${candidate.taskId}`)
     if (stringField(task['stratum'], `${candidate.taskId}.stratum`) !== candidate.stratum) {
       throw new Error(`E0 candidate stratum mismatch: ${candidate.taskId}`)
     }
-    const fixtureRevision = objectField(task['fixtureRevision'], `${candidate.taskId}.fixtureRevision`)
-    if (stringField(fixtureRevision['fixtureTreeObjectId'], `${candidate.taskId}.fixtureTreeObjectId`) !== candidate.fixtureTreeObjectId) {
+    const fixtureRevision = objectField(
+      task['fixtureRevision'],
+      `${candidate.taskId}.fixtureRevision`
+    )
+    if (
+      stringField(
+        fixtureRevision['fixtureTreeObjectId'],
+        `${candidate.taskId}.fixtureTreeObjectId`
+      ) !== candidate.fixtureTreeObjectId
+    ) {
       throw new Error(`E0 candidate fixture tree mismatch: ${candidate.taskId}`)
     }
-    if (stringField(fixtureRevision['fixtureContentSha256'], `${candidate.taskId}.fixtureContentSha256`) !== candidate.fixtureContentSha256) {
+    if (
+      stringField(
+        fixtureRevision['fixtureContentSha256'],
+        `${candidate.taskId}.fixtureContentSha256`
+      ) !== candidate.fixtureContentSha256
+    ) {
       throw new Error(`E0 candidate fixture content hash mismatch: ${candidate.taskId}`)
     }
-    if (stringField(task['promptSha256'], `${candidate.taskId}.promptSha256`) !== candidate.promptSha256) {
+    if (
+      stringField(task['promptSha256'], `${candidate.taskId}.promptSha256`) !==
+      candidate.promptSha256
+    ) {
       throw new Error(`E0 candidate prompt hash mismatch: ${candidate.taskId}`)
     }
     if (hashCanonicalC1E0(task['objectiveOracle']) !== candidate.objectiveOracleSha256) {
@@ -301,7 +340,9 @@ function assertCandidateReferences(
   }
 }
 
-export async function loadC1E0EnrollmentManifest(repoRoot: string): Promise<C1E0EnrollmentManifest> {
+export async function loadC1E0EnrollmentManifest(
+  repoRoot: string
+): Promise<C1E0EnrollmentManifest> {
   const manifestPath = resolve(repoRoot, C1_E0_ENROLLMENT_MANIFEST_RELATIVE_PATH)
   const raw = await readJson(manifestPath)
   const manifest = c1E0EnrollmentManifestSchema.parse(raw)
@@ -397,7 +438,10 @@ export const c1E0RunContractSchema = z
       })
       .strict(),
     budgets: z
-      .object({ perLeg: c1E0BudgetSchema, study: c1E0BudgetSchema.extend({ maxLegs: z.literal(C1_E0_TOTAL_LEG_COUNT) }) })
+      .object({
+        perLeg: c1E0BudgetSchema,
+        study: c1E0BudgetSchema.extend({ maxLegs: z.literal(C1_E0_TOTAL_LEG_COUNT) })
+      })
       .strict(),
     pairAssignments: z.array(c1E0PairAssignmentSchema).length(C1_E0_PAIR_COUNT),
     claims: z.literal('E0_DIRECTIONAL_QUALIFICATION_ONLY'),

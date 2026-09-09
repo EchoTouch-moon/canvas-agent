@@ -1,8 +1,5 @@
 import { resolve } from 'node:path'
-import {
-  loadC1E0EnrollmentManifest,
-  loadC1E0RunContract
-} from '../src/c1-e0-binding'
+import { loadC1E0EnrollmentManifest, loadC1E0RunContract } from '../src/c1-e0-binding'
 
 const repoRoot = resolve(import.meta.dirname, '../../..')
 const enrollment = await loadC1E0EnrollmentManifest(repoRoot)
