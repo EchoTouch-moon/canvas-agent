@@ -79,6 +79,11 @@ immutable E0 task manifest；不得在观察 E0 结果后替换任务。
 不能把历史标签当作 E0 执行期事实。E0 报告必须分别给出 enrollment 数、Runtime eligibility recurrence、
 treatment activation recurrence 和 attrition；不得把其中任何一项写成一般 workload opportunity rate。
 
+候选任务超过 4 个时，最终 4 个 task IDs 必须由 manifest 中冻结的 deterministic selection algorithm 产生，
+禁止人工挑选。算法至少要按 stratum 分层、使用 stable `taskId` 排序、使用冻结的 selection seed，并记录
+candidate pool、入选和排除理由，使 reviewer 可以从同一输入重新计算出 4 个 task IDs。pair count、stratum quota、
+selection algorithm、candidate pool hash 和 selection seed 必须在首个 live response 前不可变。
+
 ### 3.2 Runtime policy 禁止读取 ground truth
 
 在任何 E0 Runtime leg 中，`C1_SUPERSEDED_VERSION_POLICY_V1` 及其调用链不得读取：
@@ -155,7 +160,9 @@ removedTokenRatio
 firstInterventionCall
 activeStaleElementsPeak
 rehydrateCount
-lifecycleUnknownCount
+lifecycleUnknownCountByReason
+protectedRemovalCount
+contractConflictCount
 runtimeContextChanged
 ```
 
@@ -187,11 +194,23 @@ removedTokenRatio_leg                   = removedTokens_total / tokensBeforeComp
 firstInterventionCall                   = 第一个包含 newRemovalPairCalls 的 outbound call ordinal
 activeStaleElementsPeak                 = 每次 composition 的 active stale elements 最大值
 rehydrateCount                          = E0 中必须为 0，否则触发停止
-lifecycleUnknownCount                  = 按 reason code 分桶
+lifecycleUnknownCountByReason           = 按 reason code 分桶
+protectedRemovalCount                   = E0 中必须为 0，否则触发停止
+contractConflictCount                   = E0 中必须为 0，否则触发停止
 ```
 
 `uniqueRemovedPairs_leg` 描述生命周期状态；`newRemovalPairCalls`、`carriedRemovalPairCalls` 和
 `suppressedStalePairCallExposures` 描述持续暴露抑制。三者必须分开报告，不能互相替代。
+
+Dose schema 的硬不变量为：
+
+```text
+uniqueRemovedPairs_leg <= uniqueSelectedPairs_leg <= uniqueEligiblePairs_leg
+uniqueRemovedSourceElements_leg = 2 × uniqueRemovedPairs_leg（正常 pure-evict）
+```
+
+如果 source-key 数不是 `2 × uniqueRemovedPairs_leg`，必须记录明确的 atomicity / protected-evidence 原因；
+没有原因时按协议原子性失败处理。一个 pair 的 call 与 result 是一个 lifecycle object，但两个 source elements。
 
 分母为零、字段缺失或证据不完整时使用 `NOT_ESTIMABLE`，不能默认为零。
 
@@ -401,6 +420,10 @@ live 前冻结的 E0 task manifest 至少包含：
 manifestId / schemaVersion / status
 enrollmentCohort = HISTORICAL_OPPORTUNITY_ENRICHED
 sourceObservationalStudy / enrollmentRuleHash
+candidatePoolHash / candidateCount
+selectionAlgorithmId / selectionSeed
+selectedTaskIds
+excludedCandidateIds + reason
 taskId / stratum / fixtureTreeObjectId / fixtureContentSha256
 promptSha256 / objectiveOracleHash / regressionOracleHash
 historicalOpportunityEvidenceRef / historicalEvidenceLimit
@@ -424,7 +447,8 @@ uniqueRemovedSourceElements
 newRemovalPairCalls / carriedRemovalPairCalls
 suppressedStalePairCallExposures / suppressedSourceElementCallExposures
 treatmentExposureRatio
-replayVerdict / lifecycleUnknownCount / rehydrateCount
+replayVerdict / lifecycleUnknownCountByReason / rehydrateCount
+protectedRemovalCount / contractConflictCount
 response outcome / usage / tool counts / latency
 task outcome / oracle status / failure taxonomy
 checkpoint completeness / call accounting
@@ -502,7 +526,7 @@ effectiveness run contract、独立 review 和单独 owner authorization。
 本设计批准前置研究，不替代执行绑定。以下项目必须在 live 前另行冻结：
 
 1. 固定的 4 个 pair 与 task IDs；
-2. enrollment rule 的 hash、历史证据限制和每个 task 的 fixture/oracle hash；
+2. enrollment rule 的 hash、candidate pool hash/count、selection algorithm/seed、历史证据限制和每个 task 的 fixture/oracle hash；
 3. arm-order quota 与随机化 seed；
 4. provider/model、参数、每-leg/study budgets、timeout、output limit；
 5. correctness failure、catastrophic regression 和 attrition 的具体 adjudication owner；
@@ -512,12 +536,39 @@ effectiveness run contract、独立 review 和单独 owner authorization。
 
 直到这些字段冻结并通过 review，E0 execution 保持 `NO_GO`。
 
-## 14. 当前裁定
+## 14. Credential-free readiness matrix
+
+实现 `C1_EFFECTIVENESS_DOSE_V1` 和 E0 readiness 时，必须在无 Provider、无 credential 的条件下覆盖下列场景：
+
+| 场景 | 预期证据 / 裁定 |
+| --- | --- |
+| natural eligible + REMOVE | unique dose 非零；provider-bound pre/post hash 改变；replay `MATCH` |
+| eligible + carried removal（后续 2 calls） | unique pair=1；`newRemovalPairCalls=1`；carried/exposure>1 |
+| no eligible event | dose=0；pair 留在 ITT；不伪造 removal |
+| UNKNOWN | `lifecycleUnknownCountByReason` 增加；不删除 |
+| no-op mutation | 不删除；保持 CURRENT |
+| protected evidence | `protectedRemovalCount=0`；误删则 hard fail |
+| pair atomicity broken | call/result 不成对即 hard fail |
+| replay/live conflict | `CONTRACT_CONFLICT`；停止当前 pair |
+| ground-truth injected into policy | policy 依赖审计 hard fail |
+| Native task failure | 记录 `TASK_OUTCOME`；Runtime counterpart 仍执行 |
+| Runtime task failure | 记录 `TASK_OUTCOME`；Native counterpart 仍执行 |
+| experiment invalidator | counterpart 不执行；记录 `EXPERIMENT_INVALIDATED` |
+| response missing | `UNKNOWN` / `permitsWithoutRecordedResponse`；不补零 |
+| claimed REMOVE but pre/post hash equal | treatment integrity `FAIL` |
+
+该矩阵验证计量语义、pair 继续规则和 provider-bound integrity；它不执行真实 Provider，也不构造 E0 live authorization。
+
+## 15. 当前裁定
 
 ```text
 SV2 real Provider-bound pure eviction       PASS / CLOSED / MECHANISM_ONLY
 Mechanism Canary SV3/SV4                    STOP / DO NOT EXTEND
 E0 contract design                          DESIGN_REVISION_2 / DESIGN_GO
+Enrollment manifest                         GO IMPLEMENTATION
+E0 run contract                             GO IMPLEMENTATION
+Dose schema C1_EFFECTIVENESS_DOSE_V1        GO IMPLEMENTATION
+Credential-free readiness                   GO IMPLEMENTATION
 E0 live execution                           NO_GO / PENDING RUN CONTRACT + AUTHORIZATION
 E1                                          HOLD FOR E0
 C1 original 64-leg                          NO_GO

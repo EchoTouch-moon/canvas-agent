@@ -18,6 +18,10 @@ Mechanism canary V1–V3    TERMINAL / CANARY_STOP ×3（真实调用 5）
 Lifecycle canary SV1      TERMINAL / CANARY_STOP（真实调用 1）
 Lifecycle canary SV2      PASS / CLOSED / MECHANISM_ONLY（真实调用 1）
 E0 effectiveness contract DESIGN_REVISION_2 / execution NO_GO
+Enrollment manifest       GO IMPLEMENTATION
+E0 run contract           GO IMPLEMENTATION
+Dose schema               GO IMPLEMENTATION
+Credential-free readiness GO IMPLEMENTATION
 Old study resume/reuse    FORBIDDEN
 Wave B / productization   NO_GO
 ```
@@ -101,6 +105,7 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 | 生命周期 Canary SV1 | `TERMINAL / CANARY_STOP` | study `c1-lifecycle-20260908-d4b4f5dc`；执行提交 `012093274da742eddd8178b4448d105e6b27c4ac`、合同 SHA `7c4577a25499ad512883c006f773bc87d538ae5528e8692da87990158b21c7e5`；1 次真实调用、`finalStage=EXPECT_READ_A`。`toolResults=[]`/`changedCalls=[]`/`answerMatched=false` 均为抛错跳过赋值留下的**默认值、非观测**；响应的 `outcome` 类型（`COMPLETE`/`FAILED`）、内容与 tool-request 数**未知**；身份 consumed/retired |
 | 生命周期 Canary SV2 | `PASS / CLOSED / MECHANISM_ONLY` | study `c1-lifecycle-sv2-20260909-ef4d90a2`；执行提交 `69d9dfc923b64a293aac4eae2dd510178c8f34b4`、合同 SHA `87bd74f1caea0a80cee8c4c85da6d3768a52ef950548de630516c3e8f4abb613`；1 次 Runtime 请求、0 tool request；read v1 对被 adjudicate 为 `SUPERSEDED` 并在 provider-bound 边界缺席；身份 consumed/retired；[执行报告](../verification/cspv-c1-lifecycle-canary-sv2-live-execution-2026-09-09.zh-CN.md) |
 | E0 Effectiveness Contract | `DESIGN_REVISION_2 / EXECUTION_NO_GO` | [E0 合同草案](../plan/c1-superseded-version-effectiveness-e0-contract-2026-09-09.zh-CN.md)；固定 4 matched pairs、enriched cohort、unique/exposure Dose schema；先冻结 enrollment manifest / run contract / review / authorization，再决定是否执行 |
+| E0 freeze-prep implementation | `GO / NO_PROVIDER` | Enrollment manifest、study-level run contract、`C1_EFFECTIVENESS_DOSE_V1` 和 credential-free readiness matrix 进入实现；E0 live 仍为 `NO_GO` |
 | SV1 响应证据缺口 | `ADJUDICATED / FIXED (local)` | 原件仅 1×`OUTBOUND_PERMITTED`、`permitsWithoutRecordedResponse=1`、`responseStatus=NOT_RECORDED`；根因是 canary 在 `responseSource.next` 内抛错早于驱动落盘；修复 `cf0d45b47ffb1d35f1630e993675b50c53777455`；历史原件不回填，该次 usage 与 tool-request 数保持未知 |
 | PR #105 | `OPEN / CI_GREEN / REVIEW_REQUIRED` | head `012093274da742eddd8178b4448d105e6b27c4ac`，base `main`；CI run `34240182684` 的 `check` 与 `macos-electron` 均 success；尚无独立 review，CI 绿不替代内容审查 |
 | `main` CI 基线（2026-09-09） | `BLOCKED / UPSTREAM_ADVISORY` | `origin/main` 仍锁定 `js-yaml@4.3.1`，其 `pnpm audit --prod --audit-level high` 受 `GHSA-2883-xcg3-v3hh` 阻塞；修复在独立 PR #107（`js-yaml@4.3.2`），其后 CR-ARCH #109 与 SV2 #110 的 Context Runtime / Electron workflows 已分别通过。#107 合并前，不能把 `main` 的旧绿灯 run 当作当前基线；修复仍与研究证据 PR 分离 |
