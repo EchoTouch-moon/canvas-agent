@@ -44,7 +44,13 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Run the complete local gate before pushing:
+Run the headless Context Runtime/research gate before pushing a research change:
+
+```bash
+pnpm check:core
+```
+
+Run the complete local product gate before pushing a desktop or shared-contract change:
 
 ```bash
 pnpm check
@@ -64,12 +70,12 @@ CANVAS_AGENT_REAL_AGENT_SMOKE=1 pnpm --filter @canvas-agent/desktop e2e:agent
 
 The command always writes `apps/desktop/dist/reports/agent-smoke.json`; a disabled smoke is recorded as `skipped`, never as executed. For repository selection, Agent readiness/auth recovery, isolated user data and internal-versus-external distribution details, use the [operator guide](docs/operator/product-mvp-v0.2.md).
 
-The repository CI keeps the full source gate on the standard `ubuntu-latest` runner and the credential-free Electron RC gate on the standard `macos-latest` runner. No larger runner is configured.
+The repository CI has two surfaces. `Context Runtime CI` installs and checks the headless packages and research harness without installing the Electron workspace; its scoped audit ignores findings whose paths exist only under the reference client. `Electron Reference Client CI` owns the desktop dependency audit, Electron tests/build and credential-free macOS RC suite, and runs only when the client or one of its direct package dependencies changes. No larger runner is configured.
 
 ## Workspace map
 
 ```text
-apps/desktop                 Electron main, preload and React renderer
+apps/desktop                 Electron reference client: main, preload and React renderer
 packages/domain              Framework-free domain language and invariants
 packages/contracts           Runtime-validated IPC and Worker contracts
 packages/persistence         SQLite project-state implementation
@@ -88,6 +94,14 @@ research/context-benchmarks  Native + Shadow benchmark fixtures and harness
 canvas_agent_design_baseline_v1.1
                              Product and UI design source of truth
 ```
+
+## Runtime and client boundary
+
+Context Runtime is the headless research product. Its core packages and benchmark harness must remain usable without Electron, Chromium, macOS packaging or desktop IPC. Integrations and clients consume the Runtime; the Runtime and its research evidence do not import the Electron client. The accepted boundary work is tracked in [PROPOSAL-033](docs/architecture/decisions/PROPOSAL-033-context-runtime-research-boundary.md).
+
+Electron remains in this repository as a reference client and visualization shell for the local Product MVP. It owns its own test, build, packaging and production-dependency audit surface. A change under `research/**` or the headless Runtime packages does not require the Electron workflow; a change to the client or to packages it directly consumes does. A lockfile-only change that intentionally affects the client can run that workflow through its manual dispatch entry point.
+
+The current separation is logical rather than a second repository. Reconsider a physical split only after the client has an independent release cadence, the Runtime has multiple consumers, and the package boundary can be published without rewriting the research history.
 
 ## Collaboration
 
