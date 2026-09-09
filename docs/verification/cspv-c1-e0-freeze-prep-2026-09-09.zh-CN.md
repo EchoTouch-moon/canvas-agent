@@ -1,6 +1,6 @@
 # C1 SUPERSEDED_VERSION Effectiveness E0 Freeze Preparation
 
-日期：2026-09-09（Asia/Shanghai）。状态：`IMPLEMENTED / FREEZE_REVIEW_PENDING / EXECUTION_NO_GO`。
+日期：2026-09-09（Asia/Shanghai）。状态：`IMPLEMENTED / REVISIONS_APPLIED / RE_REVIEW_PENDING / EXECUTION_NO_GO`。
 
 本记录验收 E0 的四项 freeze-prep 实现：Enrollment Manifest、study-level Run Contract、
 `C1_EFFECTIVENESS_DOSE_V1` schema 和 credential-free readiness matrix。本记录没有 Provider 调用，
@@ -12,7 +12,7 @@
 | ------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
 | Enrollment Manifest | `C1_EFFECTIVENESS_E0_ENROLLMENT_V1`          | `research/context-benchmarks/c1/e0/manifests/c1-effectiveness-e0-enrollment-v1.json` | `manifestSha256=9b3d787219c93f8ba7563e5b52366245c6279a697b7e729b5426e12bfab7a6bb`    |
 | Candidate pool      | `C1_E0_HISTORICAL_SUPERSEDED_OPPORTUNITY_V1` | 同上                                                                                 | `candidatePoolHash=d3a9c0965b2a11817c8eba88efc67c6a178e1e6736aac1d2e96b857b4ad827dc` |
-| Run Contract        | `C1_EFFECTIVENESS_E0_RUN_V1`                 | `research/context-benchmarks/c1/e0/contracts/c1-effectiveness-e0-run-v1.json`        | `runContractSha256=fb32ad79352353f3350dd28812eed730ba2acdbd8ff2ff3a636a9535e168ab5d` |
+| Run Contract        | `C1_EFFECTIVENESS_E0_RUN_V1`                 | `research/context-benchmarks/c1/e0/contracts/c1-effectiveness-e0-run-v1.json`        | `runContractSha256=1fa1840c5869b2a3c60f891cb37b10706fc41830651f1bc56131e87753ffdfb3` |
 | Dose schema         | `C1_EFFECTIVENESS_DOSE_V1`                   | `research/context-benchmarks/src/c1-e0-dose.ts`                                      | `schemaVersion=1`                                                                    |
 | Readiness           | `C1_EFFECTIVENESS_E0_READINESS_V1`           | `research/context-benchmarks/src/c1-e0-readiness.ts`                                 | provider-free matrix                                                                 |
 
@@ -23,6 +23,8 @@ Enrollment 明确标记 `enrollmentCohort=HISTORICAL_OPPORTUNITY_ENRICHED`。当
 
 Run Contract 固定 4 pairs / 8 legs、`maxConcurrency=1`、2:2 arm-order quota、无 adaptive sampling、
 `QUALIFICATION_NOT_CONFIRMATORY`、Step Plan `step-3.7-flash`、无 fallback、memory-only credential、
+`providerConfigHash=bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a`、
+以及 `nonZeroTreatmentPairs>=2` 且 `nonZeroDistinctTasks>=2` 的 qualification gate；另含
 24/96/600000 per-leg budget、192/768/4800000 study budget，以及 `NO_PROVIDER` 前置状态。
 
 ## 2. Dose and provider-bound semantics
@@ -56,7 +58,7 @@ Native/Runtime trajectory ordinal。
 
 ## 3. Credential-free readiness evidence
 
-`tests/c1-e0-dose.test.ts` 的 12 项测试覆盖：
+`tests/c1-e0-dose.test.ts` 的 16 项测试覆盖：
 
 | 场景                                             | 期望                                                          |
 | ------------------------------------------------ | ------------------------------------------------------------- |
@@ -69,6 +71,10 @@ Native/Runtime trajectory ordinal。
 | experiment invalidator                           | counterpart 被阻断并记录 invalidation                         |
 | response gap                                     | UNKNOWN，不补零                                               |
 | claimed REMOVE but equal pre/post hash           | treatment integrity fail                                      |
+| zero dose + hard invalidator                     | FAIL 优先于 INACTIVE（5 类交叉场景）                         |
+| unknown top-level Runtime source                 | allowlist fail closed；递归 forbidden-key guard 仍保留       |
+| response observed + usage unavailable            | OBSERVED / UNAVAILABLE，不以零替代                           |
+| two non-zero pairs on one task                   | INCONCLUSIVE；必须覆盖两个 distinct task                     |
 
 ## 4. Verification
 
@@ -76,6 +82,8 @@ Native/Runtime trajectory ordinal。
 - `pnpm --filter @canvas-agent/context-benchmarks typecheck`：passed。
 - `pnpm --filter @canvas-agent/context-benchmarks test`：28 个测试文件、226 项通过。
 - Dose/Binding 定向测试：12/12 passed。
+- 本轮 Revision 3 定向测试：16/16 passed；新增 allowlist、hard-failure precedence、usage split 和双任务 gate。
+- 本轮 typecheck、`benchmark:c1-e0-binding`、Prettier check 均 passed；本地 Node `v23.11.0` 因仓库要求 `>=24` 仅发出 engine warning，未作为 Node 24 证据。
 - `pnpm check:core`：audit、format、lint、typecheck、非桌面 tests/build 的新增路径均通过。
 - 远端 Context Runtime CI：run `34325494016` passed。
 - PR A Enrollment/Run Binding：run `34325818925` passed。
@@ -90,14 +98,14 @@ Native/Runtime trajectory ordinal。
 
 ```text
 Enrollment Manifest       IMPLEMENTED / READY_FOR_REVIEW
-Run Contract              IMPLEMENTED / READY_FOR_REVIEW
+Run Contract              IMPLEMENTED / READY_FOR_REVIEW (providerConfigHash + distinct-task gate)
 Dose schema               IMPLEMENTED / READY_FOR_REVIEW
-Credential-free readiness IMPLEMENTED / PASS
+Credential-free readiness IMPLEMENTED / PASS (Revision 3 hardening)
 E0 live                   NO_GO
 E1                        HOLD
 C1 original 64-leg        NO_GO
 ```
 
 E0 live 前仍需把 `codeRevision` 从 `PENDING_E0_EXECUTION` 替换为经过 review 的 exact clean revision，
-冻结最终 artifact hashes、owner authorization 和 single-use study identity。任何 E0 PASS 只产生进入 E1
+冻结最终 artifact hashes（包括 `providerConfigHash`）、owner authorization 和 single-use study identity。任何 E0 PASS 只产生进入 E1
 review 的资格，不自动恢复 64-leg 或产生因果 effectiveness 结论。

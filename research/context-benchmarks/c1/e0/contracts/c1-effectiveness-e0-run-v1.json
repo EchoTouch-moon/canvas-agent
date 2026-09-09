@@ -13,7 +13,11 @@
       "nativeThenRuntime": 2,
       "runtimeThenNative": 2
     },
-    "enrollmentCohort": "HISTORICAL_OPPORTUNITY_ENRICHED"
+    "enrollmentCohort": "HISTORICAL_OPPORTUNITY_ENRICHED",
+    "qualificationGate": {
+      "minNonZeroTreatmentPairs": 2,
+      "minNonZeroDistinctTasks": 2
+    }
   },
   "enrollmentBinding": {
     "manifestId": "C1_EFFECTIVENESS_E0_ENROLLMENT_V1",
@@ -61,7 +65,8 @@
     "credentialEnv": "STEP_PLAN_API_KEY",
     "credentialPersistence": "MEMORY_ONLY",
     "fallback": "NONE",
-    "executionMode": "E0_STRICT"
+    "executionMode": "E0_STRICT",
+    "providerConfigHash": "bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a"
   },
   "budgets": {
     "perLeg": {
@@ -119,5 +124,5 @@
   "claims": "E0_DIRECTIONAL_QUALIFICATION_ONLY",
   "estimand": "NOT_CONFIRMATORY",
   "noResumeRetryReuse": true,
-  "runContractSha256": "fb32ad79352353f3350dd28812eed730ba2acdbd8ff2ff3a636a9535e168ab5d"
+  "runContractSha256": "1fa1840c5869b2a3c60f891cb37b10706fc41830651f1bc56131e87753ffdfb3"
 }

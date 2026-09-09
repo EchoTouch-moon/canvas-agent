@@ -1,3 +1,8 @@
+import {
+  C1_E0_PAIR_COUNT,
+  C1_E0_MIN_NON_ZERO_DISTINCT_TASKS,
+  C1_E0_MIN_NON_ZERO_TREATMENT_PAIRS
+} from './c1-e0-binding'
 import { type C1E0DoseSummary, validateC1E0DoseObservation } from './c1-e0-dose'
 
 export const C1_E0_READINESS_ID = 'C1_EFFECTIVENESS_E0_READINESS_V1'
@@ -25,28 +30,75 @@ export const C1_E0_RUNTIME_ALLOWED_INPUTS = Object.freeze([
   'carriedRemovalEvidence'
 ] as const)
 
+export interface C1E0RuntimePolicyInput {
+  readonly modelVisibleMessages: unknown
+  readonly toolRequests: unknown
+  readonly toolExecutionResults: unknown
+  readonly versionProbeFingerprints: unknown
+  readonly runtimeTransitionEvidence: unknown
+  readonly carriedRemovalEvidence: unknown
+}
+
 export type C1E0FailureSignal =
   'TASK_OUTCOME' | 'ISOLATED_HARNESS_FAILURE' | 'EXPERIMENT_INVALIDATOR'
 
 export interface C1E0ResponseEvidenceStatus {
   readonly status: 'OBSERVED' | 'UNKNOWN'
-  readonly usage: 'AVAILABLE' | 'UNKNOWN'
+  readonly usage: 'AVAILABLE' | 'UNKNOWN' | 'UNAVAILABLE'
   readonly zeroSubstitutionAllowed: false
 }
 
+export type C1E0UsageEvidenceStatus = 'AVAILABLE' | 'UNAVAILABLE'
+
+export interface C1E0ResponseEvidenceInput {
+  readonly responseRecorded: boolean
+  readonly usageStatus: C1E0UsageEvidenceStatus
+}
+
 export function classifyC1E0ResponseEvidence(
-  responseRecorded: boolean
+  input: C1E0ResponseEvidenceInput
 ): C1E0ResponseEvidenceStatus {
-  return responseRecorded
-    ? { status: 'OBSERVED', usage: 'AVAILABLE', zeroSubstitutionAllowed: false }
-    : { status: 'UNKNOWN', usage: 'UNKNOWN', zeroSubstitutionAllowed: false }
+  if (!input.responseRecorded) {
+    return { status: 'UNKNOWN', usage: 'UNKNOWN', zeroSubstitutionAllowed: false }
+  }
+  return {
+    status: 'OBSERVED',
+    usage: input.usageStatus,
+    zeroSubstitutionAllowed: false
+  }
 }
 
 export function shouldRunC1E0Counterpart(signal: C1E0FailureSignal): boolean {
   return signal !== 'EXPERIMENT_INVALIDATOR'
 }
 
-export function assertC1E0RuntimePolicyInput(value: Record<string, unknown>): void {
+export function assertC1E0RuntimePolicyInput(
+  value: unknown
+): asserts value is C1E0RuntimePolicyInput {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(
+      'E0 runtime policy input allowlist violation: top-level value must be an object'
+    )
+  }
+  const record = value as Record<string, unknown>
+  const allowed = new Set<string>(C1_E0_RUNTIME_ALLOWED_INPUTS)
+  const keys = Object.keys(record)
+  const unknownTopLevel = keys.filter((key) => !allowed.has(key)).sort()
+  const missingTopLevel = C1_E0_RUNTIME_ALLOWED_INPUTS.filter(
+    (key) => !Object.prototype.hasOwnProperty.call(record, key)
+  )
+  if (unknownTopLevel.length > 0 || missingTopLevel.length > 0) {
+    const details = [
+      ...(unknownTopLevel.length > 0
+        ? [`unknown top-level source(s): ${unknownTopLevel.join(', ')}`]
+        : []),
+      ...(missingTopLevel.length > 0
+        ? [`missing top-level source(s): ${missingTopLevel.join(', ')}`]
+        : [])
+    ]
+    throw new Error(`E0 runtime policy input allowlist violation: ${details.join('; ')}`)
+  }
+
   const forbidden = new Set<string>()
   const visit = (candidate: unknown): void => {
     if (typeof candidate !== 'object' || candidate === null) return
@@ -59,10 +111,15 @@ export function assertC1E0RuntimePolicyInput(value: Record<string, unknown>): vo
       visit(child)
     }
   }
-  visit(value)
+  visit(record)
   if (forbidden.size > 0) {
     throw new Error(`E0 ground-truth leakage detected: ${[...forbidden].sort().join(', ')}`)
   }
+}
+
+export function validateC1E0RuntimePolicyInput(value: unknown): C1E0RuntimePolicyInput {
+  assertC1E0RuntimePolicyInput(value)
+  return value
 }
 
 export interface C1E0TreatmentIntegrityInput {
@@ -85,6 +142,8 @@ export function evaluateC1E0TreatmentIntegrity(
   input: C1E0TreatmentIntegrityInput
 ): C1E0TreatmentIntegrityResult {
   const reasons: string[] = []
+  const inactiveDose =
+    input.dose.uniqueEligiblePairs.length === 0 || input.dose.uniqueRemovedPairs.length === 0
   if (input.runtimePolicyInput !== undefined) {
     try {
       assertC1E0RuntimePolicyInput(input.runtimePolicyInput)
@@ -92,13 +151,10 @@ export function evaluateC1E0TreatmentIntegrity(
       reasons.push(error instanceof Error ? error.message : String(error))
     }
   }
-  if (input.dose.uniqueEligiblePairs.length === 0 || input.dose.uniqueRemovedPairs.length === 0) {
-    reasons.push('no non-zero treatment dose')
-  }
-  if (input.dose.runtimeContextChangedCalls === 0) {
+  if (!inactiveDose && input.dose.runtimeContextChangedCalls === 0) {
     reasons.push('provider-bound context did not change')
   }
-  if (input.dose.treatmentExposureRatio === 'NOT_ESTIMABLE') {
+  if (!inactiveDose && input.dose.treatmentExposureRatio === 'NOT_ESTIMABLE') {
     reasons.push('treatment exposure ratio is not estimable')
   }
   if (input.dose.rehydrateCount > 0) reasons.push('unexpected rehydrate')
@@ -108,20 +164,72 @@ export function evaluateC1E0TreatmentIntegrity(
   if (input.dose.contractConflictCount > 0 || input.replayVerdict === 'CONTRACT_CONFLICT') {
     reasons.push('replay/policy contract conflict')
   }
-  if (input.replayVerdict !== 'MATCH') reasons.push(`replay verdict=${input.replayVerdict}`)
+  if (input.replayVerdict === 'CONTRACT_CONFLICT') {
+    reasons.push(`replay verdict=${input.replayVerdict}`)
+  } else if (!inactiveDose && input.replayVerdict !== 'MATCH') {
+    reasons.push(`replay verdict=${input.replayVerdict}`)
+  }
   if (!input.envelopePreserved) reasons.push('provider envelope drifted')
   if (!input.noFallback) reasons.push('silent fallback or arm substitution')
   if (!input.checkpointComplete) reasons.push('evidence checkpoint join incomplete')
   if (reasons.length > 0) {
     return {
-      verdict:
-        input.dose.uniqueEligiblePairs.length === 0 || input.dose.uniqueRemovedPairs.length === 0
-          ? 'INACTIVE'
-          : 'FAIL',
+      verdict: 'FAIL',
       reasons: Object.freeze(reasons)
     }
   }
+  if (inactiveDose) {
+    return { verdict: 'INACTIVE', reasons: Object.freeze(['no non-zero treatment dose']) }
+  }
   return { verdict: 'PASS', reasons: Object.freeze([]) }
+}
+
+export interface C1E0BatchQualificationInput {
+  readonly pairCount: number
+  readonly completedPairCount: number
+  readonly nonZeroTreatmentPairTaskIds: readonly string[]
+  readonly experimentInvalidator?: boolean
+}
+
+export interface C1E0BatchQualificationResult {
+  readonly verdict: 'PASS' | 'INCONCLUSIVE' | 'NO_GO'
+  readonly reasons: readonly string[]
+  readonly nonZeroTreatmentPairs: number
+  readonly nonZeroDistinctTasks: number
+}
+
+export function evaluateC1E0BatchQualification(
+  input: C1E0BatchQualificationInput
+): C1E0BatchQualificationResult {
+  const nonZeroDistinctTasks = new Set(input.nonZeroTreatmentPairTaskIds).size
+  const result = {
+    nonZeroTreatmentPairs: input.nonZeroTreatmentPairTaskIds.length,
+    nonZeroDistinctTasks
+  }
+  if (input.experimentInvalidator === true) {
+    return {
+      ...result,
+      verdict: 'NO_GO',
+      reasons: Object.freeze(['experiment invalidator prevents E0 qualification'])
+    }
+  }
+  const reasons: string[] = []
+  if (input.pairCount !== C1_E0_PAIR_COUNT) {
+    reasons.push(`pair count=${input.pairCount}; expected ${C1_E0_PAIR_COUNT}`)
+  }
+  if (input.completedPairCount !== input.pairCount) {
+    reasons.push('not all frozen pairs have complete pair-level status')
+  }
+  if (result.nonZeroTreatmentPairs < C1_E0_MIN_NON_ZERO_TREATMENT_PAIRS) {
+    reasons.push(`nonZeroTreatmentPairs<${C1_E0_MIN_NON_ZERO_TREATMENT_PAIRS}`)
+  }
+  if (result.nonZeroDistinctTasks < C1_E0_MIN_NON_ZERO_DISTINCT_TASKS) {
+    reasons.push(`nonZeroDistinctTasks<${C1_E0_MIN_NON_ZERO_DISTINCT_TASKS}`)
+  }
+  if (reasons.length > 0) {
+    return { ...result, verdict: 'INCONCLUSIVE', reasons: Object.freeze(reasons) }
+  }
+  return { ...result, verdict: 'PASS', reasons: Object.freeze([]) }
 }
 
 export interface C1E0ReadinessScenarioResult {

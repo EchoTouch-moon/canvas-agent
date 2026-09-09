@@ -4,6 +4,7 @@ import {
   aggregateC1E0Dose,
   assertC1E0RuntimePolicyInput,
   classifyC1E0ResponseEvidence,
+  evaluateC1E0BatchQualification,
   evaluateC1E0ReadinessScenario,
   evaluateC1E0TreatmentIntegrity,
   shouldRunC1E0Counterpart,
@@ -51,6 +52,29 @@ function summaryWith(overrides: Partial<C1E0DoseSummary> = {}): C1E0DoseSummary 
   return {
     ...aggregateC1E0Dose([observation()]),
     ...overrides
+  }
+}
+
+function inactiveSummary(overrides: Partial<C1E0DoseSummary> = {}): C1E0DoseSummary {
+  return summaryWith({
+    runtimeContextChangedCalls: 0,
+    uniqueEligiblePairs: [],
+    uniqueSelectedPairs: [],
+    uniqueRemovedPairs: [],
+    uniqueRemovedSourceElements: [],
+    treatmentExposureRatio: 0,
+    ...overrides
+  })
+}
+
+function emptyRuntimePolicyInput(): Record<string, unknown> {
+  return {
+    modelVisibleMessages: [],
+    toolRequests: [],
+    toolExecutionResults: [],
+    versionProbeFingerprints: {},
+    runtimeTransitionEvidence: [],
+    carriedRemovalEvidence: []
   }
 }
 
@@ -206,22 +230,39 @@ describe('C1 E0 dose schema', () => {
   })
 
   it('fails closed when ground truth appears in the Runtime policy input', () => {
-    expect(() => assertC1E0RuntimePolicyInput({ changedPaths: [] })).toThrow(/ground-truth leakage/)
-    expect(() => assertC1E0RuntimePolicyInput({ metadata: { objectiveOracle: {} } })).toThrow(
-      /ground-truth leakage/
-    )
-    expect(() => assertC1E0RuntimePolicyInput({ modelVisibleMessages: [] })).not.toThrow()
+    expect(() => assertC1E0RuntimePolicyInput({ changedPaths: [] })).toThrow(/allowlist/)
+    expect(() =>
+      assertC1E0RuntimePolicyInput({ ...emptyRuntimePolicyInput(), metadata: {} })
+    ).toThrow(/allowlist/)
+    expect(() =>
+      assertC1E0RuntimePolicyInput({
+        ...emptyRuntimePolicyInput(),
+        modelVisibleMessages: [{ objectiveOracle: {} }]
+      })
+    ).toThrow(/ground-truth leakage/)
+    expect(() => assertC1E0RuntimePolicyInput(emptyRuntimePolicyInput())).not.toThrow()
   })
 
   it('keeps a missing response unknown instead of substituting numeric zeroes', () => {
-    expect(classifyC1E0ResponseEvidence(false)).toEqual({
+    expect(
+      classifyC1E0ResponseEvidence({ responseRecorded: false, usageStatus: 'UNAVAILABLE' })
+    ).toEqual({
       status: 'UNKNOWN',
       usage: 'UNKNOWN',
       zeroSubstitutionAllowed: false
     })
-    expect(classifyC1E0ResponseEvidence(true)).toEqual({
+    expect(
+      classifyC1E0ResponseEvidence({ responseRecorded: true, usageStatus: 'AVAILABLE' })
+    ).toEqual({
       status: 'OBSERVED',
       usage: 'AVAILABLE',
+      zeroSubstitutionAllowed: false
+    })
+    expect(
+      classifyC1E0ResponseEvidence({ responseRecorded: true, usageStatus: 'UNAVAILABLE' })
+    ).toEqual({
+      status: 'OBSERVED',
+      usage: 'UNAVAILABLE',
       zeroSubstitutionAllowed: false
     })
   })
@@ -248,5 +289,94 @@ describe('C1 E0 dose schema', () => {
     })
     expect(protectedFailure.verdict).toBe('FAIL')
     expect(protectedFailure.reasons.join(' ')).toMatch(/protected evidence/)
+  })
+
+  it('prioritizes hard integrity failures over an inactive zero-dose verdict', () => {
+    const cases = [
+      {
+        name: 'ground-truth leakage',
+        overrides: {},
+        extra: { runtimePolicyInput: { ...emptyRuntimePolicyInput(), metadata: {} } },
+        reason: /allowlist/
+      },
+      {
+        name: 'contract conflict',
+        overrides: { contractConflictCount: 1 },
+        extra: { replayVerdict: 'CONTRACT_CONFLICT' as const },
+        reason: /contract conflict/
+      },
+      {
+        name: 'protected removal',
+        overrides: { protectedRemovalCount: 1 },
+        extra: { protectedEvidenceRemoved: true },
+        reason: /protected evidence/
+      },
+      {
+        name: 'envelope drift',
+        overrides: {},
+        extra: { envelopePreserved: false },
+        reason: /envelope drifted/
+      },
+      {
+        name: 'checkpoint gap',
+        overrides: {},
+        extra: { checkpointComplete: false },
+        reason: /checkpoint join incomplete/
+      }
+    ] as const
+
+    for (const testCase of cases) {
+      const result = evaluateC1E0TreatmentIntegrity({
+        dose: inactiveSummary(testCase.overrides),
+        replayVerdict: 'UNKNOWN',
+        envelopePreserved: true,
+        protectedEvidenceRemoved: false,
+        noFallback: true,
+        checkpointComplete: true,
+        ...testCase.extra
+      })
+      expect(result.verdict, testCase.name).toBe('FAIL')
+      expect(result.reasons.join(' '), testCase.name).toMatch(testCase.reason)
+    }
+  })
+
+  it('requires non-zero treatment on two distinct tasks for the E0 batch gate', () => {
+    expect(
+      evaluateC1E0BatchQualification({
+        pairCount: 4,
+        completedPairCount: 4,
+        nonZeroTreatmentPairTaskIds: ['task-a', 'task-a']
+      })
+    ).toMatchObject({
+      verdict: 'INCONCLUSIVE',
+      nonZeroTreatmentPairs: 2,
+      nonZeroDistinctTasks: 1
+    })
+    expect(
+      evaluateC1E0BatchQualification({
+        pairCount: 4,
+        completedPairCount: 4,
+        nonZeroTreatmentPairTaskIds: ['task-a', 'task-b']
+      })
+    ).toMatchObject({
+      verdict: 'PASS',
+      nonZeroTreatmentPairs: 2,
+      nonZeroDistinctTasks: 2
+    })
+    expect(
+      evaluateC1E0BatchQualification({
+        pairCount: 4,
+        completedPairCount: 3,
+        nonZeroTreatmentPairTaskIds: ['task-a', 'task-b']
+      }).verdict
+    ).toBe('INCONCLUSIVE')
+    expect(
+      evaluateC1E0BatchQualification({
+        pairCount: 4,
+        completedPairCount: 4,
+        nonZeroTreatmentPairTaskIds: ['task-a', 'task-b'],
+        experimentInvalidator: true
+      }).verdict
+    ).toBe('NO_GO')
   })
 })

@@ -4,6 +4,8 @@ import {
   C1_E0_ENROLLMENT_COHORT,
   C1_E0_ENROLLMENT_MANIFEST_ID,
   C1_E0_PAIR_COUNT,
+  C1_E0_PROVIDER_CONFIG_HASH,
+  C1_E0_PROVIDER_REQUEST_CONFIG,
   C1_E0_RUN_CONTRACT_ID,
   C1_E0_SELECTION_ALGORITHM_ID,
   assertC1E0RunContract,
@@ -11,6 +13,7 @@ import {
   computeC1E0CandidatePoolHash,
   computeC1E0EnrollmentManifestSha256,
   computeC1E0RunContractSha256,
+  hashCanonicalC1E0,
   loadC1E0EnrollmentManifest,
   loadC1E0RunContract,
   selectC1E0CandidateTaskIds,
@@ -53,6 +56,11 @@ describe('C1 E0 enrollment and run binding', () => {
     expect(contract.design.pairCount).toBe(4)
     expect(contract.design.totalLegs).toBe(8)
     expect(contract.design.armOrderQuota).toEqual({ nativeThenRuntime: 2, runtimeThenNative: 2 })
+    expect(contract.design.qualificationGate).toEqual({
+      minNonZeroTreatmentPairs: 2,
+      minNonZeroDistinctTasks: 2
+    })
+    expect(contract.executionBinding.providerConfigHash).toBe(C1_E0_PROVIDER_CONFIG_HASH)
     expect(
       contract.pairAssignments.filter((assignment) => assignment.order === 'NATIVE_THEN_RUNTIME')
     ).toHaveLength(2)
@@ -122,5 +130,18 @@ describe('C1 E0 enrollment and run binding', () => {
   it('uses canonical object-key ordering while preserving array order', () => {
     expect(canonicalC1E0Json({ b: 1, a: [2, 3] })).toBe('{"a":[2,3],"b":1}')
     expect(canonicalC1E0Json([2, 1])).toBe('[2,1]')
+  })
+
+  it('binds the credential-free outbound request configuration', () => {
+    expect(hashCanonicalC1E0(C1_E0_PROVIDER_REQUEST_CONFIG)).toBe(C1_E0_PROVIDER_CONFIG_HASH)
+    expect(JSON.stringify(C1_E0_PROVIDER_REQUEST_CONFIG)).not.toMatch(/api[_-]?key|credential/i)
+    expect(C1_E0_PROVIDER_REQUEST_CONFIG.request).toMatchObject({
+      model: 'step-3.7-flash',
+      max_tokens: 16_384,
+      temperature: null,
+      top_p: null,
+      stream: false,
+      tool_choice: null
+    })
   })
 })
