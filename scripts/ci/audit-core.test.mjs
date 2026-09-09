@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import {
   assertWorkspaceClassification,
   classifyWorkspaceDirectories,
@@ -26,6 +28,23 @@ test('classifies every current workspace and rejects drift', () => {
     referenceClient: [],
     unknown: ['packages/context-memory']
   })
+})
+
+test('fails closed when a new workspace is discovered without a classification', async () => {
+  const root = await mkdtemp(join('/tmp', 'canvas-audit-classification-'))
+  try {
+    await mkdir(join(root, 'packages', 'context-memory'), { recursive: true })
+    await writeFile(
+      join(root, 'packages', 'context-memory', 'package.json'),
+      '{"name":"context-memory"}\n'
+    )
+    assert.throws(
+      () => assertWorkspaceClassification(root),
+      /Workspace classification drift detected.*packages\/context-memory/
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('fails core audit when one advisory reaches a core path', () => {
