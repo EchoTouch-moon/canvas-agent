@@ -3,6 +3,7 @@ import {
   C1_E0_DOSE_SCHEMA_ID,
   aggregateC1E0Dose,
   assertC1E0RuntimePolicyInput,
+  classifyC1E0ResponseEvidence,
   evaluateC1E0ReadinessScenario,
   evaluateC1E0TreatmentIntegrity,
   shouldRunC1E0Counterpart,
@@ -210,6 +211,19 @@ describe('C1 E0 dose schema', () => {
       /ground-truth leakage/
     )
     expect(() => assertC1E0RuntimePolicyInput({ modelVisibleMessages: [] })).not.toThrow()
+  })
+
+  it('keeps a missing response unknown instead of substituting numeric zeroes', () => {
+    expect(classifyC1E0ResponseEvidence(false)).toEqual({
+      status: 'UNKNOWN',
+      usage: 'UNKNOWN',
+      zeroSubstitutionAllowed: false
+    })
+    expect(classifyC1E0ResponseEvidence(true)).toEqual({
+      status: 'OBSERVED',
+      usage: 'AVAILABLE',
+      zeroSubstitutionAllowed: false
+    })
   })
 
   it('rejects a replay conflict or protected removal at the integrity layer', () => {

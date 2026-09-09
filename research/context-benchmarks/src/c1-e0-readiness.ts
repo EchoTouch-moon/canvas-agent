@@ -28,6 +28,20 @@ export const C1_E0_RUNTIME_ALLOWED_INPUTS = Object.freeze([
 export type C1E0FailureSignal =
   'TASK_OUTCOME' | 'ISOLATED_HARNESS_FAILURE' | 'EXPERIMENT_INVALIDATOR'
 
+export interface C1E0ResponseEvidenceStatus {
+  readonly status: 'OBSERVED' | 'UNKNOWN'
+  readonly usage: 'AVAILABLE' | 'UNKNOWN'
+  readonly zeroSubstitutionAllowed: false
+}
+
+export function classifyC1E0ResponseEvidence(
+  responseRecorded: boolean
+): C1E0ResponseEvidenceStatus {
+  return responseRecorded
+    ? { status: 'OBSERVED', usage: 'AVAILABLE', zeroSubstitutionAllowed: false }
+    : { status: 'UNKNOWN', usage: 'UNKNOWN', zeroSubstitutionAllowed: false }
+}
+
 export function shouldRunC1E0Counterpart(signal: C1E0FailureSignal): boolean {
   return signal !== 'EXPERIMENT_INVALIDATOR'
 }

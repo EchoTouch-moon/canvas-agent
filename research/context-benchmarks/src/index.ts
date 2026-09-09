@@ -244,12 +244,14 @@ export {
   C1_E0_RUNTIME_ALLOWED_INPUTS,
   C1_E0_RUNTIME_FORBIDDEN_INPUTS,
   assertC1E0RuntimePolicyInput,
+  classifyC1E0ResponseEvidence,
   evaluateC1E0ReadinessScenario,
   evaluateC1E0TreatmentIntegrity,
   shouldRunC1E0Counterpart,
   validateC1E0ReadinessDose,
   type C1E0FailureSignal,
   type C1E0ReadinessScenarioResult,
+  type C1E0ResponseEvidenceStatus,
   type C1E0TreatmentIntegrityInput,
   type C1E0TreatmentIntegrityResult
 } from './c1-e0-readiness'
