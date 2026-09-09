@@ -1,6 +1,9 @@
 # Context Runtime 当前状态索引
 
-更新时间：2026-09-08（Asia/Shanghai）。本次更新在 `codex/c1-v4-offline-followup` 本地分支；未推送或合并远端。
+更新时间：2026-09-08（Asia/Shanghai，夜间增补）。前次更新在 `codex/c1-v4-offline-followup`
+（PR #105，head `012093274da742eddd8178b4448d105e6b27c4ac`，远端 CI `check` 与 `macos-electron` 均绿、待独立审查）；
+本次增补在 `codex/qwen-sv1-response-evidence`（基于 `0120932`），记录机制 Canary V1–V3 与生命周期 Canary SV1
+的**真实执行结果**和一项本地证据闭环修复。历史数字与结论保留原貌，不改写既有报告。
 
 ## 当前结论
 
@@ -8,11 +11,20 @@ C1 V4 已真实尝试并终止。近端主线改为失败证据与干预可达�
 系统通路已有工程证据，但没有可信的 Native-vs-Runtime 效果结论。
 
 ```text
-New Provider calls      NO_GO
-V4 study                TERMINAL / RETIRED
-Old study resume/reuse  FORBIDDEN
-Wave B / productization NO_GO
+New Provider calls        NO_GO
+V4 study                  TERMINAL / RETIRED
+Mechanism canary V1–V3    TERMINAL / CANARY_STOP ×3（真实调用 5）
+Lifecycle canary SV1      TERMINAL / CANARY_STOP（真实调用 1）
+Old study resume/reuse    FORBIDDEN
+Wave B / productization   NO_GO
 ```
+
+四次 Canary 停止（V1–V3 + SV1）中**只有 V1–V3 带有可用的模型行为观测**：三次都要求模型重复读取，
+观测到它比提示要求少读一次（2→1、2→1、1→0）。SV1 的响应证据因下述缺口未被持久化，其 `outcome` 类型
+（`COMPLETE` 还是 `FAILED`）、`assistantContent` 与 tool-request 数**全部未知**，因此**不能**并入该模式，
+也不得叙述为"模型主动拒绝工具"。Runtime 臂四次均未产生**已记录的**真实移除，**机制问题仍未回答**；
+这不证明任何模型永远无法执行某行为，只说明当前诊断形态需要重新设计。详见
+[SV1 执行与证据缺口裁定](../verification/cspv-c1-lifecycle-canary-sv1-live-execution-2026-09-08.zh-CN.md)。
 
 V4 study：`c1-20260906-c1-feasibility-v1-5a4b5d58`，执行 SHA：`cf4b7ea61be784a92bcefec895b2d36888b91172`。
 计划 64 leg、尝试 19、完成 18、终止未完成 1、未执行 45；完成 9/32 pair（T1 8、T2 1、T3/T4 0）。
@@ -28,8 +40,25 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 - 已完成：26 文件哈希校验、本机持久副本、可重复的 checkpoint 对账、13 项合成回归测试，以及绑定执行 SHA 的干预路径定位。
 - 已完成核心修复：响应及逐工具事件独立持久化，manifest 明确区分全程与完成子集，异常尾部保留未知。
 - 已执行受控干预实验：同输入基线保留全部来源，重复读取候选在第 2、3 请求发生移除；同时修复并验证连续移除的历史沿用与指纹边界。
-- 下一项是真实只读机制 Canary：新合同、最多 6 请求，假 Provider 流程已通过；等待精确版本与身份的 owner 授权。V4 永不恢复、补跑或重绑定。
+- 已执行（真实 Provider，共 6 次调用）：机制 Canary V1/V2/V3 与生命周期 Canary SV1 四次均获 owner 显式授权并执行，
+  四次全部 `CANARY_STOP`、身份 terminal/retired。V1–V3 停在 Native 门（模型比提示要求少读一次：2→1、2→1、1→0）；
+  SV1 停在冻结序列第一步（`finalStage=EXPECT_READ_A`）：durable evidence 只支持"1 次出站请求已发出、
+  返回了一个 `outcome !== 'CONTINUE'` 的正规化响应"；该响应未落盘，其 `outcome` 类型、内容与 tool-request 数未知，
+  **不得**读作"模型 0 次工具调用直接作答"。Runtime 臂四次均未产生**已记录的**真实移除。
+- 已裁定并本地修复（零 Provider）：SV1 暴露“响应已返回但诊断提前终止导致 `RESPONSE_RECEIVED`/`RESPONSE_RECORDED`
+  未持久化”的证据缺口——`checkpoints.jsonl` 只剩 1 条许可、`permitsWithoutRecordedResponse=1`，该次响应的
+  tool-request 数与 usage 结构性缺失。修复提交 `cf0d45b47ffb1d35f1630e993675b50c53777455`：先让驱动落盘已知响应，
+  再抛出同一个 `CANARY_STOP`；裁决、failureCode、finalStage 与“腿不计入完成”的分类均不变，合同 SHA 不变，
+  历史 live 原件不回填。定向复现先红后绿，C1 相关 9 文件 85 项回归全绿，`tsc` 干净；
+  经有界审查确认为 approve-with-nits，两项文档精度问题（源码行数 +15/−2、提前终止腿上
+  `answerMatched`/`changedCalls` 现按证据求值）已如实修正并补锁定测试。
+- 下一项需 owner 决策，不自动执行：①SV2 诊断设计（触发条件完全由 harness 构造，不再依赖模型自愿行为）；
+  或②接受机制层负结果，转入生命周期合同 §11.5 的 effectiveness A/B 设计（Intervention Dose 为自变量）。
+  **SV2 的动机只能建立在 V1–V3 的三次观测上，不得据 SV1 推断模型行为**；若要判断"模型是否愿意在本诊断形态下
+  取用工具"，需要一次运行在修复后代码上的新执行（新合同、新身份、新授权），历史 SV1 不可追溯判定。
+  两者都需新合同、新身份、新授权。V4 与四次 Canary 身份永不恢复、补跑或重绑定；64-leg 维持 NO_GO。
 
+[SV1 执行与证据缺口裁定](../verification/cspv-c1-lifecycle-canary-sv1-live-execution-2026-09-08.zh-CN.md) ·
 [后续实施验证](../verification/cspv-c1-followup-execution-2026-09-08.zh-CN.md) ·
 [机制 Canary 计划](../plan/cspv-mechanism-canary-2026-09-08.zh-CN.md) ·
 [本轮执行计划](../plan/cspv-c1-next-execution-2026-09-08.zh-CN.md) ·
@@ -54,6 +83,11 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 | C1 study orchestration | `MERGED / ACCEPTED` | 64-leg 顺序执行、隔离 sandbox、七类 metadata-only evidence、terminal/kill-switch |
 | 首次 C1 Live attempt | `TERMINAL / NOT ADMISSIBLE` | study `c1-20260905-c1-feasibility-v1-35359a74`；1 次 provider/network attempt、0 个 completed leg、usage capability mismatch |
 | 首次 study identity | `CONSUMED / RETIRED` | 永不 resume、reuse 或 rebind；不能用 #98 或后续修复继续该 identity |
+| 机制 Canary V1–V3 | `TERMINAL / CANARY_STOP ×3` | study `c1-mechanism-20260908-312fad65` / `-2d05cb78` / `-4fa2ce0e`；真实调用 2+2+1；三次均停在 Native 门（模型读 1/1/0 次），Runtime 臂未执行；三个身份均 consumed/retired |
+| 生命周期 Canary SV1 | `TERMINAL / CANARY_STOP` | study `c1-lifecycle-20260908-d4b4f5dc`；执行提交 `012093274da742eddd8178b4448d105e6b27c4ac`、合同 SHA `7c4577a25499ad512883c006f773bc87d538ae5528e8692da87990158b21c7e5`；1 次真实调用、`finalStage=EXPECT_READ_A`。`toolResults=[]`/`changedCalls=[]`/`answerMatched=false` 均为抛错跳过赋值留下的**默认值、非观测**；响应的 `outcome` 类型（`COMPLETE`/`FAILED`）、内容与 tool-request 数**未知**；身份 consumed/retired |
+| SV1 响应证据缺口 | `ADJUDICATED / FIXED (local)` | 原件仅 1×`OUTBOUND_PERMITTED`、`permitsWithoutRecordedResponse=1`、`responseStatus=NOT_RECORDED`；根因是 canary 在 `responseSource.next` 内抛错早于驱动落盘；修复 `cf0d45b47ffb1d35f1630e993675b50c53777455`；历史原件不回填，该次 usage 与 tool-request 数保持未知 |
+| PR #105 | `OPEN / CI_GREEN / REVIEW_REQUIRED` | head `012093274da742eddd8178b4448d105e6b27c4ac`，base `main`；CI run `34240182684` 的 `check` 与 `macos-electron` 均 success；尚无独立 review，CI 绿不替代内容审查 |
+| 仓库级 CI 阻塞（2026-09-09） | `BLOCKED / UPSTREAM_ADVISORY` | `pnpm audit --prod --audit-level high` 现对**任何** head 失败：`js-yaml` high 级 advisory `GHSA-2883-xcg3-v3hh`（**公布于 2026-09-08T21:24:51Z**），易受攻击区间 `>=4.0.0 <4.3.2`，补丁版本 `4.3.2`（公布于 2026-08-26，已过本仓 `minimumReleaseAge: 1440` 门槛），依赖路径 `apps__desktop>shadcn>cosmiconfig>js-yaml`；lockfile 锁的是 `js-yaml@4.3.1`。因此 21:24Z 之前的绿灯 run（如 #105 的 `34240182684`、#106 的 `34248951819`）**不得再读作当前 CI 状态**。修复属独立供应链改动（`pnpm-workspace.yaml` overrides + lockfile，先例 PR #92 fast-uri audit），本轮**不与证据闭环 PR 捆绑** |
 | CR-005 | `CLOSED_AS_STOPPED_EXPERIMENT` | Run 1/Run 2 保留；没有把 C5/C6 伪装成补跑结果 |
 | CSPV-B0/B1 | `POLICY_CAPABILITY_GAP → PASS` | 原 oracle 先暴露缺口，B1 在不改 frozen suite 的条件下修复并通过 |
 

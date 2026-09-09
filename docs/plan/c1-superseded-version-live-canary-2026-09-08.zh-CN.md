@@ -5,6 +5,29 @@
 [Replay 能力裁定](../verification/cspv-c1-superseded-version-replay-capability-2026-09-08.zh-CN.md)。
 性质：`CONTROLLED_MECHANISM_NOT_EFFECTIVENESS`——真实 Provider 生命周期机制证明，不回答效果问题。
 
+> **执行后状态更新（2026-09-08 夜间；上方状态行与本页其余冻结内容一律不改）**
+>
+> - 本设计已实现于 `012093274da742eddd8178b4448d105e6b27c4ac`，`contractSha256` 与 §1 一致
+>   （`7c4577a25499ad512883c006f773bc87d538ae5528e8692da87990158b21c7e5`）；该提交远端 CI run `34240182684`
+>   的 `check` 与 `macos-electron` 均 success。
+> - §6 的四项授权前置在执行时均已满足，owner 于 2026-09-08 22:52 显式授权，随后**已真实执行一次**：
+>   study `c1-lifecycle-20260908-d4b4f5dc`，结果 `FAIL / CANARY_STOP`、terminal/retired；1 次 Provider 调用、
+>   `finalStage=EXPECT_READ_A`。durable evidence 只支持"出站请求已发出，且返回了一个 `outcome !== 'CONTINUE'`
+>   的正规化响应"；报告里的 `toolResults=[]`、`changedCalls=[]`、`answerMatched=false` 都是抛错跳过赋值留下的
+>   **默认值、不是观测**，该响应的 `outcome` 类型（`COMPLETE` 还是 `FAILED`）、内容与 tool-request 数**未知**。
+>   §5 的 PASS 定义**未被满足**：Runtime 未产生已记录的真实移除，机制问题仍未回答。
+>   §0 关于"每次工具调用都对任务必需、因而不依赖模型冗余"的假设，在本次执行中**既未被证实也未被证伪**——
+>   该次执行没有留下任何可判断模型是否愿意取用工具的证据，不得叙述为"模型拒绝工具"。
+> - 该次执行另暴露一个工程缺口：诊断在 `responseSource.next` 内提前抛错，驱动来不及写
+>   `RESPONSE_RECEIVED`/`RESPONSE_RECORDED`（原件只剩 1 条许可、`permitsWithoutRecordedResponse=1`，
+>   该次响应的 tool-request 数与 usage 结构性缺失）。已在
+>   `cf0d45b47ffb1d35f1630e993675b50c53777455` 本地修复：先落盘已知响应，再抛同一个 `CANARY_STOP`；
+>   裁决、failureCode、failureMessage、finalStage 与"腿不计入完成"的分类均不变，
+>   §1–§5 的合同字段与 `contractSha256` 不变，历史原件不回填。
+> - 身份已消耗，不恢复、不重试、不复用；本更新仅为状态同步，**不构成任何新的执行授权**。
+>   完整结果、根因、验证命令与计数口径见
+>   [SV1 执行与证据缺口裁定](../verification/cspv-c1-lifecycle-canary-sv1-live-execution-2026-09-08.zh-CN.md)。
+
 ## 0. 与机制 Canary V1–V3 的本质区别
 
 **单臂 Runtime-only，无 Native 前置门。** 本步只回答"真实 Provider 上 Runtime 能否改变模型可见上下文"；

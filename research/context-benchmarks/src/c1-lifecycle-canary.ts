@@ -311,6 +311,11 @@ export async function runC1LifecycleCanary(options: {
   const toolResults: { toolCallId: string; toolName: string; path?: string; result: string }[] = []
   const changedCalls: number[] = []
   let carriedAtFinal: readonly string[] = []
+  // A sequence violation observed on an already-returned response is recorded
+  // here and raised only after the driver persisted that response. Throwing from
+  // inside responseSource.next would discard the receipt for a call the provider
+  // actually served, leaving a permit with no recorded response.
+  let deferredStop: string | null = null
 
   const stop = (reason: string): never => {
     // Plain Error so the failure ledger records CANARY_STOP via the catch-all,
@@ -516,9 +521,12 @@ export async function runC1LifecycleCanary(options: {
               if (options.mode === 'LIVE') providerCalls += 1
               else fakeResponses += 1
               const response = await source.next(request, sourceOptions)
-              if (response.outcome !== 'CONTINUE' && stage !== 'EXPECT_COMPLETE')
-                stop('model completed before the sequence reached EXPECT_COMPLETE')
               if (response.outcome !== 'CONTINUE') {
+                // Recorded, not thrown: the driver persists this response's
+                // receipt and evidence row before the leg ends, and a terminal
+                // outcome already prevents any further outbound request.
+                if (stage !== 'EXPECT_COMPLETE')
+                  deferredStop ??= 'model completed before the sequence reached EXPECT_COMPLETE'
                 answerMatched = response.assistantContent.trim() === MARKER
                 if (stage === 'EXPECT_COMPLETE') stage = 'TERMINAL'
               }
@@ -566,6 +574,11 @@ export async function runC1LifecycleCanary(options: {
           if (row.runtimeContextChanged) changedCalls.push(row.callOrdinal)
         }
         carriedAtFinal = result.evidence.at(-1)?.carriedRemovedSourceKeys ?? []
+        // Raised only here: every served response is durable by now. The leg is
+        // still not counted as completed, because reaching a terminal outcome is
+        // not the same as satisfying the frozen sequence.
+        const pendingStop: string | null = deferredStop
+        if (pendingStop !== null) stop(pendingStop)
         completed.add(runId)
       } finally {
         await rm(root, { recursive: true, force: true })
