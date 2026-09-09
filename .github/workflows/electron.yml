@@ -10,6 +10,7 @@ on:
       - 'packages/domain/**'
       - 'packages/persistence/**'
       - 'packages/worker-runtime/**'
+      - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - '.github/workflows/electron.yml'
   pull_request:
@@ -19,6 +20,7 @@ on:
       - 'packages/domain/**'
       - 'packages/persistence/**'
       - 'packages/worker-runtime/**'
+      - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - '.github/workflows/electron.yml'
 

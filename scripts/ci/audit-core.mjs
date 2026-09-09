@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process'
+import { readdirSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 
@@ -16,6 +18,60 @@ export const CORE_WORKSPACE_PREFIXES = Object.freeze([
   'packages__worker-runtime',
   'research__context-benchmarks'
 ])
+
+// Keep this directory classification separate from audit path prefixes. The
+// former catches newly added workspaces; the latter classifies advisory paths.
+export const CORE_WORKSPACE_DIRECTORIES = Object.freeze([
+  'packages/codex-context-integration',
+  'packages/context-conformance',
+  'packages/context-runtime',
+  'packages/contracts',
+  'packages/domain',
+  'packages/persistence',
+  'packages/pi-context-integration',
+  'packages/repository-observer',
+  'packages/worker-runtime',
+  'research/context-benchmarks'
+])
+
+export const REFERENCE_CLIENT_WORKSPACE_DIRECTORIES = Object.freeze(['apps/desktop'])
+
+export function discoverWorkspaceDirectories(root) {
+  return ['apps', 'packages', 'research']
+    .flatMap((workspaceRoot) => {
+      const directory = join(root, workspaceRoot)
+      if (!existsSync(directory)) return []
+      return readdirSync(directory, { withFileTypes: true })
+        .filter(
+          (entry) => entry.isDirectory() && existsSync(join(directory, entry.name, 'package.json'))
+        )
+        .map((entry) => `${workspaceRoot}/${entry.name}`)
+    })
+    .sort()
+}
+
+export function classifyWorkspaceDirectories(directories) {
+  const core = new Set(CORE_WORKSPACE_DIRECTORIES)
+  const referenceClient = new Set(REFERENCE_CLIENT_WORKSPACE_DIRECTORIES)
+  return {
+    core: directories.filter((directory) => core.has(directory)),
+    referenceClient: directories.filter((directory) => referenceClient.has(directory)),
+    unknown: directories.filter(
+      (directory) => !core.has(directory) && !referenceClient.has(directory)
+    )
+  }
+}
+
+export function assertWorkspaceClassification(root = process.cwd()) {
+  const discovered = discoverWorkspaceDirectories(root)
+  const classification = classifyWorkspaceDirectories(discovered)
+  if (classification.unknown.length > 0) {
+    throw new Error(
+      `Workspace classification drift detected; classify before auditing: ${classification.unknown.join(', ')}`
+    )
+  }
+  return { discovered, ...classification }
+}
 
 export function isCoreAuditPath(path) {
   return CORE_WORKSPACE_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}>`))
@@ -49,6 +105,13 @@ function parseAuditOutput(raw) {
 }
 
 export function runCoreAudit() {
+  let workspaceClassification
+  try {
+    workspaceClassification = assertWorkspaceClassification()
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    return 1
+  }
   const result = spawnSync(
     'pnpm',
     ['audit', '--prod', '--audit-level', 'high', '--json', '--registry=https://registry.npmjs.org'],
@@ -79,6 +142,7 @@ export function runCoreAudit() {
     `${JSON.stringify(
       {
         scope: 'headless-context-runtime-and-research',
+        workspaceClassification,
         coreFindings: findings,
         electronOrOtherFindingsExcluded: ignored.length,
         auditExitCode: result.status ?? 1
