@@ -10,7 +10,7 @@ import {
   shouldRunC1E0Counterpart,
   validateC1E0DoseObservation
 } from '../src'
-import type { C1E0DoseObservation, C1E0DoseSummary } from '../src'
+import type { C1E0DoseObservation, C1E0DoseSummary, C1E0RuntimePolicyInput } from '../src'
 
 const HASH_A = 'a'.repeat(64)
 const HASH_B = 'b'.repeat(64)
@@ -76,6 +76,10 @@ function emptyRuntimePolicyInput(): Record<string, unknown> {
     runtimeTransitionEvidence: [],
     carriedRemovalEvidence: []
   }
+}
+
+function unsafeRuntimePolicyInput(value: unknown): C1E0RuntimePolicyInput {
+  return value as C1E0RuntimePolicyInput
 }
 
 describe('C1 E0 dose schema', () => {
@@ -296,7 +300,12 @@ describe('C1 E0 dose schema', () => {
       {
         name: 'ground-truth leakage',
         overrides: {},
-        extra: { runtimePolicyInput: { ...emptyRuntimePolicyInput(), metadata: {} } },
+        extra: {
+          runtimePolicyInput: unsafeRuntimePolicyInput({
+            ...emptyRuntimePolicyInput(),
+            metadata: {}
+          })
+        },
         reason: /allowlist/
       },
       {

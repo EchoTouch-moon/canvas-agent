@@ -129,7 +129,7 @@ export interface C1E0TreatmentIntegrityInput {
   readonly protectedEvidenceRemoved: boolean
   readonly noFallback: boolean
   readonly checkpointComplete: boolean
-  readonly runtimePolicyInput?: Record<string, unknown>
+  readonly runtimePolicyInput?: C1E0RuntimePolicyInput
 }
 
 export interface C1E0TreatmentIntegrityResult {
