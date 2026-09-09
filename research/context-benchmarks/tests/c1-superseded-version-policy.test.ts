@@ -112,9 +112,9 @@ describe('SUPERSEDED_VERSION lifecycle policy', () => {
       ...editPair(EDIT_ID, 'src/a.js'),
       ...readPair(READ_ID, 'src/a.js', V2)
     ])
-    expect(
-      applyC1SupersededVersionPolicy(input, committed(input), { versionProbe: probeV2 })
-    ).toBe(input)
+    expect(applyC1SupersededVersionPolicy(input, committed(input), { versionProbe: probeV2 })).toBe(
+      input
+    )
   })
 
   it('keeps the read pair when the mutation failed', () => {
@@ -122,9 +122,9 @@ describe('SUPERSEDED_VERSION lifecycle policy', () => {
       ...readPair(READ_ID, 'src/a.js', V1),
       ...editPair(EDIT_ID, 'src/a.js', true)
     ])
-    expect(
-      applyC1SupersededVersionPolicy(input, committed(input), { versionProbe: probeV2 })
-    ).toBe(input)
+    expect(applyC1SupersededVersionPolicy(input, committed(input), { versionProbe: probeV2 })).toBe(
+      input
+    )
   })
 
   it('reports NOT_SUPERSEDED for a no-op edit whose version is unchanged', () => {
@@ -139,7 +139,12 @@ describe('SUPERSEDED_VERSION lifecycle policy', () => {
     })
     expect(output).toBe(input)
     expect(sink).toEqual([
-      { status: 'NOT_SUPERSEDED', reason: 'VERSION_UNCHANGED', path: 'src/a.js', readCallId: READ_ID }
+      {
+        status: 'NOT_SUPERSEDED',
+        reason: 'VERSION_UNCHANGED',
+        path: 'src/a.js',
+        readCallId: READ_ID
+      }
     ])
   })
 
@@ -168,9 +173,9 @@ describe('SUPERSEDED_VERSION lifecycle policy', () => {
       ...readPair(READ_ID, 'src/a.js', V1),
       ...editPair(EDIT_ID, 'src/b.js')
     ])
-    expect(
-      applyC1SupersededVersionPolicy(input, committed(input), { versionProbe: probeV2 })
-    ).toBe(input)
+    expect(applyC1SupersededVersionPolicy(input, committed(input), { versionProbe: probeV2 })).toBe(
+      input
+    )
   })
 
   it('never evicts an uncommitted read pair', () => {
@@ -186,9 +191,9 @@ describe('SUPERSEDED_VERSION lifecycle policy', () => {
       [...readPair(READ_ID, 'src/a.js', V1), ...editPair(EDIT_ID, 'src/a.js')],
       { latestVerificationSourceKeys: [READ_KEYS[0]!] }
     )
-    expect(
-      applyC1SupersededVersionPolicy(input, committed(input), { versionProbe: probeV2 })
-    ).toBe(input)
+    expect(applyC1SupersededVersionPolicy(input, committed(input), { versionProbe: probeV2 })).toBe(
+      input
+    )
   })
 
   it('evicts only the stale pair when other reads stay current', () => {
@@ -207,14 +212,17 @@ describe('SUPERSEDED_VERSION lifecycle policy', () => {
   })
 
   it.each([
-    ['read result isError', (msgs: PiMessageView[]) => ((msgs[1] = { ...msgs[1]!, isError: true }), msgs)],
+    [
+      'read result isError',
+      (msgs: PiMessageView[]) => ((msgs[1] = { ...msgs[1]!, isError: true }), msgs)
+    ],
     [
       'read has extra argument',
       (msgs: PiMessageView[]) => (
-        (msgs[0]!.content as Record<string, unknown>[])[0]!['arguments'] = {
+        ((msgs[0]!.content as Record<string, unknown>[])[0]!['arguments'] = {
           path: 'src/a.js',
           limit: 5
-        },
+        }),
         msgs
       )
     ],
@@ -228,13 +236,11 @@ describe('SUPERSEDED_VERSION lifecycle policy', () => {
     [
       'read result is opaque',
       (msgs: PiMessageView[]) => (
-        (msgs[1] = { ...msgs[1]!, content: [{ type: 'image', data: 'x' }] }), msgs
+        (msgs[1] = { ...msgs[1]!, content: [{ type: 'image', data: 'x' }] }),
+        msgs
       )
     ],
-    [
-      'edit id is ambiguous',
-      (msgs: PiMessageView[]) => (msgs.push(msgs[3]!), msgs)
-    ],
+    ['edit id is ambiguous', (msgs: PiMessageView[]) => (msgs.push(msgs[3]!), msgs)],
     [
       'edit message carries two toolCalls',
       (msgs: PiMessageView[]) => (
@@ -250,9 +256,9 @@ describe('SUPERSEDED_VERSION lifecycle policy', () => {
   ])('keeps the pair under guard: %s', (_name, mutate) => {
     const messages = [...readPair(READ_ID, 'src/a.js', V1), ...editPair(EDIT_ID, 'src/a.js')]
     const input = observation(mutate(messages))
-    expect(
-      applyC1SupersededVersionPolicy(input, committed(input), { versionProbe: probeV2 })
-    ).toBe(input)
+    expect(applyC1SupersededVersionPolicy(input, committed(input), { versionProbe: probeV2 })).toBe(
+      input
+    )
   })
 
   it.each(['/abs/path.js', '../escape.js', 'a/./b.js', 'a\\b.js'])(
@@ -271,7 +277,7 @@ describe('SUPERSEDED_VERSION lifecycle policy', () => {
   it('treats a successful write as a mutation too', () => {
     const messages = [...readPair(READ_ID, 'src/a.js', V1), ...editPair(EDIT_ID, 'src/a.js')]
     const writeCall = {
-      ...((messages[2]!.content as Record<string, unknown>[])[0]!),
+      ...(messages[2]!.content as Record<string, unknown>[])[0]!,
       name: 'write'
     }
     messages[2] = { ...messages[2]!, content: [writeCall] }

@@ -25,9 +25,7 @@ export const C1_SUPERSEDED_VERSION_POLICY_ID = 'C1_SUPERSEDED_VERSION_V1'
  */
 
 export type C1LifecycleUnknownReason =
-  | 'AFTER_VERSION_UNOBSERVABLE'
-  | 'BEFORE_VERSION_UNFORMED'
-  | 'VERSION_UNCHANGED'
+  'AFTER_VERSION_UNOBSERVABLE' | 'BEFORE_VERSION_UNFORMED' | 'VERSION_UNCHANGED'
 
 export interface C1LifecycleUnknown {
   readonly status: 'UNKNOWN' | 'NOT_SUPERSEDED'
@@ -214,9 +212,7 @@ export function applyC1SupersededVersionPolicy(
       .filter((entry) => entry.path === pair.path && entry.messageIndex > pair.messageIndex)
       .sort((a, b) => a.messageIndex - b.messageIndex)[0]
     if (mutation === undefined) continue
-    if (
-      pair.sourceKeys.some((key) => protectedKeys.has(key) || !knownCommittedSourceKeys.has(key))
-    )
+    if (pair.sourceKeys.some((key) => protectedKeys.has(key) || !knownCommittedSourceKeys.has(key)))
       continue
     const probe = options.versionProbe?.(pair.path)
     if (probe === undefined) {

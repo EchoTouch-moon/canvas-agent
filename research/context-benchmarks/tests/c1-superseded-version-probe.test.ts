@@ -146,49 +146,51 @@ async function runSvLeg(root: string, outputRoot: string, arm: 'NATIVE' | 'RUNTI
     const sandbox = new C1SandboxToolExecutor(root)
     const source = new C1ScriptedResponseSource(scriptedResponses())
     let answerMatched = false
-    return await driver.runLeg({
-      studyId,
-      task,
-      stratum: task.stratum,
-      pairId: 'sv-p01',
-      arm,
-      runId: `${studyId}-${arm}`,
-      fixtureContentSha256: summary.sha256,
-      fixtureTreeObjectId: task.fixtureRevision.fixtureTreeObjectId,
-      runtimeSessionId: `${studyId}-runtime`,
-      maxCalls: 4,
-      responseAbortSignal: new AbortController().signal,
-      observationSource: {
-        initialObservation: observations.initialObservation,
-        next: (input) => {
-          const observation = observations.next(input)
-          if (arm !== 'RUNTIME') return observation
-          return applyC1SupersededVersionPolicy(
-            observation,
-            c1SupersededVersionCommittedKeys(input.previousExecution),
-            {
-              versionProbe: (path) => {
-                try {
-                  return sha256(readFileSync(join(root, path), 'utf8'))
-                } catch {
-                  return undefined
+    return await driver
+      .runLeg({
+        studyId,
+        task,
+        stratum: task.stratum,
+        pairId: 'sv-p01',
+        arm,
+        runId: `${studyId}-${arm}`,
+        fixtureContentSha256: summary.sha256,
+        fixtureTreeObjectId: task.fixtureRevision.fixtureTreeObjectId,
+        runtimeSessionId: `${studyId}-runtime`,
+        maxCalls: 4,
+        responseAbortSignal: new AbortController().signal,
+        observationSource: {
+          initialObservation: observations.initialObservation,
+          next: (input) => {
+            const observation = observations.next(input)
+            if (arm !== 'RUNTIME') return observation
+            return applyC1SupersededVersionPolicy(
+              observation,
+              c1SupersededVersionCommittedKeys(input.previousExecution),
+              {
+                versionProbe: (path) => {
+                  try {
+                    return sha256(readFileSync(join(root, path), 'utf8'))
+                  } catch {
+                    return undefined
+                  }
                 }
               }
-            }
-          )
-        }
-      },
-      responseSource: {
-        kind: 'SCRIPTED_FAKE',
-        next: async (request, options) => {
-          const response = await source.next(request)
-          if (response.outcome !== 'CONTINUE')
-            answerMatched = response.assistantContent.trim() === 'SV-OK'
-          return response
-        }
-      },
-      toolExecutor: sandbox
-    }).then((result) => ({ result, answerMatched }))
+            )
+          }
+        },
+        responseSource: {
+          kind: 'SCRIPTED_FAKE',
+          next: async (request, options) => {
+            const response = await source.next(request)
+            if (response.outcome !== 'CONTINUE')
+              answerMatched = response.assistantContent.trim() === 'SV-OK'
+            return response
+          }
+        },
+        toolExecutor: sandbox
+      })
+      .then((result) => ({ result, answerMatched }))
   } finally {
     binding.dispose()
   }

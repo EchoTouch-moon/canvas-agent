@@ -51,11 +51,7 @@ export interface C1LifecycleReplayRecord {
   readonly sourceKeys: readonly string[]
 }
 
-export type C1LifecycleReplayVerdict =
-  | 'SUPERSEDED'
-  | 'NOT_SUPERSEDED'
-  | 'UNKNOWN'
-  | 'NOT_CANDIDATE'
+export type C1LifecycleReplayVerdict = 'SUPERSEDED' | 'NOT_SUPERSEDED' | 'UNKNOWN' | 'NOT_CANDIDATE'
 
 export interface C1LifecycleReplayCaptureOptions {
   readonly runId: string
@@ -166,8 +162,7 @@ export function adjudicateC1LifecycleReplayRecord(
   if (record.beforeVersionFingerprint === null) return 'UNKNOWN'
   if (record.after.probeStatus !== 'OBSERVED' || record.after.versionFingerprint === null)
     return 'UNKNOWN'
-  if (record.after.versionFingerprint === record.beforeVersionFingerprint)
-    return 'NOT_SUPERSEDED'
+  if (record.after.versionFingerprint === record.beforeVersionFingerprint) return 'NOT_SUPERSEDED'
   return 'SUPERSEDED'
 }
 

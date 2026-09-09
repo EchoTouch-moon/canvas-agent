@@ -255,7 +255,9 @@ describe('mechanism canary contract versions', () => {
     expect(
       resolveC1MechanismCanaryContract(C1_MECHANISM_CANARY_CONTRACT_V2_SHA256).prompt
     ).toContain('Do not reply before both read results are present')
-    expect(() => resolveC1MechanismCanaryContract('f'.repeat(64))).toThrow('Unknown canary contract')
+    expect(() => resolveC1MechanismCanaryContract('f'.repeat(64))).toThrow(
+      'Unknown canary contract'
+    )
   })
 
   it('runs the V2 contract end to end in fake mode and records the V2 binding', async () => {
@@ -378,9 +380,7 @@ describe('mechanism canary V3 bootstrap-duplicate design', () => {
         ['NATIVE', 1, []],
         ['RUNTIME', 1, [2]]
       ])
-      const runtime = result.callAccounting.calls
-        .filter((call) => call.arm === 'RUNTIME')
-        .at(-1)!
+      const runtime = result.callAccounting.calls.filter((call) => call.arm === 'RUNTIME').at(-1)!
       // The bootstrap removal is a fresh decision at call 2, so nothing is
       // "carried" yet; carried removals are asserted in the sustained test.
       expect(runtime.receipt?.carriedRemovedSourceKeys).toEqual([])

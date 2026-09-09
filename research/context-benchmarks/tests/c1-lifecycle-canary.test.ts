@@ -264,11 +264,7 @@ describe('C1_LIFECYCLE_CANARY_SV1 (Runtime-only pure-evict canary)', () => {
         .trim()
         .split('\n')
         .map((line) => JSON.parse(line).phase as string)
-      expect(phases).toEqual([
-        'OUTBOUND_PERMITTED',
-        'RESPONSE_RECEIVED',
-        'RESPONSE_RECORDED'
-      ])
+      expect(phases).toEqual(['OUTBOUND_PERMITTED', 'RESPONSE_RECEIVED', 'RESPONSE_RECORDED'])
     } finally {
       await rm(outputRoot, { recursive: true, force: true })
     }

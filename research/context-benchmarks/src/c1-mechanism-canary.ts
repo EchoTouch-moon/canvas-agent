@@ -59,12 +59,13 @@ const PROMPT_V3 =
   'This is a read-only mechanism diagnostic. Call read on README.md once, then reply with only the diagnostic marker from that file. Do not call edit or bash or any other tool. Do not read any other path.'
 /** Successful-read expectations per frozen contract; lives outside the
  * serialized contract JSON exactly like the rest of the gate logic. */
-const CANARY_READ_GATES_BY_CONTRACT_ID: ReadonlyMap<string, { min: number; max: number }> =
-  new Map([
+const CANARY_READ_GATES_BY_CONTRACT_ID: ReadonlyMap<string, { min: number; max: number }> = new Map(
+  [
     ['C1_MECHANISM_CANARY_V1', { min: 2, max: 2 }],
     ['C1_MECHANISM_CANARY_V2', { min: 2, max: 2 }],
     ['C1_MECHANISM_CANARY_V3', { min: 1, max: 2 }]
-  ])
+  ]
+)
 function buildMechanismCanaryContract(contractId: string, prompt: string) {
   return Object.freeze({
     contractId,
@@ -130,9 +131,11 @@ const CANARY_PROMPTS_BY_CONTRACT: ReadonlyMap<string, string> = new Map([
   ['C1_MECHANISM_CANARY_V3', PROMPT_V3]
 ])
 /** Resolve the frozen contract a binding refers to; defaults to V1 when omitted. */
-export function resolveC1MechanismCanaryContract(
-  contractSha256?: string
-): { contract: C1MechanismCanaryContract; contractSha256: string; prompt: string } {
+export function resolveC1MechanismCanaryContract(contractSha256?: string): {
+  contract: C1MechanismCanaryContract
+  contractSha256: string
+  prompt: string
+} {
   const resolvedSha = contractSha256 ?? C1_MECHANISM_CANARY_CONTRACT_SHA256
   const contract = CANARY_CONTRACTS_BY_SHA.get(resolvedSha)
   if (!contract) throw new Error('Unknown canary contract binding')

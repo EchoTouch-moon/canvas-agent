@@ -185,11 +185,7 @@ export function c1LifecycleCanaryScriptedResponses() {
 }
 
 type Stage =
-  | 'EXPECT_READ_A'
-  | 'EXPECT_EDIT_A'
-  | 'EXPECT_READ_README'
-  | 'EXPECT_COMPLETE'
-  | 'TERMINAL'
+  'EXPECT_READ_A' | 'EXPECT_EDIT_A' | 'EXPECT_READ_README' | 'EXPECT_COMPLETE' | 'TERMINAL'
 
 const LIFECYCLE_GATE_CALL = 3
 
@@ -488,9 +484,7 @@ export async function runC1LifecycleCanary(options: {
                 }))
                 if (adjudications.some((entry) => entry.verdict === 'UNKNOWN'))
                   stop('lifecycle adjudication UNKNOWN at the gate call')
-                const superseded = adjudications.filter(
-                  (entry) => entry.verdict === 'SUPERSEDED'
-                )
+                const superseded = adjudications.filter((entry) => entry.verdict === 'SUPERSEDED')
                 if (superseded.length !== 1)
                   stop(`expected exactly one SUPERSEDED record, received ${superseded.length}`)
                 const staleKeys = superseded[0]!.record.sourceKeys
@@ -547,8 +541,7 @@ export async function runC1LifecycleCanary(options: {
                 throw new Error(`CANARY_STOP: no tool execution allowed in stage ${stage}`)
               }
               expectTool(input.response.toolRequests, expected)
-              const beforeHash =
-                expected.tool === 'edit' ? versionProbe('src/a.js') : undefined
+              const beforeHash = expected.tool === 'edit' ? versionProbe('src/a.js') : undefined
               const execution = await sandbox.execute(input)
               for (const event of execution.executions) {
                 toolResults.push({ ...event })
