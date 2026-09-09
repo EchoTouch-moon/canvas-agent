@@ -382,7 +382,8 @@ Token reduction、较低 input usage 或较少 provider calls 不能抵销 corre
 只有同时满足以下条件才可记为 `E0 PASS / ELIGIBLE_FOR_E1_REVIEW`：
 
 1. 固定的 4 个 matched pairs 均有 leg-level 状态记录，且至少 `2` 个 pair 的 Runtime leg 产生
-   `uniqueEligiblePairs>0` 且 `uniqueRemovedPairs>0`（`nonZeroTreatmentPairs>=2`）；
+   `uniqueEligiblePairs>0` 且 `uniqueRemovedPairs>0`（`nonZeroTreatmentPairs>=2`），并且这些 non-zero pair
+   至少覆盖 `2` 个 distinct task IDs（`nonZeroDistinctTasks>=2`）；
 2. 每个 conditional treatment leg 的 `prePolicyProviderBoundMessagesHash != postPolicyProviderBoundMessagesHash`、
    replay `MATCH`、协议不变量和 evidence join 均通过；
 3. Native/Runtime envelope 与 pair binding 没有漂移，无 silent fallback；
@@ -390,15 +391,16 @@ Token reduction、较低 input usage 或较少 provider calls 不能抵销 corre
 5. 没有触发 `SAFETY_STOP`，也没有未经 adjudication 的 `SAFETY_REVIEW`；
 6. 所有 dose=0、UNKNOWN、未完成 leg 和 attrition 均保留在 ITT 口径中。
 
-E0 PASS 只表示：在 `HISTORICAL_OPPORTUNITY_ENRICHED` cohort 中，至少两对独立 pair 重现了可审计的 non-zero
-treatment dose，且完整归因、质量/安全边界暂未阻止扩样。它是 enriched-cohort recurrence qualification，
+E0 PASS 只表示：在 `HISTORICAL_OPPORTUNITY_ENRICHED` cohort 中，至少两个不同 task 上的独立 pair 重现了可审计的
+non-zero treatment dose，且完整归因、质量/安全边界暂未阻止扩样。它是 enriched-cohort recurrence qualification，
 不是一般 workload prevalence，也不等于策略有效。
 
 ### 9.2 E0 INCONCLUSIVE
 
 以下任一情况记为 `E0 INCONCLUSIVE / HOLD`：
 
-- 固定的 4 pairs 未全部形成可审计的 pair-level 状态，或 `nonZeroTreatmentPairs<2`；
+- 固定的 4 pairs 未全部形成可审计的 pair-level 状态，或 `nonZeroTreatmentPairs<2`，或
+  `nonZeroDistinctTasks<2`；
 - treatment integrity、replay、usage 或 outcome coverage 不足以归因；
 - 只剩 task/harness failure，无法区分策略与基础设施；
 - 出现 `SAFETY_REVIEW` 但尚未完成独立裁定；
@@ -501,7 +503,8 @@ sanitized E0 adjudication
 每次 E0 live run 必须：
 
 - 使用 Node `>=24.0.0 <25.0.0` 和干净 checkout；
-- 绑定 exact `executionRevision`、task manifest hash、run contract hash、provider/model 和 randomization seed；
+- 绑定 exact `executionRevision`、task manifest hash、run contract hash、provider/model、`providerConfigHash` 和
+  randomization seed；
 - 使用 fresh single-use study identity；terminal、crash、timeout、evidence failure 后均不得 resume/retry/reuse；
 - fallback 固定为 `NONE`；Provider、model、工具、参数或 envelope 不得动态切换；
 - 将 owner authorization、预算、数据范围和 `claims=directional qualification only` 写入不可变 binding；
@@ -528,7 +531,9 @@ effectiveness run contract、独立 review 和单独 owner authorization。
 1. 固定的 4 个 pair 与 task IDs；
 2. enrollment rule 的 hash、candidate pool hash/count、selection algorithm/seed、历史证据限制和每个 task 的 fixture/oracle hash；
 3. arm-order quota 与随机化 seed；
-4. provider/model、参数、每-leg/study budgets、timeout、output limit；
+4. provider/model、参数、每-leg/study budgets、timeout、output limit，以及覆盖实际 outbound request
+   configuration（model、max tokens、temperature/top-p、stream、tool schema/tool choice 和 provider-native
+   options）的 `providerConfigHash`；
 5. correctness failure、catastrophic regression 和 attrition 的具体 adjudication owner；
 6. E0 输出目录、artifact hash、retention 和审计共享方式；
 7. dose / exposure / replay 字段的 schema version、实现支持和 credential-free regression tests；
