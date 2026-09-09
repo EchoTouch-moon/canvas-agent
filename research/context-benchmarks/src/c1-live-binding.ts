@@ -1019,6 +1019,14 @@ export interface C1LiveBindingLegInput {
   /** Aborts an in-flight provider request when the study operator stops. */
   readonly responseAbortSignal?: AbortSignal
   readonly killSwitch?: RunKillSwitch
+  /**
+   * Optional pre-existing Runtime Working Set. This is used by harness-seeded
+   * lifecycle probes whose observation represents a later boundary in the
+   * same session. Existing callers start from null as before.
+   */
+  readonly initialWorkingSet?: ContextWorkingSet | null
+  /** Previously committed removals supplied by a harness-seeded boundary. */
+  readonly initialCarriedRemovals?: readonly C1CarriedRemoval[]
 }
 
 export interface C1LiveBindingLegResult {
@@ -1138,9 +1146,11 @@ export class C1LiveBindingDriver {
       })
     let observation = input.observationSource.initialObservation
     let previousObservation = observation
-    let previousWorkingSet: ContextWorkingSet | null = null
+    let previousWorkingSet: ContextWorkingSet | null = input.initialWorkingSet ?? null
     let previousExecution: C1LegExecutionResult | null = null
-    const carriedRemovals = new Map<string, C1CarriedRemoval>()
+    const carriedRemovals = new Map<string, C1CarriedRemoval>(
+      (input.initialCarriedRemovals ?? []).map((removal) => [removal.toolCallId, removal])
+    )
     const evidence: C1LiveBindingEvidence[] = []
     let finalOutcome: C1LiveTaskOutcome | undefined
     let transportSendAttempts = 0
