@@ -58,7 +58,7 @@ Native/Runtime trajectory ordinal。
 
 ## 3. Credential-free readiness evidence
 
-`tests/c1-e0-dose.test.ts` 的 16 项测试覆盖：
+`tests/c1-e0-dose.test.ts` 与 `tests/c1-e0-binding.test.ts` 的 E0 定向测试共 16 项，覆盖：
 
 | 场景                                             | 期望                                                          |
 | ------------------------------------------------ | ------------------------------------------------------------- |
@@ -78,10 +78,10 @@ Native/Runtime trajectory ordinal。
 
 ## 4. Verification
 
-- Node `v24.15.0`、pnpm `11.9.0`。
+- 前一轮完整研究包验证使用 Node `v24.15.0`、pnpm `11.9.0`。
 - `pnpm --filter @canvas-agent/context-benchmarks typecheck`：passed。
-- `pnpm --filter @canvas-agent/context-benchmarks test`：28 个测试文件、226 项通过。
-- Dose/Binding 定向测试：12/12 passed。
+- `pnpm --filter @canvas-agent/context-benchmarks test`：28 个测试文件、230 项通过（远端 Node 24）。
+- Dose/Binding 定向测试：16/16 passed。
 - 本轮 Revision 3 定向测试：16/16 passed；新增 allowlist、hard-failure precedence、usage split 和双任务 gate。
 - 本轮 typecheck、`benchmark:c1-e0-binding`、Prettier check 均 passed；本地 Node `v23.11.0` 因仓库要求 `>=24` 仅发出 engine warning，未作为 Node 24 证据。
 - `pnpm check:core`：audit、format、lint、typecheck、非桌面 tests/build 的新增路径均通过。
