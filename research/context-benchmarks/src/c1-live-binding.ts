@@ -1,4 +1,5 @@
 import { c1ToolPairFingerprint, type C1CarriedRemoval } from './c1-carried-removals'
+import type { C1E0DoseObservation } from './c1-e0-dose'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -825,6 +826,10 @@ export interface C1LiveBindingEvidence {
   readonly providerConfigHash: string
   readonly contextStrategy: C1ProviderBoundCapture['contextStrategy']
   readonly providerBoundSourceKeys: readonly string[]
+  readonly prePolicyProviderBoundMessagesHash?: string
+  readonly postPolicyProviderBoundMessagesHash?: string
+  /** Optional E0 metadata-only dose observation for this composition. */
+  readonly dose?: C1E0DoseObservation
   readonly modelVisibleSemanticContextFingerprint: string
   readonly systemDeveloperToolStructuresFingerprint: string
   readonly workingSetId: string
@@ -1260,6 +1265,18 @@ export class C1LiveBindingDriver {
           providerConfigHash: execution.capture.providerConfigHash,
           contextStrategy: execution.capture.contextStrategy,
           providerBoundSourceKeys: execution.capture.providerBoundSourceKeys,
+          ...(execution.capture.prePolicyProviderBoundMessagesHash === undefined
+            ? {}
+            : {
+                prePolicyProviderBoundMessagesHash:
+                  execution.capture.prePolicyProviderBoundMessagesHash
+              }),
+          ...(execution.capture.postPolicyProviderBoundMessagesHash === undefined
+            ? {}
+            : {
+                postPolicyProviderBoundMessagesHash:
+                  execution.capture.postPolicyProviderBoundMessagesHash
+              }),
           modelVisibleSemanticContextFingerprint:
             execution.capture.modelVisibleSemanticContextFingerprint,
           systemDeveloperToolStructuresFingerprint:
