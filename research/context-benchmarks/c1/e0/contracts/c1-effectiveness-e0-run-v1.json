@@ -1,0 +1,126 @@
+{
+  "contractId": "C1_EFFECTIVENESS_E0_RUN_V1",
+  "schemaVersion": 1,
+  "status": "PREPARED",
+  "design": {
+    "kind": "QUALIFICATION_NOT_CONFIRMATORY",
+    "pairCount": 4,
+    "totalLegs": 8,
+    "maxConcurrency": 1,
+    "adaptiveSampling": false,
+    "pairCountFrozenBeforeFirstResponse": true,
+    "armOrderQuota": {
+      "nativeThenRuntime": 2,
+      "runtimeThenNative": 2
+    },
+    "enrollmentCohort": "HISTORICAL_OPPORTUNITY_ENRICHED"
+  },
+  "enrollmentBinding": {
+    "manifestId": "C1_EFFECTIVENESS_E0_ENROLLMENT_V1",
+    "manifestPath": "research/context-benchmarks/c1/e0/manifests/c1-effectiveness-e0-enrollment-v1.json",
+    "manifestSha256": "9b3d787219c93f8ba7563e5b52366245c6279a697b7e729b5426e12bfab7a6bb",
+    "taskManifestPath": "research/context-benchmarks/c1/manifests/c1-effectiveness-v1.json",
+    "taskManifestSha256": "2bfcad11078758c21a9ca799357553d08beb08065cea2efd179eade7e0a04e38",
+    "enrollmentCohort": "HISTORICAL_OPPORTUNITY_ENRICHED",
+    "candidatePoolHash": "d3a9c0965b2a11817c8eba88efc67c6a178e1e6736aac1d2e96b857b4ad827dc",
+    "candidateCount": 2,
+    "selectionAlgorithmId": "C1_E0_STRATIFIED_SHA256_V1",
+    "selectionSeed": "c1-e0-enrollment-selection-20260909",
+    "selectedTaskIds": [
+      "c1-t2-multi-file-migration-v1",
+      "c1-t1-localized-distractor-v1"
+    ]
+  },
+  "policyBinding": {
+    "policyId": "C1_SUPERSEDED_VERSION_POLICY_V1",
+    "pureEviction": true,
+    "proactiveReread": false,
+    "rehydrateAllowed": false,
+    "runtimeForbiddenInputs": [
+      "changedPaths",
+      "expectedWritablePaths",
+      "task manifest label / removalGroundTruth",
+      "objective oracle / regression oracle",
+      "historical stale labels / V4 prevalence results",
+      "task answers / reference fixture / reports"
+    ],
+    "runtimeAllowedInputs": [
+      "model-visible message stream",
+      "read/edit/write tool requests and execution results",
+      "version-probe content fingerprints",
+      "Runtime transition and carried-removal evidence"
+    ]
+  },
+  "doseBinding": {
+    "schemaId": "C1_EFFECTIVENESS_DOSE_V1",
+    "schemaVersion": 1
+  },
+  "executionBinding": {
+    "provider": "step-plan",
+    "model": "step-3.7-flash",
+    "endpoint": "https://api.stepfun.com/step_plan/v1/chat/completions",
+    "nodeRange": ">=24.0.0 <25.0.0",
+    "codeRevision": "PENDING_E0_EXECUTION",
+    "credentialEnv": "STEP_PLAN_API_KEY",
+    "credentialPersistence": "MEMORY_ONLY",
+    "fallback": "NONE",
+    "executionMode": "E0_STRICT"
+  },
+  "budgets": {
+    "perLeg": {
+      "maxProviderRequests": 24,
+      "maxProviderToolRequests": 96,
+      "maxWallClockMs": 600000,
+      "maxOutputTokensPerRequest": 16384
+    },
+    "study": {
+      "maxProviderRequests": 192,
+      "maxProviderToolRequests": 768,
+      "maxWallClockMs": 4800000,
+      "maxOutputTokensPerRequest": 16384,
+      "maxLegs": 8
+    }
+  },
+  "pairAssignments": [
+    {
+      "pairOrdinal": 1,
+      "pairId": "c1-e0-01",
+      "taskId": "c1-t2-multi-file-migration-v1",
+      "stratum": "multi_file_multi_source",
+      "order": "NATIVE_THEN_RUNTIME",
+      "armSequence": ["NATIVE", "RUNTIME"],
+      "repetition": 1
+    },
+    {
+      "pairOrdinal": 2,
+      "pairId": "c1-e0-02",
+      "taskId": "c1-t1-localized-distractor-v1",
+      "stratum": "localized_investigation_distractors",
+      "order": "NATIVE_THEN_RUNTIME",
+      "armSequence": ["NATIVE", "RUNTIME"],
+      "repetition": 1
+    },
+    {
+      "pairOrdinal": 3,
+      "pairId": "c1-e0-03",
+      "taskId": "c1-t2-multi-file-migration-v1",
+      "stratum": "multi_file_multi_source",
+      "order": "RUNTIME_THEN_NATIVE",
+      "armSequence": ["RUNTIME", "NATIVE"],
+      "repetition": 2
+    },
+    {
+      "pairOrdinal": 4,
+      "pairId": "c1-e0-04",
+      "taskId": "c1-t1-localized-distractor-v1",
+      "stratum": "localized_investigation_distractors",
+      "order": "RUNTIME_THEN_NATIVE",
+      "armSequence": ["RUNTIME", "NATIVE"],
+      "repetition": 2
+    }
+  ],
+  "claims": "E0_DIRECTIONAL_QUALIFICATION_ONLY",
+  "estimand": "NOT_CONFIRMATORY",
+  "noResumeRetryReuse": true,
+  "runContractSha256": "fb32ad79352353f3350dd28812eed730ba2acdbd8ff2ff3a636a9535e168ab5d"
+}
