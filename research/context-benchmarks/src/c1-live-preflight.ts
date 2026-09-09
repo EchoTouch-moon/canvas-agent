@@ -1,3 +1,4 @@
+import { c1CompositionBasis, type C1CarriedRemoval } from './c1-carried-removals'
 import { EventEmitter } from 'node:events'
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
@@ -615,11 +616,7 @@ function parseOracleSpec(value: unknown, label: string): C1OracleSpec {
   if (args.length === 0) {
     fail('MANIFEST_BINDING_MISMATCH', `${label}.args must not be empty`)
   }
-  const expectedExitCode = intField(
-    record,
-    'expectedExitCode',
-    `${label}.expectedExitCode`
-  )
+  const expectedExitCode = intField(record, 'expectedExitCode', `${label}.expectedExitCode`)
   const timeoutMs = intField(record, 'timeoutMs', `${label}.timeoutMs`)
   if (timeoutMs < 1) {
     fail('MANIFEST_BINDING_MISMATCH', `${label}.timeoutMs must be positive`)
@@ -1674,6 +1671,8 @@ export interface C1LegExecutionInput {
   readonly treatmentReady: boolean
   readonly killSwitch?: RunKillSwitch
   readonly previousWorkingSet?: ContextWorkingSet | null
+  /** Prior successful sends only; supplied by the shared driver, never by model output. */
+  readonly carriedRemovals?: readonly C1CarriedRemoval[]
   readonly recompositionSequence?: number
   readonly runtimeSessionId?: string
   /** Set only for the deterministic treatment-opportunity probe. */
@@ -1697,6 +1696,7 @@ export interface C1LegExecutionResult {
   readonly workingSet: ContextWorkingSet | null
   readonly transition: ContextTransition | null
   readonly materializedWorkingSetFingerprint: string
+  readonly carriedRemovedSourceKeys: readonly string[]
   readonly runtimeContextChanged: boolean
   readonly lifecycleEligible: boolean
   readonly replayMismatch: 0
@@ -2039,6 +2039,7 @@ export class C1LegExecutor {
     let providerBoundMessages = input.observation.messages
     let lifecycleEligible = false
     let runtimeContextChanged = false
+    let carriedRemovedSourceKeys: readonly string[] = []
 
     if (input.arm === 'RUNTIME') {
       if (!input.treatmentReady) {
@@ -2069,8 +2070,19 @@ export class C1LegExecutor {
       lifecycleEligible =
         input.requireRuntimeDifference === true ||
         (input.observation.sourceLifecycleSignals?.length ?? 0) > 0
+      let basis: ReturnType<typeof c1CompositionBasis>
+      try {
+        basis = c1CompositionBasis(
+          input.observation.messages,
+          input.carriedRemovals ?? [],
+          new Set(planned.workingSet.items.flatMap((item) => item.sourceKeys))
+        )
+      } catch {
+        fail('REWRITE_FAILURE', 'carried removal provenance verification failed')
+      }
+      carriedRemovedSourceKeys = basis.removedSourceKeys
       const composition = composeActiveRewrite({
-        messages: input.observation.messages,
+        messages: basis.messages,
         workingSet: planned.workingSet,
         transition:
           input.failureInjection === 'REWRITE_FAILURE'
@@ -2164,6 +2176,7 @@ export class C1LegExecutor {
       workingSet,
       transition,
       materializedWorkingSetFingerprint,
+      carriedRemovedSourceKeys,
       runtimeContextChanged,
       lifecycleEligible,
       replayMismatch: 0

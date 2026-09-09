@@ -271,6 +271,13 @@ export {
   type C1AuthorizedProviderToolDefinition
 } from './c1-authorized-provider'
 export {
+  C1_LIFECYCLE_CANARY_SV2_CONTRACT,
+  C1_LIFECYCLE_CANARY_SV2_CONTRACT_SHA256,
+  runC1LifecycleCanarySv2,
+  type C1LifecycleCanarySv2Authorization,
+  type C1LifecycleCanarySv2Report
+} from './c1-lifecycle-canary-sv2'
+export {
   C1_USAGE_SOURCE_MAP_RELATIVE_PATH,
   C1UsageSourceMapFailure,
   validateC1UsageSourceMap,

@@ -1,3 +1,4 @@
+import { deriveC1CallAccounting } from './c1-call-accounting'
 import { EventEmitter } from 'node:events'
 import { createHash } from 'node:crypto'
 import { mkdir, open, readFile, stat } from 'node:fs/promises'
@@ -64,6 +65,7 @@ import {
   C1SandboxToolExecutor,
   C1ScriptedResponseSource,
   type C1LiveBindingEvidence,
+  type C1LiveBindingCheckpoint,
   type C1LiveBindingLegResult,
   type C1LiveModelResponse,
   type C1LiveObservationSource,
@@ -297,7 +299,10 @@ export interface C1StudyOrchestrationReport {
   readonly gates: readonly C1StudyDryRunGate[]
   readonly legs: readonly C1StudyLegSummary[]
   readonly artifacts: readonly C1StudyDryRunArtifactSummary[]
-  readonly failures: readonly { readonly code: string; readonly message: string }[]
+  readonly failures: readonly {
+    readonly code: string
+    readonly message: string
+  }[]
 }
 
 interface CompletedLeg {
@@ -403,8 +408,11 @@ export class C1LiveTaskObservationSource implements C1LiveObservationSource {
     readonly task: C1PreflightTask
     readonly runId: string
     readonly fixtureRoot: string
+    /** Canary-specific bootstrap override; defaults to the global frozen list.
+     * Existing C1/V4/canary contracts are unaffected unless they opt in. */
+    readonly bootstrapFiles?: readonly string[]
   }): Promise<C1LiveTaskObservationSource> {
-    const fixtureFiles = C1_LIVE_BOOTSTRAP_FILES
+    const fixtureFiles = input.bootstrapFiles ?? C1_LIVE_BOOTSTRAP_FILES
     const messages: PiMessageView[] = [
       {
         role: 'user',
@@ -464,17 +472,13 @@ export class C1LiveTaskObservationSource implements C1LiveObservationSource {
   }
 }
 
-async function runC1Oracle(
-  spec: C1OracleSpec,
-  fixtureRoot: string
-): Promise<C1TaskOracleEvidence> {
+async function runC1Oracle(spec: C1OracleSpec, fixtureRoot: string): Promise<C1TaskOracleEvidence> {
   const result = await runProcess(process.execPath, spec.args, {
     cwd: fixtureRoot,
     timeoutMs: spec.timeoutMs,
     env: buildSanitizedChildEnvironment()
   })
-  const unavailable =
-    result.exitCode === null || result.timedOut || result.outputLimitExceeded
+  const unavailable = result.exitCode === null || result.timedOut || result.outputLimitExceeded
   return {
     status: unavailable
       ? 'UNAVAILABLE'
@@ -498,14 +502,11 @@ export async function runC1TaskOracles(input: {
 }): Promise<C1TaskEvaluation> {
   const objective = await runC1Oracle(input.task.objectiveOracle, input.fixtureRoot)
   const regression = await runC1Oracle(input.task.regressionOracle, input.fixtureRoot)
-  const oracleUnavailable = objective.status === 'UNAVAILABLE' || regression.status === 'UNAVAILABLE'
+  const oracleUnavailable =
+    objective.status === 'UNAVAILABLE' || regression.status === 'UNAVAILABLE'
   const oraclePass = objective.status === 'PASS' && regression.status === 'PASS'
   return {
-    status: oracleUnavailable
-      ? 'HARNESS_CONTRACT_FAILURE'
-      : oraclePass
-        ? 'PASS'
-        : 'TASK_FAILURE',
+    status: oracleUnavailable ? 'HARNESS_CONTRACT_FAILURE' : oraclePass ? 'PASS' : 'TASK_FAILURE',
     taskOutcome: oracleUnavailable ? 'NOT_OBSERVED' : oraclePass ? 'SUCCESS' : 'FAILURE',
     writableScopePass: true,
     objective,
@@ -646,6 +647,9 @@ function metadataEvidence(row: C1LiveBindingEvidence): Record<string, unknown> {
     workingSetId: row.workingSetId,
     transitionId: row.transitionId,
     transitionDecisionKinds: row.transitionDecisionKinds,
+    decisionDetails: row.decisionDetails ?? [],
+    carriedRemovedSourceKeys: row.carriedRemovedSourceKeys ?? [],
+    carriedRemovalEvidence: row.carriedRemovalEvidence ?? [],
     lifecycleEligible: row.lifecycleEligible,
     runtimeContextChanged: row.runtimeContextChanged,
     fallbackSent: row.fallbackSent,
@@ -663,6 +667,7 @@ function serializedStudyArtifacts(input: {
   readonly dryRun: boolean
   readonly studyId: string
   readonly completed: readonly CompletedLeg[]
+  readonly checkpoints: readonly C1LiveBindingCheckpoint[]
   readonly gates: readonly C1StudyDryRunGate[]
   readonly failures: readonly {
     readonly code: string
@@ -700,6 +705,13 @@ function serializedStudyArtifacts(input: {
     networkRequests: input.networkRequests,
     providerCallPermits: input.providerCallPermits,
     responseCalls: input.responseCalls,
+    checkpointSchemaVersion: 2,
+    counterScope: 'COMPLETED_LEGS_ONLY',
+    callAccounting: deriveC1CallAccounting(
+      input.checkpoints,
+      new Set(input.completed.map((leg) => leg.plan.runId)),
+      input.failures.some((failure) => failure.code === 'EVIDENCE_WRITE_FAILURE')
+    ),
     toolExecutions: input.toolExecutions,
     studyId: input.studyId,
     contractSha256: input.study.contractSha256,
@@ -758,7 +770,7 @@ function serializedStudyArtifacts(input: {
       ...metadataEvidence(row),
       taskOutcome: input.dryRun
         ? 'NOT_OBSERVED_IN_DRY_RUN'
-        : leg.taskEvaluation?.taskOutcome ?? 'NOT_OBSERVED',
+        : (leg.taskEvaluation?.taskOutcome ?? 'NOT_OBSERVED'),
       ...(input.dryRun
         ? { syntheticModelOutcome: row.taskOutcome }
         : {
@@ -1352,6 +1364,7 @@ async function runC1StudyWithFactories(
       dryRun: options.dryRun,
       studyId,
       completed,
+      checkpoints: evidenceSink?.checkpoints ?? [],
       gates,
       failures,
       status: statusBeforeArtifacts,
