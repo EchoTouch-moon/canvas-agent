@@ -1,9 +1,5 @@
 import { z } from 'zod'
-import {
-  C1_E0_DOSE_SCHEMA_ID,
-  canonicalC1E0Json,
-  hashCanonicalC1E0
-} from './c1-e0-binding'
+import { C1_E0_DOSE_SCHEMA_ID, canonicalC1E0Json, hashCanonicalC1E0 } from './c1-e0-binding'
 
 export const C1_E0_DOSE_SCHEMA_VERSION = 1 as const
 
@@ -88,10 +84,7 @@ export const c1E0DoseObservationSchema = z
         message: 'pure-evict removal must contain exactly two source keys per removed pair'
       })
     }
-    if (
-      value.suppressedSourceElementCallExposures !==
-      value.suppressedStalePairCallExposures * 2
-    ) {
+    if (value.suppressedSourceElementCallExposures !== value.suppressedStalePairCallExposures * 2) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['suppressedSourceElementCallExposures'],
@@ -183,10 +176,7 @@ export const c1E0DoseSummarySchema = z
         message: 'pure-evict summary must contain two source elements per removed pair'
       })
     }
-    if (
-      value.suppressedSourceElementCallExposures !==
-      value.suppressedStalePairCallExposures * 2
-    ) {
+    if (value.suppressedSourceElementCallExposures !== value.suppressedStalePairCallExposures * 2) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['suppressedSourceElementCallExposures'],
@@ -197,10 +187,10 @@ export const c1E0DoseSummarySchema = z
 
 export type C1E0DoseSummary = z.infer<typeof c1E0DoseSummarySchema>
 
-export function aggregateC1E0Dose(
-  observations: readonly C1E0DoseObservation[]
-): C1E0DoseSummary {
-  const rows = observations.map(validateC1E0DoseObservation).sort((left, right) => left.callOrdinal - right.callOrdinal)
+export function aggregateC1E0Dose(observations: readonly C1E0DoseObservation[]): C1E0DoseSummary {
+  const rows = observations
+    .map(validateC1E0DoseObservation)
+    .sort((left, right) => left.callOrdinal - right.callOrdinal)
   for (let index = 1; index < rows.length; index += 1) {
     if (rows[index]!.callOrdinal === rows[index - 1]!.callOrdinal) {
       throw new Error('E0 dose observations must have unique call ordinals')
@@ -225,7 +215,10 @@ export function aggregateC1E0Dose(
   const uniqueRemovedPairs = union(rows.map((row) => row.uniqueRemovedPairIds))
   const uniqueRemovedSourceElements = union(rows.map((row) => row.uniqueRemovedSourceElementKeys))
   const newRemovalPairCalls = rows.reduce((total, row) => total + row.newRemovalPairIds.length, 0)
-  const carriedRemovalPairCalls = rows.reduce((total, row) => total + row.carriedRemovalPairIds.length, 0)
+  const carriedRemovalPairCalls = rows.reduce(
+    (total, row) => total + row.carriedRemovalPairIds.length,
+    0
+  )
   const suppressedStalePairCallExposures = rows.reduce(
     (total, row) => total + row.suppressedStalePairCallExposures,
     0
