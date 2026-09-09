@@ -199,9 +199,13 @@ describe('C1_LIFECYCLE_CANARY_SV1 (Runtime-only pure-evict canary)', () => {
   it('persists the returned response before an early completion stops the diagnostic', async () => {
     const outputRoot = await mkdtemp(join(tmpdir(), 'lifecycle-canary-early-complete-'))
     try {
-      // Offline mirror of live study c1-lifecycle-20260908-d4b4f5dc: the model
-      // answered on the first call without requesting any tool, so the frozen
-      // sequence never left EXPECT_READ_A.
+      // Exercises the same control-flow boundary as the recorded SV1 live stop
+      // (study c1-lifecycle-20260908-d4b4f5dc): a first-call response whose
+      // outcome is not CONTINUE, so the frozen sequence never leaves
+      // EXPECT_READ_A. That live response was never persisted, so its outcome
+      // kind, content and tool-request count are unknown; this fixture
+      // constructs such a response rather than reproducing observed model
+      // behaviour.
       const earlyComplete = [
         {
           ...c1LifecycleCanaryScriptedResponses()[3]!,

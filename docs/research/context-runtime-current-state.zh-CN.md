@@ -19,9 +19,11 @@ Old study resume/reuse    FORBIDDEN
 Wave B / productization   NO_GO
 ```
 
-四次 Canary 停止的共同点：机制证明被挂在“模型自愿多做一次读取/工具调用”上，而模型持续少做甚至不做。
-Runtime 臂四次均未在真实 Provider 上产生移除，**机制问题仍未回答**；这不证明任何模型永远无法执行某行为，
-只说明当前诊断形态需要重新设计。详见
+四次 Canary 停止（V1–V3 + SV1）中**只有 V1–V3 带有可用的模型行为观测**：三次都要求模型重复读取，
+观测到它比提示要求少读一次（2→1、2→1、1→0）。SV1 的响应证据因下述缺口未被持久化，其 `outcome` 类型
+（`COMPLETE` 还是 `FAILED`）、`assistantContent` 与 tool-request 数**全部未知**，因此**不能**并入该模式，
+也不得叙述为"模型主动拒绝工具"。Runtime 臂四次均未产生**已记录的**真实移除，**机制问题仍未回答**；
+这不证明任何模型永远无法执行某行为，只说明当前诊断形态需要重新设计。详见
 [SV1 执行与证据缺口裁定](../verification/cspv-c1-lifecycle-canary-sv1-live-execution-2026-09-08.zh-CN.md)。
 
 V4 study：`c1-20260906-c1-feasibility-v1-5a4b5d58`，执行 SHA：`cf4b7ea61be784a92bcefec895b2d36888b91172`。
@@ -40,7 +42,9 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 - 已执行受控干预实验：同输入基线保留全部来源，重复读取候选在第 2、3 请求发生移除；同时修复并验证连续移除的历史沿用与指纹边界。
 - 已执行（真实 Provider，共 6 次调用）：机制 Canary V1/V2/V3 与生命周期 Canary SV1 四次均获 owner 显式授权并执行，
   四次全部 `CANARY_STOP`、身份 terminal/retired。V1–V3 停在 Native 门（模型比提示要求少读一次：2→1、2→1、1→0）；
-  SV1 停在冻结序列第一步（模型 0 次工具调用直接作答，`finalStage=EXPECT_READ_A`），Runtime 臂四次均未产生真实移除。
+  SV1 停在冻结序列第一步（`finalStage=EXPECT_READ_A`）：durable evidence 只支持"1 次出站请求已发出、
+  返回了一个 `outcome !== 'CONTINUE'` 的正规化响应"；该响应未落盘，其 `outcome` 类型、内容与 tool-request 数未知，
+  **不得**读作"模型 0 次工具调用直接作答"。Runtime 臂四次均未产生**已记录的**真实移除。
 - 已裁定并本地修复（零 Provider）：SV1 暴露“响应已返回但诊断提前终止导致 `RESPONSE_RECEIVED`/`RESPONSE_RECORDED`
   未持久化”的证据缺口——`checkpoints.jsonl` 只剩 1 条许可、`permitsWithoutRecordedResponse=1`，该次响应的
   tool-request 数与 usage 结构性缺失。修复提交 `cf0d45b47ffb1d35f1630e993675b50c53777455`：先让驱动落盘已知响应，
@@ -50,6 +54,8 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
   `answerMatched`/`changedCalls` 现按证据求值）已如实修正并补锁定测试。
 - 下一项需 owner 决策，不自动执行：①SV2 诊断设计（触发条件完全由 harness 构造，不再依赖模型自愿行为）；
   或②接受机制层负结果，转入生命周期合同 §11.5 的 effectiveness A/B 设计（Intervention Dose 为自变量）。
+  **SV2 的动机只能建立在 V1–V3 的三次观测上，不得据 SV1 推断模型行为**；若要判断"模型是否愿意在本诊断形态下
+  取用工具"，需要一次运行在修复后代码上的新执行（新合同、新身份、新授权），历史 SV1 不可追溯判定。
   两者都需新合同、新身份、新授权。V4 与四次 Canary 身份永不恢复、补跑或重绑定；64-leg 维持 NO_GO。
 
 [SV1 执行与证据缺口裁定](../verification/cspv-c1-lifecycle-canary-sv1-live-execution-2026-09-08.zh-CN.md) ·
@@ -78,7 +84,7 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 | 首次 C1 Live attempt | `TERMINAL / NOT ADMISSIBLE` | study `c1-20260905-c1-feasibility-v1-35359a74`；1 次 provider/network attempt、0 个 completed leg、usage capability mismatch |
 | 首次 study identity | `CONSUMED / RETIRED` | 永不 resume、reuse 或 rebind；不能用 #98 或后续修复继续该 identity |
 | 机制 Canary V1–V3 | `TERMINAL / CANARY_STOP ×3` | study `c1-mechanism-20260908-312fad65` / `-2d05cb78` / `-4fa2ce0e`；真实调用 2+2+1；三次均停在 Native 门（模型读 1/1/0 次），Runtime 臂未执行；三个身份均 consumed/retired |
-| 生命周期 Canary SV1 | `TERMINAL / CANARY_STOP` | study `c1-lifecycle-20260908-d4b4f5dc`；执行提交 `012093274da742eddd8178b4448d105e6b27c4ac`、合同 SHA `7c4577a25499ad512883c006f773bc87d538ae5528e8692da87990158b21c7e5`；1 次真实调用、0 工具执行、`finalStage=EXPECT_READ_A`、`changedCalls=[]`、`answerMatched=false`；身份 consumed/retired |
+| 生命周期 Canary SV1 | `TERMINAL / CANARY_STOP` | study `c1-lifecycle-20260908-d4b4f5dc`；执行提交 `012093274da742eddd8178b4448d105e6b27c4ac`、合同 SHA `7c4577a25499ad512883c006f773bc87d538ae5528e8692da87990158b21c7e5`；1 次真实调用、`finalStage=EXPECT_READ_A`。`toolResults=[]`/`changedCalls=[]`/`answerMatched=false` 均为抛错跳过赋值留下的**默认值、非观测**；响应的 `outcome` 类型（`COMPLETE`/`FAILED`）、内容与 tool-request 数**未知**；身份 consumed/retired |
 | SV1 响应证据缺口 | `ADJUDICATED / FIXED (local)` | 原件仅 1×`OUTBOUND_PERMITTED`、`permitsWithoutRecordedResponse=1`、`responseStatus=NOT_RECORDED`；根因是 canary 在 `responseSource.next` 内抛错早于驱动落盘；修复 `cf0d45b47ffb1d35f1630e993675b50c53777455`；历史原件不回填，该次 usage 与 tool-request 数保持未知 |
 | PR #105 | `OPEN / CI_GREEN / REVIEW_REQUIRED` | head `012093274da742eddd8178b4448d105e6b27c4ac`，base `main`；CI run `34240182684` 的 `check` 与 `macos-electron` 均 success；尚无独立 review，CI 绿不替代内容审查 |
 | CR-005 | `CLOSED_AS_STOPPED_EXPERIMENT` | Run 1/Run 2 保留；没有把 C5/C6 伪装成补跑结果 |

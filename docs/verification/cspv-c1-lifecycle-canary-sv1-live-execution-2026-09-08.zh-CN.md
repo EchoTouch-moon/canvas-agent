@@ -30,9 +30,10 @@ Provider：Step Plan / `step-3.7-flash`，无 fallback，Runtime-only 单臂。
 | Leg | RUNTIME 尝试 1、完成 0、未执行 0 |
 | 终止阶段 | `finalStage=EXPECT_READ_A`（冻结序列的第一步都未完成） |
 | failureMessage | `CANARY_STOP: model completed before the sequence reached EXPECT_COMPLETE` |
-| 工具执行 | 0（`toolResults=[]`） |
-| 干预 | `changedCalls=[]`、`carriedRemovedAtFinalCall=[]` —— **Runtime 未在真实 Provider 上产生任何 REMOVE** |
-| 诊断标记 | `answerMatched=false`（ORCHID-42 未匹配） |
+| 工具执行 | 0 条**已记录**（`toolResults=[]`）——这是抛错跳过工具执行路径的结果，**不是**"模型未请求工具"的证据（见下） |
+| 干预 | `changedCalls=[]`、`carriedRemovedAtFinalCall=[]` —— **Runtime 未产生任何已记录的 REMOVE** |
+| 诊断标记 | `answerMatched=false`——**未赋值的默认值，零信息量**：修复前 `stop()` 抛在赋值语句之前，不能据此判断实际答案是否匹配 |
+| 响应终止类型 | **未知**：终止分支对 `COMPLETE` 与 `FAILED` 同样触发，durable evidence 无法区分 |
 | Replay 对账 | call 1 = `NOT_EVALUATED`（未到达第 3 次请求的 lifecycle gate） |
 | Provider 报告用量 | **结构性缺失**（见 §3），不填 0、不估算 |
 
@@ -43,15 +44,65 @@ Provider：Step Plan / `step-3.7-flash`，无 fallback，Runtime-only 单臂。
 `systemDeveloperToolStructuresFingerprint=a1a72146a6aa23a76be9736ada00c4ea6e84b6304057dcbe9086293cfd999f74`、
 `lifecycleEligible=false`、`runtimeContextChanged=false`、`lifecycleEvidence=NOT_OBSERVED_IN_PREFLIGHT`。
 
-### 失败原因（模型侧）
+### 失败原因：可支持的与不可支持的
 
-模型在第 1 次请求即返回终止型结果，没有发起 `read src/a.js`，冻结序列停在 `EXPECT_READ_A`。
-设计 §0 的假设是"每次工具调用都对任务必需，因此不依赖模型冗余"；该假设在本次真实执行中**未成立**：
-即使 `src/a.js` 与 README 内容都不在模型可见上下文，模型仍直接作答而未取用工具。
+**durable evidence 能支持的**：
 
-**工具确实已发送给模型**：本次的 `systemDeveloperToolStructuresFingerprint` 与机制 Canary V1/V2/V3 三次真实执行
-逐字节相同（`a1a72146a6aa23a7…`），而那三次模型都实际调用了 `read`。因此"零工具调用"不是 harness 漏发工具结构造成的假象。
-这是本项目第 4 次连续 `CANARY_STOP`（V1 要 2 读→读 1；V2 要 2 读→读 1；V3 要 1 读→读 0；SV1 要 3 次工具→0 次）。
+1. 第 1 次出站许可已记录，且 `networkRequests=1`。该计数只在 canary 传给适配器的 `fetchImpl` 被真正调用时自增
+   （`src/c1-lifecycle-canary.ts` 的 fetch 包装 → `src/c1-authorized-provider.ts:522`），因此 HTTP POST 确已发出。
+2. `failureMessage` 为 `CANARY_STOP: model completed before the sequence reached EXPECT_COMPLETE`，
+   而该字符串**只在 `await source.next(...)` 正常返回且 `response.outcome !== 'CONTINUE'` 的分支产生**。
+   故可推得：适配器确实返回了一个正规化响应，其 `outcome` 不是 `CONTINUE`；`finalStage` 停在 `EXPECT_READ_A`。
+3. 该响应未经驱动落盘，因此它的 `outcome` 具体值、`assistantContent`、`toolRequests` 数量与 usage **全部结构性缺失**。
+
+**不能声称的（本报告初稿写错，现撤回）**：
+
+- 不能说"模型直接作答"或"模型未请求工具"。终止分支条件是 `outcome !== 'CONTINUE'`，而
+  `validateModelResponse` 允许 `CONTINUE|COMPLETE|FAILED`（`src/c1-live-binding.ts:280-282`），适配器把
+  `finish_reason='stop'` 归一化为 `COMPLETE`、`'length'` 归一化为 `FAILED`（`src/c1-authorized-provider.ts:385-397`）。
+  两者触发同一条停止信息与同一个 `finalStage`，durable evidence **无法区分"模型主动终止"与"响应被判失败"**。
+- 不能用 `toolResults=[]` 推断"0 次工具请求"：修复前抛错发生在驱动调用 toolExecutor 之前，
+  工具执行路径被整段跳过，该数组为空是控制流的结果。
+- 不能用 `answerMatched=false` 推断"答案不匹配"：同理，赋值语句位于抛错之后，从未执行。
+- 因此设计 §0 的假设（"每次工具调用都对任务必需 → 不依赖模型冗余"）**既未被证实也未被证伪**：
+  本次执行没有留下任何能判断模型是否愿意取用工具的证据。
+- 附带的代码口径问题（未在本 PR 修改，留待 owner 决定）：该停止信息写死为 "model completed"，
+  但同一分支也覆盖 `FAILED`。修改它会使今后的 `failureMessage` 与历史记录不可逐字比对，故本轮不动。
+
+### 工具是否随请求发出：以代码为据，并标明验证边界
+
+**撤回原论证。** 初稿称"本次 `systemDeveloperToolStructuresFingerprint` 与 V1–V3 逐字节相同，而那三次模型都调用了
+`read`"，两处都不成立：
+
+- 该指纹是**硬编码常量**：`src/c1-live-preflight.ts:138-140`
+  `C1_TOOL_STRUCTURE_FINGERPRINT = sha256Bytes('c1-provider-tool-structures-v1|read|edit|bash|same-across-arms')`，
+  并在 `:2161` 直接写入每一次 capture。它对每个 C1 请求、两个臂都相同，**不含任何单次请求的信息量**；
+  "四次相同"是构造使然，不构成"工具已发送"的证据。
+- V3 的工具执行数为 **0**（其 live checkpoints 无 `TOOL_EXECUTION_RECORDED`，V3 执行报告记为"读取 0 次"）；
+  V1、V2 各 1 次。"那三次都调用了 read"是错的。
+
+改为引用执行版本 `012093274da742eddd8178b4448d105e6b27c4ac` 的请求组装与发送路径：
+
+| 环节 | 位置 | 事实 |
+| --- | --- | --- |
+| 工具定义归属 | `src/c1-live-preflight.ts:181` 起 | `C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE` 由执行器拥有并 `deepFreeze`，`tools` 为 `read`/`edit`/`bash` 三个 function 定义 |
+| 每次调用绑定 | `src/c1-live-preflight.ts:2175` | 执行器把该冻结 envelope 作为 `structuralEnvelope` 返回给本次调用 |
+| 发送前校验 | `src/c1-authorized-provider.ts:493 → :442 → :409-424` | `next()` 第一步即 `assertRequestBinding`，其中 `assertStructuralEnvelope` 要求 envelope 的 `structuralFingerprint` 与 capture 指纹一致，**且** `canonicalJson(envelope)` 与冻结 envelope 逐字段相同，否则 `PROVIDER_BINDING_MISMATCH`；替换或省略工具结构无法通过 |
+| 请求体组装 | `src/c1-authorized-provider.ts:502-510` | `body = { model, messages, tools: envelope.tools, stream, max_tokens }` |
+| 实际发送 | `src/c1-authorized-provider.ts:522-531` | `fetchImpl(C1_PROVIDER_ENDPOINT, { method: 'POST', body: JSON.stringify(body), … })` |
+
+**验证边界**：以上只证明"本次出站 HTTP 请求体按冻结 envelope 组装、包含三个工具定义并已发出"，
+以及服务端对该请求返回了可正规化的响应（由上文第 2 点推得）。它**不**证明服务端侧的工具可用性语义，
+也**不能**区分"模型不愿调用工具"与"模型无法调用工具"。要回答后者，只能在响应证据可持久化的前提下重跑
+（即本 PR 修复之后的新合同、新身份、新授权）；历史 SV1 不可追溯判定。
+
+### 与前三次 Canary 的关系（口径更正）
+
+V1–V3 有完整的 `RESPONSE_RECEIVED`，其读取次数是**观测事实**：V1 要 2 读→观测 1；V2 要 2 读→观测 1；
+V3 要 1 读→观测 0。**SV1 不能并入该模式**：它的响应侧证据缺失，模型行为未知。
+所以"模型持续比提示要求少读一次"目前只有 3 次观测支持，SV1 既不支持也不反驳它；
+不得叙述为"四次模型主动拒绝工具"，也不得以此作为设计下一个实验的依据。
+本项目连续 `CANARY_STOP` 次数为 4，但其中只有前 3 次带有可用的模型行为观测。
 
 ## 3. 工程缺陷裁定：响应已返回，但证据未持久化
 
@@ -65,7 +116,8 @@ Provider：Step Plan / `step-3.7-flash`，无 fallback，Runtime-only 单臂。
 ### 根因
 
 `research/context-benchmarks/src/c1-lifecycle-canary.ts` 的 `responseSource.next` 包装在
-`await source.next(...)` **返回之后、`return response` 之前**判定提前 COMPLETE 并直接 `stop()` 抛错；
+`await source.next(...)` **返回之后、`return response` 之前**判定提前终止（条件是 `outcome !== 'CONTINUE'`，
+同时覆盖 `COMPLETE` 与 `FAILED`）并直接 `stop()` 抛错；
 而共享驱动 `c1-live-binding.ts` 只在 response source 正常返回后才写 `RESPONSE_RECEIVED`（收据）与
 `RESPONSE_RECORDED`（证据行）。异常从包装内部抛出，驱动永远到不了那两个 checkpoint。
 
@@ -77,9 +129,14 @@ Provider：Step Plan / `step-3.7-flash`，无 fallback，Runtime-only 单臂。
 
 对本次 SV1 执行，以下事实**结构性缺失，保持未知，不得回填**：
 
-- 该次响应的 tool-request 数量（"模型零工具调用"是从 `outcome != CONTINUE` 与 `toolResults=[]` 推断，账本无直接记录）；
+- 该次响应的 `outcome` 究竟是 `COMPLETE` 还是 `FAILED`——两者触发同一条停止信息，账本无法区分；
+- 该次响应的 tool-request 数量。`toolResults=[]` **不是**"零工具请求"的证据：抛发生在驱动调用 toolExecutor 之前，
+  工具执行路径被整段跳过；
+- 该次响应的 `assistantContent`，因此 `answerMatched=false` 只是**未赋值的默认值**，不能读作"答案不匹配"；
 - 该次响应的 provider-reported usage（因此本页不能像 V3 那样给出 token 数）；
 - 该次响应的 `taskOutcome` 收据与消息计数。
+
+连带后果：本次执行**无法**用于判断模型是否愿意取用工具，设计 §0 的"不依赖模型冗余"假设既未证实也未证伪。
 
 这不改变本次执行的裁决（FAIL / CANARY_STOP / terminal / retired），但使该次停止**不可完整审计**，
 违反冻结设计 §4"账本完整：permits/responses/tool executions 全程可对账，无静默缺口"与
@@ -217,7 +274,7 @@ e2b8725a3cc05b0636f8392bba9070f92f59bd7b009d69a4eb03552937950160  report.json
 
 ## 6. 计数口径
 
-全程=已确认 checkpoint：1 许可 / 0 已记录响应（**缺口，非 0 响应**）/ 0 工具执行。
+全程=已确认 checkpoint：1 许可 / 0 已记录响应（**缺口，非 0 响应**）/ 0 条已记录工具执行（该次响应的 tool-request 数**未知**）。
 已完成 leg：0。未完成 leg：1（RUNTIME，`legStatus=INCOMPLETE`、`finalOracle=UNOBSERVED`）。未执行 leg：0。
 真实 Provider 调用：1（本次 live，已计入历史总真实调用 6 次 = V1–V3 的 5 次 + SV1 的 1 次）。
 本轮修复与验证新增真实调用：**0**。
@@ -228,24 +285,37 @@ e2b8725a3cc05b0636f8392bba9070f92f59bd7b009d69a4eb03552937950160  report.json
 
 - SV1 在真实 Provider 上完成了一次全链路（授权→身份→出站许可→停止→terminal/retired）执行，结果为 FAIL/CANARY_STOP；
 - 缺陷根因、影响范围与修复已在本地用假 Provider 独立复现并验证；
-- 工具结构确已发送，"模型未按冻结序列取用工具"是模型侧观察，不是 harness 漏发。
+- **代码层**结论：本次出站请求体按冻结 envelope 组装、包含 `read`/`edit`/`bash` 三个工具定义并已发出
+  （`c1-authorized-provider.ts:442/502-510/522-531`，发送前 `PROVIDER_BINDING_MISMATCH` 门禁止替换或省略），
+  且服务端返回了一个可正规化、`outcome !== 'CONTINUE'` 的响应。
 
 **不能说**：
 
-- SUPERSEDED_VERSION 策略在真实 Provider 上有效或无效——Runtime 臂从未产生真实移除，机制问题仍未回答；
+- 不能说"模型直接作答""模型未请求工具""模型主动拒绝工具"：该次响应的 `outcome` 类型（`COMPLETE` 还是 `FAILED`）、
+  `assistantContent`、tool-request 数量全部结构性缺失；
+- 不能用 `answerMatched=false` 说"答案不匹配"，也不能用 `toolResults=[]` 说"零工具调用"——两者都是抛错留下的默认值；
+- 不能把 SV1 并入 V1–V3 的"模型持续少读一次"模式：4 次 `CANARY_STOP` 中只有前 3 次带有可用的模型行为观测；
+- SUPERSEDED_VERSION 策略在真实 Provider 上有效或无效——Runtime 臂从未产生已记录的真实移除，机制问题仍未回答；
 - 任何 token 节省、任务质量、成本或 Runtime 优于 Native 的结论；
-- SV1 该次响应的 usage 或 tool-request 数（结构性缺失，保持未知）；
+- SV1 该次响应的 usage（结构性缺失，保持未知）；
 - 64-leg 可以开跑（仍 NO_GO）；
-- "该模型永远不会调用工具"——4 次停止只支持"在这些诊断形态下模型持续少做甚至不做被要求的读取"，需重新审视诊断设计。
+- "该模型永远不会调用工具"——V1–V3 只支持"在这三种诊断形态下模型比提示要求少读一次"，需重新审视诊断设计。
 
 ## 8. 后续（需 owner 决策，本轮不自动执行）
 
-1. **SV2 诊断设计**：4 次停止的共同点是"把机制证明挂在模型自愿行为上"。候选方向是让触发条件完全由 harness
-   构造（例如 bootstrap 直接携带一对已在沙箱中被改写的读取，使第 1 次真实请求就存在可移除的陈旧对），
-   被测对象纯化为"Runtime 在真实请求上的上下文管理"。需新冻结设计、新合同 SHA、新身份、新授权。
-2. **或接受机制层负结果**，转入生命周期合同 §11.5 的 effectiveness A/B 设计（以 Intervention Dose 为自变量、
+1. **先承认证据边界，再谈设计**：SV1 无法提供任何模型行为证据，因此**不得**据"四次模型主动拒绝工具"的叙述
+   决定新实验。若要回答"模型是否愿意在本诊断形态下取用工具"，需要一次运行在修复后代码上的新执行
+   （新合同、新身份、新授权），使响应证据可持久化；不能从历史 SV1 追溯推断。
+2. **SV2 诊断设计**：其动机应只建立在 V1–V3 的三次观测（模型比提示要求少读一次）之上。候选方向是让触发条件
+   完全由 harness 构造（例如 bootstrap 直接携带一对已在沙箱中被改写的读取，使第 1 次真实请求就存在可移除的陈旧对），
+   被测对象纯化为"Runtime 在真实请求上的上下文管理"，从而不再依赖任何模型自愿行为。
+   需新冻结设计、新合同 SHA、新身份、新授权。
+3. **或接受机制层负结果**，转入生命周期合同 §11.5 的 effectiveness A/B 设计（以 Intervention Dose 为自变量、
    只在预选存在机会的 task 上配对）。在此之前 64-leg 维持 NO_GO。
-3. 无论哪项：本修复不继承任何旧授权；SV1/V1–V3/V4 的 terminal 身份一律不恢复、不重试、不复用。
+4. 可选的代码口径修正（本 PR 未做，需 owner 决定）：停止信息 `model completed before the sequence reached
+   EXPECT_COMPLETE` 对 `FAILED` 也会触发，措辞过强。修改会使今后的 `failureMessage` 与历史记录不可逐字比对，
+   建议与 SV2 新合同一并处理。
+5. 无论哪项：本修复不继承任何旧授权；SV1/V1–V3/V4 的 terminal 身份一律不恢复、不重试、不复用。
 
 ## 9. 证据位置
 

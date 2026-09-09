@@ -11,10 +11,13 @@
 >   （`7c4577a25499ad512883c006f773bc87d538ae5528e8692da87990158b21c7e5`）；该提交远端 CI run `34240182684`
 >   的 `check` 与 `macos-electron` 均 success。
 > - §6 的四项授权前置在执行时均已满足，owner 于 2026-09-08 22:52 显式授权，随后**已真实执行一次**：
->   study `c1-lifecycle-20260908-d4b4f5dc`，结果 `FAIL / CANARY_STOP`、terminal/retired；
->   1 次 Provider 调用、0 次工具执行、`finalStage=EXPECT_READ_A`、`changedCalls=[]`、`answerMatched=false`。
->   §5 的 PASS 定义**未被满足**：Runtime 未在真实 Provider 上产生移除，机制问题仍未回答。
->   §0 关于"每次工具调用都对任务必需、因而不依赖模型冗余"的假设在本次执行中未成立。
+>   study `c1-lifecycle-20260908-d4b4f5dc`，结果 `FAIL / CANARY_STOP`、terminal/retired；1 次 Provider 调用、
+>   `finalStage=EXPECT_READ_A`。durable evidence 只支持"出站请求已发出，且返回了一个 `outcome !== 'CONTINUE'`
+>   的正规化响应"；报告里的 `toolResults=[]`、`changedCalls=[]`、`answerMatched=false` 都是抛错跳过赋值留下的
+>   **默认值、不是观测**，该响应的 `outcome` 类型（`COMPLETE` 还是 `FAILED`）、内容与 tool-request 数**未知**。
+>   §5 的 PASS 定义**未被满足**：Runtime 未产生已记录的真实移除，机制问题仍未回答。
+>   §0 关于"每次工具调用都对任务必需、因而不依赖模型冗余"的假设，在本次执行中**既未被证实也未被证伪**——
+>   该次执行没有留下任何可判断模型是否愿意取用工具的证据，不得叙述为"模型拒绝工具"。
 > - 该次执行另暴露一个工程缺口：诊断在 `responseSource.next` 内提前抛错，驱动来不及写
 >   `RESPONSE_RECEIVED`/`RESPONSE_RECORDED`（原件只剩 1 条许可、`permitsWithoutRecordedResponse=1`，
 >   该次响应的 tool-request 数与 usage 结构性缺失）。已在

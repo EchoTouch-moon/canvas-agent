@@ -138,7 +138,9 @@ lifecycleUnknownCount（按原因码分桶）
    并在执行期持久化 fingerprint-only replay evidence，使首次真实干预全链条可 replay。
    - **状态（2026-09-08 夜间增补，不改动上文）**：`ATTEMPTED / NOT_PASSED`。`C1_LIFECYCLE_CANARY_SV1`
      已实现于 `0120932`，owner 授权后真实执行一次（study `c1-lifecycle-20260908-d4b4f5dc`），
-     结果 `FAIL / CANARY_STOP`：模型 0 次工具调用直接作答，`finalStage=EXPECT_READ_A`，
+     结果 `FAIL / CANARY_STOP`、`finalStage=EXPECT_READ_A`。可确认的只有：出站请求已发出，且返回了一个
+     `outcome !== 'CONTINUE'` 的正规化响应；该响应未落盘，其 `outcome` 类型（`COMPLETE`/`FAILED`）、内容与
+     tool-request 数**未知**，不得读作"模型 0 次工具调用直接作答"。
      未到达第 3 次请求的 lifecycle gate，因此纯 evict 与 replay 全链条**未在真实 Provider 上被证明**。
      该次执行暴露的"响应已返回但诊断提前终止导致响应证据未持久化"缺口已在 `cf0d45b` 本地修复
      （合同与本验证路径不变，历史原件不回填）。再次尝试需新合同、新身份、新授权。详见
