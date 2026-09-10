@@ -422,6 +422,7 @@ describe('C1 E0 final live binding', () => {
       expect(report.finalBindingReady).toBe(false)
       const ledger = await readFile(join(report.reportDir!, 'response-ledger.jsonl'), 'utf8')
       expect(ledger).toContain('"networkSent":true')
+      expect(ledger).toContain('"providerUsage":{"inputTokens":21')
       expect(ledger).not.toContain('memory-only-authorized-test-sentinel')
     } finally {
       await rm(root, { recursive: true, force: true })

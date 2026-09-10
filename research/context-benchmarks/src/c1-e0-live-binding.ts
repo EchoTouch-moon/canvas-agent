@@ -928,6 +928,10 @@ function metadataEvidence(row: C1LiveBindingEvidence): Record<string, unknown> {
       usageStatus: row.usage.usageSource === 'PROVIDER_REPORTED' ? 'AVAILABLE' : 'UNAVAILABLE'
     }),
     usageSource: row.usage.usageSource,
+    providerUsage:
+      row.usage.usageSource === 'PROVIDER_REPORTED'
+        ? row.usage
+        : { status: 'UNAVAILABLE', reason: 'SCRIPTED_FAKE' },
     toolCalls: row.toolCalls,
     toolRequestEvidence: row.toolRequestEvidence,
     toolEvents: row.toolEvents,
