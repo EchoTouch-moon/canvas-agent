@@ -227,10 +227,16 @@ describe('C1 E0 final live binding', () => {
           (line) =>
             JSON.parse(line) as {
               arm: string
+              callOrdinal: number
               lifecycleEligible: boolean
               transitionDecisionKinds: string[]
+              toolRequestEvidence: readonly { readonly path?: string }[]
             }
         )
+      const firstRuntime = responseRows.find(
+        (row) => row.arm === 'RUNTIME' && row.callOrdinal === 1
+      )
+      expect(firstRuntime?.toolRequestEvidence[0]?.path).not.toBe('README.md')
       expect(
         responseRows.some(
           (row) =>
