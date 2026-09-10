@@ -535,6 +535,8 @@ describe('C1 E0 final live binding', () => {
         expect.objectContaining({ code: 'CONTRACT_BINDING_MISMATCH' })
       ])
       expect(report.providerPreparationProfileHash).toBe(null)
+      expect(report.providerCalls).toBe(0)
+      expect(report.networkRequests).toBe(0)
       expect(fetchCalls).toBe(0)
     } finally {
       await rm(root, { recursive: true, force: true })
