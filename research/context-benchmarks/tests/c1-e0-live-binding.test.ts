@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest'
 import {
   C1_AUTHORIZED_PROVIDER_MAX_TOKENS,
   C1_E0_FINAL_LIVE_BINDING_ID,
+  C1_E0_EXECUTION_SURFACE_PATHS,
+  C1_E0_NEUTRAL_BOOTSTRAP_FILES,
   C1_E0_PROVIDER_CONFIG_HASH,
   C1ScriptedResponseSource,
   C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE,
@@ -152,6 +154,7 @@ describe('C1 E0 final live binding', () => {
 
       expect(report.bindingId).toBe(C1_E0_FINAL_LIVE_BINDING_ID)
       expect(report.executionMode).toBe('NO_PROVIDER_EXECUTION')
+      expect(C1_E0_NEUTRAL_BOOTSTRAP_FILES).toEqual(['README.md'])
       expect(report.finalBindingReady).toBe(false)
       expect(report.status).toBe('PASS')
       expect(report.legsPlanned).toBe(8)
@@ -426,5 +429,15 @@ describe('C1 E0 final live binding', () => {
       providerUsage: 'UNKNOWN',
       latencyMs: 'UNAVAILABLE'
     })
+  })
+
+  it('binds execution identity to the headless research surface, including policy/runtime files', async () => {
+    const binding = await computeC1E0ExecutionBinding(REPO_ROOT)
+    expect(binding.executionRevision).toMatch(/^[0-9a-f]{40}$/)
+    expect(binding.executionSurfaceHash).toMatch(/^[0-9a-f]{64}$/)
+    expect(C1_E0_EXECUTION_SURFACE_PATHS).toContain('research/context-benchmarks/src')
+    expect(C1_E0_EXECUTION_SURFACE_PATHS).toContain('packages/context-runtime')
+    expect(C1_E0_EXECUTION_SURFACE_PATHS).toContain('pnpm-lock.yaml')
+    expect(C1_E0_EXECUTION_SURFACE_PATHS).not.toContain('apps/electron')
   })
 })
