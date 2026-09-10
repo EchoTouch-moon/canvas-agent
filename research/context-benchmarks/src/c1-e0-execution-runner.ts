@@ -70,6 +70,7 @@ import {
   type C1StrictProviderBinding
 } from './c1-live-preflight'
 import { buildSanitizedChildEnvironment, runProcess } from './fixture-generator'
+import { assertC1LiveWorktreeClean } from './c1-live-study'
 
 export const C1_E0_EXECUTION_RUNNER_ID = 'C1_EFFECTIVENESS_E0_EXECUTION_RUNNER_V1'
 export const C1_E0_EXECUTION_RUNNER_SCHEMA_VERSION = 1 as const
@@ -1192,6 +1193,7 @@ export async function runC1E0CredentialFreeStudy(
 
   try {
     assertStudyId(studyId)
+    await assertC1LiveWorktreeClean(repoRoot)
     executionRevision = await gitHead(repoRoot)
     enrollment = await loadC1E0EnrollmentManifest(repoRoot)
     contract = await loadC1E0RunContract(repoRoot)
