@@ -1693,6 +1693,8 @@ export interface C1LegExecutionInput {
   readonly failureInjection?: C1LegFailureInjection
   /** Expected Native fingerprint for a fidelity comparison. */
   readonly nativeBaselineSemanticContextFingerprint?: string
+  /** Optional request-configuration hash for a stricter outer study binding. */
+  readonly providerConfigHashOverride?: string
 }
 
 export interface C1LegExecutionResult {
@@ -2169,7 +2171,8 @@ export class C1LegExecutor {
       studyId: input.studyId,
       turnId: input.turnId,
       modelCallId: input.modelCallId,
-      providerConfigHash: input.providerBinding.providerConfigHash,
+      providerConfigHash:
+        input.providerConfigHashOverride ?? input.providerBinding.providerConfigHash,
       providerBoundSourceKeys,
       modelVisibleSemanticContextFingerprint: activeMessagesHash(providerBoundMessages),
       prePolicyProviderBoundMessagesHash: nativeFingerprint,

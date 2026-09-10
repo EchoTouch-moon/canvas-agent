@@ -1078,6 +1078,8 @@ export class C1LiveBindingDriver {
       readonly providerBinding: C1StrictProviderBinding
       readonly budgetGuard: C1HardBudgetGuard
       readonly evidenceSink: C1LiveBindingEvidenceSink
+      /** Optional outer-study request configuration hash. */
+      readonly providerConfigHashOverride?: string
     }
   ) {
     this.executor = new C1LegExecutor({
@@ -1171,7 +1173,9 @@ export class C1LiveBindingDriver {
           provider: C1_PROVIDER_ID,
           model: C1_MODEL_ID,
           endpoint: C1_PROVIDER_ENDPOINT,
-          providerConfigHash: this.options.providerBinding.providerConfigHash
+          providerConfigHash:
+            this.options.providerConfigHashOverride ??
+            this.options.providerBinding.providerConfigHash
         })
         let execution: C1LegExecutionResult
         try {
@@ -1190,6 +1194,9 @@ export class C1LiveBindingDriver {
             providerBinding: this.options.providerBinding,
             transport,
             treatmentReady: true,
+            ...(this.options.providerConfigHashOverride === undefined
+              ? {}
+              : { providerConfigHashOverride: this.options.providerConfigHashOverride }),
             killSwitch,
             previousWorkingSet,
             carriedRemovals: [...carriedRemovals.values()],
@@ -1458,7 +1465,8 @@ export class C1LiveBindingDriver {
       validateC1LiveBindingEvidence(evidence, {
         arm: input.arm,
         responseSource: input.responseSource.kind,
-        providerConfigHash: this.options.providerBinding.providerConfigHash
+        providerConfigHash:
+          this.options.providerConfigHashOverride ?? this.options.providerBinding.providerConfigHash
       })
       return {
         status: 'COMPLETED',

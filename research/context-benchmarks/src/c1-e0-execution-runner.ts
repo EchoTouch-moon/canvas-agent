@@ -1214,13 +1214,7 @@ export async function runC1E0CredentialFreeStudy(
       env: { STEP_PLAN_API_KEY: E0_FAKE_CREDENTIAL }
     })
     providerPreparationProfileHash = prepared.providerConfigHash
-    providerBinding = {
-      experimentBinding: prepared.experimentBinding,
-      // C1's strict preparation profile hash is intentionally distinct from
-      // the E0 request-configuration hash bound by the prepared contract.
-      providerConfigHash: contract.executionBinding.providerConfigHash,
-      dispose: prepared.dispose
-    }
+    providerBinding = prepared
     budgetGuard = new C1HardBudgetGuard({
       perLeg: {
         maxProviderCalls: contract.budgets.perLeg.maxProviderRequests,
@@ -1235,7 +1229,12 @@ export async function runC1E0CredentialFreeStudy(
       }
     })
     evidenceSink = new C1JsonlLiveBindingEvidenceSink(join(reportDir, 'checkpoints.jsonl'))
-    driver = new C1LiveBindingDriver({ providerBinding, budgetGuard, evidenceSink })
+    driver = new C1LiveBindingDriver({
+      providerBinding,
+      budgetGuard,
+      evidenceSink,
+      providerConfigHashOverride: contract.executionBinding.providerConfigHash
+    })
     operatorKillSwitch = installC1OperatorKillSwitch(signalSource, (signal) => {
       operatorSignal = signal
       studyTerminal = true
