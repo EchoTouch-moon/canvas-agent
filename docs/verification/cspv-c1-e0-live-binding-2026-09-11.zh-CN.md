@@ -2,49 +2,73 @@
 
 日期：2026-09-11（Asia/Shanghai）
 
-状态：`IMPLEMENTED / NO_PROVIDER_EXECUTION / READY_FOR_INDEPENDENT_REVIEW`。
+当前状态：`CHANGES_REQUIRED_BEFORE_FINAL_FREEZE` 的 P0 修复已实现，等待 independent review。
 
-本记录对应独立分支 `codex/c1-effectiveness-e0-live-binding`。它把 #114 已验证的 E0 scheduler、
-`C1LiveBindingDriver`、sandbox tool executor 和 durable checkpoint sink 接到一个单独的 live-binding
-surface；没有启动真实 Provider，也没有读取 `.env` 或创建 owner authorization。
+本记录对应 PR #115 的同一分支。上一轮 review 发现 treatment opportunity 仍由 expected writable path
+预种 read pair、authorized source 没有穿过完整 study runner，以及 executable revision 只覆盖三个文件。
+本轮在同一 PR 中修正这三个语义 blocker，没有启动真实 Provider，也没有读取 `.env` 或创建 owner authorization。
 
 ## 1. Binding
 
-| 项目                         | 值                                                                 |
-| ---------------------------- | ------------------------------------------------------------------ |
-| Binding                      | `C1_EFFECTIVENESS_E0_LIVE_BINDING_V1`                              |
-| Mode                         | `NO_PROVIDER_EXECUTION`                                            |
-| Executable revision          | `2ad5a73f720ca2c94b7464611b04c71018b25e3a`                         |
-| Enrollment manifest SHA      | `9b3d787219c93f8ba7563e5b52366245c6279a697b7e729b5426e12bfab7a6bb` |
-| Freeze-prep run-contract SHA | `1fa1840c5869b2a3c60f891cb37b10706fc41830651f1bc56131e87753ffdfb3` |
-| Run-contract code revision   | `PENDING_E0_EXECUTION`                                             |
-| E0 provider request SHA      | `bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a` |
-| In-memory strict profile SHA | `dbcbff3eb4549710faaa018aab784dbb56c3082dae673931c50cb15d999eabc8` |
-| Study shape                  | 4 pairs / 8 legs / t1×2 / t2×2 / arm order 2:2                     |
+| 项目                         | 值                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------ |
+| Binding                      | `C1_EFFECTIVENESS_E0_LIVE_BINDING_V1`                                                |
+| No-provider mode             | `NO_PROVIDER_EXECUTION`                                                              |
+| Executable revision          | `bff8d71b4e1152452de3bd7ad3de39b2d03e00ad`                                           |
+| Execution surface hash       | `c250ee85bf50b2e225d588236a0cf68ecc356ce46b45f4257ebddb94bec78384`                   |
+| Execution surface            | headless research source/packages + manifests + `pnpm-lock.yaml`；不含 Electron/docs |
+| Enrollment manifest SHA      | `9b3d787219c93f8ba7563e5b52366245c6279a697b7e729b5426e12bfab7a6bb`                   |
+| Freeze-prep run-contract SHA | `1fa1840c5869b2a3c60f891cb37b10706fc41830651f1bc56131e87753ffdfb3`                   |
+| Run-contract code revision   | `PENDING_E0_EXECUTION`                                                               |
+| E0 provider request SHA      | `bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a`                   |
+| Study shape                  | 4 pairs / 8 legs / t1×2 / t2×2 / arm order 2:2                                       |
 
-`Executable revision` 由 live-binding 与其共享 Provider/driver source 的最后代码提交解析；后续文档提交
-不会被冒充为 execution revision。`runContractSha256` 仍是 freeze-prep hash，最终 live binding 需要在
-独立 review 与 owner authorization 前重新计算。
+`executionRevision` 来自完整 headless execution surface 的最新 Git commit；`executionSurfaceHash` 对该
+surface 的所有 tracked files 做内容绑定。只改变 `c1-superseded-version-policy.ts`、Runtime package 或
+lockfile 都会改变 surface hash/绑定，不会被 Electron 或文档噪声掩盖。
 
-## 2. Natural lifecycle and evidence
+`runContractSha256` 仍是 freeze-prep hash，最终 live binding 需要在独立 review 与 owner authorization 前
+重新计算；本记录不把当前 revision 冒充成最终 run-contract code revision。
 
-`C1E0NaturalObservationSource` 从每个 fresh fixture 的真实 read/tool-result 开始。Runtime policy 的输入
-只有 model-visible messages、tool requests/results、版本 fingerprint、transition evidence 和 carried
-removal evidence；它不接收 expected writable paths、reference fixture、task label 或 oracle 输出。
+## 2. P0-1：自然 treatment opportunity
 
-每次成功的 edit/write 后，私有版本探针比较 `v1`/`v2`；只有版本变化才调用冻结的
-`SUPERSEDED_VERSION` policy。Dose projection 从本次 evidence 的 transition `REMOVE` source keys 与
-carried keys 派生 lifecycle pair ID，不在 leg 启动前建立 stale-key 集合。t2 的两个 bootstrap read pair
-因此产生 2 个 lifecycle pair / 4 个 source elements，t1 产生 1 个 pair / 2 个 source elements。
+`C1E0NaturalObservationSource` 现在只允许固定的 neutral `README.md` bootstrap。E0 entrypoint 不再从
+`expectedWritablePaths` 选择初始 read，也不允许调用方通过 factory 改写 bootstrap。
 
-Layer 2 在每条 leg 完成后运行冻结 objective 与 regression oracle；oracle 结果只进入 leg/pair report，
-从未进入 Runtime policy。fake response 的 token、cache 和 latency 不被当作效率数据；缺失项保持
-`UNAVAILABLE`/`UNKNOWN`。
+credential-free substitute 的 scripted model 通过与真实 Provider 相同的 tool loop 完成：
 
-## 3. Credential-free substitute run
+```text
+fixed neutral README bootstrap
+  → model response: READ P
+  → real sandbox read result
+  → model response: EDIT/WRITE P
+  → real sandbox mutation
+  → private v1/v2 probe
+  → formal SUPERSEDED_VERSION policy
+  → transition REMOVE
+```
 
-独立临时 output root 中运行 study `c1-e0-20260911-bbbbbbb2`，使用显式 scripted response factory，
-每次 edit 的内容取自 reference fixture 仅用于 substitute 验证。结果如下：
+Runtime policy 仍只接收 model-visible messages、tool requests/results、版本 fingerprints、transition 和
+carried removal evidence；task ground truth、reference fixture、expected writable paths 和 oracle 不进入
+policy。Dose 从每次实际 transition 的 REMOVE source keys 派生 lifecycle IDs。
+
+## 3. P0-2：共享 study runner 与两条路径
+
+`runC1E0StudyInternal` 是两种 response source 共用的 8-leg scheduler/state machine：
+
+- `runC1E0FinalLiveBindingNoProvider` 只接受 `SCRIPTED_FAKE`，strict provider preparation 使用显式内存 sentinel，
+  `providerCalls=0`、`networkRequests=0`。
+- `runC1E0FinalLiveBindingAuthorized` 要求显式 `AUTHORIZED` binding（study、execution revision、surface hash、
+  contract、manifest、provider hash），只接受 caller 传入的 memory-only key；当前 pending contract 仅能通过
+  test-only override 和 injected fetch stub 使用。
+
+两条路径共用 natural observation、sandbox tool loop、Dose、Layer 2 oracle、checkpoint、pair adjudication 和
+artifact writer。authorized 回归不访问公网，但走完整 `AUTHORIZED_PROVIDER` source kind，记录
+`networkSent=true`、`fallbackSent=false` 与 `PROVIDER_REPORTED` usage。
+
+## 4. Credential-free substitute 结果
+
+Study `c1-e0-20260911-ddddddd4` 使用 neutral bootstrap 和 scripted model read/edit sequence：
 
 | 指标                        |       结果 |
 | --------------------------- | ---------: |
@@ -52,61 +76,63 @@ Layer 2 在每条 leg 完成后运行冻结 objective 与 regression oracle；or
 | legs completed              |        8/8 |
 | provider calls              |          0 |
 | network requests            |          0 |
-| fake transport permits      |         48 |
-| response receipts           |         48 |
-| tool executions             |         40 |
+| fake transport permits      |         88 |
+| response receipts           |         88 |
+| tool executions             |         80 |
 | non-zero treatment pairs    |          4 |
 | non-zero distinct tasks     |          2 |
 | Layer 2 oracle legs         | 8/8 `PASS` |
 | Runtime treatment integrity | 4/4 `PASS` |
 | finalBindingReady           |    `false` |
 
-Pair Dose：`c1-e0-01` 与 `c1-e0-03`（t2）各为 2 lifecycle pairs / 4 source elements；
-`c1-e0-02` 与 `c1-e0-04`（t1）各为 1 pair / 2 source elements。所有 Runtime leg 的
-`taskEvaluation` 为 `PASS`，效率 `providerUsage` 保持 `UNAVAILABLE`。
+t2 两个 pair 各观察到 9 个实际 read/edit lifecycle pairs（18 个 source elements），t1 两个 pair 各观察到
+1 个 pair（2 个 source elements）。这反映的是 scripted model 实际读取并修改的路径，不是 harness 预造的
+stale-key 集合。
 
-metadata-only artifact hashes（临时目录，报告完成后清理）：
+## 5. Authorized-kind credential-free regression
 
-```text
-checkpoints.jsonl        0e39f520afff58bb920a6c4ecb97a39ccd1fd4285e046ad10cd7d356deebfbcd
-checkpoint-summary.json  d2c5a0aad046f193c462e6e1fd44aaf33bfb3805848661b81e4a0969dbc6195a
-study-events.jsonl       34f76f74dba211542704e5a80e8227d8f6048da8a8bfe96e7a87fdf6a6fd7837
-response-ledger.jsonl    7cdfdbe69dd3663432e856e35daa9a995a15830f91a84e42597e4cbf602cc8a8
-dose-evidence.jsonl      18510196cceabb47709bc69a743fd1696274caf378a92bbdf9facfb9bddca282
-pair-adjudication.jsonl  6cad86b1e0f617237a07b031957cd6336724a999368f11d2313651b5ca125717
-batch-qualification.json a1f8cde0adeb84bdf51f1584472c5afda4620ef4f95f839b9e5b781c4a8fb84c
-run-manifest.json        bd5992982e4954115dab97ed6e87c5b3d98471632339b7a3e20cb93831199b88
-```
+使用 injected fake `fetch` 的完整 8-leg 回归通过：
 
-`response-ledger`、Dose、pair 和 manifest 均通过 raw-content guard；没有
-`providerBoundMessages`、原始 `argumentsJson`、assistant content、Provider payload 或 authorization
-header。
+| 指标              |                                               结果 |
+| ----------------- | -------------------------------------------------: |
+| response source   |                              `AUTHORIZED_PROVIDER` |
+| status            |                                             `PASS` |
+| legs completed    |                                                8/8 |
+| provider calls    |                                                 88 |
+| network requests  |                              88（全部为测试 stub） |
+| `networkSent`     |                                        全部 `true` |
+| `fallbackSent`    |                                       全部 `false` |
+| provider usage    |           8/8 legs `AVAILABLE / PROVIDER_REPORTED` |
+| Layer 2 oracle    |                                         8/8 `PASS` |
+| finalBindingReady | `false`（仍是 freeze-prep contract test override） |
 
-## 4. Verification
+另有 surface-drift authorization 测试：hash 不匹配时在 identity claim、provider preparation 和 fetch 前返回
+`NO_GO / NOT_AUTHORIZED`，fetch 调用数为 0。
 
-- 新 live-binding targeted tests：3/3 passed（Node `v23.11.0`，显式 test-only Node-range override；没有 Provider/network）。
+## 6. Verification
+
+- 新 live-binding tests：6/6 passed（Node `v23.11.0`，显式 test-only Node-range override）。
 - E0 runner + Dose tests：18/18 passed。
 - Authorized Provider source tests：15/15 passed。
 - SUPERSEDED policy/probe tests：21/21 passed。
-- Context-benchmarks full suite：217 passed；本地 Node 23 下其余 24 项为已有 Node 24 range gate，不能作为代码失败依据。
-- `pnpm test:core` 在 Node 23 下的 context-runtime/domain 等 headless 包通过；persistence 的 68 项失败来自 Node 23 内置 SQLite 与当前 Drizzle adapter 的 `stmt.setReturnArrays` 环境不匹配，属于已知运行时限制。
-- Context-benchmarks typecheck：passed。
+- headless audit：passed，workspace classification `unknown=0`、core findings `0`。
+- headless format、lint、typecheck、build：passed。
+- 本地 Node 23 的其余历史 live/canary tests 仍受 Node 24 gate 影响；不把该环境限制归因于本轮代码。
 - `git diff --check`：passed。
-- Draft PR #115 的 Context Runtime CI run `34507320537` 在 Node 24 通过；该 run 对应 head `be5f8862ffa38ce874ce504e0e6038ca96ba0be0`。之后只有文档提交，当前 head/status 以 PR 页面为准；base 为 #114 分支 `codex/c1-effectiveness-e0-execution-runner`。
-- 最终门禁仍需远端 Node 24 Context Runtime CI 与 independent review；本地 Node 23 结果不替代它们。
+- PR #115 最新 Node 24 Context Runtime CI：run `34508041307` 通过；该 run 覆盖 P0 代码提交前的 head，P0 代码定向回归已在本地通过，推送后等待新的 CI 结果。
 
-## 5. 当前阶段裁定
+## 7. 当前阶段裁定
 
 ```text
 E0 design / enrollment / Dose             CLOSED / FROZEN
 Credential-free runner (#114)             PASS / FROZEN FOR REVIEW
-Final live binding wiring                  IMPLEMENTED / NO_PROVIDER_EXECUTION
-Natural lifecycle path                     READY_FOR_INDEPENDENT_REVIEW
-Layer 2 oracle evaluator                   WIRED / POST-LEG ONLY
-Provider usage + latency provenance        WIRED / fake remains unavailable
-Final executionRevision                    RECORDED ABOVE / NOT RUN LIVE
-runContractSha256 final rebinding          PENDING
+Natural treatment opportunity              HARDENED / MODEL-GENERATED READ REQUIRED
+Shared 8-leg study runner                  WIRED FOR FAKE + AUTHORIZED KINDS
+Authorized provider adapter                WIRED / MEMORY-ONLY KEY / NO FALLBACK
+Execution surface revision + hash          WIRED / HEADLESS / ELECTRON EXCLUDED
+Final live binding                         CHANGES_REQUIRED_BEFORE_FINAL_FREEZE → P0 FIXED
 Independent review                         REQUIRED
+Final run-contract rebinding               PENDING
 Owner authorization                        NO_GO
 E0 live                                   NO_GO
 ```
