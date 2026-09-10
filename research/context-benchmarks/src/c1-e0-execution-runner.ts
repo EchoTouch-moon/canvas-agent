@@ -713,7 +713,7 @@ function lifecyclePairIdsForSourceKeys(sourceKeys: readonly string[]): readonly 
         `E0 lifecycle source pair is incomplete for tool call ${id}`
       )
     }
-    lifecycleIds.push(`c1-lifecycle-${shortDigest(`${pair.call}|${pair.result}`)}`)
+    lifecycleIds.push(`c1-lifecycle-${sha256(`${pair.call}|${pair.result}`)}`)
   }
   return uniqueSorted(lifecycleIds)
 }

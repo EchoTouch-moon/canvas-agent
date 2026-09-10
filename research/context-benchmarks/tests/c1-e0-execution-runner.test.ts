@@ -134,6 +134,16 @@ describe('C1 E0 credential-free execution runner', () => {
         (pair) => pair.runtimeDoseSummary?.uniqueRemovedPairs.length === 2
       )
     ).toBe(true)
+    expect(
+      report.pairAdjudications.every(
+        (pair) =>
+          pair.runtimeDoseSummary?.experimentPairId === pair.pairId &&
+          pair.runtimeDoseSummary.uniqueRemovedSourceElements.length === 4 &&
+          pair.runtimeDoseSummary.uniqueRemovedPairs.every((lifecyclePairId) =>
+            lifecyclePairId.startsWith('c1-lifecycle-')
+          )
+      )
+    ).toBe(true)
     const pairStarted = report.events.filter((event) => event.event === 'PAIR_STARTED')
     expect(pairStarted.map((event) => event.pairId)).toEqual([
       'c1-e0-01',
