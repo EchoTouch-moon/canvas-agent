@@ -58,6 +58,7 @@ import {
   type C1LiveModelResponse,
   type C1LiveObservationSource,
   type C1LiveResponseSource,
+  type C1LiveResponseSourceKind,
   type C1LiveUsage
 } from './c1-live-binding'
 import {
@@ -102,6 +103,8 @@ import { buildSanitizedChildEnvironment, runProcess } from './fixture-generator'
 export const C1_E0_FINAL_LIVE_BINDING_ID = 'C1_EFFECTIVENESS_E0_LIVE_BINDING_V1'
 export const C1_E0_FINAL_LIVE_BINDING_MODE = 'NO_PROVIDER_EXECUTION' as const
 export const C1_E0_FINAL_LIVE_BINDING_SCHEMA_VERSION = 1 as const
+/** Fixed harness context; task ground truth never chooses the initial read. */
+export const C1_E0_NEUTRAL_BOOTSTRAP_FILES = Object.freeze(['README.md'] as const)
 
 const E0_STUDY_ID_PATTERN = /^c1-e0-\d{8}-[0-9a-f]{8}$/
 const E0_RUN_ID_PATTERN = /^c1-e0-\d{8}-c1-e0-\d{2}-(?:NATIVE|RUNTIME)-[0-9a-f]{8}$/
@@ -194,16 +197,27 @@ async function claimE0LegDir(reportDir: string, runId: string): Promise<string> 
   return legDir
 }
 
-const E0_EXECUTION_PATHS = Object.freeze([
-  'research/context-benchmarks/src/c1-e0-live-binding.ts',
-  'research/context-benchmarks/src/c1-live-binding.ts',
-  'research/context-benchmarks/src/c1-authorized-provider.ts'
+/** Headless research surface; Electron and documentation are deliberately excluded. */
+export const C1_E0_EXECUTION_SURFACE_PATHS = Object.freeze([
+  'research/context-benchmarks/src',
+  'research/context-benchmarks/package.json',
+  'packages/context-runtime',
+  'packages/pi-context-integration',
+  'packages/contracts',
+  'packages/domain',
+  'packages/persistence',
+  'packages/worker-runtime',
+  'packages/repository-observer',
+  'packages/codex-context-integration',
+  'packages/context-conformance',
+  'package.json',
+  'pnpm-lock.yaml'
 ] as const)
 
 async function gitExecutableRevision(repoRoot: string): Promise<string> {
   const result = await runProcess(
     'git',
-    ['log', '-1', '--format=%H', '--', ...E0_EXECUTION_PATHS],
+    ['log', '-1', '--format=%H', '--', ...C1_E0_EXECUTION_SURFACE_PATHS],
     {
       cwd: repoRoot,
       timeoutMs: 30_000,
@@ -223,6 +237,55 @@ async function gitExecutableRevision(repoRoot: string): Promise<string> {
     )
   }
   return revision
+}
+
+function sha256Bytes(value: Uint8Array): string {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+/** Hash every tracked file in the headless research execution surface. */
+export async function computeC1E0ExecutionSurfaceHash(repoRoot: string): Promise<string> {
+  const result = await runProcess(
+    'git',
+    ['ls-files', '-z', '--', ...C1_E0_EXECUTION_SURFACE_PATHS],
+    {
+      cwd: repoRoot,
+      timeoutMs: 30_000,
+      env: buildSanitizedChildEnvironment()
+    }
+  )
+  if (result.exitCode !== 0 || result.timedOut || result.outputLimitExceeded) {
+    throw new C1PreflightFailure(
+      'CONTRACT_BINDING_MISMATCH',
+      'unable to enumerate the headless E0 execution surface'
+    )
+  }
+  const files = result.stdout
+    .split('\0')
+    .filter((path) => path.length > 0)
+    .sort()
+  if (files.length === 0) {
+    throw new C1PreflightFailure(
+      'CONTRACT_BINDING_MISMATCH',
+      'headless E0 execution surface contains no tracked files'
+    )
+  }
+  const rows: string[] = []
+  for (const path of files) {
+    rows.push(`${sha256Bytes(await readFile(join(repoRoot, path)))}  ${path}`)
+  }
+  return sha256(`${rows.join('\n')}\n`)
+}
+
+export async function computeC1E0ExecutionBinding(repoRoot: string): Promise<{
+  readonly executionRevision: string
+  readonly executionSurfaceHash: string
+}> {
+  const [executionRevision, executionSurfaceHash] = await Promise.all([
+    gitExecutableRevision(repoRoot),
+    computeC1E0ExecutionSurfaceHash(repoRoot)
+  ])
+  return { executionRevision, executionSurfaceHash }
 }
 
 async function loadE0Tasks(
@@ -301,7 +364,7 @@ export class C1E0NaturalObservationSource implements C1LiveObservationSource {
     readonly arm: 'NATIVE' | 'RUNTIME'
     readonly bootstrapFiles?: readonly string[]
   }): Promise<C1E0NaturalObservationSource> {
-    const bootstrapFiles = input.bootstrapFiles ?? input.task.expectedWritablePaths.slice(0, 1)
+    const bootstrapFiles = input.bootstrapFiles ?? C1_E0_NEUTRAL_BOOTSTRAP_FILES
     if (bootstrapFiles.length === 0) {
       throw new C1PreflightFailure(
         'MANIFEST_BINDING_MISMATCH',
@@ -566,7 +629,7 @@ export interface C1E0LiveBindingLegFactoryInput {
   readonly fixtureRoot: string
   readonly legDir: string
   readonly providerBinding: C1StrictProviderBinding
-  readonly bootstrapFiles: readonly string[]
+  readonly bootstrapFiles: typeof C1_E0_NEUTRAL_BOOTSTRAP_FILES
   readonly killSwitch: RunKillSwitch
   readonly responseAbortSignal: AbortSignal
 }
@@ -582,11 +645,70 @@ export interface C1E0FinalLiveBindingOptions {
   readonly now?: Date
   readonly signalSource?: C1SignalSource
   readonly maxCalls?: number
-  readonly bootstrapFiles?: (task: C1PreflightTask) => readonly string[]
   /** Test-only escape hatch for hosts that cannot provide the frozen Node 24 runtime. */
   readonly allowUnsupportedNodeForTests?: boolean
   /** Explicit scripted substitute; no default can reach a Provider. */
   readonly responseSourceFactory: C1E0LiveResponseSourceFactory
+}
+
+export interface C1E0LiveAuthorization {
+  readonly decision: 'AUTHORIZED'
+  readonly studyId: string
+  readonly executionRevision: string
+  readonly executionSurfaceHash: string
+  readonly runContractSha256: string
+  readonly enrollmentManifestSha256: string
+  readonly providerConfigHash: string
+}
+
+export interface C1E0AuthorizedLiveBindingOptions {
+  readonly repoRoot?: string
+  readonly outputRoot?: string
+  readonly authorization: C1E0LiveAuthorization
+  /** Memory-only credential; this module never reads it from the environment. */
+  readonly apiKey: string
+  readonly fetchImpl?: typeof fetch
+  readonly requestTimeoutMs?: number
+  readonly signalSource?: C1SignalSource
+  readonly maxCalls?: number
+  /** Test-only path for the current freeze-prep contract, never for live use. */
+  readonly allowPendingContractForTests?: boolean
+}
+
+interface C1E0StudyRunnerOptions {
+  readonly repoRoot?: string
+  readonly outputRoot?: string
+  readonly studyId?: string
+  readonly now?: Date
+  readonly signalSource?: C1SignalSource
+  readonly maxCalls?: number
+  readonly allowUnsupportedNodeForTests?: boolean
+  readonly executionMode: string
+  readonly responseSourceKind: C1LiveResponseSourceKind
+  readonly requireNoProvider: boolean
+  readonly responseSourceFactory: C1E0LiveResponseSourceFactory
+  readonly prepareProvider: (studyId: string) => Promise<C1StrictProviderBinding>
+  readonly providerCalls: () => number
+  readonly networkRequests: () => number
+  readonly authorization?: C1E0LiveAuthorization
+  readonly allowPendingContractForTests?: boolean
+}
+
+function assertC1E0Authorization(value: C1E0LiveAuthorization): void {
+  if (
+    value.decision !== 'AUTHORIZED' ||
+    !E0_STUDY_ID_PATTERN.test(value.studyId) ||
+    !/^[0-9a-f]{40}$/.test(value.executionRevision) ||
+    !/^[0-9a-f]{64}$/.test(value.executionSurfaceHash) ||
+    !/^[0-9a-f]{64}$/.test(value.runContractSha256) ||
+    !/^[0-9a-f]{64}$/.test(value.enrollmentManifestSha256) ||
+    !/^[0-9a-f]{64}$/.test(value.providerConfigHash)
+  ) {
+    throw new C1PreflightFailure(
+      'NOT_AUTHORIZED',
+      'E0 authorization must bind study, execution revision, execution surface, contract, manifest, and provider hash'
+    )
+  }
 }
 
 export interface C1E0LiveBindingLegRecord {
@@ -598,7 +720,7 @@ export interface C1E0LiveBindingLegRecord {
   readonly arm: 'NATIVE' | 'RUNTIME'
   readonly runId: string
   readonly status: 'COMPLETED' | 'FAILED' | 'BLOCKED'
-  readonly responseSource: 'SCRIPTED_FAKE'
+  readonly responseSource: C1LiveResponseSourceKind
   readonly providerConfigHash: string
   readonly providerPreparationProfileHash: string | null
   readonly responseCalls: number
@@ -666,12 +788,13 @@ export interface C1E0LiveBindingArtifactSummary {
 export interface C1E0FinalLiveBindingReport {
   readonly bindingId: typeof C1_E0_FINAL_LIVE_BINDING_ID
   readonly schemaVersion: typeof C1_E0_FINAL_LIVE_BINDING_SCHEMA_VERSION
-  readonly executionMode: typeof C1_E0_FINAL_LIVE_BINDING_MODE
+  readonly executionMode: string
   readonly status: 'PASS' | 'INCONCLUSIVE' | 'NO_GO'
   readonly finalBindingReady: false
   readonly studyId: string | null
   readonly reportDir: string | null
   readonly executionRevision: string | null
+  readonly executionSurfaceHash: string | null
   readonly runContractId: typeof C1_E0_RUN_CONTRACT_ID
   readonly runContractCodeRevision: string | null
   readonly runContractSha256: string | null
@@ -684,9 +807,9 @@ export interface C1E0FinalLiveBindingReport {
   readonly nodeRange: typeof C1_E0_NODE_RANGE
   readonly providerConfigHash: string
   readonly providerPreparationProfileHash: string | null
-  readonly responseSource: 'SCRIPTED_FAKE'
-  readonly providerCalls: 0
-  readonly networkRequests: 0
+  readonly responseSource: C1LiveResponseSourceKind
+  readonly providerCalls: number
+  readonly networkRequests: number
   readonly fakeProviderCallPermits: number
   readonly responseCalls: number
   readonly toolExecutions: number
@@ -716,6 +839,7 @@ interface InternalLeg {
   readonly plan: C1E0ExecutionPlan
   readonly task: C1PreflightTask
   readonly status: C1E0LiveBindingLegRecord['status']
+  readonly responseSourceKind: C1LiveResponseSourceKind
   readonly result?: C1LiveBindingLegResult
   readonly doseObservations: readonly C1E0DoseObservation[]
   readonly providerProfileHash: string | null
@@ -880,7 +1004,7 @@ function legRecord(input: InternalLeg, providerConfigHash: string): C1E0LiveBind
     arm: input.plan.arm,
     runId: input.plan.runId,
     status: input.status,
-    responseSource: 'SCRIPTED_FAKE',
+    responseSource: input.responseSourceKind,
     providerConfigHash,
     providerPreparationProfileHash: input.providerProfileHash,
     responseCalls: result?.evidence.length ?? 0,
@@ -906,6 +1030,7 @@ function pairAdjudications(input: {
   readonly states: ReadonlyMap<string, PairState>
   readonly evidenceSink: C1JsonlLiveBindingEvidenceSink | null
   readonly invalidated: boolean
+  readonly responseSourceKind: C1LiveResponseSourceKind
 }): readonly C1E0LiveBindingPairAdjudication[] {
   const byPair = new Map<string, C1E0ExecutionPlan>()
   for (const plan of input.assignments) byPair.set(plan.pairId, plan)
@@ -934,7 +1059,7 @@ function pairAdjudications(input: {
           input.evidenceSink !== null
         ) {
           const evidence = runtime.result.evidence
-          const providerBoundary = evaluateC1E0ProviderBoundary(evidence, 'SCRIPTED_FAKE')
+          const providerBoundary = evaluateC1E0ProviderBoundary(evidence, input.responseSourceKind)
           providerBoundaryVerdict = providerBoundary.verdict
           const integrity = evaluateC1E0TreatmentIntegrity({
             dose: runtimeDoseSummary,
@@ -1093,8 +1218,8 @@ async function writeArtifacts(input: {
  * substitute. This is a wiring qualification only: providerCalls and network
  * requests are hard-coded to zero, while fake transport permits remain visible.
  */
-export async function runC1E0FinalLiveBindingNoProvider(
-  options: C1E0FinalLiveBindingOptions
+async function runC1E0StudyInternal(
+  options: C1E0StudyRunnerOptions
 ): Promise<C1E0FinalLiveBindingReport> {
   const repoRoot = options.repoRoot ?? resolve(import.meta.dirname, '..', '..', '..')
   const studyId = options.studyId ?? createE0StudyId(options.now ?? new Date())
@@ -1108,6 +1233,7 @@ export async function runC1E0FinalLiveBindingNoProvider(
   let enrollment: C1E0EnrollmentManifest | null = null
   let contract: C1E0RunContract | null = null
   let executionRevision: string | null = null
+  let executionSurfaceHash: string | null = null
   let reportDir: string | null = null
   let providerBinding: C1StrictProviderBinding | null = null
   let providerProfileHash: string | null = null
@@ -1129,12 +1255,13 @@ export async function runC1E0FinalLiveBindingNoProvider(
   const baseReport = (): Omit<C1E0FinalLiveBindingReport, 'artifacts'> => ({
     bindingId: C1_E0_FINAL_LIVE_BINDING_ID,
     schemaVersion: C1_E0_FINAL_LIVE_BINDING_SCHEMA_VERSION,
-    executionMode: C1_E0_FINAL_LIVE_BINDING_MODE,
+    executionMode: options.executionMode,
     status: hardStudyFailure ? 'NO_GO' : 'INCONCLUSIVE',
     finalBindingReady: false,
     studyId: reportDir === null ? null : studyId,
     reportDir,
     executionRevision,
+    executionSurfaceHash,
     runContractId: C1_E0_RUN_CONTRACT_ID,
     runContractCodeRevision: contract?.executionBinding.codeRevision ?? null,
     runContractSha256: contract?.runContractSha256 ?? null,
@@ -1147,9 +1274,9 @@ export async function runC1E0FinalLiveBindingNoProvider(
     nodeRange: C1_E0_NODE_RANGE,
     providerConfigHash: C1_E0_PROVIDER_CONFIG_HASH,
     providerPreparationProfileHash: providerProfileHash,
-    responseSource: 'SCRIPTED_FAKE',
-    providerCalls: 0,
-    networkRequests: 0,
+    responseSource: options.responseSourceKind,
+    providerCalls: options.providerCalls(),
+    networkRequests: options.networkRequests(),
     fakeProviderCallPermits: budgetGuard?.ledger.providerCalls ?? 0,
     responseCalls: internalLegs.reduce(
       (total, leg) => total + (leg.result?.evidence.length ?? 0),
@@ -1189,17 +1316,53 @@ export async function runC1E0FinalLiveBindingNoProvider(
       )
     }
     await assertC1LiveWorktreeClean(repoRoot)
-    executionRevision = await gitExecutableRevision(repoRoot)
+    const executionBinding = await computeC1E0ExecutionBinding(repoRoot)
+    executionRevision = executionBinding.executionRevision
+    executionSurfaceHash = executionBinding.executionSurfaceHash
     enrollment = await loadC1E0EnrollmentManifest(repoRoot)
     contract = await loadC1E0RunContract(repoRoot)
+    if (contract.executionBinding.providerConfigHash !== C1_E0_PROVIDER_CONFIG_HASH) {
+      throw new C1PreflightFailure(
+        'CONTRACT_BINDING_MISMATCH',
+        'E0 live-binding provider request hash drifted from the frozen contract'
+      )
+    }
+    const pendingContractTestOverride =
+      options.allowPendingContractForTests === true && process.env['NODE_ENV'] === 'test'
     if (
-      contract.executionBinding.providerConfigHash !== C1_E0_PROVIDER_CONFIG_HASH ||
+      options.requireNoProvider &&
       contract.executionBinding.codeRevision !== 'PENDING_E0_EXECUTION'
     ) {
       throw new C1PreflightFailure(
         'CONTRACT_BINDING_MISMATCH',
-        'final live-binding preparation requires the unchanged freeze-prep E0 contract'
+        'NO_PROVIDER final live binding requires the unchanged freeze-prep E0 contract'
       )
+    }
+    if (
+      options.authorization !== undefined &&
+      contract.executionBinding.codeRevision === 'PENDING_E0_EXECUTION' &&
+      !pendingContractTestOverride
+    ) {
+      throw new C1PreflightFailure(
+        'NOT_AUTHORIZED',
+        'authorized E0 execution cannot use a pending freeze-prep code revision'
+      )
+    }
+    if (options.authorization !== undefined) {
+      assertC1E0Authorization(options.authorization)
+      if (
+        options.authorization.studyId !== studyId ||
+        options.authorization.executionRevision !== executionRevision ||
+        options.authorization.executionSurfaceHash !== executionSurfaceHash ||
+        options.authorization.runContractSha256 !== contract.runContractSha256 ||
+        options.authorization.enrollmentManifestSha256 !== enrollment.manifestSha256 ||
+        options.authorization.providerConfigHash !== C1_E0_PROVIDER_CONFIG_HASH
+      ) {
+        throw new C1PreflightFailure(
+          'NOT_AUTHORIZED',
+          'authorized E0 execution binding does not match the loaded frozen artifacts'
+        )
+      }
     }
     const tasks = await loadE0Tasks(repoRoot, enrollment)
     const plans = buildC1E0ExecutionPlans(contract, enrollment, studyId)
@@ -1216,10 +1379,7 @@ export async function runC1E0FinalLiveBindingNoProvider(
       observedStatus: 'PREPARED'
     })
 
-    providerBinding = await prepareC1StrictProvider({
-      runIdentity: studyId,
-      env: { STEP_PLAN_API_KEY: E0_FAKE_CREDENTIAL }
-    })
+    providerBinding = await options.prepareProvider(studyId)
     assertC1StrictProviderBinding(providerBinding.experimentBinding)
     providerProfileHash = providerBinding.providerConfigHash
     budgetGuard = new C1HardBudgetGuard({
@@ -1295,6 +1455,7 @@ export async function runC1E0FinalLiveBindingNoProvider(
             plan,
             task,
             status: 'BLOCKED',
+            responseSourceKind: options.responseSourceKind,
             doseObservations: [],
             providerProfileHash,
             changedPaths: [],
@@ -1342,8 +1503,7 @@ export async function runC1E0FinalLiveBindingNoProvider(
               `E0 live fixture hash mismatch for ${plan.runId}`
             )
           }
-          const bootstrapFiles =
-            options.bootstrapFiles?.(task) ?? task.expectedWritablePaths.slice(0, 1)
+          const bootstrapFiles = C1_E0_NEUTRAL_BOOTSTRAP_FILES
           const abortController = new AbortController()
           const legKillSwitch = createRunKillSwitch(plan.runId, {
             now: () => new Date().toISOString()
@@ -1362,10 +1522,10 @@ export async function runC1E0FinalLiveBindingNoProvider(
             responseAbortSignal: abortController.signal
           }
           const responseSource = await options.responseSourceFactory(factoryInput)
-          if (responseSource.kind !== 'SCRIPTED_FAKE') {
+          if (responseSource.kind !== options.responseSourceKind) {
             throw new C1PreflightFailure(
               'PROVIDER_BINDING_MISMATCH',
-              'NO_PROVIDER final live binding accepts only a scripted fake response source'
+              `E0 response source kind ${responseSource.kind} does not match ${options.responseSourceKind}`
             )
           }
           const observationSource = await C1E0NaturalObservationSource.fromFixture({
@@ -1425,10 +1585,10 @@ export async function runC1E0FinalLiveBindingNoProvider(
                 arm: plan.arm,
                 runId: plan.runId,
                 status: 'COMPLETED',
-                responseSource: 'SCRIPTED_FAKE',
+                responseSource: options.responseSourceKind,
                 providerConfigHash: C1_E0_PROVIDER_CONFIG_HASH,
-                providerCalls: 0,
-                networkRequests: 0,
+                providerCalls: options.providerCalls(),
+                networkRequests: options.networkRequests(),
                 responseCalls: result.evidence.length,
                 toolExecutions: result.toolCalls,
                 fixtureHashVerified,
@@ -1446,6 +1606,7 @@ export async function runC1E0FinalLiveBindingNoProvider(
             plan,
             task,
             status: 'COMPLETED',
+            responseSourceKind: options.responseSourceKind,
             result,
             doseObservations,
             providerProfileHash,
@@ -1474,6 +1635,7 @@ export async function runC1E0FinalLiveBindingNoProvider(
             plan,
             task,
             status: 'FAILED',
+            responseSourceKind: options.responseSourceKind,
             doseObservations: [],
             providerProfileHash,
             changedPaths,
@@ -1533,7 +1695,8 @@ export async function runC1E0FinalLiveBindingNoProvider(
     assignments: plans,
     states,
     evidenceSink,
-    invalidated: hardStudyFailure
+    invalidated: hardStudyFailure,
+    responseSourceKind: options.responseSourceKind
   })
   for (const pair of pairs) {
     events.push({
@@ -1636,4 +1799,90 @@ export async function runC1E0FinalLiveBindingNoProvider(
     failures: Object.freeze(failures),
     artifacts
   }
+}
+
+/** Strict no-provider wrapper used by readiness and credential-free tests. */
+export async function runC1E0FinalLiveBindingNoProvider(
+  options: C1E0FinalLiveBindingOptions
+): Promise<C1E0FinalLiveBindingReport> {
+  return runC1E0StudyInternal({
+    ...options,
+    executionMode: C1_E0_FINAL_LIVE_BINDING_MODE,
+    responseSourceKind: 'SCRIPTED_FAKE',
+    requireNoProvider: true,
+    prepareProvider: (studyId) =>
+      prepareC1StrictProvider({
+        runIdentity: studyId,
+        env: { STEP_PLAN_API_KEY: E0_FAKE_CREDENTIAL }
+      }),
+    providerCalls: () => 0,
+    networkRequests: () => 0
+  })
+}
+
+/**
+ * Authorized Provider wrapper. It is intentionally separate from the
+ * no-provider entrypoint and requires an explicit, fully bound authorization.
+ * The current freeze-prep contract can only be used through the test-only
+ * pending-contract override with an injected fetch stub.
+ */
+export async function runC1E0FinalLiveBindingAuthorized(
+  options: C1E0AuthorizedLiveBindingOptions
+): Promise<C1E0FinalLiveBindingReport> {
+  let providerAttempts = 0
+  let networkRequests = 0
+  const upstreamFetch = options.fetchImpl ?? globalThis.fetch
+  if (typeof upstreamFetch !== 'function') {
+    throw new C1PreflightFailure('PROVIDER_PREPARATION_FAILURE', 'global fetch is unavailable')
+  }
+  const countedFetch: typeof fetch = async (input, init) => {
+    networkRequests += 1
+    return upstreamFetch(input, init)
+  }
+  return runC1E0StudyInternal({
+    studyId: options.authorization.studyId,
+    executionMode: 'AUTHORIZED_PROVIDER',
+    responseSourceKind: 'AUTHORIZED_PROVIDER',
+    requireNoProvider: false,
+    authorization: options.authorization,
+    ...(options.repoRoot === undefined ? {} : { repoRoot: options.repoRoot }),
+    ...(options.outputRoot === undefined ? {} : { outputRoot: options.outputRoot }),
+    ...(options.signalSource === undefined ? {} : { signalSource: options.signalSource }),
+    ...(options.maxCalls === undefined ? {} : { maxCalls: options.maxCalls }),
+    ...(options.allowPendingContractForTests === undefined
+      ? {}
+      : { allowPendingContractForTests: options.allowPendingContractForTests }),
+    prepareProvider: async (studyId) => {
+      if (typeof options.apiKey !== 'string' || options.apiKey.length === 0) {
+        throw new C1PreflightFailure(
+          'PROVIDER_PREPARATION_FAILURE',
+          'authorized E0 binding requires an explicit memory-only API key'
+        )
+      }
+      return prepareC1StrictProvider({
+        runIdentity: studyId,
+        env: { STEP_PLAN_API_KEY: options.apiKey }
+      })
+    },
+    responseSourceFactory: (input) => {
+      const source = createC1E0AuthorizedProviderResponseSource({
+        providerBinding: input.providerBinding,
+        apiKey: options.apiKey,
+        fetchImpl: countedFetch,
+        ...(options.requestTimeoutMs === undefined
+          ? {}
+          : { requestTimeoutMs: options.requestTimeoutMs })
+      })
+      return {
+        kind: 'AUTHORIZED_PROVIDER' as const,
+        next: async (request, sourceOptions) => {
+          providerAttempts += 1
+          return source.next(request, sourceOptions)
+        }
+      }
+    },
+    providerCalls: () => providerAttempts,
+    networkRequests: () => networkRequests,
+    allowUnsupportedNodeForTests: options.allowPendingContractForTests === true ? true : false
+  })
 }

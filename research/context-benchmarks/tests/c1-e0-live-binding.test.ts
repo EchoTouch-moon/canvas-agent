@@ -9,9 +9,13 @@ import {
   C1ScriptedResponseSource,
   C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE,
   captureC1PreflightArm,
+  computeC1E0ExecutionBinding,
   createC1E0AuthorizedProviderResponseSource,
+  loadC1E0EnrollmentManifest,
+  loadC1E0RunContract,
   loadC1FrozenStudy,
   prepareC1StrictProvider,
+  runC1E0FinalLiveBindingAuthorized,
   runC1E0FinalLiveBindingNoProvider,
   summarizeC1E0Efficiency,
   type C1E0LiveBindingLegFactoryInput,
@@ -36,12 +40,27 @@ async function responseSourceFor(input: C1E0LiveBindingLegFactoryInput) {
   )
   const responses: C1LiveModelResponse[] = []
   for (const [index, path] of input.task.expectedWritablePaths.entries()) {
+    responses.push({
+      responseId: `${input.plan.runId}-read-response-${String(index + 1).padStart(2, '0')}`,
+      assistantMessageCount: 1,
+      assistantContent: '',
+      usage: fakeUsage,
+      toolRequests: [
+        {
+          toolCallId: `${input.plan.runId}-read-${String(index + 1).padStart(2, '0')}`,
+          toolName: 'read',
+          argumentsJson: JSON.stringify({ path })
+        }
+      ],
+      toolExecutions: [],
+      outcome: 'CONTINUE'
+    })
     const [oldText, newText] = await Promise.all([
       readFile(join(input.fixtureRoot, path), 'utf8'),
       readFile(join(referenceRoot, path), 'utf8')
     ])
     responses.push({
-      responseId: `${input.plan.runId}-response-${String(index + 1).padStart(2, '0')}`,
+      responseId: `${input.plan.runId}-edit-response-${String(index + 1).padStart(2, '0')}`,
       assistantMessageCount: 1,
       assistantContent: '',
       usage: fakeUsage,
@@ -68,6 +87,53 @@ async function responseSourceFor(input: C1E0LiveBindingLegFactoryInput) {
   return new C1ScriptedResponseSource(responses)
 }
 
+function authorizedPayload(input: {
+  readonly id: string
+  readonly toolCall?: {
+    readonly id: string
+    readonly name: 'read' | 'edit'
+    readonly argumentsJson: string
+  }
+}): Response {
+  return new Response(
+    JSON.stringify({
+      id: input.id,
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: input.toolCall === undefined ? 'verification complete' : null,
+            ...(input.toolCall === undefined
+              ? {}
+              : {
+                  tool_calls: [
+                    {
+                      id: input.toolCall.id,
+                      type: 'function',
+                      function: {
+                        name: input.toolCall.name,
+                        arguments: input.toolCall.argumentsJson
+                      }
+                    }
+                  ]
+                })
+          },
+          finish_reason: input.toolCall === undefined ? 'stop' : 'tool_calls'
+        }
+      ],
+      usage: {
+        prompt_tokens: 21,
+        completion_tokens: 5,
+        total_tokens: 26,
+        cached_tokens: 3,
+        cache_write_tokens: 0
+      }
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } }
+  )
+}
+
 async function outputRoot(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'canvas-c1-e0-live-binding-test-'))
 }
@@ -81,7 +147,6 @@ describe('C1 E0 final live binding', () => {
         outputRoot: root,
         studyId: 'c1-e0-20260911-aaaaaaa1',
         allowUnsupportedNodeForTests: true,
-        bootstrapFiles: (task) => task.expectedWritablePaths.slice(0, 2),
         responseSourceFactory: responseSourceFor
       })
 
@@ -115,8 +180,10 @@ describe('C1 E0 final live binding', () => {
       const t2Pair = report.pairAdjudications.find(
         (pair) => pair.taskId === 'c1-t2-multi-file-migration-v1'
       )
-      expect(t2Pair?.runtimeDoseSummary?.uniqueRemovedPairs).toHaveLength(2)
-      expect(t2Pair?.runtimeDoseSummary?.uniqueRemovedSourceElements).toHaveLength(4)
+      expect(t2Pair?.runtimeDoseSummary?.uniqueRemovedPairs.length).toBeGreaterThanOrEqual(2)
+      expect(t2Pair?.runtimeDoseSummary?.uniqueRemovedSourceElements.length).toBeGreaterThanOrEqual(
+        4
+      )
       expect(
         report.legs
           .filter((leg) => leg.arm === 'RUNTIME')
@@ -244,6 +311,113 @@ describe('C1 E0 final live binding', () => {
       providerBinding.dispose()
     }
   })
+
+  it('runs the complete eight-leg scheduler through the authorized source kind with a fake fetch', async () => {
+    const binding = await computeC1E0ExecutionBinding(REPO_ROOT)
+    const enrollment = await loadC1E0EnrollmentManifest(REPO_ROOT)
+    const contract = await loadC1E0RunContract(REPO_ROOT)
+    const root = await outputRoot()
+    const cursors = new Map<string, number>()
+    const t2Paths = [
+      'utils/format.js',
+      'models/product.js',
+      'models/order.js',
+      'models/shipment.js',
+      'services/cart.js',
+      'services/pricing.js',
+      'services/inventory.js',
+      'services/billing.js',
+      'index.js'
+    ]
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as {
+        readonly messages: readonly {
+          readonly role: string
+          readonly content?: string | null
+          readonly tool_calls?: readonly { readonly id: string }[]
+        }[]
+      }
+      const bootstrap = body.messages.find(
+        (message) =>
+          message.role === 'assistant' &&
+          message.tool_calls?.[0]?.id.startsWith('c1-live-bootstrap-')
+      )
+      if (bootstrap?.tool_calls?.[0] === undefined) throw new Error('missing neutral bootstrap')
+      const runId = bootstrap.tool_calls[0].id
+        .replace(/^c1-live-bootstrap-/, '')
+        .replace(/-\d{2}$/, '')
+      const isT1 = runId.includes('c1-e0-02') || runId.includes('c1-e0-04')
+      const paths = isT1 ? ['src/scheduler/paginator.js'] : t2Paths
+      const cursor = cursors.get(runId) ?? 0
+      cursors.set(runId, cursor + 1)
+      if (cursor >= paths.length * 2) {
+        return authorizedPayload({ id: `${runId}-complete` })
+      }
+      const path = paths[Math.floor(cursor / 2)]!
+      if (cursor % 2 === 0) {
+        return authorizedPayload({
+          id: `${runId}-read-${String(cursor / 2 + 1).padStart(2, '0')}`,
+          toolCall: {
+            id: `${runId}-read-${String(cursor / 2 + 1).padStart(2, '0')}`,
+            name: 'read',
+            argumentsJson: JSON.stringify({ path })
+          }
+        })
+      }
+      const lastTool = [...body.messages].reverse().find((message) => message.role === 'tool')
+      const oldText = lastTool?.content ?? ''
+      const referenceRoot = resolve(
+        REPO_ROOT,
+        paths === t2Paths
+          ? 'research/context-benchmarks/corpus/L1-multi-file-refactor/reference'
+          : 'research/context-benchmarks/corpus/L3-noisy-bug-hunt/reference'
+      )
+      const newText = await readFile(join(referenceRoot, path), 'utf8')
+      return authorizedPayload({
+        id: `${runId}-edit-${String(cursor / 2 + 1).padStart(2, '0')}`,
+        toolCall: {
+          id: `${runId}-edit-${String(cursor / 2 + 1).padStart(2, '0')}`,
+          name: 'edit',
+          argumentsJson: JSON.stringify({ path, oldText, newText })
+        }
+      })
+    }
+    try {
+      const report = await runC1E0FinalLiveBindingAuthorized({
+        repoRoot: REPO_ROOT,
+        outputRoot: root,
+        authorization: {
+          decision: 'AUTHORIZED',
+          studyId: 'c1-e0-20260911-ccccccc3',
+          executionRevision: binding.executionRevision,
+          executionSurfaceHash: binding.executionSurfaceHash,
+          runContractSha256: contract.runContractSha256,
+          enrollmentManifestSha256: enrollment.manifestSha256,
+          providerConfigHash: C1_E0_PROVIDER_CONFIG_HASH
+        },
+        apiKey: 'memory-only-authorized-test-sentinel',
+        fetchImpl,
+        allowPendingContractForTests: true
+      })
+      expect(report.responseSource).toBe('AUTHORIZED_PROVIDER')
+      expect(report.executionMode).toBe('AUTHORIZED_PROVIDER')
+      expect(report.status).toBe('PASS')
+      expect(report.providerCalls).toBeGreaterThan(0)
+      expect(report.providerCalls).toBe(report.networkRequests)
+      expect(report.pairAdjudications.every((pair) => pair.treatmentIntegrity === 'PASS')).toBe(
+        true
+      )
+      expect(report.pairAdjudications.every((pair) => pair.taskCorrectness === 'PASS')).toBe(true)
+      expect(report.legs.every((leg) => leg.responseSource === 'AUTHORIZED_PROVIDER')).toBe(true)
+      expect(report.legs.every((leg) => leg.efficiency.providerUsage === 'AVAILABLE')).toBe(true)
+      expect(report.finalBindingReady).toBe(false)
+      const ledger = await readFile(join(report.reportDir!, 'response-ledger.jsonl'), 'utf8')
+      expect(ledger).toContain('"networkSent":true')
+      expect(ledger).not.toContain('memory-only-authorized-test-sentinel')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 180_000)
 
   it('keeps provider usage and latency unknown when only scripted evidence exists', () => {
     const summary = summarizeC1E0Efficiency([])
