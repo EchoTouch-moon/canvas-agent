@@ -17,11 +17,12 @@ V4 study                  TERMINAL / RETIRED
 Mechanism canary V1–V3    TERMINAL / CANARY_STOP ×3（真实调用 5）
 Lifecycle canary SV1      TERMINAL / CANARY_STOP（真实调用 1）
 Lifecycle canary SV2      PASS / CLOSED / MECHANISM_ONLY（真实调用 1）
-E0 effectiveness contract DESIGN_REVISION_2 / revisions applied / re-review pending
-Enrollment manifest       IMPLEMENTED / READY_FOR_REVIEW
-E0 run contract           IMPLEMENTED / READY_FOR_REVIEW
-Dose schema               IMPLEMENTED / READY_FOR_REVIEW
-Credential-free readiness IMPLEMENTED / PASS
+E0 effectiveness contract DESIGN_REVISION_2 / ACCEPTED
+Enrollment manifest       PASS / READY_FOR_INDEPENDENT_REVIEW
+E0 run contract           PASS / READY_FOR_INDEPENDENT_REVIEW
+Dose schema               PASS / READY_FOR_INDEPENDENT_REVIEW
+Credential-free readiness PASS / READY_FOR_INDEPENDENT_REVIEW
+E0 freeze-prep            PASS / READY_FOR_INDEPENDENT_REVIEW
 E0 execution runner       IMPLEMENTED / FAKE_STATE_MACHINE_PASS / LIVE_NO_GO
 Old study resume/reuse    FORBIDDEN
 Wave B / productization   NO_GO
@@ -113,8 +114,8 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 | 机制 Canary V1–V3 | `TERMINAL / CANARY_STOP ×3` | study `c1-mechanism-20260908-312fad65` / `-2d05cb78` / `-4fa2ce0e`；真实调用 2+2+1；三次均停在 Native 门（模型读 1/1/0 次），Runtime 臂未执行；三个身份均 consumed/retired |
 | 生命周期 Canary SV1 | `TERMINAL / CANARY_STOP` | study `c1-lifecycle-20260908-d4b4f5dc`；执行提交 `012093274da742eddd8178b4448d105e6b27c4ac`、合同 SHA `7c4577a25499ad512883c006f773bc87d538ae5528e8692da87990158b21c7e5`；1 次真实调用、`finalStage=EXPECT_READ_A`。`toolResults=[]`/`changedCalls=[]`/`answerMatched=false` 均为抛错跳过赋值留下的**默认值、非观测**；响应的 `outcome` 类型（`COMPLETE`/`FAILED`）、内容与 tool-request 数**未知**；身份 consumed/retired |
 | 生命周期 Canary SV2 | `PASS / CLOSED / MECHANISM_ONLY` | study `c1-lifecycle-sv2-20260909-ef4d90a2`；执行提交 `69d9dfc923b64a293aac4eae2dd510178c8f34b4`、合同 SHA `87bd74f1caea0a80cee8c4c85da6d3768a52ef950548de630516c3e8f4abb613`；1 次 Runtime 请求、0 tool request；read v1 对被 adjudicate 为 `SUPERSEDED` 并在 provider-bound 边界缺席；身份 consumed/retired；[执行报告](../verification/cspv-c1-lifecycle-canary-sv2-live-execution-2026-09-09.zh-CN.md) |
-| E0 Effectiveness Contract | `DESIGN_REVISION_2 / REVISIONS_APPLIED / RE_REVIEW_PENDING` | [E0 合同草案](../plan/c1-superseded-version-effectiveness-e0-contract-2026-09-09.zh-CN.md)；固定 4 matched pairs、enriched cohort、unique/exposure Dose schema、双 distinct-task qualification gate 和 providerConfigHash |
-| E0 freeze-prep implementation | `IMPLEMENTED / REVISIONS_APPLIED / NO_PROVIDER` | [冻结准备验收](../verification/cspv-c1-e0-freeze-prep-2026-09-09.zh-CN.md)；Enrollment manifest、study-level run contract（含 `providerConfigHash` 和双 distinct-task qualification gate）、`C1_EFFECTIVENESS_DOSE_V1` 和 credential-free readiness matrix 已实现；E0 live 仍为 `NO_GO` |
+| E0 Effectiveness Contract | `DESIGN_REVISION_2 / ACCEPTED` | [E0 合同草案](../plan/c1-superseded-version-effectiveness-e0-contract-2026-09-09.zh-CN.md)；固定 4 matched pairs、enriched cohort、unique/exposure Dose schema、双 distinct-task qualification gate 和 providerConfigHash |
+| E0 freeze-prep implementation | `PASS / READY_FOR_INDEPENDENT_REVIEW / NO_PROVIDER` | [冻结准备验收](../verification/cspv-c1-e0-freeze-prep-2026-09-09.zh-CN.md)；manifest、run contract、Dose schema 和 readiness hardening 已通过远端 Node 24 CI；E0 live 仍为 `NO_GO` |
 | E0 execution runner | `IMPLEMENTED / FAKE_STATE_MACHINE_PASS / LIVE_NO_GO` | [E0 runner 验收](../verification/cspv-c1-e0-execution-runner-2026-09-10.zh-CN.md)；4 pairs / 8 legs fake study、A/B/C 三种终止与 qualification 场景已覆盖；exact live binding 和 owner authorization 仍待独立 review |
 | SV1 响应证据缺口 | `ADJUDICATED / FIXED (local)` | 原件仅 1×`OUTBOUND_PERMITTED`、`permitsWithoutRecordedResponse=1`、`responseStatus=NOT_RECORDED`；根因是 canary 在 `responseSource.next` 内抛错早于驱动落盘；修复 `cf0d45b47ffb1d35f1630e993675b50c53777455`；历史原件不回填，该次 usage 与 tool-request 数保持未知 |
 | PR #105 | `OPEN / CI_GREEN / REVIEW_REQUIRED` | head `012093274da742eddd8178b4448d105e6b27c4ac`，base `main`；CI run `34240182684` 的 `check` 与 `macos-electron` 均 success；尚无独立 review，CI 绿不替代内容审查 |

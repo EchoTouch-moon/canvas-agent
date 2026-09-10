@@ -1,6 +1,6 @@
 # C1 SUPERSEDED_VERSION Effectiveness E0 Execution Runner
 
-日期：2026-09-10（Asia/Shanghai）。状态：`IMPLEMENTED / FAKE_STATE_MACHINE_VERIFIED / LIVE_NO_GO`。
+日期：2026-09-10（Asia/Shanghai）。状态：`E0_FREEZE_PREP_PASS / READY_FOR_INDEPENDENT_REVIEW / LIVE_NO_GO`。
 
 本记录验收独立 PR #114 的 credential-free E0 execution runner。runner 只使用 scripted fake Provider，
 穿过真实的 C1 observation、tool loop、Runtime composition、checkpoint、Dose projection、pair adjudication、
@@ -70,6 +70,7 @@ authorization header 和 raw tool result 不存在。
 
 ```text
 E0 contract / manifest / Dose semantics   ACCEPTED / FROZEN-PREP
+E0 freeze-prep                            PASS / READY_FOR_INDEPENDENT_REVIEW
 Credential-free execution runner          IMPLEMENTED / FAKE_STATE_MACHINE_PASS
 Independent review                         REQUIRED
 Final live executionRevision               PENDING OWNER REVIEW
