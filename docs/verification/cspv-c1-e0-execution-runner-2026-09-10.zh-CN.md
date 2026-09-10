@@ -11,7 +11,7 @@ batch gate、budget guard 和 single-use identity；不读取真实凭据、不�
 | Binding                            | Value                                                                                    |
 | ---------------------------------- | ---------------------------------------------------------------------------------------- |
 | Runner                             | `C1_EFFECTIVENESS_E0_EXECUTION_RUNNER_V1` / schema `1`                                   |
-| Runner execution revision          | `4d711d6a86299384f2744492655dda74cf5533e3`（最后一个包含 runner executable code 的提交） |
+| Runner execution revision          | `6e088c45b24212993b9e80ec6d8c9e51d5debfd2`（最后一个包含 runner executable code 的提交） |
 | Enrollment manifest SHA            | `9b3d787219c93f8ba7563e5b52366245c6279a697b7e729b5426e12bfab7a6bb`                       |
 | Freeze-prep run contract SHA       | `1fa1840c5869b2a3c60f891cb37b10706fc41830651f1bc56131e87753ffdfb3`                       |
 | Run contract code revision         | `PENDING_E0_EXECUTION`（仍为 freeze-prep contract，未冒充最终 live binding）             |
@@ -24,20 +24,28 @@ batch gate、budget guard 和 single-use identity；不读取真实凭据、不�
 `networkRequests=0`；预算中的 24 次是 fake transport permits，不是 Provider 调用。
 strict provider preparation profile hash 与 E0 request configuration hash 通过 driver override 分开绑定，前者仅用于
 credential-free preparation，后者才写入 E0 capture/ledger。
+`experimentPairId` 与 lifecycle pair ID 分开保存；后者从实际 read call/result source-key pair 派生，同一
+composition 可同时记录多个 lifecycle removals。`networkSent` 只参与 Provider boundary 判定，`noFallback` 只检查
+`fallbackSent`。
 
 ## 2. Full state-machine scenarios
 
-三种场景均在同一 runner revision `4d711d6` 下运行，使用固定的 single-use study IDs：
+四种场景均在同一 runner revision `6e088c4` 下运行，使用固定的 single-use study IDs：
 
-| Scenario                                             |                    Legs | Fake responses / tools | Dose result                                                   | Batch result                                                        | Terminal |
-| ---------------------------------------------------- | ----------------------: | ---------------------: | ------------------------------------------------------------- | ------------------------------------------------------------------- | -------- |
-| `BOTH_TASKS_NON_ZERO` (`c1-e0-20260910-aaaaaaaa`)    |           8/8 completed |                24 / 16 | t1、t2 四个 pair 均 non-zero，treatment integrity `PASS`      | `PASS`，`nonZeroTreatmentPairs=4`，`nonZeroDistinctTasks=2`         | no       |
-| `ONLY_T1_NON_ZERO` (`c1-e0-20260910-bbbbbbbb`)       |           8/8 completed |                24 / 16 | t1 两次 non-zero；t2 两次 `INACTIVE`                          | `INCONCLUSIVE`，`nonZeroTreatmentPairs=2`，`nonZeroDistinctTasks=1` | no       |
-| `EXPERIMENT_INVALIDATOR` (`c1-e0-20260910-cccccccc`) | 1 completed / 7 blocked |                  3 / 2 | 未形成可审计 treatment dose，pair 保留 `INVALID_FOR_ENDPOINT` | `NO_GO`，invalidator 优先                                           | `SIGINT` |
+| Scenario                                               |                                Legs | Fake responses / tools | Dose result                                                   | Batch result                                                        | Terminal |
+| ------------------------------------------------------ | ----------------------------------: | ---------------------: | ------------------------------------------------------------- | ------------------------------------------------------------------- | -------- |
+| `BOTH_TASKS_NON_ZERO` (`c1-e0-20260910-aaaaaaaa`)      |                       8/8 completed |                24 / 16 | t1、t2 四个 pair 均 non-zero，treatment integrity `PASS`      | `PASS`，`nonZeroTreatmentPairs=4`，`nonZeroDistinctTasks=2`         | no       |
+| `ONLY_T1_NON_ZERO` (`c1-e0-20260910-bbbbbbbb`)         |                       8/8 completed |                24 / 16 | t1 两次 non-zero；t2 两次 `INACTIVE`                          | `INCONCLUSIVE`，`nonZeroTreatmentPairs=2`，`nonZeroDistinctTasks=1` | no       |
+| `EXPERIMENT_INVALIDATOR` (`c1-e0-20260910-cccccccc`)   |             1 completed / 7 blocked |                  3 / 2 | 未形成可审计 treatment dose，pair 保留 `INVALID_FOR_ENDPOINT` | `NO_GO`，invalidator 优先                                           | `SIGINT` |
+| `ISOLATED_HARNESS_FAILURE` (`c1-e0-20260910-eeeeeeee`) | 7 completed / 0 blocked（1 failed） |                21 / 14 | 其余 pair 形成 non-zero dose；失败 pair 保留 `INCOMPLETE`     | `INCONCLUSIVE`，`nonZeroDistinctTasks=2` 但 pair coverage 不完整    | no       |
 
 在第三种场景中，第一对 Native 完成后注入 experiment invalidator 并触发 SIGINT；Runtime counterpart 和
 其余 7 条 leg 均未启动，所有 pair 的 `counterpartDecision` 为
 `BLOCKED_EXPERIMENT_INVALIDATOR`。这验证了终止状态不会被伪装成 dose=0 或补跑结果。
+
+在第四种场景中，第一条 Native leg 注入 isolated harness failure；该失败被保留为单腿 `FAILED`，同一 pair 的
+Runtime counterpart 继续执行，后续 pair 也继续执行。该 pair 的 paired endpoint 保留 `INCOMPLETE`，整体 batch
+只判 `INCONCLUSIVE`，不会自动升级为 `NO_GO`。
 
 ## 3. Durable evidence
 
@@ -62,18 +70,18 @@ authorization header 和 raw tool result 不存在。
 
 ## 4. Verification
 
-- E0 runner / Dose / Binding 定向测试：21/21 passed（本地 Node `v23.11.0`，仅有仓库 Node 24 engine warning）。
-- A/B/C fake study：分别得到 `PASS`、`INCONCLUSIVE`、`NO_GO`，均为真实 runner 全链路输出。
+- E0 runner / Dose / Binding 定向测试：24/24 passed（本地 Node `v23.11.0`，仅有仓库 Node 24 engine warning）。
+- A/B/C/D fake study：分别得到 `PASS`、`INCONCLUSIVE`、`NO_GO`、`INCONCLUSIVE`，均为真实 runner 全链路输出。
 - `benchmark:c1-e0-runner` 默认 A 场景：8/8 legs、24 fake permits、0 Provider calls、0 network requests。
 - 本地 headless audit、format、lint、typecheck 和 `git diff --check`：passed。
-- 远端 Context Runtime CI：run `34494647903` passed，Node 24；29 个测试文件、235 项测试通过，并完成非桌面 build。
+- 远端 Context Runtime CI：run `34499682221` passed，Node 24；29 个测试文件、238 项测试通过，并完成非桌面 build。
 
 ## 5. Remaining gates
 
 ```text
 E0 contract / manifest / Dose semantics   ACCEPTED / FROZEN-PREP
 E0 freeze-prep                            PASS / READY_FOR_INDEPENDENT_REVIEW
-Credential-free execution runner          IMPLEMENTED / FAKE_STATE_MACHINE_PASS
+Credential-free execution runner          IMPLEMENTED / FAKE_STATE_MACHINE_PASS / D_FAILURE_CLASSIFICATION_PASS
 Independent review                         REQUIRED
 Final live executionRevision               PENDING OWNER REVIEW
 Final live run-contract binding             PENDING (current SHA is freeze-prep only)

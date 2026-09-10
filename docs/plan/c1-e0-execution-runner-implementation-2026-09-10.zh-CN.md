@@ -14,6 +14,10 @@
 - [x] A：t1/t2 两个 task 的四个 pair 都产生 Runtime non-zero dose，batch gate 为 `PASS`。
 - [x] B：只有 t1 两个 repetition 产生 non-zero dose，batch gate 为 `INCONCLUSIVE`。
 - [x] C：experiment invalidator 触发 operator kill switch，counterpart 被阻断，batch gate 为 `NO_GO`。
+- [x] D：isolated harness failure 被保留为单腿失败，冻结 counterpart 继续执行，study 继续并保持 `INCONCLUSIVE`。
+- [x] 同一 composition 删除多个 stale read pairs 时，experimentPairId 与 lifecyclePairId 分离，source-key cardinality 仍成立。
+- [x] `networkSent` 与 `noFallback` 分离，并覆盖 scripted fake 与 authorized-network 的预期边界语义。
+- [x] `PAIR_STARTED` 在每个 pair 的第一条 leg 触发，包含 Runtime-first 的冻结顺序。
 - [x] 每个 leg 使用 fresh fixture、fresh leg identity，共享 study budget guard 和 durable checkpoint sink。
 - [x] 证据仅保存稳定 join keys、usage provenance、tool metadata、transition/dose metadata；禁止 raw provider/tool payload。
 - [x] 远端 Node 24 Context Runtime CI 通过；最终 runner execution revision 只记录在 runner report，不改写 freeze-prep run contract 的 `PENDING_E0_EXECUTION`。
