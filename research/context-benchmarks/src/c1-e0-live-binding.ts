@@ -15,6 +15,7 @@ import {
   C1_E0_PROVIDER_CONFIG_HASH,
   C1_E0_RUN_CONTRACT_ID,
   C1_E0_TOTAL_LEG_COUNT,
+  computeC1E0RunContractSha256,
   hashCanonicalC1E0,
   loadC1E0EnrollmentManifest,
   loadC1E0RunContract,
@@ -676,6 +677,8 @@ export interface C1E0AuthorizedLiveBindingOptions {
   readonly maxCalls?: number
   /** Test-only path for the current freeze-prep contract, never for live use. */
   readonly allowPendingContractForTests?: boolean
+  /** Test-only in-memory contract mutation used to exercise fail-closed binding checks. */
+  readonly contractCodeRevisionOverrideForTests?: string
 }
 
 interface C1E0StudyRunnerOptions {
@@ -695,6 +698,7 @@ interface C1E0StudyRunnerOptions {
   readonly networkRequests: () => number
   readonly authorization?: C1E0LiveAuthorization
   readonly allowPendingContractForTests?: boolean
+  readonly contractCodeRevisionOverrideForTests?: string
 }
 
 function assertC1E0Authorization(value: C1E0LiveAuthorization): void {
@@ -793,7 +797,7 @@ export interface C1E0FinalLiveBindingReport {
   readonly schemaVersion: typeof C1_E0_FINAL_LIVE_BINDING_SCHEMA_VERSION
   readonly executionMode: string
   readonly status: 'PASS' | 'INCONCLUSIVE' | 'NO_GO'
-  readonly finalBindingReady: false
+  readonly finalBindingReady: boolean
   readonly studyId: string | null
   readonly reportDir: string | null
   readonly executionRevision: string | null
@@ -1255,6 +1259,7 @@ async function runC1E0StudyInternal(
   let studyTerminal = false
   let terminalReason: string | null = null
   let hardStudyFailure = false
+  let finalBindingReady = false
   let legsAttempted = 0
   let fixtureSandboxesCreated = 0
   let fixtureSandboxesCleaned = 0
@@ -1266,7 +1271,7 @@ async function runC1E0StudyInternal(
     schemaVersion: C1_E0_FINAL_LIVE_BINDING_SCHEMA_VERSION,
     executionMode: options.executionMode,
     status: hardStudyFailure ? 'NO_GO' : 'INCONCLUSIVE',
-    finalBindingReady: false,
+    finalBindingReady,
     studyId: reportDir === null ? null : studyId,
     reportDir,
     executionRevision,
@@ -1330,6 +1335,29 @@ async function runC1E0StudyInternal(
     executionSurfaceHash = executionBinding.executionSurfaceHash
     enrollment = await loadC1E0EnrollmentManifest(repoRoot)
     contract = await loadC1E0RunContract(repoRoot)
+    if (options.contractCodeRevisionOverrideForTests !== undefined) {
+      if (
+        process.env['NODE_ENV'] !== 'test' ||
+        options.allowPendingContractForTests !== true ||
+        !/^[0-9a-f]{40}$/.test(options.contractCodeRevisionOverrideForTests)
+      ) {
+        throw new C1PreflightFailure(
+          'NOT_AUTHORIZED',
+          'contract revision test override is restricted to the test-only authorization seam'
+        )
+      }
+      const overridden = {
+        ...contract,
+        executionBinding: {
+          ...contract.executionBinding,
+          codeRevision: options.contractCodeRevisionOverrideForTests
+        }
+      }
+      contract = {
+        ...overridden,
+        runContractSha256: computeC1E0RunContractSha256(overridden)
+      }
+    }
     if (contract.executionBinding.providerConfigHash !== C1_E0_PROVIDER_CONFIG_HASH) {
       throw new C1PreflightFailure(
         'CONTRACT_BINDING_MISMATCH',
@@ -1337,7 +1365,9 @@ async function runC1E0StudyInternal(
       )
     }
     const pendingContractTestOverride =
-      options.allowPendingContractForTests === true && process.env['NODE_ENV'] === 'test'
+      options.allowPendingContractForTests === true &&
+      process.env['NODE_ENV'] === 'test' &&
+      contract.executionBinding.codeRevision === 'PENDING_E0_EXECUTION'
     if (
       options.requireNoProvider &&
       contract.executionBinding.codeRevision !== 'PENDING_E0_EXECUTION'
@@ -1372,6 +1402,17 @@ async function runC1E0StudyInternal(
           'authorized E0 execution binding does not match the loaded frozen artifacts'
         )
       }
+      if (
+        !pendingContractTestOverride &&
+        contract.executionBinding.codeRevision !== executionRevision
+      ) {
+        throw new C1PreflightFailure(
+          'CONTRACT_BINDING_MISMATCH',
+          'E0 run contract codeRevision does not match executionRevision'
+        )
+      }
+      finalBindingReady =
+        !pendingContractTestOverride && contract.executionBinding.codeRevision === executionRevision
     }
     const tasks = await loadE0Tasks(repoRoot, enrollment)
     const plans = buildC1E0ExecutionPlans(contract, enrollment, studyId)
@@ -1861,6 +1902,9 @@ export async function runC1E0FinalLiveBindingAuthorized(
     ...(options.allowPendingContractForTests === undefined
       ? {}
       : { allowPendingContractForTests: options.allowPendingContractForTests }),
+    ...(options.contractCodeRevisionOverrideForTests === undefined
+      ? {}
+      : { contractCodeRevisionOverrideForTests: options.contractCodeRevisionOverrideForTests }),
     prepareProvider: async (studyId) => {
       if (typeof options.apiKey !== 'string' || options.apiKey.length === 0) {
         throw new C1PreflightFailure(

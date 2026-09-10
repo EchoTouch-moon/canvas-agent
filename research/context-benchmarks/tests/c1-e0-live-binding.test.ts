@@ -12,6 +12,7 @@ import {
   C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE,
   captureC1PreflightArm,
   computeC1E0ExecutionBinding,
+  computeC1E0RunContractSha256,
   createC1E0AuthorizedProviderResponseSource,
   loadC1E0EnrollmentManifest,
   loadC1E0RunContract,
@@ -325,6 +326,13 @@ describe('C1 E0 final live binding', () => {
     const binding = await computeC1E0ExecutionBinding(REPO_ROOT)
     const enrollment = await loadC1E0EnrollmentManifest(REPO_ROOT)
     const contract = await loadC1E0RunContract(REPO_ROOT)
+    const finalContract = {
+      ...contract,
+      executionBinding: {
+        ...contract.executionBinding,
+        codeRevision: binding.executionRevision
+      }
+    }
     const root = await outputRoot()
     const cursors = new Map<string, number>()
     const t2Paths = [
@@ -400,13 +408,14 @@ describe('C1 E0 final live binding', () => {
           studyId: 'c1-e0-20260911-ccccccc3',
           executionRevision: binding.executionRevision,
           executionSurfaceHash: binding.executionSurfaceHash,
-          runContractSha256: contract.runContractSha256,
+          runContractSha256: computeC1E0RunContractSha256(finalContract),
           enrollmentManifestSha256: enrollment.manifestSha256,
           providerConfigHash: C1_E0_PROVIDER_CONFIG_HASH
         },
         apiKey: 'memory-only-authorized-test-sentinel',
         fetchImpl,
-        allowPendingContractForTests: true
+        allowPendingContractForTests: true,
+        contractCodeRevisionOverrideForTests: binding.executionRevision
       })
       expect(report.responseSource).toBe('AUTHORIZED_PROVIDER')
       expect(report.executionMode).toBe('AUTHORIZED_PROVIDER')
@@ -419,7 +428,7 @@ describe('C1 E0 final live binding', () => {
       expect(report.pairAdjudications.every((pair) => pair.taskCorrectness === 'PASS')).toBe(true)
       expect(report.legs.every((leg) => leg.responseSource === 'AUTHORIZED_PROVIDER')).toBe(true)
       expect(report.legs.every((leg) => leg.efficiency.providerUsage === 'AVAILABLE')).toBe(true)
-      expect(report.finalBindingReady).toBe(false)
+      expect(report.finalBindingReady).toBe(true)
       const ledger = await readFile(join(report.reportDir!, 'response-ledger.jsonl'), 'utf8')
       expect(ledger).toContain('"networkSent":true')
       expect(ledger).toContain('"providerUsage":{"inputTokens":21')
@@ -477,6 +486,55 @@ describe('C1 E0 final live binding', () => {
       expect(report.status).toBe('NO_GO')
       expect(report.reportDir).toBe(null)
       expect(report.failures).toEqual([expect.objectContaining({ code: 'NOT_AUTHORIZED' })])
+      expect(fetchCalls).toBe(0)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a non-pending run-contract revision that differs from runtime executionRevision', async () => {
+    const binding = await computeC1E0ExecutionBinding(REPO_ROOT)
+    const enrollment = await loadC1E0EnrollmentManifest(REPO_ROOT)
+    const contract = await loadC1E0RunContract(REPO_ROOT)
+    const overriddenRevision = 'f'.repeat(40)
+    const overriddenContract = {
+      ...contract,
+      executionBinding: {
+        ...contract.executionBinding,
+        codeRevision: overriddenRevision
+      }
+    }
+    const root = await outputRoot()
+    let fetchCalls = 0
+    try {
+      const report = await runC1E0FinalLiveBindingAuthorized({
+        repoRoot: REPO_ROOT,
+        outputRoot: root,
+        authorization: {
+          decision: 'AUTHORIZED',
+          studyId: 'c1-e0-20260911-fffffff6',
+          executionRevision: binding.executionRevision,
+          executionSurfaceHash: binding.executionSurfaceHash,
+          runContractSha256: computeC1E0RunContractSha256(overriddenContract),
+          enrollmentManifestSha256: enrollment.manifestSha256,
+          providerConfigHash: C1_E0_PROVIDER_CONFIG_HASH
+        },
+        apiKey: 'memory-only-authorized-test-sentinel',
+        fetchImpl: async () => {
+          fetchCalls += 1
+          return authorizedPayload({ id: 'unexpected' })
+        },
+        allowPendingContractForTests: true,
+        contractCodeRevisionOverrideForTests: overriddenRevision
+      })
+      // The test seam changes only the in-memory contract object; the failure
+      // must still happen before provider preparation or identity claim.
+      expect(report.status).toBe('NO_GO')
+      expect(report.reportDir).toBe(null)
+      expect(report.failures).toEqual([
+        expect.objectContaining({ code: 'CONTRACT_BINDING_MISMATCH' })
+      ])
+      expect(report.providerPreparationProfileHash).toBe(null)
       expect(fetchCalls).toBe(0)
     } finally {
       await rm(root, { recursive: true, force: true })
