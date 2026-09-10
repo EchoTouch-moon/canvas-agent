@@ -92,6 +92,7 @@ header。
 - `pnpm test:core` 在 Node 23 下的 context-runtime/domain 等 headless 包通过；persistence 的 68 项失败来自 Node 23 内置 SQLite 与当前 Drizzle adapter 的 `stmt.setReturnArrays` 环境不匹配，属于已知运行时限制。
 - Context-benchmarks typecheck：passed。
 - `git diff --check`：passed。
+- Draft PR #115 的 Context Runtime CI run `34506125020` 在 Node 24 通过；head `4b2ef51af0f0b8e16cd9e3b496473233aefdba64`，base 为 #114 分支 `codex/c1-effectiveness-e0-execution-runner`。
 - 最终门禁仍需远端 Node 24 Context Runtime CI 与 independent review；本地 Node 23 结果不替代它们。
 
 ## 5. 当前阶段裁定
