@@ -10,6 +10,7 @@ import {
 } from '../src'
 import {
   buildC1E0ExecutionPlans,
+  evaluateC1E0ProviderBoundary,
   runC1E0CredentialFreeStudy,
   type C1E0ExecutionReport
 } from '../src/c1-e0-execution-runner'
@@ -43,6 +44,35 @@ afterEach(async () => {
 })
 
 describe('C1 E0 credential-free execution runner', () => {
+  it('separates Provider boundary traversal from fallback evidence', () => {
+    expect(
+      evaluateC1E0ProviderBoundary(
+        [{ networkSent: false }, { networkSent: false }],
+        'SCRIPTED_FAKE'
+      )
+    ).toEqual({
+      verdict: 'PASS',
+      expectedNetworkSent: false,
+      observedNetworkSent: [false, false]
+    })
+    expect(
+      evaluateC1E0ProviderBoundary(
+        [{ networkSent: true }, { networkSent: true }],
+        'AUTHORIZED_PROVIDER'
+      )
+    ).toEqual({
+      verdict: 'PASS',
+      expectedNetworkSent: true,
+      observedNetworkSent: [true, true]
+    })
+    expect(evaluateC1E0ProviderBoundary([{ networkSent: true }], 'SCRIPTED_FAKE').verdict).toBe(
+      'FAIL'
+    )
+    expect(
+      evaluateC1E0ProviderBoundary([{ networkSent: false }], 'AUTHORIZED_PROVIDER').verdict
+    ).toBe('FAIL')
+  })
+
   it('builds the frozen 4-pair / 8-leg plan with deterministic identities and 2:2 order quota', async () => {
     const enrollment = await loadC1E0EnrollmentManifest(REPO_ROOT)
     const contract = await loadC1E0RunContract(REPO_ROOT)
@@ -101,14 +131,29 @@ describe('C1 E0 credential-free execution runner', () => {
     expect(report.pairAdjudications.every((pair) => pair.treatmentIntegrity === 'PASS')).toBe(true)
     expect(
       report.pairAdjudications.every(
-        (pair) => pair.runtimeDoseSummary?.uniqueRemovedPairs.length === 1
+        (pair) => pair.runtimeDoseSummary?.uniqueRemovedPairs.length === 2
       )
     ).toBe(true)
+    const pairStarted = report.events.filter((event) => event.event === 'PAIR_STARTED')
+    expect(pairStarted.map((event) => event.pairId)).toEqual([
+      'c1-e0-01',
+      'c1-e0-02',
+      'c1-e0-03',
+      'c1-e0-04'
+    ])
+    for (const event of pairStarted) {
+      const firstLeg = report.legs.find((leg) => leg.pairId === event.pairId)
+      const firstLegEvent = report.events.find(
+        (candidate) => candidate.event === 'LEG_STARTED' && candidate.runId === firstLeg?.runId
+      )
+      expect(firstLegEvent?.sequence).toBeGreaterThan(event.sequence)
+    }
     expect(
       report.pairAdjudications.every(
         (pair) =>
-          pair.runtimeDoseSummary?.newRemovalPairCalls === 1 &&
-          pair.runtimeDoseSummary.carriedRemovalPairCalls === 1
+          pair.runtimeDoseSummary?.newRemovalPairCalls === 2 &&
+          pair.runtimeDoseSummary.carriedRemovalPairCalls === 2 &&
+          pair.runtimeDoseSummary.suppressedStalePairCallExposures === 4
       )
     ).toBe(true)
     expect(report.artifacts.map((artifact) => artifact.name)).toEqual([
@@ -158,7 +203,7 @@ describe('C1 E0 credential-free execution runner', () => {
     const t2 = report.pairAdjudications.filter(
       (pair) => pair.taskId === 'c1-t2-multi-file-migration-v1'
     )
-    expect(t1.every((pair) => pair.runtimeDoseSummary?.uniqueRemovedPairs.length === 1)).toBe(true)
+    expect(t1.every((pair) => pair.runtimeDoseSummary?.uniqueRemovedPairs.length === 2)).toBe(true)
     expect(t2.every((pair) => pair.runtimeDoseSummary?.uniqueRemovedPairs.length === 0)).toBe(true)
     expect(t2.every((pair) => pair.treatmentIntegrity === 'INACTIVE')).toBe(true)
     expect(report.providerCalls).toBe(0)
@@ -196,6 +241,38 @@ describe('C1 E0 credential-free execution runner', () => {
     const eventNames = report.events.map((event) => event.event)
     expect(eventNames).toContain('LEG_BLOCKED')
     expect(eventNames).toContain('STUDY_TERMINATED')
+  })
+
+  it('continues the frozen counterpart after an isolated harness failure', async () => {
+    const report = await runC1E0CredentialFreeStudy({
+      repoRoot: REPO_ROOT,
+      outputRoot: await outputRoot(),
+      studyId: 'c1-e0-20260910-eeeeeeee',
+      scenario: 'ISOLATED_HARNESS_FAILURE'
+    })
+
+    expect(report.status).toBe('INCONCLUSIVE')
+    expect(report.studyTerminal).toBe(false)
+    expect(report.legsAttempted).toBe(8)
+    expect(report.legsCompleted).toBe(7)
+    expect(report.blockedLegs).toBe(0)
+    expect(report.fakeProviderCallPermits).toBe(21)
+    expect(report.responseCalls).toBe(21)
+    expect(report.toolExecutions).toBe(14)
+    expect(report.batchQualification).toMatchObject({
+      verdict: 'INCONCLUSIVE',
+      nonZeroTreatmentPairs: 4,
+      nonZeroDistinctTasks: 2
+    })
+    expect(report.pairAdjudications[0]).toMatchObject({
+      pairStatus: 'INCOMPLETE',
+      counterpartDecision: 'EXECUTED_AFTER_ISOLATED_FAILURE',
+      taskCorrectnessCoverage: 'UNKNOWN'
+    })
+    expect(report.pairAdjudications.slice(1).every((pair) => pair.pairStatus === 'COMPLETE')).toBe(
+      true
+    )
+    expect(report.failures).toEqual([expect.objectContaining({ code: 'ISOLATED_HARNESS_FAILURE' })])
   })
 
   it('retains single-use study identity after a completed fake run', async () => {

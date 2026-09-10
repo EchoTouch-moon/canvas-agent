@@ -245,6 +245,7 @@ export {
   C1_E0_EXECUTION_RUNNER_SCHEMA_VERSION,
   C1_E0_FAKE_SCENARIOS,
   buildC1E0ExecutionPlans,
+  evaluateC1E0ProviderBoundary,
   runC1E0CredentialFreeStudy,
   type C1E0ExecutionArtifactSummary,
   type C1E0ExecutionLegRecord,
@@ -254,6 +255,7 @@ export {
   type C1E0ExecutionStatus,
   type C1E0FakeScenario,
   type C1E0PairAdjudication,
+  type C1E0ProviderBoundaryCheck,
   type C1E0StudyEvent
 } from './c1-e0-execution-runner'
 export {

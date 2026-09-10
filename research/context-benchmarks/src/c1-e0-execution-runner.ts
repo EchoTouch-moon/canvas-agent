@@ -78,7 +78,8 @@ export const C1_E0_EXECUTION_RUNNER_MODE = 'CREDENTIAL_FREE_SCRIPTED_FAKE' as co
 export const C1_E0_FAKE_SCENARIOS = Object.freeze([
   'BOTH_TASKS_NON_ZERO',
   'ONLY_T1_NON_ZERO',
-  'EXPERIMENT_INVALIDATOR'
+  'EXPERIMENT_INVALIDATOR',
+  'ISOLATED_HARNESS_FAILURE'
 ] as const)
 export type C1E0FakeScenario = (typeof C1_E0_FAKE_SCENARIOS)[number]
 export type C1E0ExecutionStatus = 'PASS' | 'INCONCLUSIVE' | 'NO_GO'
@@ -154,7 +155,10 @@ export interface C1E0PairAdjudication {
   readonly stratum: string
   readonly pairStatus: 'COMPLETE' | 'INCOMPLETE' | 'INVALID_FOR_ENDPOINT'
   readonly counterpartDecision:
-    'EXECUTED' | 'BLOCKED_EXPERIMENT_INVALIDATOR' | 'BLOCKED_STUDY_TERMINAL'
+    | 'EXECUTED'
+    | 'EXECUTED_AFTER_ISOLATED_FAILURE'
+    | 'BLOCKED_EXPERIMENT_INVALIDATOR'
+    | 'BLOCKED_STUDY_TERMINAL'
   readonly nativeOutcome: 'COMPLETE' | 'FAILED' | 'CONTINUE' | 'UNKNOWN'
   readonly runtimeOutcome: 'COMPLETE' | 'FAILED' | 'CONTINUE' | 'UNKNOWN'
   readonly nativeDose: 'NOT_APPLICABLE'
@@ -162,6 +166,7 @@ export interface C1E0PairAdjudication {
   readonly conditionalTreatmentEligible: boolean
   readonly treatmentIntegrity: 'PASS' | 'INACTIVE' | 'FAIL' | 'UNKNOWN'
   readonly safetyVerdict: 'PASS' | 'INACTIVE' | 'FAIL' | 'UNKNOWN'
+  readonly providerBoundaryVerdict: 'PASS' | 'FAIL' | 'UNKNOWN'
   readonly taskCorrectnessCoverage: 'NOT_OBSERVED_CREDENTIAL_FREE' | 'OUT_OF_SCOPE' | 'UNKNOWN'
   readonly efficiencyCoverage: 'NOT_OBSERVED_CREDENTIAL_FREE'
   readonly exclusionReason?: string
@@ -636,7 +641,11 @@ function uniqueSorted(values: readonly string[]): readonly string[] {
   return Object.freeze([...new Set(values)].sort())
 }
 
-function readPairKeys(observation: C1AgentObservation, path: string): readonly string[] {
+function readPairKeyGroups(
+  observation: C1AgentObservation,
+  path?: string
+): readonly (readonly string[])[] {
+  const pairs: (readonly string[])[] = []
   for (let index = 0; index + 1 < observation.messages.length; index += 1) {
     const message = observation.messages[index]
     const next = observation.messages[index + 1]
@@ -664,18 +673,49 @@ function readPairKeys(observation: C1AgentObservation, path: string): readonly s
         : undefined
     if (
       typeof id !== 'string' ||
-      candidatePath !== path ||
+      (path !== undefined && candidatePath !== path) ||
       next?.role !== 'toolResult' ||
       next.toolCallId !== id ||
       next.toolName !== 'read'
     )
       continue
-    return Object.freeze([`run/tool-call://${id}`, `run/tool-result://${id}`])
+    pairs.push(Object.freeze([`run/tool-call://${id}`, `run/tool-result://${id}`]))
   }
-  throw new C1PreflightFailure(
-    'PREFLIGHT_FAILURE',
-    `E0 fake observation has no read pair for ${path}`
-  )
+  if (pairs.length === 0) {
+    throw new C1PreflightFailure(
+      'PREFLIGHT_FAILURE',
+      `E0 fake observation has no read pair${path === undefined ? '' : ` for ${path}`}`
+    )
+  }
+  return Object.freeze(pairs)
+}
+
+function lifecyclePairIdsForSourceKeys(sourceKeys: readonly string[]): readonly string[] {
+  const pairs = new Map<string, { call?: string; result?: string }>()
+  for (const sourceKey of sourceKeys) {
+    if (sourceKey.startsWith('run/tool-call://')) {
+      const id = sourceKey.slice('run/tool-call://'.length)
+      const pair = pairs.get(id) ?? {}
+      pair.call = sourceKey
+      pairs.set(id, pair)
+    } else if (sourceKey.startsWith('run/tool-result://')) {
+      const id = sourceKey.slice('run/tool-result://'.length)
+      const pair = pairs.get(id) ?? {}
+      pair.result = sourceKey
+      pairs.set(id, pair)
+    }
+  }
+  const lifecycleIds: string[] = []
+  for (const [id, pair] of pairs) {
+    if (pair.call === undefined || pair.result === undefined) {
+      throw new C1PreflightFailure(
+        'PREFLIGHT_FAILURE',
+        `E0 lifecycle source pair is incomplete for tool call ${id}`
+      )
+    }
+    lifecycleIds.push(`c1-lifecycle-${shortDigest(`${pair.call}|${pair.result}`)}`)
+  }
+  return uniqueSorted(lifecycleIds)
 }
 
 class E0ObservationSource implements C1LiveObservationSource {
@@ -731,10 +771,11 @@ class E0ObservationSource implements C1LiveObservationSource {
 
 function doseObservationsForLeg(
   plan: C1E0ExecutionPlan,
-  result: C1LiveBindingLegResult
+  result: C1LiveBindingLegResult,
+  eligibleLifecyclePairIds: readonly string[]
 ): readonly C1E0DoseObservation[] {
   const observations: C1E0DoseObservation[] = []
-  let hasNewRemoval = false
+  const newRemovalLifecyclePairIds = new Set<string>()
   for (const row of result.evidence) {
     const removedFromTransition =
       row.decisionDetails?.filter((detail) => detail.kind === 'REMOVE') ?? []
@@ -744,8 +785,16 @@ function doseObservationsForLeg(
     ])
     const removed = removedSourceKeys.length > 0
     const carried = (row.carriedRemovedSourceKeys?.length ?? 0) > 0
-    const newRemovalPairIds = removed && !hasNewRemoval ? [plan.pairId] : []
-    if (newRemovalPairIds.length > 0) hasNewRemoval = true
+    const removedLifecyclePairIds = removed ? lifecyclePairIdsForSourceKeys(removedSourceKeys) : []
+    const newRemovalPairIds = removedLifecyclePairIds.filter(
+      (lifecyclePairId) => !newRemovalLifecyclePairIds.has(lifecyclePairId)
+    )
+    for (const lifecyclePairId of newRemovalPairIds) {
+      newRemovalLifecyclePairIds.add(lifecyclePairId)
+    }
+    const carriedRemovalPairIds = carried
+      ? lifecyclePairIdsForSourceKeys(row.carriedRemovedSourceKeys ?? [])
+      : []
     const preHash = row.prePolicyProviderBoundMessagesHash
     const postHash = row.postPolicyProviderBoundMessagesHash
     if (preHash === undefined || postHash === undefined) {
@@ -758,23 +807,24 @@ function doseObservationsForLeg(
       validateC1E0DoseObservation({
         schemaId: 'C1_EFFECTIVENESS_DOSE_V1',
         schemaVersion: 1,
+        experimentPairId: plan.pairId,
         callOrdinal: row.callOrdinal,
         prePolicyProviderBoundMessagesHash: preHash,
         postPolicyProviderBoundMessagesHash: postHash,
-        uniqueEligiblePairIds: row.lifecycleEligible ? [plan.pairId] : [],
-        uniqueSelectedPairIds: row.lifecycleEligible ? [plan.pairId] : [],
-        uniqueRemovedPairIds: removed ? [plan.pairId] : [],
+        uniqueEligiblePairIds: row.lifecycleEligible ? eligibleLifecyclePairIds : [],
+        uniqueSelectedPairIds: row.lifecycleEligible ? eligibleLifecyclePairIds : [],
+        uniqueRemovedPairIds: removedLifecyclePairIds,
         uniqueRemovedSourceElementKeys: removedSourceKeys,
         newRemovalPairIds,
-        carriedRemovalPairIds: carried ? [plan.pairId] : [],
-        suppressedStalePairIds: removed ? [plan.pairId] : [],
-        suppressedStalePairCallExposures: removed ? 1 : 0,
-        suppressedSourceElementCallExposures: removed ? 2 : 0,
+        carriedRemovalPairIds,
+        suppressedStalePairIds: removedLifecyclePairIds,
+        suppressedStalePairCallExposures: removedLifecyclePairIds.length,
+        suppressedSourceElementCallExposures: removedLifecyclePairIds.length * 2,
         tokensBeforeComposition: 'UNAVAILABLE',
         tokensAfterComposition: 'UNAVAILABLE',
         removedBytes: 'UNAVAILABLE',
         removedTokens: 'UNAVAILABLE',
-        activeStaleElements: removed ? 1 : 0,
+        activeStaleElements: removedLifecyclePairIds.length,
         rehydrateCount: row.transitionDecisionKinds.filter((kind) => kind === 'REHYDRATE').length,
         lifecycleUnknownCountByReason: {},
         protectedRemovalCount: 0,
@@ -835,6 +885,29 @@ function checkpointComplete(
   return true
 }
 
+export interface C1E0ProviderBoundaryCheck {
+  readonly verdict: 'PASS' | 'FAIL'
+  readonly expectedNetworkSent: boolean
+  readonly observedNetworkSent: readonly boolean[]
+}
+
+/** Network traversal is a boundary fact; it is never used as fallback evidence. */
+export function evaluateC1E0ProviderBoundary(
+  evidence: readonly Pick<C1LiveBindingEvidence, 'networkSent'>[],
+  source: 'SCRIPTED_FAKE' | 'AUTHORIZED_PROVIDER'
+): C1E0ProviderBoundaryCheck {
+  const expectedNetworkSent = source === 'AUTHORIZED_PROVIDER'
+  const observedNetworkSent = Object.freeze(evidence.map((row) => row.networkSent))
+  return {
+    verdict:
+      evidence.length > 0 && evidence.every((row) => row.networkSent === expectedNetworkSent)
+        ? 'PASS'
+        : 'FAIL',
+    expectedNetworkSent,
+    observedNetworkSent
+  }
+}
+
 function pairAdjudications(
   assignments: readonly C1E0PairAssignment[],
   states: ReadonlyMap<string, E0PairState>,
@@ -849,9 +922,12 @@ function pairAdjudications(
       const complete = native?.result !== undefined && runtime?.result !== undefined
       let runtimeDoseSummary: C1E0DoseSummary | null = null
       let integrity: ReturnType<typeof evaluateC1E0TreatmentIntegrity> | null = null
+      let providerBoundaryVerdict: C1E0PairAdjudication['providerBoundaryVerdict'] = 'UNKNOWN'
       if (runtime?.result !== undefined) {
         runtimeDoseSummary = aggregateC1E0Dose(runtime.doseObservations)
         const evidence = runtime.result.evidence
+        const providerBoundary = evaluateC1E0ProviderBoundary(evidence, 'SCRIPTED_FAKE')
+        providerBoundaryVerdict = providerBoundary.verdict
         const envelopePreserved = evidence.every(
           (row) =>
             row.systemDeveloperToolStructuresFingerprint ===
@@ -860,27 +936,42 @@ function pairAdjudications(
         const replayVerdict = evidence.every((row) => row.replayMismatch === 0)
           ? 'MATCH'
           : 'UNKNOWN'
-        integrity = evaluateC1E0TreatmentIntegrity({
+        const evaluatedIntegrity = evaluateC1E0TreatmentIntegrity({
           dose: runtimeDoseSummary,
           replayVerdict,
           envelopePreserved,
           protectedEvidenceRemoved: runtimeDoseSummary.protectedRemovalCount > 0,
-          noFallback: evidence.every((row) => !row.fallbackSent && !row.networkSent),
+          noFallback: evidence.every((row) => !row.fallbackSent),
           checkpointComplete:
             sink !== null && checkpointComplete(sink, runtime.plan.runId, evidence.length),
           runtimePolicyInput: runtimePolicyInput()
         })
+        integrity =
+          providerBoundary.verdict === 'PASS'
+            ? evaluatedIntegrity
+            : {
+                verdict: 'FAIL',
+                reasons: Object.freeze([
+                  ...evaluatedIntegrity.reasons,
+                  'provider boundary expectation mismatch'
+                ])
+              }
       }
       const pairStatus: C1E0PairAdjudication['pairStatus'] = complete
         ? 'COMPLETE'
         : experimentInvalidator
           ? 'INVALID_FOR_ENDPOINT'
           : 'INCOMPLETE'
+      const isolatedFailure =
+        native?.errorCode === 'ISOLATED_HARNESS_FAILURE' ||
+        runtime?.errorCode === 'ISOLATED_HARNESS_FAILURE'
       const counterpartDecision: C1E0PairAdjudication['counterpartDecision'] = complete
         ? 'EXECUTED'
-        : experimentInvalidator
-          ? 'BLOCKED_EXPERIMENT_INVALIDATOR'
-          : 'BLOCKED_STUDY_TERMINAL'
+        : isolatedFailure && (native?.result !== undefined || runtime?.result !== undefined)
+          ? 'EXECUTED_AFTER_ISOLATED_FAILURE'
+          : experimentInvalidator
+            ? 'BLOCKED_EXPERIMENT_INVALIDATOR'
+            : 'BLOCKED_STUDY_TERMINAL'
       const nativeOutcome: C1E0PairAdjudication['nativeOutcome'] =
         native?.result?.finalOutcome ?? 'UNKNOWN'
       const runtimeOutcome: C1E0PairAdjudication['runtimeOutcome'] =
@@ -908,14 +999,17 @@ function pairAdjudications(
           runtimeDoseSummary.uniqueRemovedPairs.length > 0,
         treatmentIntegrity: integrity?.verdict ?? 'UNKNOWN',
         safetyVerdict: integrity?.verdict ?? 'UNKNOWN',
+        providerBoundaryVerdict,
         taskCorrectnessCoverage,
         efficiencyCoverage: 'NOT_OBSERVED_CREDENTIAL_FREE' as const,
         ...(complete
           ? {}
           : {
-              exclusionReason: experimentInvalidator
-                ? 'experiment invalidator blocked the frozen counterpart'
-                : 'study terminated before both legs completed'
+              exclusionReason: isolatedFailure
+                ? 'isolated harness failure retained; paired endpoint is unavailable'
+                : experimentInvalidator
+                  ? 'experiment invalidator blocked the frozen counterpart'
+                  : 'study terminated before both legs completed'
             })
       } satisfies C1E0PairAdjudication
     })
@@ -1146,6 +1240,7 @@ async function gitHead(repoRoot: string): Promise<string> {
 function scenarioActivatesTask(scenario: C1E0FakeScenario, taskId: string): boolean {
   if (scenario === 'BOTH_TASKS_NON_ZERO') return true
   if (scenario === 'ONLY_T1_NON_ZERO') return taskId === 'c1-t1-localized-distractor-v1'
+  if (scenario === 'ISOLATED_HARNESS_FAILURE') return true
   return false
 }
 
@@ -1189,6 +1284,7 @@ export async function runC1E0CredentialFreeStudy(
   let studyTerminal = false
   let terminalReason: string | null = null
   let experimentInvalidator = false
+  const startedPairs = new Set<string>()
   const signalSource = options.signalSource ?? new EventEmitter()
 
   try {
@@ -1249,7 +1345,8 @@ export async function runC1E0CredentialFreeStudy(
         plan: contract.pairAssignments.find((assignment) => assignment.pairId === plan.pairId)!
       }
       states.set(plan.pairId, pairState)
-      if (plan.arm === 'NATIVE') {
+      if (!startedPairs.has(plan.pairId)) {
+        startedPairs.add(plan.pairId)
         events.push({
           sequence: events.length + 1,
           event: 'PAIR_STARTED',
@@ -1345,12 +1442,20 @@ export async function runC1E0CredentialFreeStudy(
             `E0 task has no writable path ${task.taskId}`
           )
         }
+        if (scenario === 'ISOLATED_HARNESS_FAILURE' && plan.legIndex === 0) {
+          throw new C1PreflightFailure(
+            'HARNESS_CONTRACT_FAILURE',
+            'credential-free scenario injected an isolated harness failure for the first leg'
+          )
+        }
         const baseObservation = createC1ObservedReadTrace({
           observationId: `${plan.runId}-base`,
           prompt: task.prompt,
           fixtureFiles: [editPath, 'README.md']
         })
-        const staleKeys = readPairKeys(baseObservation, editPath)
+        const staleKeyGroups = readPairKeyGroups(baseObservation)
+        const staleKeys = staleKeyGroups.flat()
+        const eligibleLifecyclePairIds = lifecyclePairIdsForSourceKeys(staleKeys)
         const responses = await createFakeResponses({
           task,
           fixtureRoot: fixture.path,
@@ -1389,7 +1494,10 @@ export async function runC1E0CredentialFreeStudy(
         const afterSnapshot = await snapshotC1Fixture(fixture.path)
         changedPaths = changedC1FixturePaths(beforeSnapshot, afterSnapshot)
         scopePass = writableScopePass(changedPaths, task.expectedWritablePaths)
-        doseObservations = plan.arm === 'RUNTIME' ? doseObservationsForLeg(plan, result) : []
+        doseObservations =
+          plan.arm === 'RUNTIME'
+            ? doseObservationsForLeg(plan, result, eligibleLifecyclePairIds)
+            : []
         await writeDurable(
           join(legDir, 'leg-manifest.json'),
           `${JSON.stringify(
@@ -1440,6 +1548,65 @@ export async function runC1E0CredentialFreeStudy(
           runId: plan.runId,
           observedStatus: 'COMPLETED'
         })
+      } catch (error) {
+        if (scenario === 'ISOLATED_HARNESS_FAILURE' && plan.legIndex === 0) {
+          const failure = failureOf(error)
+          const isolatedInternal: E0InternalLeg = {
+            plan,
+            task,
+            providerProfileHash: providerPreparationProfileHash,
+            changedPaths,
+            writableScopePass: false,
+            fixtureHashVerified,
+            fixtureCleaned: true,
+            doseObservations: [],
+            errorCode: 'ISOLATED_HARNESS_FAILURE'
+          }
+          await writeDurable(
+            join(legDir, 'leg-manifest.json'),
+            `${JSON.stringify(
+              {
+                studyId,
+                pairId: plan.pairId,
+                pairOrdinal: plan.pairOrdinal,
+                taskId: plan.taskId,
+                stratum: plan.stratum,
+                arm: plan.arm,
+                runId: plan.runId,
+                status: 'FAILED',
+                failureCode: 'ISOLATED_HARNESS_FAILURE',
+                failureMessage: failure.message,
+                responseCalls: 0,
+                toolExecutions: 0,
+                providerConfigHash: C1_E0_PROVIDER_CONFIG_HASH,
+                providerCalls: 0,
+                networkRequests: 0,
+                fixtureHashVerified,
+                fixtureCleaned: true,
+                changedPaths,
+                writableScopePass: false,
+                doseObservationCount: 0
+              },
+              null,
+              2
+            )}\n`
+          )
+          internalLegs.push(isolatedInternal)
+          if (plan.arm === 'NATIVE') pairState.native = isolatedInternal
+          else pairState.runtime = isolatedInternal
+          failures.push({ code: 'ISOLATED_HARNESS_FAILURE', message: failure.message })
+          events.push({
+            sequence: events.length + 1,
+            event: 'LEG_COMPLETED',
+            pairId: plan.pairId,
+            taskId: plan.taskId,
+            arm: plan.arm,
+            runId: plan.runId,
+            observedStatus: 'ISOLATED_HARNESS_FAILURE'
+          })
+          continue
+        }
+        throw error
       } finally {
         if (!fixtureCleaned) {
           await fixture.cleanup()
@@ -1491,11 +1658,12 @@ export async function runC1E0CredentialFreeStudy(
   }
 
   const assignments = contract?.pairAssignments ?? []
+  const hardStudyFailure = failures.some((failure) => failure.code !== 'ISOLATED_HARNESS_FAILURE')
   const adjudications = pairAdjudications(
     assignments,
     states,
     evidenceSink,
-    experimentInvalidator || failures.length > 0
+    experimentInvalidator || hardStudyFailure
   )
   for (const pair of adjudications) {
     events.push({
@@ -1513,7 +1681,7 @@ export async function runC1E0CredentialFreeStudy(
     pairCount: contract?.design.pairCount ?? C1_E0_PAIR_COUNT,
     completedPairCount: adjudications.filter((pair) => pair.pairStatus === 'COMPLETE').length,
     nonZeroTreatmentPairTaskIds: nonZeroTaskIds,
-    experimentInvalidator: experimentInvalidator || failures.length > 0
+    experimentInvalidator: experimentInvalidator || hardStudyFailure
   })
   const status: C1E0ExecutionStatus = batchQualification.verdict
   if (status === 'PASS') {
