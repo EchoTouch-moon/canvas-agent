@@ -119,7 +119,7 @@ stale-key 集合。
 - headless format、lint、typecheck、build：passed。
 - 本地 Node 23 的其余历史 live/canary tests 仍受 Node 24 gate 影响；不把该环境限制归因于本轮代码。
 - `git diff --check`：passed。
-- PR #115 最新 Node 24 Context Runtime CI：run `34508041307` 通过；该 run 覆盖 P0 代码提交前的 head，P0 代码定向回归已在本地通过，推送后等待新的 CI 结果。
+- PR #115 Node 24 Context Runtime CI：run `34510988883` 通过，对应包含 P0 修复的 head `7cc6291a66f5825f658333a60a193ab3ea1970af`；之后仅有文档提交。
 
 ## 7. 当前阶段裁定
 
