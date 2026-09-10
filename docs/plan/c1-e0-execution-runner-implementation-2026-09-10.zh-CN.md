@@ -10,13 +10,13 @@
 
 ## Completion criteria
 
-- [ ] E0 enrollment manifest、run contract、task fixture hashes 和 providerConfigHash 在 runner 启动时重算并 fail closed。
-- [ ] A：t1/t2 两个 task 的四个 pair 都产生 Runtime non-zero dose，batch gate 为 `PASS`。
-- [ ] B：只有 t1 两个 repetition 产生 non-zero dose，batch gate 为 `INCONCLUSIVE`。
-- [ ] C：experiment invalidator 触发 operator kill switch，counterpart 被阻断，batch gate 为 `NO_GO`。
-- [ ] 每个 leg 使用 fresh fixture、fresh leg identity，共享 study budget guard 和 durable checkpoint sink。
-- [ ] 证据仅保存稳定 join keys、usage provenance、tool metadata、transition/dose metadata；禁止 raw provider/tool payload。
-- [ ] 远端 Node 24 Context Runtime CI 通过；最终 runner execution revision 只记录在 runner report，不改写 freeze-prep run contract 的 `PENDING_E0_EXECUTION`。
+- [x] E0 enrollment manifest、run contract、task fixture hashes 和 providerConfigHash 在 runner 启动时重算并 fail closed。
+- [x] A：t1/t2 两个 task 的四个 pair 都产生 Runtime non-zero dose，batch gate 为 `PASS`。
+- [x] B：只有 t1 两个 repetition 产生 non-zero dose，batch gate 为 `INCONCLUSIVE`。
+- [x] C：experiment invalidator 触发 operator kill switch，counterpart 被阻断，batch gate 为 `NO_GO`。
+- [x] 每个 leg 使用 fresh fixture、fresh leg identity，共享 study budget guard 和 durable checkpoint sink。
+- [x] 证据仅保存稳定 join keys、usage provenance、tool metadata、transition/dose metadata；禁止 raw provider/tool payload。
+- [x] 远端 Node 24 Context Runtime CI 通过；最终 runner execution revision 只记录在 runner report，不改写 freeze-prep run contract 的 `PENDING_E0_EXECUTION`。
 
 ## Decisions
 
@@ -31,4 +31,4 @@ E0 live execution remains `NO_GO`. 本计划不会调用 `C1AuthorizedProviderRe
 
 ## Evidence
 
-最终验证记录写入 `docs/verification/cspv-c1-e0-execution-runner-2026-09-10.zh-CN.md`，并在 PR 描述中绑定 exact runner head、CI run、fake study scenario 结果和未解决授权门。
+最终验证记录写入 `docs/verification/cspv-c1-e0-execution-runner-2026-09-10.zh-CN.md`，并在 PR #114 描述中绑定 exact runner head、CI run、fake study scenario 结果和未解决授权门。

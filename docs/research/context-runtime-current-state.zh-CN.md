@@ -22,6 +22,7 @@ Enrollment manifest       IMPLEMENTED / READY_FOR_REVIEW
 E0 run contract           IMPLEMENTED / READY_FOR_REVIEW
 Dose schema               IMPLEMENTED / READY_FOR_REVIEW
 Credential-free readiness IMPLEMENTED / PASS
+E0 execution runner       IMPLEMENTED / FAKE_STATE_MACHINE_PASS / LIVE_NO_GO
 Old study resume/reuse    FORBIDDEN
 Wave B / productization   NO_GO
 ```
@@ -75,6 +76,11 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
   两个 distinct task，并绑定实际 outbound request configuration 的 `providerConfigHash`。Enrollment/Run Binding、
   Dose schema 和 readiness 已在 PR #112/#113 实现并完成 Revision 3 hardening；E0 live 仍为 `NO_GO`，64-leg 仍为
   `NO_GO`。
+- 独立 PR #114 已实现 `C1_EFFECTIVENESS_E0_EXECUTION_RUNNER_V1`：基于冻结 E0 binding 运行 4 pairs / 8 legs，
+  A 场景两 task 均 non-zero 得到 fake state-machine `PASS`，B 场景单 task repetition 得到 `INCONCLUSIVE`，
+  C 场景 experiment invalidator + SIGINT 阻断 counterpart 得到 `NO_GO`；三种场景均为 scripted fake、0 Provider
+  calls、0 network requests。runner exact revision、artifact 和授权边界记录在 [E0 runner 验收](../verification/cspv-c1-e0-execution-runner-2026-09-10.zh-CN.md)，
+  E0 live 仍为 `NO_GO`。
 
 [SV1 执行与证据缺口裁定](../verification/cspv-c1-lifecycle-canary-sv1-live-execution-2026-09-08.zh-CN.md) ·
 [SV2 真实执行报告](../verification/cspv-c1-lifecycle-canary-sv2-live-execution-2026-09-09.zh-CN.md) ·
@@ -109,6 +115,7 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 | 生命周期 Canary SV2 | `PASS / CLOSED / MECHANISM_ONLY` | study `c1-lifecycle-sv2-20260909-ef4d90a2`；执行提交 `69d9dfc923b64a293aac4eae2dd510178c8f34b4`、合同 SHA `87bd74f1caea0a80cee8c4c85da6d3768a52ef950548de630516c3e8f4abb613`；1 次 Runtime 请求、0 tool request；read v1 对被 adjudicate 为 `SUPERSEDED` 并在 provider-bound 边界缺席；身份 consumed/retired；[执行报告](../verification/cspv-c1-lifecycle-canary-sv2-live-execution-2026-09-09.zh-CN.md) |
 | E0 Effectiveness Contract | `DESIGN_REVISION_2 / REVISIONS_APPLIED / RE_REVIEW_PENDING` | [E0 合同草案](../plan/c1-superseded-version-effectiveness-e0-contract-2026-09-09.zh-CN.md)；固定 4 matched pairs、enriched cohort、unique/exposure Dose schema、双 distinct-task qualification gate 和 providerConfigHash |
 | E0 freeze-prep implementation | `IMPLEMENTED / REVISIONS_APPLIED / NO_PROVIDER` | [冻结准备验收](../verification/cspv-c1-e0-freeze-prep-2026-09-09.zh-CN.md)；Enrollment manifest、study-level run contract（含 `providerConfigHash` 和双 distinct-task qualification gate）、`C1_EFFECTIVENESS_DOSE_V1` 和 credential-free readiness matrix 已实现；E0 live 仍为 `NO_GO` |
+| E0 execution runner | `IMPLEMENTED / FAKE_STATE_MACHINE_PASS / LIVE_NO_GO` | [E0 runner 验收](../verification/cspv-c1-e0-execution-runner-2026-09-10.zh-CN.md)；4 pairs / 8 legs fake study、A/B/C 三种终止与 qualification 场景已覆盖；exact live binding 和 owner authorization 仍待独立 review |
 | SV1 响应证据缺口 | `ADJUDICATED / FIXED (local)` | 原件仅 1×`OUTBOUND_PERMITTED`、`permitsWithoutRecordedResponse=1`、`responseStatus=NOT_RECORDED`；根因是 canary 在 `responseSource.next` 内抛错早于驱动落盘；修复 `cf0d45b47ffb1d35f1630e993675b50c53777455`；历史原件不回填，该次 usage 与 tool-request 数保持未知 |
 | PR #105 | `OPEN / CI_GREEN / REVIEW_REQUIRED` | head `012093274da742eddd8178b4448d105e6b27c4ac`，base `main`；CI run `34240182684` 的 `check` 与 `macos-electron` 均 success；尚无独立 review，CI 绿不替代内容审查 |
 | `main` CI 基线（2026-09-09） | `BLOCKED / UPSTREAM_ADVISORY` | `origin/main` 仍锁定 `js-yaml@4.3.1`，其 `pnpm audit --prod --audit-level high` 受 `GHSA-2883-xcg3-v3hh` 阻塞；修复在独立 PR #107（`js-yaml@4.3.2`），其后 CR-ARCH #109 与 SV2 #110 的 Context Runtime / Electron workflows 已分别通过。#107 合并前，不能把 `main` 的旧绿灯 run 当作当前基线；修复仍与研究证据 PR 分离 |
