@@ -446,4 +446,39 @@ describe('C1 E0 final live binding', () => {
     expect(C1_E0_EXECUTION_SURFACE_PATHS).toContain('pnpm-lock.yaml')
     expect(C1_E0_EXECUTION_SURFACE_PATHS).not.toContain('apps/electron')
   })
+
+  it('rejects a surface-drifted authorization before claiming identity or dispatching a request', async () => {
+    const binding = await computeC1E0ExecutionBinding(REPO_ROOT)
+    const enrollment = await loadC1E0EnrollmentManifest(REPO_ROOT)
+    const contract = await loadC1E0RunContract(REPO_ROOT)
+    const root = await outputRoot()
+    let fetchCalls = 0
+    try {
+      const report = await runC1E0FinalLiveBindingAuthorized({
+        repoRoot: REPO_ROOT,
+        outputRoot: root,
+        authorization: {
+          decision: 'AUTHORIZED',
+          studyId: 'c1-e0-20260911-eeeeeee5',
+          executionRevision: binding.executionRevision,
+          executionSurfaceHash: '0'.repeat(64),
+          runContractSha256: contract.runContractSha256,
+          enrollmentManifestSha256: enrollment.manifestSha256,
+          providerConfigHash: C1_E0_PROVIDER_CONFIG_HASH
+        },
+        apiKey: 'memory-only-authorized-test-sentinel',
+        fetchImpl: async () => {
+          fetchCalls += 1
+          return authorizedPayload({ id: 'unexpected' })
+        },
+        allowPendingContractForTests: true
+      })
+      expect(report.status).toBe('NO_GO')
+      expect(report.reportDir).toBe(null)
+      expect(report.failures).toEqual([expect.objectContaining({ code: 'NOT_AUTHORIZED' })])
+      expect(fetchCalls).toBe(0)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })
