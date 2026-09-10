@@ -94,8 +94,8 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
   初始上下文固定为 neutral `README.md`，scripted substitute 必须先 READ 再 EDIT/WRITE；同一内部 study runner
   同时支持 `SCRIPTED_FAKE` 与 `AUTHORIZED_PROVIDER`（后者用 injected fake fetch 做完整回归）；execution revision
   同时绑定 headless `executionSurfaceHash`，覆盖 research/runtime source、相关 workspace 与 lockfile，排除
-  Electron 与文档。新的 executable revision 为 `bff8d71b4e1152452de3bd7ad3de39b2d03e00ad`，surface hash 为
-  `c250ee85bf50b2e225d588236a0cf68ecc356ce46b45f4257ebddb94bec78384`；PR #115 需重新独立 review，E0 live 与 owner authorization 继续 `NO_GO`。
+  Electron 与文档。新的 executable revision 为 `a85de4776ebbacd515c6be3c658333f118e7a2c1`，surface hash 为
+  `a0b6286868ece674942af32286fefeddae28879b2a68a311f8acc826f609614c`；PR #115 需重新独立 review，E0 live 与 owner authorization 继续 `NO_GO`。
 
 [SV1 执行与证据缺口裁定](../verification/cspv-c1-lifecycle-canary-sv1-live-execution-2026-09-08.zh-CN.md) ·
 [SV2 真实执行报告](../verification/cspv-c1-lifecycle-canary-sv2-live-execution-2026-09-09.zh-CN.md) ·

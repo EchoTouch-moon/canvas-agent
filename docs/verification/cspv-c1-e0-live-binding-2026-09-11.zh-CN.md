@@ -14,8 +14,8 @@
 | ---------------------------- | ------------------------------------------------------------------------------------ |
 | Binding                      | `C1_EFFECTIVENESS_E0_LIVE_BINDING_V1`                                                |
 | No-provider mode             | `NO_PROVIDER_EXECUTION`                                                              |
-| Executable revision          | `bff8d71b4e1152452de3bd7ad3de39b2d03e00ad`                                           |
-| Execution surface hash       | `c250ee85bf50b2e225d588236a0cf68ecc356ce46b45f4257ebddb94bec78384`                   |
+| Executable revision          | `a85de4776ebbacd515c6be3c658333f118e7a2c1`                                           |
+| Execution surface hash       | `a0b6286868ece674942af32286fefeddae28879b2a68a311f8acc826f609614c`                   |
 | Execution surface            | headless research source/packages + manifests + `pnpm-lock.yaml`；不含 Electron/docs |
 | Enrollment manifest SHA      | `9b3d787219c93f8ba7563e5b52366245c6279a697b7e729b5426e12bfab7a6bb`                   |
 | Freeze-prep run-contract SHA | `1fa1840c5869b2a3c60f891cb37b10706fc41830651f1bc56131e87753ffdfb3`                   |
