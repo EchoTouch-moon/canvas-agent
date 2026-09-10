@@ -240,6 +240,23 @@ export {
   type C1E0MeasurableCount
 } from './c1-e0-dose'
 export {
+  C1_E0_EXECUTION_RUNNER_ID,
+  C1_E0_EXECUTION_RUNNER_MODE,
+  C1_E0_EXECUTION_RUNNER_SCHEMA_VERSION,
+  C1_E0_FAKE_SCENARIOS,
+  buildC1E0ExecutionPlans,
+  runC1E0CredentialFreeStudy,
+  type C1E0ExecutionArtifactSummary,
+  type C1E0ExecutionLegRecord,
+  type C1E0ExecutionPlan,
+  type C1E0ExecutionReport,
+  type C1E0ExecutionRunnerOptions,
+  type C1E0ExecutionStatus,
+  type C1E0FakeScenario,
+  type C1E0PairAdjudication,
+  type C1E0StudyEvent
+} from './c1-e0-execution-runner'
+export {
   C1_E0_READINESS_ID,
   C1_E0_RUNTIME_ALLOWED_INPUTS,
   C1_E0_RUNTIME_FORBIDDEN_INPUTS,
