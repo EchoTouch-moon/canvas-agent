@@ -365,10 +365,13 @@ export class C1E0NaturalObservationSource implements C1LiveObservationSource {
     readonly bootstrapFiles?: readonly string[]
   }): Promise<C1E0NaturalObservationSource> {
     const bootstrapFiles = input.bootstrapFiles ?? C1_E0_NEUTRAL_BOOTSTRAP_FILES
-    if (bootstrapFiles.length === 0) {
+    if (
+      JSON.stringify(bootstrapFiles) !== JSON.stringify(C1_E0_NEUTRAL_BOOTSTRAP_FILES) ||
+      bootstrapFiles.length === 0
+    ) {
       throw new C1PreflightFailure(
-        'MANIFEST_BINDING_MISMATCH',
-        `E0 task ${input.task.taskId} has no natural lifecycle bootstrap path`
+        'CONTRACT_BINDING_MISMATCH',
+        'E0 natural lifecycle requires the fixed neutral README bootstrap; task ground truth cannot seed exposure'
       )
     }
     const base = await C1LiveTaskObservationSource.fromFixture({
