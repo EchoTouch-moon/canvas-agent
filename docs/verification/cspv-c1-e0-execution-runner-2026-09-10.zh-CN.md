@@ -11,7 +11,7 @@ batch gate、budget guard 和 single-use identity；不读取真实凭据、不�
 | Binding                            | Value                                                                                    |
 | ---------------------------------- | ---------------------------------------------------------------------------------------- |
 | Runner                             | `C1_EFFECTIVENESS_E0_EXECUTION_RUNNER_V1` / schema `1`                                   |
-| Runner execution revision          | `2aa339e0977e9b5a132ec2e2de4ab43f3fa84efa`（最后一个包含 runner executable code 的提交） |
+| Runner execution revision          | `4d711d6a86299384f2744492655dda74cf5533e3`（最后一个包含 runner executable code 的提交） |
 | Enrollment manifest SHA            | `9b3d787219c93f8ba7563e5b52366245c6279a697b7e729b5426e12bfab7a6bb`                       |
 | Freeze-prep run contract SHA       | `1fa1840c5869b2a3c60f891cb37b10706fc41830651f1bc56131e87753ffdfb3`                       |
 | Run contract code revision         | `PENDING_E0_EXECUTION`（仍为 freeze-prep contract，未冒充最终 live binding）             |
@@ -27,7 +27,7 @@ credential-free preparation，后者才写入 E0 capture/ledger。
 
 ## 2. Full state-machine scenarios
 
-三种场景均在同一 runner revision `2aa339e0` 下运行，使用固定的 single-use study IDs：
+三种场景均在同一 runner revision `4d711d6` 下运行，使用固定的 single-use study IDs：
 
 | Scenario                                             |                    Legs | Fake responses / tools | Dose result                                                   | Batch result                                                        | Terminal |
 | ---------------------------------------------------- | ----------------------: | ---------------------: | ------------------------------------------------------------- | ------------------------------------------------------------------- | -------- |
@@ -66,7 +66,7 @@ authorization header 和 raw tool result 不存在。
 - A/B/C fake study：分别得到 `PASS`、`INCONCLUSIVE`、`NO_GO`，均为真实 runner 全链路输出。
 - `benchmark:c1-e0-runner` 默认 A 场景：8/8 legs、24 fake permits、0 Provider calls、0 network requests。
 - 本地 headless audit、format、lint、typecheck 和 `git diff --check`：passed。
-- 远端 Context Runtime CI：run `34493500539` passed，Node 24；29 个测试文件、235 项测试通过，并完成非桌面 build。
+- 远端 Context Runtime CI：run `34494647903` passed，Node 24；29 个测试文件、235 项测试通过，并完成非桌面 build。
 
 ## 5. Remaining gates
 
