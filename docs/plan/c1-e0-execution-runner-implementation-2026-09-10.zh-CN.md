@@ -22,7 +22,7 @@
 
 - 新增独立 `c1-e0-execution-runner.ts` 和独立 PR；不把执行代码堆入 #111/#112/#113。
 - 复用既有 `C1LiveBindingDriver`、`C1LegExecutor`、`C1SandboxToolExecutor`、`C1HardBudgetGuard` 和 durable checkpoint sink；E0 runner 只负责 E0-specific scheduling、dose projection、pair/batch adjudication 和 artifact set。
-- fake provider 使用显式 sentinel 环境值和 scripted responses；底层 strict provider profile hash 与 E0 run-contract request configuration hash 分开记录，避免把 fake preparation profile 冒充实际 request config。
+- fake provider 使用显式 sentinel 环境值和 scripted responses；底层 strict provider profile hash 与 E0 run-contract request configuration hash 通过 driver 的显式 override 分开绑定，避免把 fake preparation profile 冒充实际 request config。
 - `codeRevision` 在现有 E0 run contract 中保持 `PENDING_E0_EXECUTION`；runner report 捕获当前 Git revision，后续独立 review 决定是否生成最终 live binding。
 
 ## Authorization boundary
