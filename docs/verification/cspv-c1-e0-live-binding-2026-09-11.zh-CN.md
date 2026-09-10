@@ -135,7 +135,7 @@ authorization 均为 `false`。
 - headless format、lint、typecheck、build：passed。
 - 本地 Node 23 的其余历史 live/canary tests 仍受 Node 24 gate 影响；不把该环境限制归因于本轮代码。
 - `git diff --check`：passed。
-- PR #115 Node 24 Context Runtime CI：待本轮 binding-closure head 推送后更新；此前 P0 head 的 Node 24 CI 已通过。
+- PR #115 Node 24 Context Runtime CI：run `34515596626` 通过，对应 binding-closure head `f27a723a11d52cf734423343442b27631e51e37a`；之后仅有文档提交。
 
 ## 8. 当前阶段裁定
 
