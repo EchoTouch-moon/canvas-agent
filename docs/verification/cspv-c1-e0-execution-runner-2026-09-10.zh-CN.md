@@ -8,16 +8,16 @@ batch gate、budget guard 和 single-use identity；不读取真实凭据、不�
 
 ## 1. Exact bindings
 
-| Binding                            | Value                                                                        |
-| ---------------------------------- | ---------------------------------------------------------------------------- |
-| Runner                             | `C1_EFFECTIVENESS_E0_EXECUTION_RUNNER_V1` / schema `1`                       |
-| Runner execution revision          | `56ed6f92bbf9bf76a0561835c283bd95dca73977`                                   |
-| Enrollment manifest SHA            | `9b3d787219c93f8ba7563e5b52366245c6279a697b7e729b5426e12bfab7a6bb`           |
-| Freeze-prep run contract SHA       | `1fa1840c5869b2a3c60f891cb37b10706fc41830651f1bc56131e87753ffdfb3`           |
-| Run contract code revision         | `PENDING_E0_EXECUTION`（仍为 freeze-prep contract，未冒充最终 live binding） |
-| Provider request configuration SHA | `bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a`           |
-| Enrollment cohort                  | `HISTORICAL_OPPORTUNITY_ENRICHED`                                            |
-| Frozen plan                        | 4 pairs / 8 legs / t1 ×2 / t2 ×2 / arm order 2:2                             |
+| Binding                            | Value                                                                                    |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- |
+| Runner                             | `C1_EFFECTIVENESS_E0_EXECUTION_RUNNER_V1` / schema `1`                                   |
+| Runner execution revision          | `c6826708d1148f0ebcb66d993f5a28661bffaf24`（最后一个包含 runner executable code 的提交） |
+| Enrollment manifest SHA            | `9b3d787219c93f8ba7563e5b52366245c6279a697b7e729b5426e12bfab7a6bb`                       |
+| Freeze-prep run contract SHA       | `1fa1840c5869b2a3c60f891cb37b10706fc41830651f1bc56131e87753ffdfb3`                       |
+| Run contract code revision         | `PENDING_E0_EXECUTION`（仍为 freeze-prep contract，未冒充最终 live binding）             |
+| Provider request configuration SHA | `bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a`                       |
+| Enrollment cohort                  | `HISTORICAL_OPPORTUNITY_ENRICHED`                                                        |
+| Frozen plan                        | 4 pairs / 8 legs / t1 ×2 / t2 ×2 / arm order 2:2                                         |
 
 每条 leg 使用独立的 E0 run identity 和 fresh fixture；study 共享 `24/96/600000` per-leg 与
 `192/768/4800000` study budget，未触发预算上限。fake response source 的真实 `providerCalls=0`、
@@ -25,7 +25,7 @@ batch gate、budget guard 和 single-use identity；不读取真实凭据、不�
 
 ## 2. Full state-machine scenarios
 
-三种场景均在同一 runner revision `56ed6f9` 下运行，使用固定的 single-use study IDs：
+三种场景均在同一 runner revision `c6826708` 下运行，使用固定的 single-use study IDs：
 
 | Scenario                                             |                    Legs | Fake responses / tools | Dose result                                                   | Batch result                                                        | Terminal |
 | ---------------------------------------------------- | ----------------------: | ---------------------: | ------------------------------------------------------------- | ------------------------------------------------------------------- | -------- |
@@ -64,7 +64,7 @@ authorization header 和 raw tool result 不存在。
 - A/B/C fake study：分别得到 `PASS`、`INCONCLUSIVE`、`NO_GO`，均为真实 runner 全链路输出。
 - `benchmark:c1-e0-runner` 默认 A 场景：8/8 legs、24 fake permits、0 Provider calls、0 network requests。
 - 本地 headless audit、format、lint、typecheck 和 `git diff --check`：passed。
-- 远端 Context Runtime CI：run `34491085627` passed，Node 24；29 个测试文件、235 项测试通过，并完成非桌面 build。
+- 远端 Context Runtime CI：run `34492173394` passed，Node 24；29 个测试文件、235 项测试通过，并完成非桌面 build。
 
 ## 5. Remaining gates
 
