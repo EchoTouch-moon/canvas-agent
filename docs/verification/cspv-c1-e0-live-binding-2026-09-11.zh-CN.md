@@ -2,7 +2,7 @@
 
 日期：2026-09-11（Asia/Shanghai）
 
-当前状态：`CHANGES_REQUIRED_BEFORE_FINAL_FREEZE` 的 P0 修复已实现，等待 independent review。
+当前状态：`FINAL_BINDING_CLOSURE_FIXED / READY_FOR_INDEPENDENT_REVIEW`；最终 run-contract rebind 与 owner authorization 仍未执行。
 
 本记录对应 PR #115 的同一分支。上一轮 review 发现 treatment opportunity 仍由 expected writable path
 预种 read pair、authorized source 没有穿过完整 study runner，以及 executable revision 只覆盖三个文件。
@@ -14,8 +14,8 @@
 | ---------------------------- | ------------------------------------------------------------------------------------ |
 | Binding                      | `C1_EFFECTIVENESS_E0_LIVE_BINDING_V1`                                                |
 | No-provider mode             | `NO_PROVIDER_EXECUTION`                                                              |
-| Executable revision          | `a85de4776ebbacd515c6be3c658333f118e7a2c1`                                           |
-| Execution surface hash       | `a0b6286868ece674942af32286fefeddae28879b2a68a311f8acc826f609614c`                   |
+| Executable revision          | `1e759e6e82b8ecd26028df7137b656103bd62824`                                           |
+| Execution surface hash       | `2f432c8a7f5570165dbb2b82174cdb28080161798c2ab8fc61287d6eb0c81d1a`                   |
 | Execution surface            | headless research source/packages + manifests + `pnpm-lock.yaml`；不含 Electron/docs |
 | Enrollment manifest SHA      | `9b3d787219c93f8ba7563e5b52366245c6279a697b7e729b5426e12bfab7a6bb`                   |
 | Freeze-prep run-contract SHA | `1fa1840c5869b2a3c60f891cb37b10706fc41830651f1bc56131e87753ffdfb3`                   |
@@ -109,9 +109,25 @@ stale-key 集合。
 另有 surface-drift authorization 测试：hash 不匹配时在 identity claim、provider preparation 和 fetch 前返回
 `NO_GO / NOT_AUTHORIZED`，fetch 调用数为 0。
 
-## 6. Verification
+## 6. Final binding closure
 
-- 新 live-binding tests：6/6 passed（Node `v23.11.0`，显式 test-only Node-range override）。
+authorized path 现在在任何 identity claim、provider preparation 或 fetch dispatch 之前强制：
+
+```text
+contract.executionBinding.codeRevision == executionRevision
+```
+
+`PENDING_E0_EXECUTION` 只保留给 no-provider readiness 和 test-only pending-contract regression；真实 authorized
+path 会拒绝它。只有 non-pending contract revision、execution surface hash、manifest/provider/contract
+authorization 全部匹配时，report 才计算 `finalBindingReady=true`。no-provider、pending test、缺失或不匹配的
+authorization 均为 `false`。
+
+回归覆盖了一个 final-looking 但 codeRevision 与 runtime executionRevision 不同的 contract：结果为
+`NO_GO / CONTRACT_BINDING_MISMATCH`，report directory 未 claim，provider preparation 与 network request 均为 0。
+
+## 7. Verification
+
+- 新 live-binding tests：7/7 passed（Node `v23.11.0`，显式 test-only Node-range override）。
 - E0 runner + Dose tests：18/18 passed。
 - Authorized Provider source tests：15/15 passed。
 - SUPERSEDED policy/probe tests：21/21 passed。
@@ -119,9 +135,9 @@ stale-key 集合。
 - headless format、lint、typecheck、build：passed。
 - 本地 Node 23 的其余历史 live/canary tests 仍受 Node 24 gate 影响；不把该环境限制归因于本轮代码。
 - `git diff --check`：passed。
-- PR #115 Node 24 Context Runtime CI：run `34512216303` 通过，对应包含 P0 修复的 head `0701c28cf47fe7cacdfd9a61613a8ce811a9980f`；之后仅有文档提交。
+- PR #115 Node 24 Context Runtime CI：待本轮 binding-closure head 推送后更新；此前 P0 head 的 Node 24 CI 已通过。
 
-## 7. 当前阶段裁定
+## 8. 当前阶段裁定
 
 ```text
 E0 design / enrollment / Dose             CLOSED / FROZEN
@@ -130,7 +146,7 @@ Natural treatment opportunity              HARDENED / MODEL-GENERATED READ REQUI
 Shared 8-leg study runner                  WIRED FOR FAKE + AUTHORIZED KINDS
 Authorized provider adapter                WIRED / MEMORY-ONLY KEY / NO FALLBACK
 Execution surface revision + hash          WIRED / HEADLESS / ELECTRON EXCLUDED
-Final live binding                         CHANGES_REQUIRED_BEFORE_FINAL_FREEZE → P0 FIXED
+Final live binding                         FINAL_BINDING_CLOSURE_FIXED / READY_FOR_INDEPENDENT_REVIEW
 Independent review                         REQUIRED
 Final run-contract rebinding               PENDING
 Owner authorization                        NO_GO
