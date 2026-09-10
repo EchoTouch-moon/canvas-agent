@@ -87,6 +87,7 @@ describe('C1 E0 credential-free execution runner', () => {
     expect(report.fakeProviderCallPermits).toBe(24)
     expect(report.responseCalls).toBe(24)
     expect(report.toolExecutions).toBe(16)
+    expect(report.budget).toMatchObject({ completedLegs: 8, providerCalls: 24, toolCalls: 16 })
     expect(report.legsCompleted).toBe(8)
     expect(report.blockedLegs).toBe(0)
     expect(report.studyTerminal).toBe(false)
@@ -101,6 +102,13 @@ describe('C1 E0 credential-free execution runner', () => {
     expect(
       report.pairAdjudications.every(
         (pair) => pair.runtimeDoseSummary?.uniqueRemovedPairs.length === 1
+      )
+    ).toBe(true)
+    expect(
+      report.pairAdjudications.every(
+        (pair) =>
+          pair.runtimeDoseSummary?.newRemovalPairCalls === 1 &&
+          pair.runtimeDoseSummary.carriedRemovalPairCalls === 1
       )
     ).toBe(true)
     expect(report.artifacts.map((artifact) => artifact.name)).toEqual([
@@ -174,6 +182,7 @@ describe('C1 E0 credential-free execution runner', () => {
     expect(report.fakeProviderCallPermits).toBe(3)
     expect(report.responseCalls).toBe(3)
     expect(report.toolExecutions).toBe(2)
+    expect(report.budget).toMatchObject({ completedLegs: 1, providerCalls: 3, toolCalls: 2 })
     expect(report.batchQualification).toMatchObject({ verdict: 'NO_GO' })
     expect(
       report.pairAdjudications.every((pair) => pair.pairStatus === 'INVALID_FOR_ENDPOINT')
