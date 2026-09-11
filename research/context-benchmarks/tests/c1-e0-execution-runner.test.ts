@@ -100,6 +100,7 @@ describe('C1 E0 credential-free execution runner', () => {
   })
 
   it('runs both tasks through all 8 legs and qualifies the fake state machine', async () => {
+    const contract = await loadC1E0RunContract(REPO_ROOT)
     const report = await runC1E0CredentialFreeStudy({
       repoRoot: REPO_ROOT,
       outputRoot: await outputRoot(),
