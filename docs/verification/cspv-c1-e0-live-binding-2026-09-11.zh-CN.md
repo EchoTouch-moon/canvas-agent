@@ -2,7 +2,12 @@
 
 日期：2026-09-11（Asia/Shanghai）
 
-当前状态：`FINAL_BINDING_CLOSURE_FIXED / READY_FOR_INDEPENDENT_REVIEW`；最终 run-contract rebind 与 owner authorization 仍未执行。
+当前状态：`FINAL_BINDING_REBOUND / READY_FOR_BINDING_ONLY_REVIEW`；owner authorization 与 E0 live 仍未执行。
+
+> 状态更新（2026-09-11）：本记录下方的 freeze-prep 数值与“rebind pending”表述保留为实现阶段快照。
+> 最终 run-contract 已在 PR #115 head `5df2413be19db8d90a6d419fed5e1d1e925ae41c` 重绑定：
+> `codeRevision=1e759e6e82b8ecd26028df7137b656103bd62824`，`runContractSha256=17bce0a284b37dff7b34efb8a593d063be7c3d12e6fac38f52f54ea7210b6cbe`。
+> Node 24 Context Runtime CI run `34552514310` 已覆盖该 head；正式 binding-only GitHub review、owner authorization 与 E0 live 仍待后续完成。
 
 本记录对应 PR #115 的同一分支。上一轮 review 发现 treatment opportunity 仍由 expected writable path
 预种 read pair、authorized source 没有穿过完整 study runner，以及 executable revision 只覆盖三个文件。

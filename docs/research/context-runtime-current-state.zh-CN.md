@@ -24,7 +24,7 @@ Dose schema               PASS / READY_FOR_INDEPENDENT_REVIEW
 Credential-free readiness PASS / READY_FOR_INDEPENDENT_REVIEW
 E0 freeze-prep            PASS / READY_FOR_INDEPENDENT_REVIEW
 E0 execution runner       IMPLEMENTED / FAKE_STATE_MACHINE_PASS / LIVE_NO_GO
-E0 final live binding     FINAL BINDING CLOSURE FIXED / READY_FOR_INDEPENDENT_REVIEW
+E0 final live binding     PASS / READY_FOR_BINDING_ONLY_REVIEW
 Old study resume/reuse    FORBIDDEN
 Wave B / productization   NO_GO
 ```
@@ -100,8 +100,11 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
   `contract.executionBinding.codeRevision === executionRevision`；不匹配的 final-looking contract fail closed，
   `reportDir`、provider preparation 和 network request 均为 0。`finalBindingReady` 现在按实际绑定计算：no-provider/
   pending/mismatch 为 `false`，non-pending 且 contract、surface、manifest、provider 和 authorization 全匹配时为
-  `true`。最新 executable revision 为 `1e759e6e82b8ecd26028df7137b656103bd62824`，surface hash 为
-  `2f432c8a7f5570165dbb2b82174cdb28080161798c2ab8fc61287d6eb0c81d1a`；独立 review 可开始，最终 rebind、owner authorization 与 E0 live 仍为 `NO_GO`。
+  `true`。最终 executable revision 为 `1e759e6e82b8ecd26028df7137b656103bd62824`，surface hash 为
+  `2f432c8a7f5570165dbb2b82174cdb28080161798c2ab8fc61287d6eb0c81d1a`；run-contract 已重绑定为
+  `17bce0a284b37dff7b34efb8a593d063be7c3d12e6fac38f52f54ea7210b6cbe`，且 `codeRevision` 与 executable revision
+  一致。授权 fake-fetch 在本地通过，Node 24 Context Runtime CI run `34552514310` 覆盖最终 head；正式
+  binding-only review 仍需完成，owner authorization 与 E0 live 继续 `NO_GO`。
 
 [SV1 执行与证据缺口裁定](../verification/cspv-c1-lifecycle-canary-sv1-live-execution-2026-09-08.zh-CN.md) ·
 [SV2 真实执行报告](../verification/cspv-c1-lifecycle-canary-sv2-live-execution-2026-09-09.zh-CN.md) ·
@@ -139,8 +142,8 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 | E0 Effectiveness Contract        | `DESIGN_REVISION_2 / ACCEPTED`                               | [E0 合同草案](../plan/c1-superseded-version-effectiveness-e0-contract-2026-09-09.zh-CN.md)；固定 4 matched pairs、enriched cohort、unique/exposure Dose schema、双 distinct-task qualification gate 和 providerConfigHash                                                                                                                                                                                                  |
 | E0 freeze-prep implementation    | `PASS / READY_FOR_INDEPENDENT_REVIEW / NO_PROVIDER`          | [冻结准备验收](../verification/cspv-c1-e0-freeze-prep-2026-09-09.zh-CN.md)；manifest、run contract、Dose schema 和 readiness hardening 已通过远端 Node 24 CI；E0 live 仍为 `NO_GO`                                                                                                                                                                                                                                         |
 | E0 execution runner              | `IMPLEMENTED / FAKE_STATE_MACHINE_PASS / LIVE_NO_GO`         | [E0 runner 验收](../verification/cspv-c1-e0-execution-runner-2026-09-10.zh-CN.md)；4 pairs / 8 legs fake study、A/B/C/D qualification、终止和 isolated-failure counterpart 场景已覆盖；exact live binding 和 owner authorization 仍待独立 review                                                                                                                                                                           |
-| E0 final live binding            | `FINAL BINDING CLOSURE FIXED / READY_FOR_INDEPENDENT_REVIEW` | [E0 final live binding 验证](../verification/cspv-c1-e0-live-binding-2026-09-11.zh-CN.md)；neutral bootstrap、共享 fake/authorized 8-leg runner、headless execution surface hash 与 `codeRevision == executionRevision` invariant 已接通；最终 run-contract rebinding、owner authorization 与 E0 live 仍为 `NO_GO`                                                                                                         |
-| PR #115                          | `OPEN / DRAFT / CI_GREEN / REVIEW_REQUIRED`                  | Context Runtime CI run `34516190189` 在 Node 24 success（对应 binding-closure head `db5fbd705255b608faf7e63eeb0acae7a79bd98b`；之后仅有文档提交）；base 为 #114 execution-runner 分支；尚无正式 independent review                                                                                                                                                                                                         |
+| E0 final live binding            | `PASS / READY_FOR_BINDING_ONLY_REVIEW`                       | [E0 final live binding 验证](../verification/cspv-c1-e0-live-binding-2026-09-11.zh-CN.md) 与[独立技术复核](../verification/cspv-c1-e0-live-binding-independent-review-2026-09-11.zh-CN.md)；neutral bootstrap、共享 fake/authorized 8-leg runner、headless execution surface hash、`codeRevision == executionRevision` 与最终 run-contract SHA 已验证；owner authorization 与 E0 live 仍为 `NO_GO`                                                                 |
+| PR #115                          | `OPEN / DRAFT / CI_GREEN / REVIEW_REQUIRED`                  | head `5df2413be19db8d90a6d419fed5e1d1e925ae41c`；Context Runtime CI run `34552514310` 在 Node 24 success；base 为 #114 execution-runner 分支；尚无正式 independent review                                                                                                                                                                                                         |
 | SV1 响应证据缺口                 | `ADJUDICATED / FIXED (local)`                                | 原件仅 1×`OUTBOUND_PERMITTED`、`permitsWithoutRecordedResponse=1`、`responseStatus=NOT_RECORDED`；根因是 canary 在 `responseSource.next` 内抛错早于驱动落盘；修复 `cf0d45b47ffb1d35f1630e993675b50c53777455`；历史原件不回填，该次 usage 与 tool-request 数保持未知                                                                                                                                                        |
 | PR #105                          | `OPEN / CI_GREEN / REVIEW_REQUIRED`                          | head `012093274da742eddd8178b4448d105e6b27c4ac`，base `main`；CI run `34240182684` 的 `check` 与 `macos-electron` 均 success；尚无独立 review，CI 绿不替代内容审查                                                                                                                                                                                                                                                         |
 | `main` CI 基线（2026-09-09）     | `BLOCKED / UPSTREAM_ADVISORY`                                | `origin/main` 仍锁定 `js-yaml@4.3.1`，其 `pnpm audit --prod --audit-level high` 受 `GHSA-2883-xcg3-v3hh` 阻塞；修复在独立 PR #107（`js-yaml@4.3.2`），其后 CR-ARCH #109 与 SV2 #110 的 Context Runtime / Electron workflows 已分别通过。#107 合并前，不能把 `main` 的旧绿灯 run 当作当前基线；修复仍与研究证据 PR 分离                                                                                                     |

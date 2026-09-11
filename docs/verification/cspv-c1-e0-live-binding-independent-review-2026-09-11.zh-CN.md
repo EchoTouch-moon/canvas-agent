@@ -2,7 +2,7 @@
 
 日期：2026-09-11（Asia/Shanghai）
 
-复核对象：PR #115 binding-closure head `ba1bccb1557e1083d55b3be072c5581b191a988b`，base 为
+复核对象：PR #115 final-binding head `5df2413be19db8d90a6d419fed5e1d1e925ae41c`，base 为
 `codex/c1-effectiveness-e0-execution-runner`。
 
 裁定：`TECHNICAL_REVIEW_PASS / FINAL_RUN_CONTRACT_REBIND_VERIFIED`。
@@ -39,11 +39,11 @@ runContract.codeRevision = 1e759e6e82b8ecd26028df7137b656103bd62824
 
 ## 验证
 
-- 新 live-binding tests：7/7 passed。
-- E0 runner、Dose、authorized source、SUPERSEDED policy/probe：54/54 passed。
+- E0 final live-binding + credential-free runner tests：14/14 passed（本地 Node `v23.11.0`，仅通过测试 seam 放行 Node 24 版本前置）。
+- E0 binding、Dose、authorized source、SUPERSEDED policy/probe、live-preflight：65/65 passed。
 - headless audit：`unknown=0`、`coreFindings=0`。
 - headless format、lint、typecheck、build 与 `git diff --check`：passed。
-- PR #115 Node 24 Context Runtime CI run `34516618048`：success。
+- PR #115 Node 24 Context Runtime CI run `34552514310`（覆盖最终合同重绑定 head）：success。
 - 未读取真实 credential，未访问真实 Provider，未创建或消费 E0 live identity。
 
 ## 结论与下一步
@@ -53,6 +53,7 @@ runContract.codeRevision = 1e759e6e82b8ecd26028df7137b656103bd62824
 `runContractSha256`；必须保持 execution surface、enrollment manifest、provider configuration、pair matrix、
 threshold 和 budget 不变。
 
-rebind 后的本地 authorized fake-fetch 使用真实 rebinding contract、未使用 pending-contract override，并确认
-`finalBindingReady=true`；Node 24 CI 需要覆盖 rebind-only delta。之后还需要一次 binding-only formal review；owner
+rebind 后的本地 authorized fake-fetch 使用真实 rebinding contract、未使用 pending contract（本地仅通过测试 seam
+放行 Node 24 版本前置），并确认 `finalBindingReady=true`；Node 24 CI 已覆盖该重绑定 head。仍需一次正式的
+binding-only GitHub review；owner
 authorization 与 E0 live 在此之前仍为 `NO_GO`。
