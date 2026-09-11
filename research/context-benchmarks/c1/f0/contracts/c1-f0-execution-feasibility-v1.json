@@ -1,8 +1,8 @@
 {
   "contractId": "C1_F0_EXECUTION_FEASIBILITY_V1",
   "schemaVersion": 1,
-  "status": "PREPARED",
-  "designStatus": "NUMERICAL_FREEZE_PROPOSAL",
+  "status": "FROZEN",
+  "designStatus": "EXECUTABLE_FROZEN_FOR_REVIEW",
   "createdAt": "2026-09-12T00:00:00.000Z",
   "estimand": "NATIVE_EXECUTION_FEASIBILITY_ON_FROZEN_F0_TASK_PANEL",
   "claims": "F0_FEASIBILITY_ONLY_NO_RUNTIME_EFFECT",
@@ -91,8 +91,8 @@
     "model": "step-3.7-flash",
     "endpoint": "https://api.stepfun.com/step_plan/v1/chat/completions",
     "nodeRange": ">=24.0.0 <25.0.0",
-    "codeRevision": "PENDING_F0_IMPLEMENTATION",
-    "executionSurfaceHash": "PENDING_F0_IMPLEMENTATION",
+    "codeRevision": "e70653cf4beaaf269ba8ce11c0ca5a2f99668e10",
+    "executionSurfaceHash": "4b4a09031190b64e9f2a0ad2d5838cd12715b958b33b6817937ad9890ef1696f",
     "credentialEnv": "STEP_PLAN_API_KEY",
     "credentialPersistence": "MEMORY_ONLY",
     "fallback": "NONE",
@@ -199,5 +199,5 @@
     "task-adjudication.jsonl",
     "feasibility-summary.json"
   ],
-  "runContractSha256": "103166c294aff24724586252b62fe0979456f1d0e3eec43a3225161435f83f5a"
+  "runContractSha256": "a96c8856859b52d2a5d286a5f7f2c7f21702e3bd0b9b0d372fd7a50b044fdc59"
 }
