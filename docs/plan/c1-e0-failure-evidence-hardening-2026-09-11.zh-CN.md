@@ -14,6 +14,10 @@ checkpoint 的响应和工具事件必须继续出现在失败 leg 的 metadata 
 `RESPONSE_RECORDED` 和 37 个工具事件，但 `response-ledger.jsonl` 为空，失败 leg 的投影计数为零，且
 `fixtureCleaned=false`。identity 已 retired，原报告不可回填或重跑。
 
+本修复分支的绑定值为：`executionRevision=902f27f6b91ccd835e78b1796279d1dc6015a1c4`、
+`executionSurfaceHash=9a088875a805e60f3aad852cfd0d21a29a2d207a485cd99222b7425d7b5f369f`、
+`runContractSha256=8df91b5bf9390a4ab6dbaec55bca3f8bacfa4c952f7ed3c286c42a785b737d58`。
+
 ## 实施范围
 
 1. 为 live binding leg failure 携带已经 checkpoint 的 metadata-only partial evidence。
