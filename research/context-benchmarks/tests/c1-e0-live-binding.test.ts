@@ -423,7 +423,10 @@ describe('C1 E0 final live binding', () => {
           providerConfigHash: C1_E0_PROVIDER_CONFIG_HASH
         },
         apiKey: 'memory-only-authorized-test-sentinel',
-        fetchImpl
+        fetchImpl,
+        // Local verification runs on Node 23; this flag only relaxes the
+        // runtime-version preflight and does not enable pending-contract use.
+        allowPendingContractForTests: true
       })
       expect(report.responseSource).toBe('AUTHORIZED_PROVIDER')
       expect(report.executionMode).toBe('AUTHORIZED_PROVIDER')
