@@ -1288,12 +1288,11 @@ export function adjudicateC1F0Study(
       contract
     )
   })
-  const invalidRuns = runs.filter(
-    (run) =>
-      run.evidenceStatus === 'INVALID' ||
-      run.terminationStatus === 'PROVIDER_BOUNDARY_FAILURE' ||
-      run.terminationStatus === 'TOOL_BOUNDARY_FAILURE'
-  )
+  // Ordinary task/provider/tool failures remain in the denominator. A run is
+  // validity-invalid only when its durable evidence was explicitly marked
+  // INVALID by a shared contract, identity, evidence, or infrastructure
+  // failure.
+  const invalidRuns = runs.filter((run) => run.evidenceStatus === 'INVALID')
   const runIds = runs.map((run) => run.runId)
   const uniqueRunIds = new Set(runIds).size === runIds.length
   const startedRunsPerTask = Object.fromEntries(
@@ -1692,6 +1691,12 @@ export async function runC1F0CredentialFreeStudy(
                   ? 'COMPLETE'
                   : 'TOOL_LOOP'
             )
+        if (responseSource.kind !== 'SCRIPTED_FAKE') {
+          throw new C1PreflightFailure(
+            'PROVIDER_BINDING_MISMATCH',
+            'F0 credential-free runner accepts only a scripted fake response source'
+          )
+        }
         if (scenario === 'SINGLE_RUN_FAILURE' && plan.runOrdinal === 1) {
           throw new Error('credential-free isolated task failure')
         }
