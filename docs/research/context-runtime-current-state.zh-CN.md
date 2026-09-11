@@ -33,7 +33,8 @@ Wave B / productization   NO_GO
 
 当前正式研究口径见[研究立场与阶段性复盘](./context-runtime-research-stance-2026-09-11.zh-CN.md)。
 它将 mechanism、execution feasibility、natural triggerability、treatment exposure 和 causal effectiveness
-分开计量；当前真实 E0 仍没有可识别的 Native-vs-Runtime treatment effect。
+分开计量，并进一步区分 semantic lifecycle opportunity、formal policy eligibility 与 actual intervention/dose；
+当前真实 E0 仍没有可识别的 Native-vs-Runtime treatment effect。
 
 四次 Canary 停止（V1–V3 + SV1）中**只有 V1–V3 带有可用的模型行为观测**：三次都要求模型重复读取，
 观测到它比提示要求少读一次（2→1、2→1、1→0）。SV1 的响应证据因下述缺口未被持久化，其 `outcome` 类型

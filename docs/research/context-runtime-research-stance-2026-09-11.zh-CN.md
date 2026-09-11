@@ -13,15 +13,16 @@ triggerability 和 evidence integrity。
 
 ## 证据分层
 
-| 证据层                       | 当前判断                | 可支持的事实                                                                                  | 不能支持的事实                   |
-| ---------------------------- | ----------------------- | --------------------------------------------------------------------------------------------- | -------------------------------- |
-| Mechanism correctness        | `PASS / MECHANISM_ONLY` | SV2 在真实 Provider 上完成 harness-seeded 的 replay、SUPERSEDED adjudication 和纯 eviction    | 自然模型会触发该机制、任务会受益 |
-| Provider-bound reachability  | `PASS`                  | authorized adapter 能按冻结 envelope、model、endpoint 和 request hash 发出请求并解析 usage    | Provider 工具语义或 Runtime 效果 |
-| Evidence governance          | `PASS（经多轮修复）`    | response/checkpoint、partial failure、usage provenance、identity 和禁止复用规则已被测试并加固 | 历史缺口可以被回填               |
-| Natural lifecycle prevalence | `PARTIALLY OBSERVED`    | V4 与 E0 真实轨迹中观察到 lifecycle eligibility 很少或为零                                    | 策略永远不会触发                 |
-| Execution feasibility        | `UNRESOLVED`            | E0 中 Native 有完成轨迹；Runtime 在两个真实尝试中都没有形成可用完整 pair                      | Runtime 本身导致失败             |
-| Treatment exposure           | `INSUFFICIENT`          | SV2 有人为构造的 dose；真实 E0 没有完成的非零 Runtime dose                                    | dose>0 子集的因果效果            |
-| Causal effectiveness         | `NOT MEASURED`          | 目前没有可用的完整真实 matched-pair estimator                                                 | Native-vs-Runtime 优劣           |
+| 证据层                         | 当前判断                                 | 可支持的事实                                                                                  | 不能支持的事实                                      |
+| ------------------------------ | ---------------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Mechanism correctness          | `PASS / MECHANISM_ONLY`                  | SV2 在真实 Provider 上完成 harness-seeded 的 replay、SUPERSEDED adjudication 和纯 eviction    | 自然模型会触发该机制、任务会受益                    |
+| Provider-bound reachability    | `PASS`                                   | authorized adapter 能按冻结 envelope、model、endpoint 和 request hash 发出请求并解析 usage    | Provider 工具语义或 Runtime 效果                    |
+| Evidence governance            | `PASS（经多轮修复）`                     | response/checkpoint、partial failure、usage provenance、identity 和禁止复用规则已被测试并加固 | 历史缺口可以被回填                                  |
+| Semantic lifecycle opportunity | `OBSERVED / ENRICHED HISTORICAL SAMPLE`  | V4 的 ground-truth-assisted 分析给出 stale-version 现象精确下界 `≥16/19（84.2%）`             | formal policy eligibility、实际 intervention 或效果 |
+| Formal natural triggerability  | `INSUFFICIENT / ZERO IN CURRENT LIVE E0` | V4/E0 自然 Runtime 轨迹的 formal `lifecycleEligible=0`、`contextChanged=0`、`REMOVE=0`        | stale-version 现象不存在、策略永远不会触发          |
+| Execution feasibility          | `UNRESOLVED`                             | E0 中 Native 有完成轨迹；Runtime 在两个真实尝试中都没有形成可用完整 pair                      | Runtime 本身导致失败                                |
+| Treatment exposure             | `INSUFFICIENT`                           | SV2 有人为构造的 dose；真实 E0 没有完成的非零 Runtime dose                                    | dose>0 子集的因果效果                               |
+| Causal effectiveness           | `NOT MEASURED`                           | 目前没有可用的完整真实 matched-pair estimator                                                 | Native-vs-Runtime 优劣                              |
 
 ## 各轮实验的正确解释
 
@@ -148,15 +149,27 @@ oracle 和 unknown rate。F0 的目的不是比较 Runtime，而是确认 benchm
 
 ### T0 — Natural Triggerability
 
-在不把 dose>0 子集当作因果样本的前提下，观察自然轨迹中的：
+T0 不是重新证明旧版本现象是否存在，而是研究 Runtime 能否在不读取 ground truth 的情况下，从自然 Agent
+trajectory 中稳定识别并形成 formal treatment opportunity。在不把 dose>0 子集当作因果样本的前提下，观察自然
+轨迹中的：
 
 ```text
 READ → mutation → version change → SUPERSEDED eligibility
 ```
 
 主要指标是 eligible Runtime legs、non-zero dose rate、first-trigger position、unique stale pairs、removed
-source elements、carry persistence 和 UNKNOWN/contract-conflict rate。T0 回答的是机制在真实 agent trajectory 中
-是否有足够自然机会出现。
+source elements、carry persistence 和 UNKNOWN/contract-conflict rate。T0 要区分以下链条：
+
+```text
+Semantic lifecycle opportunity
+        ⊇
+Formal policy eligibility
+        ⊇
+Actual intervention / dose
+```
+
+因此，V4 的 `≥16/19（84.2%）` 是 enriched historical sample 中语义机会的下界，不等于 Runtime 已经
+trigger；当前 E0 的 `lifecycleEligible=0` 也不等于语义机会不存在。
 
 ### E1 — Treatment Effect
 
