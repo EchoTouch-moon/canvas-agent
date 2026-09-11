@@ -61,7 +61,7 @@
     "model": "step-3.7-flash",
     "endpoint": "https://api.stepfun.com/step_plan/v1/chat/completions",
     "nodeRange": ">=24.0.0 <25.0.0",
-    "codeRevision": "1e759e6e82b8ecd26028df7137b656103bd62824",
+    "codeRevision": "4aa8c06282ab4c0c0937563f550564f1f165d1cf",
     "credentialEnv": "STEP_PLAN_API_KEY",
     "credentialPersistence": "MEMORY_ONLY",
     "fallback": "NONE",
@@ -124,5 +124,5 @@
   "claims": "E0_DIRECTIONAL_QUALIFICATION_ONLY",
   "estimand": "NOT_CONFIRMATORY",
   "noResumeRetryReuse": true,
-  "runContractSha256": "17bce0a284b37dff7b34efb8a593d063be7c3d12e6fac38f52f54ea7210b6cbe"
+  "runContractSha256": "5c3ca28c9e4507b11bbe1944d2e01fd6fe262063d0a5618ae4d4b6ac3eb656d1"
 }

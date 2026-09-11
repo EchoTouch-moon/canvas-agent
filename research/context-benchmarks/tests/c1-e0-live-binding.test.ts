@@ -8,6 +8,11 @@ import {
   C1_E0_EXECUTION_SURFACE_PATHS,
   C1_E0_NEUTRAL_BOOTSTRAP_FILES,
   C1_E0_PROVIDER_CONFIG_HASH,
+  C1E0NaturalObservationSource,
+  C1HardBudgetGuard,
+  C1JsonlLiveBindingEvidenceSink,
+  C1LiveBindingDriver,
+  C1PreflightFailure,
   C1ScriptedResponseSource,
   C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE,
   captureC1PreflightArm,
@@ -17,11 +22,14 @@ import {
   loadC1E0EnrollmentManifest,
   loadC1E0RunContract,
   loadC1FrozenStudy,
+  materializeFreshC1Fixture,
   prepareC1StrictProvider,
+  projectC1E0CheckpointEvidence,
   runC1E0FinalLiveBindingAuthorized,
   runC1E0FinalLiveBindingNoProvider,
   summarizeC1E0Efficiency,
   type C1E0LiveBindingLegFactoryInput,
+  type C1LiveToolExecutor,
   type C1LiveModelResponse
 } from '../src'
 
@@ -553,4 +561,288 @@ describe('C1 E0 final live binding', () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it('projects checkpointed partial evidence when a live leg reaches maxCalls', async () => {
+    const binding = await computeC1E0ExecutionBinding(REPO_ROOT)
+    const enrollment = await loadC1E0EnrollmentManifest(REPO_ROOT)
+    const contract = await loadC1E0RunContract(REPO_ROOT)
+    const root = await outputRoot()
+    let fetchCalls = 0
+    try {
+      const report = await runC1E0FinalLiveBindingAuthorized({
+        repoRoot: REPO_ROOT,
+        outputRoot: root,
+        authorization: {
+          decision: 'AUTHORIZED',
+          studyId: 'c1-e0-20260911-abcdefa7',
+          executionRevision: binding.executionRevision,
+          executionSurfaceHash: binding.executionSurfaceHash,
+          runContractSha256: contract.runContractSha256,
+          enrollmentManifestSha256: enrollment.manifestSha256,
+          providerConfigHash: C1_E0_PROVIDER_CONFIG_HASH
+        },
+        apiKey: 'memory-only-authorized-test-sentinel',
+        fetchImpl: async () => {
+          fetchCalls += 1
+          return authorizedPayload({
+            id: 'partial-response-01',
+            toolCall: {
+              id: 'partial-read-01',
+              name: 'read',
+              argumentsJson: JSON.stringify({ path: 'README.md' })
+            }
+          })
+        },
+        maxCalls: 1,
+        allowPendingContractForTests: true
+      })
+
+      expect(report.status).toBe('NO_GO')
+      expect(report.finalBindingReady).toBe(true)
+      expect(report.legsAttempted).toBe(1)
+      expect(report.legsCompleted).toBe(0)
+      expect(report.legsFailed).toBe(1)
+      expect(report.blockedLegs).toBe(7)
+      expect(report.providerCalls).toBe(1)
+      expect(report.networkRequests).toBe(1)
+      expect(report.responseCalls).toBe(1)
+      expect(report.toolExecutions).toBe(1)
+      expect(fetchCalls).toBe(1)
+      expect(report.legs[0]).toMatchObject({
+        status: 'FAILED',
+        responseCalls: 1,
+        toolExecutions: 1,
+        fixtureHashVerified: true,
+        fixtureCleaned: true,
+        errorCode: 'PREFLIGHT_FAILURE'
+      })
+      const responseLedger = await readFile(
+        join(report.reportDir!, 'response-ledger.jsonl'),
+        'utf8'
+      )
+      expect(responseLedger.trim().split('\n')).toHaveLength(1)
+      expect(responseLedger).toContain('"usageSource":"PROVIDER_REPORTED"')
+      expect(responseLedger).toContain('"networkSent":true')
+      expect(responseLedger).not.toContain('memory-only-authorized-test-sentinel')
+      const failedLegManifest = await readFile(
+        join(report.reportDir!, 'legs', report.legs[0]!.runId, 'leg-manifest.json'),
+        'utf8'
+      )
+      expect(JSON.parse(failedLegManifest)).toMatchObject({
+        status: 'FAILED',
+        responseCalls: 1,
+        toolExecutions: 1,
+        fixtureCleaned: true
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 120_000)
+
+  it('keeps response receipts and tool events observable when a tool boundary fails mid-call', async () => {
+    const study = await loadC1FrozenStudy(REPO_ROOT)
+    const task = study.tasks[0]!
+    const providerBinding = await prepareC1StrictProvider({
+      runIdentity: 'c1-e0-20260911-midtool-aaaaaaa1'
+    })
+    const fixture = await materializeFreshC1Fixture(resolve(REPO_ROOT, task.fixturePath))
+    const root = await outputRoot()
+    const checkpointSink = new C1JsonlLiveBindingEvidenceSink(join(root, 'checkpoints.jsonl'))
+    const budgetGuard = new C1HardBudgetGuard({
+      perLeg: { maxProviderCalls: 24, maxToolCalls: 96, maxWallClockMs: 600_000 },
+      study: { maxProviderCalls: 24, maxToolCalls: 96, maxWallClockMs: 600_000, maxLegs: 1 }
+    })
+    const driver = new C1LiveBindingDriver({
+      providerBinding,
+      budgetGuard,
+      evidenceSink: checkpointSink
+    })
+    const runId = 'c1-e0-20260911-c1-e0-01-NATIVE-a1b2c3d4'
+    const responseSource = new C1ScriptedResponseSource([
+      {
+        responseId: 'mid-tool-response-01',
+        assistantMessageCount: 1,
+        assistantContent: '',
+        usage: fakeUsage,
+        toolRequests: [
+          {
+            toolCallId: 'mid-tool-call-01',
+            toolName: 'read',
+            argumentsJson: JSON.stringify({ path: 'README.md' })
+          },
+          {
+            toolCallId: 'mid-tool-call-02',
+            toolName: 'read',
+            argumentsJson: JSON.stringify({ path: 'README.md' })
+          },
+          {
+            toolCallId: 'mid-tool-call-03',
+            toolName: 'read',
+            argumentsJson: JSON.stringify({ path: 'README.md' })
+          }
+        ],
+        toolExecutions: [],
+        outcome: 'CONTINUE'
+      }
+    ])
+    const failingToolExecutor: C1LiveToolExecutor = {
+      execute: async ({ response, onToolExecution }) => {
+        const first = response.toolRequests[0]!
+        const second = response.toolRequests[1]!
+        await onToolExecution?.({
+          toolCallId: first.toolCallId,
+          toolName: first.toolName,
+          path: 'README.md',
+          result: 'SUCCESS'
+        })
+        await onToolExecution?.({
+          toolCallId: second.toolCallId,
+          toolName: second.toolName,
+          path: 'README.md',
+          result: 'SUCCESS'
+        })
+        throw new C1PreflightFailure('PREFLIGHT_FAILURE', 'synthetic mid-tool failure')
+      }
+    }
+    try {
+      const observationSource = await C1E0NaturalObservationSource.fromFixture({
+        task,
+        runId,
+        fixtureRoot: fixture.path,
+        arm: 'NATIVE'
+      })
+      await expect(
+        driver.runLeg({
+          studyId: 'c1-e0-20260911-midtool-aaaaaaa1',
+          task,
+          stratum: task.stratum,
+          pairId: 'c1-e0-01',
+          arm: 'NATIVE',
+          runId,
+          fixtureContentSha256: task.fixtureRevision.fixtureContentSha256,
+          fixtureTreeObjectId: task.fixtureRevision.fixtureTreeObjectId,
+          runtimeSessionId: 'c1-e0-mid-tool-session-v1',
+          observationSource,
+          responseSource,
+          toolExecutor: failingToolExecutor
+        })
+      ).rejects.toMatchObject({ code: 'PREFLIGHT_FAILURE' })
+
+      const projection = projectC1E0CheckpointEvidence(checkpointSink.checkpoints, runId)
+      expect(projection.completedEvidence).toHaveLength(0)
+      expect(projection.partialCheckpointEvidence).toHaveLength(1)
+      expect(projection.partialCheckpointEvidence[0]).toMatchObject({
+        callOrdinal: 1,
+        outboundPermitted: true,
+        responseReceived: expect.objectContaining({ responseId: 'mid-tool-response-01' })
+      })
+      expect(projection.partialCheckpointEvidence[0]?.toolExecutions).toHaveLength(2)
+      expect(projection.durableOutboundPermits).toBe(1)
+      expect(projection.durableResponseReceipts).toBe(1)
+      expect(projection.durableToolExecutionEvents).toBe(2)
+      expect(projection.incompleteCallOrdinals).toEqual([1])
+      const persisted = (await readFile(join(root, 'checkpoints.jsonl'), 'utf8'))
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { phase: string })
+      expect(
+        persisted.filter((checkpoint) => checkpoint.phase === 'RESPONSE_RECEIVED')
+      ).toHaveLength(1)
+      expect(
+        persisted.filter((checkpoint) => checkpoint.phase === 'TOOL_EXECUTION_RECORDED')
+      ).toHaveLength(2)
+      expect(persisted.some((checkpoint) => checkpoint.phase === 'RESPONSE_RECORDED')).toBe(false)
+    } finally {
+      await fixture.cleanup()
+      providerBinding.dispose()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('records an incomplete outbound checkpoint when provider response validation fails', async () => {
+    const binding = await computeC1E0ExecutionBinding(REPO_ROOT)
+    const enrollment = await loadC1E0EnrollmentManifest(REPO_ROOT)
+    const contract = await loadC1E0RunContract(REPO_ROOT)
+    const root = await outputRoot()
+    let fetchCalls = 0
+    try {
+      const report = await runC1E0FinalLiveBindingAuthorized({
+        repoRoot: REPO_ROOT,
+        outputRoot: root,
+        authorization: {
+          decision: 'AUTHORIZED',
+          studyId: 'c1-e0-20260911-faceb00c',
+          executionRevision: binding.executionRevision,
+          executionSurfaceHash: binding.executionSurfaceHash,
+          runContractSha256: contract.runContractSha256,
+          enrollmentManifestSha256: enrollment.manifestSha256,
+          providerConfigHash: C1_E0_PROVIDER_CONFIG_HASH
+        },
+        apiKey: 'memory-only-authorized-test-sentinel',
+        fetchImpl: async () => {
+          fetchCalls += 1
+          return new Response(
+            JSON.stringify({
+              id: 'invalid-provider-response-01',
+              choices: [
+                {
+                  index: 0,
+                  message: { role: 'assistant', content: 'missing usage' },
+                  finish_reason: 'stop'
+                }
+              ]
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          )
+        },
+        maxCalls: 1,
+        allowPendingContractForTests: true
+      })
+
+      expect(report.status).toBe('NO_GO')
+      expect(report.finalBindingReady).toBe(true)
+      expect(report.legsAttempted).toBe(1)
+      expect(report.legsFailed).toBe(1)
+      expect(report.blockedLegs).toBe(7)
+      expect(report.providerCalls).toBe(1)
+      expect(report.networkRequests).toBe(1)
+      expect(report.toolRequests).toBe(0)
+      expect(report.responseCalls).toBe(0)
+      expect(report.toolExecutions).toBe(0)
+      expect(report.durableOutboundPermits).toBe(1)
+      expect(report.durableResponseReceipts).toBe(0)
+      expect(report.durableToolExecutionEvents).toBe(0)
+      expect(fetchCalls).toBe(1)
+      expect(report.legs[0]).toMatchObject({
+        status: 'FAILED',
+        completedResponseCalls: 0,
+        durableOutboundPermits: 1,
+        durableResponseReceipts: 0,
+        durableToolExecutionEvents: 0,
+        incompleteCallOrdinals: [1],
+        changedPaths: [],
+        changedPathsStatus: 'UNKNOWN',
+        fixtureCleaned: true
+      })
+      expect(report.legs[0]?.partialCheckpointEvidence).toEqual([
+        { callOrdinal: 1, outboundPermitted: true, responseReceived: null, toolExecutions: [] }
+      ])
+      const failedLegManifest = await readFile(
+        join(report.reportDir!, 'legs', report.legs[0]!.runId, 'leg-manifest.json'),
+        'utf8'
+      )
+      expect(JSON.parse(failedLegManifest)).toMatchObject({
+        status: 'FAILED',
+        durableOutboundPermits: 1,
+        durableResponseReceipts: 0,
+        durableToolExecutionEvents: 0,
+        incompleteCallOrdinals: [1],
+        changedPathsStatus: 'UNKNOWN',
+        fixtureCleaned: true
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 120_000)
 })
