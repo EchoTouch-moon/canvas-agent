@@ -11,9 +11,9 @@ Provider 访问，也不把 credential-free 替身当作 F0 可行性结果。
 
 ```text
 contractId              = C1_F0_EXECUTION_FEASIBILITY_V1
-runContractSha256       = a96c8856859b52d2a5d286a5f7f2c7f21702e3bd0b9b0d372fd7a50b044fdc59
-codeRevision            = e70653cf4beaaf269ba8ce11c0ca5a2f99668e10
-executionSurfaceHash    = 4b4a09031190b64e9f2a0ad2d5838cd12715b958b33b6817937ad9890ef1696f
+runContractSha256       = e93e3f2bf0dda34a616d1b171399fb102d9148d82fdc961abaab2b4c203438c1
+codeRevision            = 7fde9d475eb0c10eb7543dc304f5357efc70ba63
+executionSurfaceHash    = 8ecc92e011d8246311b360b35670115dcc6a5cbbeb68a28827a6f90deb4d17ee
 providerConfigHash      = bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a
 ```
 

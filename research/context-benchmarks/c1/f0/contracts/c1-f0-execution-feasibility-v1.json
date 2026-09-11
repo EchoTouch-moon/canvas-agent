@@ -91,8 +91,8 @@
     "model": "step-3.7-flash",
     "endpoint": "https://api.stepfun.com/step_plan/v1/chat/completions",
     "nodeRange": ">=24.0.0 <25.0.0",
-    "codeRevision": "e70653cf4beaaf269ba8ce11c0ca5a2f99668e10",
-    "executionSurfaceHash": "4b4a09031190b64e9f2a0ad2d5838cd12715b958b33b6817937ad9890ef1696f",
+    "codeRevision": "7fde9d475eb0c10eb7543dc304f5357efc70ba63",
+    "executionSurfaceHash": "8ecc92e011d8246311b360b35670115dcc6a5cbbeb68a28827a6f90deb4d17ee",
     "credentialEnv": "STEP_PLAN_API_KEY",
     "credentialPersistence": "MEMORY_ONLY",
     "fallback": "NONE",
@@ -199,5 +199,5 @@
     "task-adjudication.jsonl",
     "feasibility-summary.json"
   ],
-  "runContractSha256": "a96c8856859b52d2a5d286a5f7f2c7f21702e3bd0b9b0d372fd7a50b044fdc59"
+  "runContractSha256": "e93e3f2bf0dda34a616d1b171399fb102d9148d82fdc961abaab2b4c203438c1"
 }
