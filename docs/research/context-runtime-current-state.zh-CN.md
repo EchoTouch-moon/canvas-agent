@@ -27,6 +27,7 @@ E0 execution runner       IMPLEMENTED / FAKE_STATE_MACHINE_PASS / LIVE_NO_GO
 E0 final live binding     CLOSED / BINDING_VERIFIED
 E0 live attempt           TERMINAL / NO_GO（`9cb656f5`）
 Formal research stance   ACCEPTED / F0-T0-E1
+F0 contract design       DRAFT / NOT_EXECUTABLE
 Old study resume/reuse    FORBIDDEN
 Wave B / productization   NO_GO
 ```
@@ -128,6 +129,7 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 [E0 Freeze Preparation](../verification/cspv-c1-e0-freeze-prep-2026-09-09.zh-CN.md) ·
 [E0 Final Live Binding](../verification/cspv-c1-e0-live-binding-2026-09-11.zh-CN.md) ·
 [E0 Final Live Binding 计划](../plan/c1-e0-final-live-binding-implementation-2026-09-11.zh-CN.md) ·
+[F0 Execution Feasibility Contract 设计](../plan/c1-f0-execution-feasibility-contract-2026-09-11.zh-CN.md) ·
 [后续实施验证](../verification/cspv-c1-followup-execution-2026-09-08.zh-CN.md) ·
 [机制 Canary 计划](../plan/cspv-mechanism-canary-2026-09-08.zh-CN.md) ·
 [本轮执行计划](../plan/cspv-c1-next-execution-2026-09-08.zh-CN.md) ·
