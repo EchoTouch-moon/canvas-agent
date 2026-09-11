@@ -553,4 +553,81 @@ describe('C1 E0 final live binding', () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it('projects checkpointed partial evidence when a live leg reaches maxCalls', async () => {
+    const binding = await computeC1E0ExecutionBinding(REPO_ROOT)
+    const enrollment = await loadC1E0EnrollmentManifest(REPO_ROOT)
+    const contract = await loadC1E0RunContract(REPO_ROOT)
+    const root = await outputRoot()
+    let fetchCalls = 0
+    try {
+      const report = await runC1E0FinalLiveBindingAuthorized({
+        repoRoot: REPO_ROOT,
+        outputRoot: root,
+        authorization: {
+          decision: 'AUTHORIZED',
+          studyId: 'c1-e0-20260911-ggggggg7',
+          executionRevision: binding.executionRevision,
+          executionSurfaceHash: binding.executionSurfaceHash,
+          runContractSha256: contract.runContractSha256,
+          enrollmentManifestSha256: enrollment.manifestSha256,
+          providerConfigHash: C1_E0_PROVIDER_CONFIG_HASH
+        },
+        apiKey: 'memory-only-authorized-test-sentinel',
+        fetchImpl: async () => {
+          fetchCalls += 1
+          return authorizedPayload({
+            id: 'partial-response-01',
+            toolCall: {
+              id: 'partial-read-01',
+              name: 'read',
+              argumentsJson: JSON.stringify({ path: 'README.md' })
+            }
+          })
+        },
+        maxCalls: 1,
+        allowPendingContractForTests: true
+      })
+
+      expect(report.status).toBe('NO_GO')
+      expect(report.finalBindingReady).toBe(true)
+      expect(report.legsAttempted).toBe(1)
+      expect(report.legsCompleted).toBe(0)
+      expect(report.legsFailed).toBe(1)
+      expect(report.blockedLegs).toBe(7)
+      expect(report.providerCalls).toBe(1)
+      expect(report.networkRequests).toBe(1)
+      expect(report.responseCalls).toBe(1)
+      expect(report.toolExecutions).toBe(1)
+      expect(fetchCalls).toBe(1)
+      expect(report.legs[0]).toMatchObject({
+        status: 'FAILED',
+        responseCalls: 1,
+        toolExecutions: 1,
+        fixtureHashVerified: true,
+        fixtureCleaned: true,
+        errorCode: 'PREFLIGHT_FAILURE'
+      })
+      const responseLedger = await readFile(
+        join(report.reportDir!, 'response-ledger.jsonl'),
+        'utf8'
+      )
+      expect(responseLedger.trim().split('\n')).toHaveLength(1)
+      expect(responseLedger).toContain('"usageSource":"PROVIDER_REPORTED"')
+      expect(responseLedger).toContain('"networkSent":true')
+      expect(responseLedger).not.toContain('memory-only-authorized-test-sentinel')
+      const failedLegManifest = await readFile(
+        join(report.reportDir!, 'legs', report.legs[0]!.runId, 'leg-manifest.json'),
+        'utf8'
+      )
+      expect(JSON.parse(failedLegManifest)).toMatchObject({
+        status: 'FAILED',
+        responseCalls: 1,
+        toolExecutions: 1,
+        fixtureCleaned: true
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 120_000)
 })

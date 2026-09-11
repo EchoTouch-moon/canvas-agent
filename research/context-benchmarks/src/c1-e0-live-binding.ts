@@ -54,6 +54,7 @@ import {
   C1LiveBindingDriver,
   C1SandboxToolExecutor,
   appendC1LiveResponseToObservation,
+  type C1LiveBindingCheckpoint,
   type C1LiveBindingEvidence,
   type C1LiveBindingLegResult,
   type C1LiveModelResponse,
@@ -848,6 +849,8 @@ interface InternalLeg {
   readonly status: C1E0LiveBindingLegRecord['status']
   readonly responseSourceKind: C1LiveResponseSourceKind
   readonly result?: C1LiveBindingLegResult
+  /** Response rows that were durably checkpointed before a terminal leg failure. */
+  readonly partialEvidence: readonly C1LiveBindingEvidence[]
   readonly doseObservations: readonly C1E0DoseObservation[]
   readonly providerProfileHash: string | null
   readonly changedPaths: readonly string[]
@@ -912,6 +915,32 @@ function checkpointComplete(
     if (!outbound || !received || !recorded) return false
   }
   return true
+}
+
+function checkpointEvidenceForRun(
+  sink: C1JsonlLiveBindingEvidenceSink | null,
+  runId: string
+): readonly C1LiveBindingEvidence[] {
+  if (sink === null) return []
+  return Object.freeze(
+    sink.checkpoints
+      .filter(
+        (
+          checkpoint
+        ): checkpoint is Extract<C1LiveBindingCheckpoint, { phase: 'RESPONSE_RECORDED' }> =>
+          checkpoint.phase === 'RESPONSE_RECORDED' && checkpoint.evidence.runId === runId
+      )
+      .sort((left, right) => left.callOrdinal - right.callOrdinal)
+      .map((checkpoint) => checkpoint.evidence)
+  )
+}
+
+function evidenceForLeg(input: InternalLeg): readonly C1LiveBindingEvidence[] {
+  return input.result?.evidence ?? input.partialEvidence
+}
+
+function toolCallsForEvidence(evidence: readonly C1LiveBindingEvidence[]): number {
+  return evidence.reduce((total, row) => total + row.toolCalls, 0)
 }
 
 function metadataEvidence(row: C1LiveBindingEvidence): Record<string, unknown> {
@@ -1006,6 +1035,7 @@ async function artifactSummary(
 
 function legRecord(input: InternalLeg, providerConfigHash: string): C1E0LiveBindingLegRecord {
   const result = input.result
+  const evidence = evidenceForLeg(input)
   return {
     legIndex: input.plan.legIndex,
     pairOrdinal: input.plan.pairOrdinal,
@@ -1018,20 +1048,19 @@ function legRecord(input: InternalLeg, providerConfigHash: string): C1E0LiveBind
     responseSource: input.responseSourceKind,
     providerConfigHash,
     providerPreparationProfileHash: input.providerProfileHash,
-    responseCalls: result?.evidence.length ?? 0,
-    fakeProviderCallPermits: result?.providerCallPermits ?? 0,
-    toolExecutions: result?.toolCalls ?? 0,
+    responseCalls: evidence.length,
+    fakeProviderCallPermits: result?.providerCallPermits ?? evidence.length,
+    toolExecutions: result?.toolCalls ?? toolCallsForEvidence(evidence),
     finalOutcome: result?.finalOutcome ?? 'UNKNOWN',
     fixtureHashVerified: input.fixtureHashVerified,
     fixtureCleaned: input.fixtureCleaned,
     changedPaths: input.changedPaths,
     writableScopePass: input.writableScopePass,
-    lifecycleEligibleCalls: result?.evidence.filter((row) => row.lifecycleEligible).length ?? 0,
-    runtimeContextChangedCalls:
-      result?.evidence.filter((row) => row.runtimeContextChanged).length ?? 0,
+    lifecycleEligibleCalls: evidence.filter((row) => row.lifecycleEligible).length,
+    runtimeContextChangedCalls: evidence.filter((row) => row.runtimeContextChanged).length,
     doseObservationCount: input.doseObservations.length,
     ...(input.taskEvaluation === undefined ? {} : { taskEvaluation: input.taskEvaluation }),
-    efficiency: summarizeC1E0Efficiency(result?.evidence ?? []),
+    efficiency: summarizeC1E0Efficiency(evidence),
     ...(input.errorCode === undefined ? {} : { errorCode: input.errorCode })
   }
 }
@@ -1292,11 +1321,11 @@ async function runC1E0StudyInternal(
     providerCalls: options.providerCalls(),
     networkRequests: options.networkRequests(),
     fakeProviderCallPermits: budgetGuard?.ledger.providerCalls ?? 0,
-    responseCalls: internalLegs.reduce(
-      (total, leg) => total + (leg.result?.evidence.length ?? 0),
+    responseCalls: internalLegs.reduce((total, leg) => total + evidenceForLeg(leg).length, 0),
+    toolExecutions: internalLegs.reduce(
+      (total, leg) => total + (leg.result?.toolCalls ?? toolCallsForEvidence(evidenceForLeg(leg))),
       0
     ),
-    toolExecutions: internalLegs.reduce((total, leg) => total + (leg.result?.toolCalls ?? 0), 0),
     legsPlanned: C1_E0_TOTAL_LEG_COUNT,
     legsAttempted,
     legsCompleted: internalLegs.filter((leg) => leg.status === 'COMPLETED').length,
@@ -1506,6 +1535,7 @@ async function runC1E0StudyInternal(
             task,
             status: 'BLOCKED',
             responseSourceKind: options.responseSourceKind,
+            partialEvidence: [],
             doseObservations: [],
             providerProfileHash,
             changedPaths: [],
@@ -1658,6 +1688,7 @@ async function runC1E0StudyInternal(
             status: 'COMPLETED',
             responseSourceKind: options.responseSourceKind,
             result,
+            partialEvidence: [],
             doseObservations,
             providerProfileHash,
             changedPaths,
@@ -1680,12 +1711,50 @@ async function runC1E0StudyInternal(
           })
         } catch (error) {
           const failure = failureOf(error)
+          if (fixture !== null && !fixtureCleaned) {
+            await fixture.cleanup()
+            fixtureCleaned = true
+            fixtureSandboxesCleaned += 1
+          }
+          const partialEvidence = checkpointEvidenceForRun(evidenceSink, plan.runId)
+          if (legDir !== null) {
+            await writeDurable(
+              join(legDir, 'leg-manifest.json'),
+              `${JSON.stringify(
+                {
+                  studyId,
+                  pairId: plan.pairId,
+                  pairOrdinal: plan.pairOrdinal,
+                  taskId: plan.taskId,
+                  stratum: plan.stratum,
+                  arm: plan.arm,
+                  runId: plan.runId,
+                  status: 'FAILED',
+                  errorCode: failure.code,
+                  responseSource: options.responseSourceKind,
+                  providerConfigHash: C1_E0_PROVIDER_CONFIG_HASH,
+                  providerCalls: options.providerCalls(),
+                  networkRequests: options.networkRequests(),
+                  responseCalls: partialEvidence.length,
+                  toolExecutions: toolCallsForEvidence(partialEvidence),
+                  fixtureHashVerified,
+                  fixtureCleaned,
+                  changedPaths,
+                  writableScopePass: false,
+                  doseObservationCount: 0
+                },
+                null,
+                2
+              )}\n`
+            )
+          }
           failures.push(failure)
           const failed: InternalLeg = {
             plan,
             task,
             status: 'FAILED',
             responseSourceKind: options.responseSourceKind,
+            partialEvidence,
             doseObservations: [],
             providerProfileHash,
             changedPaths,
@@ -1781,7 +1850,7 @@ async function runC1E0StudyInternal(
     })
   }
 
-  const allEvidence = internalLegs.flatMap((leg) => leg.result?.evidence ?? [])
+  const allEvidence = internalLegs.flatMap((leg) => evidenceForLeg(leg))
   const allDose = internalLegs.flatMap((leg) => leg.doseObservations)
   const reportWithoutArtifacts: Omit<C1E0FinalLiveBindingReport, 'artifacts'> = {
     ...baseReport(),
