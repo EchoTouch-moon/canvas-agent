@@ -590,7 +590,13 @@ export class C1SandboxToolExecutor implements C1LiveToolExecutor {
           `edit ${path.relativePath} expected one oldText match, received ${String(matches)}`
         )
       }
-      await writeFile(path.absolutePath, existing.replace(oldText, newText), 'utf8')
+      // Use a replacer callback so literal `$` sequences in source text are
+      // not interpreted as String.replace replacement patterns.
+      await writeFile(
+        path.absolutePath,
+        existing.replace(oldText, () => newText),
+        'utf8'
+      )
       return {
         result: 'SUCCESS',
         content: `edited ${path.relativePath}`,

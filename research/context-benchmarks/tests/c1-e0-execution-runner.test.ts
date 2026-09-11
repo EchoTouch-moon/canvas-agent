@@ -100,6 +100,7 @@ describe('C1 E0 credential-free execution runner', () => {
   })
 
   it('runs both tasks through all 8 legs and qualifies the fake state machine', async () => {
+    const contract = await loadC1E0RunContract(REPO_ROOT)
     const report = await runC1E0CredentialFreeStudy({
       repoRoot: REPO_ROOT,
       outputRoot: await outputRoot(),
@@ -109,7 +110,7 @@ describe('C1 E0 credential-free execution runner', () => {
 
     expect(report.status).toBe('PASS')
     expect(report.runContractId).toBe(C1_E0_RUN_CONTRACT_ID)
-    expect(report.runContractCodeRevision).toBe('PENDING_E0_EXECUTION')
+    expect(report.runContractCodeRevision).toBe(contract.executionBinding.codeRevision)
     expect(report.executionRevision).toMatch(/^[0-9a-f]{40}$/)
     expect(report.providerConfigHash).toBe(C1_E0_PROVIDER_CONFIG_HASH)
     expect(report.providerCalls).toBe(0)
