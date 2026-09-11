@@ -145,6 +145,25 @@ describe('C1 E0 final live binding', () => {
   it('runs all eight legs through the natural lifecycle, Dose, and Layer 2 oracle path', async () => {
     const root = await outputRoot()
     try {
+      const loadedContract = await loadC1E0RunContract(REPO_ROOT)
+      if (loadedContract.executionBinding.codeRevision !== 'PENDING_E0_EXECUTION') {
+        const report = await runC1E0FinalLiveBindingNoProvider({
+          repoRoot: REPO_ROOT,
+          outputRoot: root,
+          studyId: 'c1-e0-20260911-aaaaaaa1',
+          allowUnsupportedNodeForTests: true,
+          responseSourceFactory: responseSourceFor
+        })
+        expect(report.status).toBe('NO_GO')
+        expect(report.finalBindingReady).toBe(false)
+        expect(report.reportDir).toBe(null)
+        expect(report.failures).toEqual([
+          expect.objectContaining({ code: 'CONTRACT_BINDING_MISMATCH' })
+        ])
+        expect(report.providerCalls).toBe(0)
+        expect(report.networkRequests).toBe(0)
+        return
+      }
       const report = await runC1E0FinalLiveBindingNoProvider({
         repoRoot: REPO_ROOT,
         outputRoot: root,
@@ -198,10 +217,8 @@ describe('C1 E0 final live binding', () => {
           .filter((leg) => leg.arm === 'RUNTIME')
           .every((leg) => leg.efficiency.providerUsage === 'UNAVAILABLE')
       ).toBe(true)
-      expect(report.runContractCodeRevision).toBe('PENDING_E0_EXECUTION')
-      expect(report.runContractSha256).toBe(
-        '1fa1840c5869b2a3c60f891cb37b10706fc41830651f1bc56131e87753ffdfb3'
-      )
+      expect(report.runContractCodeRevision).toBe(loadedContract.executionBinding.codeRevision)
+      expect(report.runContractSha256).toBe(loadedContract.runContractSha256)
       expect(report.artifacts.map((artifact) => artifact.name)).toEqual([
         'checkpoints.jsonl',
         'checkpoint-summary.json',
@@ -326,13 +343,6 @@ describe('C1 E0 final live binding', () => {
     const binding = await computeC1E0ExecutionBinding(REPO_ROOT)
     const enrollment = await loadC1E0EnrollmentManifest(REPO_ROOT)
     const contract = await loadC1E0RunContract(REPO_ROOT)
-    const finalContract = {
-      ...contract,
-      executionBinding: {
-        ...contract.executionBinding,
-        codeRevision: binding.executionRevision
-      }
-    }
     const root = await outputRoot()
     const cursors = new Map<string, number>()
     const t2Paths = [
@@ -408,14 +418,12 @@ describe('C1 E0 final live binding', () => {
           studyId: 'c1-e0-20260911-ccccccc3',
           executionRevision: binding.executionRevision,
           executionSurfaceHash: binding.executionSurfaceHash,
-          runContractSha256: computeC1E0RunContractSha256(finalContract),
+          runContractSha256: contract.runContractSha256,
           enrollmentManifestSha256: enrollment.manifestSha256,
           providerConfigHash: C1_E0_PROVIDER_CONFIG_HASH
         },
         apiKey: 'memory-only-authorized-test-sentinel',
-        fetchImpl,
-        allowPendingContractForTests: true,
-        contractCodeRevisionOverrideForTests: binding.executionRevision
+        fetchImpl
       })
       expect(report.responseSource).toBe('AUTHORIZED_PROVIDER')
       expect(report.executionMode).toBe('AUTHORIZED_PROVIDER')
