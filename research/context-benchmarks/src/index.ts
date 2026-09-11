@@ -291,6 +291,7 @@ export {
   computeC1E0ExecutionBinding,
   computeC1E0ExecutionSurfaceHash,
   createC1E0AuthorizedProviderResponseSource,
+  projectC1E0CheckpointEvidence,
   projectC1E0LiveDose,
   runC1E0FinalLiveBindingAuthorized,
   runC1E0FinalLiveBindingNoProvider,
@@ -302,10 +303,12 @@ export {
   type C1E0FinalLiveBindingOptions,
   type C1E0FinalLiveBindingReport,
   type C1E0LiveBindingArtifactSummary,
+  type C1E0CheckpointEvidenceProjection,
   type C1E0LiveBindingEvent,
   type C1E0LiveBindingLegFactoryInput,
   type C1E0LiveBindingLegRecord,
   type C1E0LiveBindingPairAdjudication,
+  type C1E0PartialCheckpointEvidence,
   type C1E0LiveResponseSourceFactory
 } from './c1-e0-live-binding'
 export {

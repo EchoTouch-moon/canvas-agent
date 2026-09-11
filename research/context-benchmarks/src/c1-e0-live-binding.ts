@@ -57,10 +57,12 @@ import {
   type C1LiveBindingCheckpoint,
   type C1LiveBindingEvidence,
   type C1LiveBindingLegResult,
+  type C1LiveBindingResponseReceipt,
   type C1LiveModelResponse,
   type C1LiveObservationSource,
   type C1LiveResponseSource,
   type C1LiveResponseSourceKind,
+  type C1LiveToolExecution,
   type C1LiveUsage
 } from './c1-live-binding'
 import {
@@ -731,13 +733,21 @@ export interface C1E0LiveBindingLegRecord {
   readonly responseSource: C1LiveResponseSourceKind
   readonly providerConfigHash: string
   readonly providerPreparationProfileHash: string | null
+  readonly toolRequests: number
   readonly responseCalls: number
   readonly fakeProviderCallPermits: number
   readonly toolExecutions: number
+  readonly durableOutboundPermits: number
+  readonly durableResponseReceipts: number
+  readonly durableToolExecutionEvents: number
+  readonly completedResponseCalls: number
+  readonly incompleteCallOrdinals: readonly number[]
+  readonly partialCheckpointEvidence: readonly C1E0PartialCheckpointEvidence[]
   readonly finalOutcome: 'CONTINUE' | 'COMPLETE' | 'FAILED' | 'UNKNOWN'
   readonly fixtureHashVerified: boolean
   readonly fixtureCleaned: boolean
   readonly changedPaths: readonly string[]
+  readonly changedPathsStatus: 'OBSERVED' | 'UNKNOWN'
   readonly writableScopePass: boolean
   readonly lifecycleEligibleCalls: number
   readonly runtimeContextChangedCalls: number
@@ -793,6 +803,23 @@ export interface C1E0LiveBindingArtifactSummary {
   readonly bytes: number
 }
 
+/** Metadata-only checkpoints that precede a complete RESPONSE_RECORDED row. */
+export interface C1E0PartialCheckpointEvidence {
+  readonly callOrdinal: number
+  readonly outboundPermitted: boolean
+  readonly responseReceived: C1LiveBindingResponseReceipt | null
+  readonly toolExecutions: readonly C1LiveToolExecution[]
+}
+
+export interface C1E0CheckpointEvidenceProjection {
+  readonly completedEvidence: readonly C1LiveBindingEvidence[]
+  readonly partialCheckpointEvidence: readonly C1E0PartialCheckpointEvidence[]
+  readonly durableOutboundPermits: number
+  readonly durableResponseReceipts: number
+  readonly durableToolExecutionEvents: number
+  readonly incompleteCallOrdinals: readonly number[]
+}
+
 export interface C1E0FinalLiveBindingReport {
   readonly bindingId: typeof C1_E0_FINAL_LIVE_BINDING_ID
   readonly schemaVersion: typeof C1_E0_FINAL_LIVE_BINDING_SCHEMA_VERSION
@@ -819,8 +846,12 @@ export interface C1E0FinalLiveBindingReport {
   readonly providerCalls: number
   readonly networkRequests: number
   readonly fakeProviderCallPermits: number
+  readonly toolRequests: number
   readonly responseCalls: number
   readonly toolExecutions: number
+  readonly durableOutboundPermits: number
+  readonly durableResponseReceipts: number
+  readonly durableToolExecutionEvents: number
   readonly legsPlanned: typeof C1_E0_TOTAL_LEG_COUNT
   readonly legsAttempted: number
   readonly legsCompleted: number
@@ -849,14 +880,21 @@ interface InternalLeg {
   readonly status: C1E0LiveBindingLegRecord['status']
   readonly responseSourceKind: C1LiveResponseSourceKind
   readonly result?: C1LiveBindingLegResult
-  /** Response rows that were durably checkpointed before a terminal leg failure. */
-  readonly partialEvidence: readonly C1LiveBindingEvidence[]
+  /** Complete response rows recovered from checkpoints after a terminal leg failure. */
+  readonly completedEvidence: readonly C1LiveBindingEvidence[]
+  readonly partialCheckpointEvidence: readonly C1E0PartialCheckpointEvidence[]
+  readonly durableOutboundPermits: number
+  readonly durableResponseReceipts: number
+  readonly durableToolExecutionEvents: number
+  readonly incompleteCallOrdinals: readonly number[]
+  readonly toolRequests: number
   readonly doseObservations: readonly C1E0DoseObservation[]
   readonly providerProfileHash: string | null
   readonly changedPaths: readonly string[]
   readonly writableScopePass: boolean
   readonly fixtureHashVerified: boolean
   readonly fixtureCleaned: boolean
+  readonly changedPathsStatus: 'OBSERVED' | 'UNKNOWN'
   readonly taskEvaluation?: C1TaskEvaluation
   readonly errorCode?: string
 }
@@ -917,30 +955,119 @@ function checkpointComplete(
   return true
 }
 
-function checkpointEvidenceForRun(
+export function projectC1E0CheckpointEvidence(
+  checkpoints: readonly C1LiveBindingCheckpoint[],
+  runId: string
+): C1E0CheckpointEvidenceProjection {
+  const byCall = new Map<
+    number,
+    {
+      outboundPermitted: boolean
+      responseReceived: C1LiveBindingResponseReceipt | null
+      responseRecorded: C1LiveBindingEvidence | null
+      toolExecutions: C1LiveToolExecution[]
+    }
+  >()
+  let durableOutboundPermits = 0
+  let durableResponseReceipts = 0
+  let durableToolExecutionEvents = 0
+  const call = (callOrdinal: number) => {
+    const existing = byCall.get(callOrdinal)
+    if (existing !== undefined) return existing
+    const created = {
+      outboundPermitted: false,
+      responseReceived: null,
+      responseRecorded: null,
+      toolExecutions: []
+    }
+    byCall.set(callOrdinal, created)
+    return created
+  }
+  for (const checkpoint of checkpoints) {
+    if (checkpoint.phase === 'OUTBOUND_PERMITTED' && checkpoint.capture.runId === runId) {
+      call(checkpoint.callOrdinal).outboundPermitted = true
+      durableOutboundPermits += 1
+      continue
+    }
+    if (checkpoint.phase === 'RESPONSE_RECEIVED' && checkpoint.receipt.runId === runId) {
+      call(checkpoint.callOrdinal).responseReceived = checkpoint.receipt
+      durableResponseReceipts += 1
+      continue
+    }
+    if (checkpoint.phase === 'TOOL_EXECUTION_RECORDED' && checkpoint.runId === runId) {
+      call(checkpoint.callOrdinal).toolExecutions.push(checkpoint.execution)
+      durableToolExecutionEvents += 1
+      continue
+    }
+    if (checkpoint.phase === 'RESPONSE_RECORDED' && checkpoint.evidence.runId === runId) {
+      call(checkpoint.callOrdinal).responseRecorded = checkpoint.evidence
+    }
+  }
+  const completedEvidence: C1LiveBindingEvidence[] = []
+  const partialCheckpointEvidence: C1E0PartialCheckpointEvidence[] = []
+  const incompleteCallOrdinals: number[] = []
+  for (const [callOrdinal, group] of [...byCall.entries()].sort(
+    ([left], [right]) => left - right
+  )) {
+    if (group.responseRecorded !== null) {
+      completedEvidence.push(group.responseRecorded)
+      continue
+    }
+    incompleteCallOrdinals.push(callOrdinal)
+    partialCheckpointEvidence.push({
+      callOrdinal,
+      outboundPermitted: group.outboundPermitted,
+      responseReceived: group.responseReceived,
+      toolExecutions: Object.freeze([...group.toolExecutions])
+    })
+  }
+  return Object.freeze({
+    completedEvidence: Object.freeze(completedEvidence),
+    partialCheckpointEvidence: Object.freeze(partialCheckpointEvidence),
+    durableOutboundPermits,
+    durableResponseReceipts,
+    durableToolExecutionEvents,
+    incompleteCallOrdinals: Object.freeze(incompleteCallOrdinals)
+  })
+}
+
+function checkpointProjectionForRun(
   sink: C1JsonlLiveBindingEvidenceSink | null,
   runId: string
-): readonly C1LiveBindingEvidence[] {
-  if (sink === null) return []
-  return Object.freeze(
-    sink.checkpoints
-      .filter(
-        (
-          checkpoint
-        ): checkpoint is Extract<C1LiveBindingCheckpoint, { phase: 'RESPONSE_RECORDED' }> =>
-          checkpoint.phase === 'RESPONSE_RECORDED' && checkpoint.evidence.runId === runId
-      )
-      .sort((left, right) => left.callOrdinal - right.callOrdinal)
-      .map((checkpoint) => checkpoint.evidence)
-  )
+): C1E0CheckpointEvidenceProjection {
+  return projectC1E0CheckpointEvidence(sink?.checkpoints ?? [], runId)
 }
 
 function evidenceForLeg(input: InternalLeg): readonly C1LiveBindingEvidence[] {
-  return input.result?.evidence ?? input.partialEvidence
+  return input.result?.evidence ?? input.completedEvidence
 }
 
-function toolCallsForEvidence(evidence: readonly C1LiveBindingEvidence[]): number {
+function toolRequestsForEvidence(evidence: readonly C1LiveBindingEvidence[]): number {
   return evidence.reduce((total, row) => total + row.toolCalls, 0)
+}
+
+function toolExecutionsForEvidence(evidence: readonly C1LiveBindingEvidence[]): number {
+  return evidence.reduce((total, row) => total + row.toolEvents.length, 0)
+}
+
+function toolExecutionCountForProjection(projection: C1E0CheckpointEvidenceProjection): number {
+  return (
+    toolExecutionsForEvidence(projection.completedEvidence) +
+    projection.partialCheckpointEvidence.reduce(
+      (total, call) => total + call.toolExecutions.length,
+      0
+    )
+  )
+}
+
+function toolRequestCountForProjection(projection: C1E0CheckpointEvidenceProjection): number {
+  return (
+    toolRequestsForEvidence(projection.completedEvidence) +
+    projection.partialCheckpointEvidence.reduce(
+      (total, call) => total + (call.responseReceived?.toolRequestEvidence.length ?? 0),
+      0
+    )
+  )
 }
 
 function metadataEvidence(row: C1LiveBindingEvidence): Record<string, unknown> {
@@ -1048,13 +1175,21 @@ function legRecord(input: InternalLeg, providerConfigHash: string): C1E0LiveBind
     responseSource: input.responseSourceKind,
     providerConfigHash,
     providerPreparationProfileHash: input.providerProfileHash,
+    toolRequests: input.toolRequests,
     responseCalls: evidence.length,
-    fakeProviderCallPermits: result?.providerCallPermits ?? evidence.length,
-    toolExecutions: result?.toolCalls ?? toolCallsForEvidence(evidence),
+    fakeProviderCallPermits: result?.providerCallPermits ?? input.durableOutboundPermits,
+    toolExecutions: input.durableToolExecutionEvents,
+    durableOutboundPermits: input.durableOutboundPermits,
+    durableResponseReceipts: input.durableResponseReceipts,
+    durableToolExecutionEvents: input.durableToolExecutionEvents,
+    incompleteCallOrdinals: input.incompleteCallOrdinals,
+    partialCheckpointEvidence: input.partialCheckpointEvidence,
+    completedResponseCalls: result?.evidence.length ?? input.completedEvidence.length,
     finalOutcome: result?.finalOutcome ?? 'UNKNOWN',
     fixtureHashVerified: input.fixtureHashVerified,
     fixtureCleaned: input.fixtureCleaned,
     changedPaths: input.changedPaths,
+    changedPathsStatus: input.changedPathsStatus,
     writableScopePass: input.writableScopePass,
     lifecycleEligibleCalls: evidence.filter((row) => row.lifecycleEligible).length,
     runtimeContextChangedCalls: evidence.filter((row) => row.runtimeContextChanged).length,
@@ -1321,9 +1456,19 @@ async function runC1E0StudyInternal(
     providerCalls: options.providerCalls(),
     networkRequests: options.networkRequests(),
     fakeProviderCallPermits: budgetGuard?.ledger.providerCalls ?? 0,
+    toolRequests: internalLegs.reduce((total, leg) => total + leg.toolRequests, 0),
     responseCalls: internalLegs.reduce((total, leg) => total + evidenceForLeg(leg).length, 0),
-    toolExecutions: internalLegs.reduce(
-      (total, leg) => total + (leg.result?.toolCalls ?? toolCallsForEvidence(evidenceForLeg(leg))),
+    toolExecutions: internalLegs.reduce((total, leg) => total + leg.durableToolExecutionEvents, 0),
+    durableOutboundPermits: internalLegs.reduce(
+      (total, leg) => total + leg.durableOutboundPermits,
+      0
+    ),
+    durableResponseReceipts: internalLegs.reduce(
+      (total, leg) => total + leg.durableResponseReceipts,
+      0
+    ),
+    durableToolExecutionEvents: internalLegs.reduce(
+      (total, leg) => total + leg.durableToolExecutionEvents,
       0
     ),
     legsPlanned: C1_E0_TOTAL_LEG_COUNT,
@@ -1535,13 +1680,20 @@ async function runC1E0StudyInternal(
             task,
             status: 'BLOCKED',
             responseSourceKind: options.responseSourceKind,
-            partialEvidence: [],
+            completedEvidence: [],
+            partialCheckpointEvidence: [],
+            durableOutboundPermits: 0,
+            durableResponseReceipts: 0,
+            durableToolExecutionEvents: 0,
+            incompleteCallOrdinals: [],
+            toolRequests: 0,
             doseObservations: [],
             providerProfileHash,
             changedPaths: [],
             writableScopePass: false,
             fixtureHashVerified: false,
             fixtureCleaned: true,
+            changedPathsStatus: 'UNKNOWN',
             errorCode: 'KILL_SWITCH_BLOCKED'
           }
           internalLegs.push(blocked)
@@ -1669,11 +1821,19 @@ async function runC1E0StudyInternal(
                 providerConfigHash: C1_E0_PROVIDER_CONFIG_HASH,
                 providerCalls: options.providerCalls(),
                 networkRequests: options.networkRequests(),
+                toolRequests: toolRequestsForEvidence(result.evidence),
                 responseCalls: result.evidence.length,
-                toolExecutions: result.toolCalls,
+                toolExecutions: toolExecutionsForEvidence(result.evidence),
+                durableOutboundPermits: result.evidence.length,
+                durableResponseReceipts: result.evidence.length,
+                durableToolExecutionEvents: toolExecutionsForEvidence(result.evidence),
+                completedResponseCalls: result.evidence.length,
+                incompleteCallOrdinals: [],
+                partialCheckpointEvidence: [],
                 fixtureHashVerified,
                 fixtureCleaned: true,
                 changedPaths,
+                changedPathsStatus: 'OBSERVED',
                 writableScopePass: scopePass,
                 doseObservationCount: doseObservations.length,
                 taskEvaluation
@@ -1688,13 +1848,20 @@ async function runC1E0StudyInternal(
             status: 'COMPLETED',
             responseSourceKind: options.responseSourceKind,
             result,
-            partialEvidence: [],
+            completedEvidence: [],
+            partialCheckpointEvidence: [],
+            durableOutboundPermits: result.evidence.length,
+            durableResponseReceipts: result.evidence.length,
+            durableToolExecutionEvents: toolExecutionsForEvidence(result.evidence),
+            incompleteCallOrdinals: [],
+            toolRequests: toolRequestsForEvidence(result.evidence),
             doseObservations,
             providerProfileHash,
             changedPaths,
             writableScopePass: scopePass,
             fixtureHashVerified,
             fixtureCleaned: true,
+            changedPathsStatus: 'OBSERVED',
             taskEvaluation
           }
           internalLegs.push(internal)
@@ -1716,7 +1883,7 @@ async function runC1E0StudyInternal(
             fixtureCleaned = true
             fixtureSandboxesCleaned += 1
           }
-          const partialEvidence = checkpointEvidenceForRun(evidenceSink, plan.runId)
+          const checkpointProjection = checkpointProjectionForRun(evidenceSink, plan.runId)
           if (legDir !== null) {
             await writeDurable(
               join(legDir, 'leg-manifest.json'),
@@ -1735,11 +1902,19 @@ async function runC1E0StudyInternal(
                   providerConfigHash: C1_E0_PROVIDER_CONFIG_HASH,
                   providerCalls: options.providerCalls(),
                   networkRequests: options.networkRequests(),
-                  responseCalls: partialEvidence.length,
-                  toolExecutions: toolCallsForEvidence(partialEvidence),
+                  toolRequests: toolRequestCountForProjection(checkpointProjection),
+                  responseCalls: checkpointProjection.completedEvidence.length,
+                  toolExecutions: toolExecutionCountForProjection(checkpointProjection),
+                  durableOutboundPermits: checkpointProjection.durableOutboundPermits,
+                  durableResponseReceipts: checkpointProjection.durableResponseReceipts,
+                  durableToolExecutionEvents: checkpointProjection.durableToolExecutionEvents,
+                  completedResponseCalls: checkpointProjection.completedEvidence.length,
+                  incompleteCallOrdinals: checkpointProjection.incompleteCallOrdinals,
+                  partialCheckpointEvidence: checkpointProjection.partialCheckpointEvidence,
                   fixtureHashVerified,
                   fixtureCleaned,
                   changedPaths,
+                  changedPathsStatus: 'UNKNOWN',
                   writableScopePass: false,
                   doseObservationCount: 0
                 },
@@ -1754,13 +1929,20 @@ async function runC1E0StudyInternal(
             task,
             status: 'FAILED',
             responseSourceKind: options.responseSourceKind,
-            partialEvidence,
+            completedEvidence: checkpointProjection.completedEvidence,
+            partialCheckpointEvidence: checkpointProjection.partialCheckpointEvidence,
+            durableOutboundPermits: checkpointProjection.durableOutboundPermits,
+            durableResponseReceipts: checkpointProjection.durableResponseReceipts,
+            durableToolExecutionEvents: checkpointProjection.durableToolExecutionEvents,
+            incompleteCallOrdinals: checkpointProjection.incompleteCallOrdinals,
+            toolRequests: toolRequestCountForProjection(checkpointProjection),
             doseObservations: [],
             providerProfileHash,
             changedPaths,
             writableScopePass: false,
             fixtureHashVerified,
             fixtureCleaned,
+            changedPathsStatus: 'UNKNOWN',
             errorCode: failure.code
           }
           internalLegs.push(failed)
@@ -1864,8 +2046,21 @@ async function runC1E0StudyInternal(
     taskManifestSha256: enrollment?.taskManifestSha256 ?? null,
     providerPreparationProfileHash: providerProfileHash,
     fakeProviderCallPermits: budgetGuard?.ledger.providerCalls ?? 0,
+    toolRequests: internalLegs.reduce((total, leg) => total + leg.toolRequests, 0),
     responseCalls: allEvidence.length,
-    toolExecutions: allEvidence.reduce((total, row) => total + row.toolCalls, 0),
+    toolExecutions: internalLegs.reduce((total, leg) => total + leg.durableToolExecutionEvents, 0),
+    durableOutboundPermits: internalLegs.reduce(
+      (total, leg) => total + leg.durableOutboundPermits,
+      0
+    ),
+    durableResponseReceipts: internalLegs.reduce(
+      (total, leg) => total + leg.durableResponseReceipts,
+      0
+    ),
+    durableToolExecutionEvents: internalLegs.reduce(
+      (total, leg) => total + leg.durableToolExecutionEvents,
+      0
+    ),
     legsAttempted,
     legsCompleted: internalLegs.filter((leg) => leg.status === 'COMPLETED').length,
     legsFailed: internalLegs.filter((leg) => leg.status === 'FAILED').length,
