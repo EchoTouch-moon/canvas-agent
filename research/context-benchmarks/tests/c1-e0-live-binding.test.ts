@@ -566,7 +566,7 @@ describe('C1 E0 final live binding', () => {
         outputRoot: root,
         authorization: {
           decision: 'AUTHORIZED',
-          studyId: 'c1-e0-20260911-ggggggg7',
+          studyId: 'c1-e0-20260911-abcdefa7',
           executionRevision: binding.executionRevision,
           executionSurfaceHash: binding.executionSurfaceHash,
           runContractSha256: contract.runContractSha256,
