@@ -795,7 +795,6 @@ export async function runC1F0AuthorizedStudy(
         evidence = legResult.evidence
         terminationStatus =
           legResult.finalOutcome === 'COMPLETE' ? 'TERMINAL_COMPLETE' : 'TERMINAL_FAILED'
-        providerCalls += responseSource.requestCount
         const afterSnapshot = await snapshotC1Fixture(fixture.path)
         changedPaths = changedC1FixturePaths(beforeSnapshot, afterSnapshot)
         scopePass = writableScopePass(changedPaths, task.expectedWritablePaths)
@@ -960,7 +959,7 @@ export async function runC1F0AuthorizedStudy(
     failures.push(failure)
     providerBinding?.dispose()
     const feasibility =
-      contract === null
+      contract === null || runs.length === 0
         ? {
             status: 'F0_NO_GO' as const,
             validityGate: { pass: false, sharedInvalidatorCount: 1, reasons: [failure.message] },
