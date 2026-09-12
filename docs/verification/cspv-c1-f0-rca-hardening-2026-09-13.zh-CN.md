@@ -51,13 +51,14 @@ revision 和新 study identity 中声明并绑定。
 
 ## 零 Provider 验证
 
-新增 `c1-f0-rca-hardening.test.ts` 的 5 项回归：
+新增 `c1-f0-rca-hardening.test.ts` 的 6 项回归：
 
 1. bash collateral write 被归因为 `BASH_TOOL`，只留下 command hash 和 changed paths；
 2. edit match failure 得到固定 recovery hint，并在第三次相同失败后阻断；
 3. command failure 分类、error digest 和 bounded provenance 生效；
 4. JSON key 顺序变化仍得到同一 canonical request signature，并触发重复失败阻断；
-5. 不同 signature 的 corrected request 能建立 recovery linkage、计入 `RECOVERED`，并清除连续失败 streak。
+5. 不同 signature 的 corrected request 能建立 recovery linkage、计入 `RECOVERED`，并清除连续失败 streak；
+6. 不同 request signature 会清除前一条 request 的连续失败 streak，不会误触发 block。
 
 Node 24 下 benchmark 全量回归为 **33 个测试文件、258 项通过**；typecheck 与 Prettier 检查通过。
 

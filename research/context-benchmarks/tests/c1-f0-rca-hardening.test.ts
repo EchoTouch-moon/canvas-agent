@@ -208,4 +208,34 @@ describe('F0 prospective provenance and tool recovery hardening', () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it('resets the consecutive failure streak when the request signature changes', async () => {
+    const root = await tempRoot('canvas-c1-f0-streak-reset-')
+    try {
+      await writeFile(join(root, 'source.js'), 'stable\n', 'utf8')
+      const executor = new C1F0ProspectiveToolExecutor(root, {
+        provenanceEnabled: true,
+        recoveryPolicy: { enabled: true, maxIdenticalFailureAttempts: 2 }
+      })
+      await executor.execute([editRequest('edit-a-01')])
+      await executor.execute([editRequest('edit-a-02')])
+      const differentFailure = await executor.execute([
+        editArgumentsRequest(
+          { path: 'source.js', oldText: 'other-missing', newText: 'changed' },
+          'edit-b-01'
+        )
+      ])
+      const afterReset = await executor.execute([editRequest('edit-a-03')])
+      expect(differentFailure.executions[0]?.provenance).toMatchObject({
+        consecutiveFailureStreak: 1
+      })
+      expect(afterReset.executions[0]?.provenance).toMatchObject({
+        failureClass: 'EDIT_MATCH_COUNT',
+        consecutiveFailureStreak: 1
+      })
+      expect(afterReset.executions[0]?.provenance.failureClass).not.toBe('REPEATED_FAILURE_BLOCKED')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })
