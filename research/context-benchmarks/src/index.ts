@@ -240,6 +240,25 @@ export {
   type C1E0MeasurableCount
 } from './c1-e0-dose'
 export {
+  C1_E0_EXECUTION_RUNNER_ID,
+  C1_E0_EXECUTION_RUNNER_MODE,
+  C1_E0_EXECUTION_RUNNER_SCHEMA_VERSION,
+  C1_E0_FAKE_SCENARIOS,
+  buildC1E0ExecutionPlans,
+  evaluateC1E0ProviderBoundary,
+  runC1E0CredentialFreeStudy,
+  type C1E0ExecutionArtifactSummary,
+  type C1E0ExecutionLegRecord,
+  type C1E0ExecutionPlan,
+  type C1E0ExecutionReport,
+  type C1E0ExecutionRunnerOptions,
+  type C1E0ExecutionStatus,
+  type C1E0FakeScenario,
+  type C1E0PairAdjudication,
+  type C1E0ProviderBoundaryCheck,
+  type C1E0StudyEvent
+} from './c1-e0-execution-runner'
+export {
   C1_E0_READINESS_ID,
   C1_E0_RUNTIME_ALLOWED_INPUTS,
   C1_E0_RUNTIME_FORBIDDEN_INPUTS,
@@ -262,6 +281,36 @@ export {
   type C1E0RuntimePolicyInput,
   type C1E0UsageEvidenceStatus
 } from './c1-e0-readiness'
+export {
+  C1_E0_FINAL_LIVE_BINDING_ID,
+  C1_E0_FINAL_LIVE_BINDING_MODE,
+  C1_E0_FINAL_LIVE_BINDING_SCHEMA_VERSION,
+  C1_E0_EXECUTION_SURFACE_PATHS,
+  C1_E0_NEUTRAL_BOOTSTRAP_FILES,
+  C1E0NaturalObservationSource,
+  computeC1E0ExecutionBinding,
+  computeC1E0ExecutionSurfaceHash,
+  createC1E0AuthorizedProviderResponseSource,
+  projectC1E0CheckpointEvidence,
+  projectC1E0LiveDose,
+  runC1E0FinalLiveBindingAuthorized,
+  runC1E0FinalLiveBindingNoProvider,
+  summarizeC1E0Efficiency,
+  type C1E0AuthorizedProviderSourceOptions,
+  type C1E0AuthorizedLiveBindingOptions,
+  type C1E0EfficiencyProvenance,
+  type C1E0LiveAuthorization,
+  type C1E0FinalLiveBindingOptions,
+  type C1E0FinalLiveBindingReport,
+  type C1E0LiveBindingArtifactSummary,
+  type C1E0CheckpointEvidenceProjection,
+  type C1E0LiveBindingEvent,
+  type C1E0LiveBindingLegFactoryInput,
+  type C1E0LiveBindingLegRecord,
+  type C1E0LiveBindingPairAdjudication,
+  type C1E0PartialCheckpointEvidence,
+  type C1E0LiveResponseSourceFactory
+} from './c1-e0-live-binding'
 export {
   C1_LIVE_BOOTSTRAP_SOURCE,
   C1_LIVE_STUDY_DRY_RUN_ID,

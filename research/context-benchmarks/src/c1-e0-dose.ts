@@ -20,6 +20,8 @@ export const c1E0DoseObservationSchema = z
   .object({
     schemaId: z.literal(C1_E0_DOSE_SCHEMA_ID),
     schemaVersion: z.literal(C1_E0_DOSE_SCHEMA_VERSION),
+    /** Matched experimental pair that owns this composition. */
+    experimentPairId: pairIdSchema,
     callOrdinal: z.number().int().positive(),
     prePolicyProviderBoundMessagesHash: hash64Schema,
     postPolicyProviderBoundMessagesHash: hash64Schema,
@@ -135,6 +137,8 @@ export const c1E0DoseSummarySchema = z
   .object({
     schemaId: z.literal(C1_E0_DOSE_SCHEMA_ID),
     schemaVersion: z.literal(C1_E0_DOSE_SCHEMA_VERSION),
+    /** Matched experimental pair that owns this aggregated leg dose. */
+    experimentPairId: pairIdSchema,
     runtimeOutboundCalls: countSchema,
     runtimeContextChangedCalls: countSchema,
     uniqueEligiblePairs: uniqueArray(pairIdSchema),
@@ -188,6 +192,9 @@ export const c1E0DoseSummarySchema = z
 export type C1E0DoseSummary = z.infer<typeof c1E0DoseSummarySchema>
 
 export function aggregateC1E0Dose(observations: readonly C1E0DoseObservation[]): C1E0DoseSummary {
+  if (observations.length === 0) {
+    throw new Error('E0 dose aggregation requires at least one observation')
+  }
   const rows = observations
     .map(validateC1E0DoseObservation)
     .sort((left, right) => left.callOrdinal - right.callOrdinal)
@@ -196,6 +203,11 @@ export function aggregateC1E0Dose(observations: readonly C1E0DoseObservation[]):
       throw new Error('E0 dose observations must have unique call ordinals')
     }
   }
+  const experimentPairIds = new Set(rows.map((row) => row.experimentPairId))
+  if (experimentPairIds.size !== 1) {
+    throw new Error('E0 dose observations must belong to one experiment pair')
+  }
+  const experimentPairId = rows[0]!.experimentPairId
   const firstRemovalPairs = new Set<string>()
   for (const row of rows) {
     for (const pairId of row.newRemovalPairIds) {
@@ -250,6 +262,7 @@ export function aggregateC1E0Dose(observations: readonly C1E0DoseObservation[]):
   const summary: C1E0DoseSummary = {
     schemaId: C1_E0_DOSE_SCHEMA_ID,
     schemaVersion: C1_E0_DOSE_SCHEMA_VERSION,
+    experimentPairId,
     runtimeOutboundCalls,
     runtimeContextChangedCalls,
     uniqueEligiblePairs,

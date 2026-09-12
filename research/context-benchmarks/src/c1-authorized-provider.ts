@@ -27,6 +27,13 @@ export interface C1AuthorizedProviderResponseSourceOptions {
   readonly providerBinding: C1StrictProviderBinding
   /** Memory-only credential. It is never included in a C1 evidence object. */
   readonly apiKey: string
+  /**
+   * Optional outer-study request hash. The strict provider profile hash remains
+   * validated against the provider experiment binding; this override lets a
+   * frozen outer contract bind the exact request projection (for example the
+   * E0 request hash) without conflating the two identities.
+   */
+  readonly providerConfigHashOverride?: string
   /** Injected in tests; the default is the global fetch used only by live code. */
   readonly fetchImpl?: typeof fetch
   readonly requestTimeoutMs?: number
@@ -425,13 +432,14 @@ function assertStructuralEnvelope(
 
 function assertRequestBinding(
   request: C1LiveOutboundRequest,
-  providerBinding: C1StrictProviderBinding
+  providerBinding: C1StrictProviderBinding,
+  expectedRequestConfigHash: string
 ): void {
   if (
     request.capture.provider !== C1_PROVIDER_ID ||
     request.capture.model !== C1_MODEL_ID ||
     request.capture.endpoint !== C1_PROVIDER_ENDPOINT ||
-    request.capture.providerConfigHash !== providerBinding.providerConfigHash ||
+    request.capture.providerConfigHash !== expectedRequestConfigHash ||
     providerBinding.providerConfigHash !== providerBinding.experimentBinding.providerConfigHash
   ) {
     throw new C1PreflightFailure(
@@ -446,6 +454,7 @@ export class C1AuthorizedProviderResponseSource implements C1LiveResponseSource 
   readonly kind = 'AUTHORIZED_PROVIDER' as const
   #apiKey: string
   private readonly providerBinding: C1StrictProviderBinding
+  private readonly expectedRequestConfigHash: string
   private readonly fetchImpl: typeof fetch
   private readonly requestTimeoutMs: number
   private requests = 0
@@ -468,6 +477,17 @@ export class C1AuthorizedProviderResponseSource implements C1LiveResponseSource 
       )
     }
     this.providerBinding = options.providerBinding
+    if (
+      options.providerConfigHashOverride !== undefined &&
+      !/^[a-f0-9]{64}$/i.test(options.providerConfigHashOverride)
+    ) {
+      throw new C1PreflightFailure(
+        'PROVIDER_BINDING_MISMATCH',
+        'provider config hash override must be a SHA-256 hex digest'
+      )
+    }
+    this.expectedRequestConfigHash =
+      options.providerConfigHashOverride ?? options.providerBinding.providerConfigHash
     this.#apiKey = options.apiKey
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch
     if (typeof this.fetchImpl !== 'function') {
@@ -490,7 +510,7 @@ export class C1AuthorizedProviderResponseSource implements C1LiveResponseSource 
     request: C1LiveOutboundRequest,
     options: { readonly signal?: AbortSignal } = {}
   ): Promise<C1LiveModelResponse> {
-    assertRequestBinding(request, this.providerBinding)
+    assertRequestBinding(request, this.providerBinding, this.expectedRequestConfigHash)
     if (options.signal?.aborted === true) {
       throw new C1PreflightFailure(
         'KILL_SWITCH_BLOCKED',
