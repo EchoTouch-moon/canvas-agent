@@ -33,6 +33,7 @@ F0 executable contract   FROZEN / LIVE_BINDING_CLOSED
 F0 implementation        IMPLEMENTED / LIVE_BINDING_REAL_RUN_COMPLETED
 F0 live execution        COMPLETED / F0_FEASIBILITY_NO_GO
 F0 owner authorization   CONSUMED / STUDY_RETIRED
+F0-RCA                  COMPLETED / ZERO_PROVIDER / DIAGNOSTIC_ONLY
 Old study resume/reuse    FORBIDDEN
 Wave B / productization   NO_GO
 ```
@@ -157,6 +158,7 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 [F0 Native-only Runner 验证](../verification/cspv-c1-f0-execution-runner-2026-09-12.zh-CN.md) ·
 [F0 Authorized Live Binding 验证](../verification/cspv-c1-f0-live-binding-2026-09-12.zh-CN.md) ·
 [F0 真实执行报告](../verification/cspv-c1-f0-live-execution-2026-09-12.zh-CN.md) ·
+[F0-RCA 失败轨迹分析](../verification/cspv-c1-f0-rca-2026-09-12.zh-CN.md) ·
 [后续实施验证](../verification/cspv-c1-followup-execution-2026-09-08.zh-CN.md) ·
 [机制 Canary 计划](../plan/cspv-mechanism-canary-2026-09-08.zh-CN.md) ·
 [本轮执行计划](../plan/cspv-c1-next-execution-2026-09-08.zh-CN.md) ·
@@ -194,6 +196,7 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 | F0 numerical freeze              | `MERGED / ACCEPTED`                                  | #119 数值提案已合并；两个 frozen task、16 runs/task、32 runs/study、单侧 95% Clopper–Pearson 和 per-task feasibility lines 已固定；不代表 F0 已执行                                                                                                                                                                                                                                                                        |
 | F0 executable contract           | `FROZEN / LIVE_BINDING_CLOSED`                       | [F0 合同冻结准备记录](../verification/cspv-c1-f0-execution-feasibility-contract-2026-09-12.zh-CN.md)；机器可读合同 hash `a564ae3f3102678142d7a67c3e0a33f238c22d3221784d7926cc2b44d8349122`；`codeRevision=c38785ada3573c2cc7a3927fd53c6670142eb537`，`executionSurfaceHash=587e4ec6cd7532ff405cb18214215f15d8cd7b0e90a8a58a6220336e82f5eeff`                                                                               |
 | F0 live execution                | `COMPLETED / F0_FEASIBILITY_NO_GO / CONSUMED`        | study `c1-f0-20260912-41753674`；32/32 run，513 Provider/network requests，717 tool executions；VALIDITY/PRECISION PASS，task-level FEASIBILITY FAIL；[真实执行报告](../verification/cspv-c1-f0-live-execution-2026-09-12.zh-CN.md)                                                                                                                                                                                        |
+| F0-RCA                           | `COMPLETED / ZERO_PROVIDER / DIAGNOSTIC_ONLY`        | 只读取 F0 metadata artifacts；确认 t1 scope fidelity 问题与 t2 error/recovery/预算异质性；不改变 F0 裁决，不启动 T0/E1；[RCA 报告](../verification/cspv-c1-f0-rca-2026-09-12.zh-CN.md)                                                                                                                                                                                                                                     |
 | SV1 响应证据缺口                 | `ADJUDICATED / FIXED (local)`                        | 原件仅 1×`OUTBOUND_PERMITTED`、`permitsWithoutRecordedResponse=1`、`responseStatus=NOT_RECORDED`；根因是 canary 在 `responseSource.next` 内抛错早于驱动落盘；修复 `cf0d45b47ffb1d35f1630e993675b50c53777455`；历史原件不回填，该次 usage 与 tool-request 数保持未知                                                                                                                                                        |
 | PR #105                          | `OPEN / CI_GREEN / REVIEW_REQUIRED`                  | head `012093274da742eddd8178b4448d105e6b27c4ac`，base `main`；CI run `34240182684` 的 `check` 与 `macos-electron` 均 success；尚无独立 review，CI 绿不替代内容审查                                                                                                                                                                                                                                                         |
 | `main` CI 基线（2026-09-09）     | `BLOCKED / UPSTREAM_ADVISORY`                        | `origin/main` 仍锁定 `js-yaml@4.3.1`，其 `pnpm audit --prod --audit-level high` 受 `GHSA-2883-xcg3-v3hh` 阻塞；修复在独立 PR #107（`js-yaml@4.3.2`），其后 CR-ARCH #109 与 SV2 #110 的 Context Runtime / Electron workflows 已分别通过。#107 合并前，不能把 `main` 的旧绿灯 run 当作当前基线；修复仍与研究证据 PR 分离                                                                                                     |
