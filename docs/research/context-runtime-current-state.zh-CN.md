@@ -29,8 +29,8 @@ E0 live attempt           TERMINAL / NO_GO（`9cb656f5`）
 Formal research stance   ACCEPTED / F0-T0-E1
 F0 contract structure    MERGED / ACCEPTED
 F0 numerical freeze      MERGED / ACCEPTED
-F0 executable contract   FROZEN / LIVE_BINDING_REVIEW_PENDING
-F0 implementation        IMPLEMENTED / LIVE_BINDING_FAKE_FETCH_PASS / NO_PROVIDER
+F0 executable contract   FROZEN / LIVE_BINDING_CLOSED
+F0 implementation        IMPLEMENTED / LIVE_BINDING_REAL_RUN_COMPLETED
 F0 live execution        COMPLETED / F0_FEASIBILITY_NO_GO
 F0 owner authorization   CONSUMED / STUDY_RETIRED
 Old study resume/reuse    FORBIDDEN
@@ -80,12 +80,12 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
   已覆盖完整 32-run 编排、oracle firewall、单次失败继续和单侧 95% Clopper–Pearson 裁决；该替身不读取 credential、
   不访问 Provider，也不构成 F0 可行性结果。F0 executable binding 为 `codeRevision=c38785ada3573c2cc7a3927fd53c6670142eb537`、
   `executionSurfaceHash=587e4ec6cd7532ff405cb18214215f15d8cd7b0e90a8a58a6220336e82f5eeff`，合同 hash 为
-  `a564ae3f3102678142d7a67c3e0a33f238c22d3221784d7926cc2b44d8349122`；live binding review 与新 binding 的 owner reauthorization 仍待完成。
+  `a564ae3f3102678142d7a67c3e0a33f238c22d3221784d7926cc2b44d8349122`；live binding 已通过正式 review 并完成一次授权 study。
 - F0 authorized live binding 已接入同一 Native-only 编排：真实 response source、provider-reported usage、network
   request 计数和 memory-only credential seam 已完成；fake-fetch 32-run 回归通过，旧 binding 会在 identity claim 和
   credential read 前拒绝。新 live binding 的 exact revision 为 `c38785ada3573c2cc7a3927fd53c6670142eb537`，surface hash 为
   `587e4ec6cd7532ff405cb18214215f15d8cd7b0e90a8a58a6220336e82f5eeff`，合同 hash 为
-  `a564ae3f3102678142d7a67c3e0a33f238c22d3221784d7926cc2b44d8349122`；真实 F0 仍等待 live binding review 和重新授权。
+  `a564ae3f3102678142d7a67c3e0a33f238c22d3221784d7926cc2b44d8349122`；真实 F0 study 已完成，结果见执行报告。
 - F0 真实 Native-only study `c1-f0-20260912-41753674` 已按新 binding 完成 32/32 run：513 次 Provider/network
   request、717 次 tool execution，VALIDITY/PRECISION 通过，FEASIBILITY 未通过，最终为 `F0_FEASIBILITY_NO_GO`。
   `c1-t1-localized-distractor-v1` 为 14/16 end-to-end success（下界 0.6562），`c1-t2-multi-file-migration-v1`
@@ -192,7 +192,7 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 | PR #116                          | `MERGED / CI_GREEN`                                  | merge commit `7b33e75249c8cb864cf4b41819e69ba9cd3694e5`；Node 24 post-merge CI run `34567191785` success；完成失败 leg partial checkpoint、计数和 cleanup truth hardening                                                                                                                                                                                                                                                  |
 | E0 live attempt `9cb656f5`       | `TERMINAL / NO_GO / CONSUMED`                        | 新绑定一次性授权运行；2/8 legs attempted、1 Native completed、1 Runtime budget exhausted、6 blocked；37 response、78 tool executions、0 lifecycle eligibility、0 dose；不输出 treatment effect                                                                                                                                                                                                                             |
 | F0 numerical freeze              | `MERGED / ACCEPTED`                                  | #119 数值提案已合并；两个 frozen task、16 runs/task、32 runs/study、单侧 95% Clopper–Pearson 和 per-task feasibility lines 已固定；不代表 F0 已执行                                                                                                                                                                                                                                                                        |
-| F0 executable contract           | `FROZEN / LIVE_BINDING_REVIEW_PENDING`               | [F0 合同冻结准备记录](../verification/cspv-c1-f0-execution-feasibility-contract-2026-09-12.zh-CN.md)；机器可读合同 hash `a564ae3f3102678142d7a67c3e0a33f238c22d3221784d7926cc2b44d8349122`；`codeRevision=c38785ada3573c2cc7a3927fd53c6670142eb537`，`executionSurfaceHash=587e4ec6cd7532ff405cb18214215f15d8cd7b0e90a8a58a6220336e82f5eeff`                                                                               |
+| F0 executable contract           | `FROZEN / LIVE_BINDING_CLOSED`                       | [F0 合同冻结准备记录](../verification/cspv-c1-f0-execution-feasibility-contract-2026-09-12.zh-CN.md)；机器可读合同 hash `a564ae3f3102678142d7a67c3e0a33f238c22d3221784d7926cc2b44d8349122`；`codeRevision=c38785ada3573c2cc7a3927fd53c6670142eb537`，`executionSurfaceHash=587e4ec6cd7532ff405cb18214215f15d8cd7b0e90a8a58a6220336e82f5eeff`                                                                               |
 | F0 live execution                | `COMPLETED / F0_FEASIBILITY_NO_GO / CONSUMED`        | study `c1-f0-20260912-41753674`；32/32 run，513 Provider/network requests，717 tool executions；VALIDITY/PRECISION PASS，task-level FEASIBILITY FAIL；[真实执行报告](../verification/cspv-c1-f0-live-execution-2026-09-12.zh-CN.md)                                                                                                                                                                                        |
 | SV1 响应证据缺口                 | `ADJUDICATED / FIXED (local)`                        | 原件仅 1×`OUTBOUND_PERMITTED`、`permitsWithoutRecordedResponse=1`、`responseStatus=NOT_RECORDED`；根因是 canary 在 `responseSource.next` 内抛错早于驱动落盘；修复 `cf0d45b47ffb1d35f1630e993675b50c53777455`；历史原件不回填，该次 usage 与 tool-request 数保持未知                                                                                                                                                        |
 | PR #105                          | `OPEN / CI_GREEN / REVIEW_REQUIRED`                  | head `012093274da742eddd8178b4448d105e6b27c4ac`，base `main`；CI run `34240182684` 的 `check` 与 `macos-electron` 均 success；尚无独立 review，CI 绿不替代内容审查                                                                                                                                                                                                                                                         |
