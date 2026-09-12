@@ -51,10 +51,10 @@ describe('C1 F0 authorized live binding', () => {
           authorization: {
             decision: 'AUTHORIZED',
             studyId: 'c1-f0-20260912-bbbbbbbb',
-            executionRevision: '7fde9d475eb0c10eb7543dc304f5357efc70ba63',
+            executionRevision: '169c8ce87f2be2ee52f429d0819c1707d1c64b26',
             executionSurfaceHash:
-              '8ecc92e011d8246311b360b35670115dcc6a5cbbeb68a28827a6f90deb4d17ee',
-            runContractSha256: 'e93e3f2bf0dda34a616d1b171399fb102d9148d82fdc961abaab2b4c203438c1',
+              '695a3e486966d3367c9ea452e60286725975a8b9ecbddef35f6a0488f6241d93',
+            runContractSha256: '6a0881306801efb721b2b6f34de76fb631417f3d9c655720776853513aafd156',
             providerConfigHash: 'bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a'
           },
           fetchImpl: async () =>
