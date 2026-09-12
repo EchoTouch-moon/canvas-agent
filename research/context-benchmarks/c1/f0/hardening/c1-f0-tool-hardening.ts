@@ -51,6 +51,8 @@ export interface C1F0ToolRequest {
 }
 
 export interface C1F0ToolExecutionProvenance {
+  /** Hash of tool name + canonicalized semantic arguments; raw arguments are never persisted. */
+  readonly canonicalRequestSignature: string
   readonly failureClass: C1F0ToolFailureClass
   readonly commandClass: C1F0ToolCommandClass
   /** Hash of a bash command; the command text is never persisted. */
@@ -61,8 +63,12 @@ export interface C1F0ToolExecutionProvenance {
   readonly snapshotStatus: 'COMPLETE' | 'UNAVAILABLE'
   readonly beforeSnapshotHash?: string
   readonly afterSnapshotHash?: string
-  readonly repeatCount: number
+  readonly consecutiveFailureStreak: number
   readonly recoveryAction: C1F0ToolRecoveryAction
+  /** Metadata-only link to the immediately preceding failed tool call. */
+  readonly recoveryOfToolCallId?: string
+  /** One-based ordinal within the linked recovery chain. */
+  readonly recoveryAttemptOrdinal?: number
 }
 
 export interface C1F0ToolExecution {
@@ -155,6 +161,34 @@ function countOccurrences(value: string, needle: string): number {
     offset = index + needle.length
   }
   return count
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    const serialized = JSON.stringify(value)
+    return serialized === undefined ? 'null' : serialized
+  }
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`
+  const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) => {
+    if (left === right) return 0
+    return left < right ? -1 : 1
+  })
+  return `{${entries
+    .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+    .join(',')}}`
+}
+
+function canonicalRequestSignature(request: C1F0ToolRequest): string {
+  let argumentsKey: string
+  try {
+    argumentsKey = canonicalJson(JSON.parse(request.argumentsJson) as unknown)
+  } catch {
+    // Invalid argument payloads cannot be semantically canonicalized. Hashing the
+    // invalid text still avoids retaining it while keeping distinct malformed
+    // requests distinguishable for diagnostics.
+    argumentsKey = `invalid:${sha256(request.argumentsJson)}`
+  }
+  return sha256(`${request.toolName}\u0000${argumentsKey}`)
 }
 
 function commandClass(command: string): C1F0ToolCommandClass {
@@ -258,10 +292,10 @@ function recoveryContent(
   content: string,
   failureClass: C1F0ToolFailureClass,
   action: C1F0ToolRecoveryAction,
-  repeatCount: number
+  consecutiveFailureStreak: number
 ): string {
-  return `${content}\n[C1_F0_RECOVERY] class=${failureClass}; action=${action}; repeatCount=${String(
-    repeatCount
+  return `${content}\n[C1_F0_RECOVERY] class=${failureClass}; action=${action}; consecutiveFailureStreak=${String(
+    consecutiveFailureStreak
   )}; hint=${recoveryHint(failureClass)}`
 }
 
@@ -296,7 +330,11 @@ export class C1F0ProspectiveToolExecutor {
   private readonly provenanceEnabled: boolean
   private readonly recoveryEnabled: boolean
   private readonly maxIdenticalFailureAttempts: number
-  private readonly failureCounts = new Map<string, number>()
+  private readonly failureSignatures = new Set<string>()
+  private lastFailureSignature: string | undefined
+  private consecutiveFailureStreak = 0
+  private pendingRecovery:
+    { readonly toolCallId: string; readonly nextAttemptOrdinal: number } | undefined
 
   constructor(root: string, options: C1F0ProspectiveToolExecutorOptions = {}) {
     this.sandboxRoot = resolve(root)
@@ -327,25 +365,35 @@ export class C1F0ProspectiveToolExecutor {
     let recoveredExecutions = 0
     let blockedRepeatedFailures = 0
     for (const request of requests) {
-      const requestHash = sha256(`${request.toolName}\u0000${request.argumentsJson}`)
-      const priorFailures = this.failureCounts.get(requestHash) ?? 0
+      const requestSignature = canonicalRequestSignature(request)
+      const sameAsLastFailure = this.lastFailureSignature === requestSignature
+      if (!sameAsLastFailure) {
+        this.lastFailureSignature = undefined
+        this.consecutiveFailureStreak = 0
+      }
+      const priorFailureStreak = sameAsLastFailure ? this.consecutiveFailureStreak : 0
+      const recoveryLink = this.pendingRecovery
       const beforeSnapshot = await this.snapshotOrNull()
       let attempt: ToolAttempt
-      let repeatCount = priorFailures
+      let consecutiveFailureStreak = 0
       let action: C1F0ToolRecoveryAction = 'NONE'
-      if (this.recoveryEnabled && priorFailures >= this.maxIdenticalFailureAttempts) {
-        repeatCount = priorFailures + 1
-        this.failureCounts.set(requestHash, repeatCount)
+      if (
+        this.recoveryEnabled &&
+        sameAsLastFailure &&
+        priorFailureStreak >= this.maxIdenticalFailureAttempts
+      ) {
+        consecutiveFailureStreak = priorFailureStreak + 1
         action = 'BLOCKED_REPEATED_FAILURE'
         blockedRepeatedFailures += 1
         failedExecutions += 1
+        this.recordFailure(requestSignature, request.toolCallId, recoveryLink)
         attempt = {
           result: 'ERROR',
           content: recoveryContent(
             'tool execution was blocked after repeated identical failures',
             'REPEATED_FAILURE_BLOCKED',
             action,
-            repeatCount
+            consecutiveFailureStreak
           ),
           failureClass: 'REPEATED_FAILURE_BLOCKED',
           commandClass:
@@ -358,25 +406,44 @@ export class C1F0ProspectiveToolExecutor {
           attempt = await this.executeOne(request)
           if (attempt.result === 'ERROR') {
             const failureClass = attempt.failureClass ?? 'UNKNOWN'
-            repeatCount = priorFailures + 1
-            this.failureCounts.set(requestHash, repeatCount)
+            consecutiveFailureStreak = this.recordFailure(
+              requestSignature,
+              request.toolCallId,
+              recoveryLink
+            )
             action = recoveryAction(failureClass)
             failedExecutions += 1
             attempt = {
               ...attempt,
               failureClass,
-              content: recoveryContent(attempt.content, failureClass, action, repeatCount)
+              content: recoveryContent(
+                attempt.content,
+                failureClass,
+                action,
+                consecutiveFailureStreak
+              )
             }
+          } else {
+            if (recoveryLink !== undefined) recoveredExecutions += 1
+            this.recordSuccess()
           }
         } catch (error) {
           const failureClass = classifyFailure(request, error)
-          repeatCount = priorFailures + 1
-          this.failureCounts.set(requestHash, repeatCount)
+          consecutiveFailureStreak = this.recordFailure(
+            requestSignature,
+            request.toolCallId,
+            recoveryLink
+          )
           action = recoveryAction(failureClass)
           failedExecutions += 1
           attempt = {
             result: 'ERROR',
-            content: recoveryContent(this.errorContent(error), failureClass, action, repeatCount),
+            content: recoveryContent(
+              this.errorContent(error),
+              failureClass,
+              action,
+              consecutiveFailureStreak
+            ),
             failureClass,
             commandClass:
               request.toolName === 'bash'
@@ -394,10 +461,8 @@ export class C1F0ProspectiveToolExecutor {
       const failureClass = attempt.failureClass ?? 'NONE'
       const beforeSnapshotHash = snapshotHash(beforeSnapshot)
       const afterSnapshotHash = snapshotHash(afterSnapshot)
-      if (failureClass === 'NONE') {
-        if (priorFailures > 0) recoveredExecutions += 1
-      }
       const provenance: C1F0ToolExecutionProvenance = {
+        canonicalRequestSignature: requestSignature,
         failureClass,
         commandClass:
           attempt.commandClass ??
@@ -417,8 +482,14 @@ export class C1F0ProspectiveToolExecutor {
           beforeSnapshot !== null && afterSnapshot !== null ? 'COMPLETE' : 'UNAVAILABLE',
         ...(beforeSnapshotHash === undefined ? {} : { beforeSnapshotHash }),
         ...(afterSnapshotHash === undefined ? {} : { afterSnapshotHash }),
-        repeatCount,
-        recoveryAction: action
+        consecutiveFailureStreak,
+        recoveryAction: action,
+        ...(recoveryLink === undefined
+          ? {}
+          : {
+              recoveryOfToolCallId: recoveryLink.toolCallId,
+              recoveryAttemptOrdinal: recoveryLink.nextAttemptOrdinal
+            })
       }
       const execution: C1F0ToolExecution = {
         toolCallId: request.toolCallId,
@@ -437,9 +508,32 @@ export class C1F0ProspectiveToolExecutor {
         failedExecutions,
         recoveredExecutions,
         blockedRepeatedFailures,
-        uniqueFailureSignatures: this.failureCounts.size
+        uniqueFailureSignatures: this.failureSignatures.size
       }
     }
+  }
+
+  private recordFailure(
+    requestSignature: string,
+    toolCallId: string,
+    recoveryLink: { readonly toolCallId: string; readonly nextAttemptOrdinal: number } | undefined
+  ): number {
+    const nextStreak =
+      this.lastFailureSignature === requestSignature ? this.consecutiveFailureStreak + 1 : 1
+    this.lastFailureSignature = requestSignature
+    this.consecutiveFailureStreak = nextStreak
+    this.failureSignatures.add(requestSignature)
+    this.pendingRecovery = {
+      toolCallId,
+      nextAttemptOrdinal: (recoveryLink?.nextAttemptOrdinal ?? 0) + 1
+    }
+    return nextStreak
+  }
+
+  private recordSuccess(): void {
+    this.lastFailureSignature = undefined
+    this.consecutiveFailureStreak = 0
+    this.pendingRecovery = undefined
   }
 
   private async snapshotOrNull(): Promise<ReadonlyMap<string, string> | null> {

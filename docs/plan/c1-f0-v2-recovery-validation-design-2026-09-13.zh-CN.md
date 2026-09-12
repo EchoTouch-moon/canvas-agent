@@ -34,14 +34,14 @@ F0-RCA 将失败拆为两类：
 
 因此 v2 只改变已经合并且明确标为 prospective opt-in 的工具执行 hardening：
 
-~~~text
+```text
 F0-v1 task / prompt / fixture / oracle      保持不变
 F0-v1 Provider / model / endpoint           保持不变
 F0-v1 provider request budget               保持不变
 F0-v1 feasibility thresholds                提案保持不变
 tool execution surface                      启用 C1_F0_TOOL_HARDENING_V1
 study identity / execution revision         全部新建
-~~~
+```
 
 v2 是一个新的、可独立解释的 feasibility study。若之后要重写 t2 任务、修改提示、放宽 scope 或增加预算，必须另建 F0-v3 contract，不能在 v2 中临时调整。
 
@@ -49,7 +49,7 @@ v2 是一个新的、可独立解释的 feasibility study。若之后要重写 t
 
 以下配置是设计候选，不是授权值：
 
-~~~yaml
+```yaml
 study: C1_F0_EXECUTION_FEASIBILITY_V2
 arm: NATIVE_ONLY
 runtime_intervention: DISABLED
@@ -69,7 +69,7 @@ maxOutputTokensPerRequest: 16384
 retry: FORBIDDEN
 resume: FORBIDDEN
 identityReuse: FORBIDDEN
-~~~
+```
 
 maxIdenticalFailureAttempts=2 表示同一工具请求签名最多保留两次尝试；第三次相同失败请求必须标记为 REPEATED_FAILURE_BLOCKED，且阻断本身不得产生文件副作用。它不是 study-level retry，也不允许自动重跑已结束的 run。
 
@@ -79,29 +79,43 @@ v2 不改变 providerConfigHash。启用 hardening 会产生新的 executionSurf
 
 为避免在一次研究中同时改变 task difficulty、提示和 recovery，v2 暂保留 F0-v1 的完整两个 stratum：
 
-| taskId | stratum | v2 处理 | 选择理由 |
-| --- | --- | --- | --- |
+| taskId                        | stratum                             | v2 处理                                                           | 选择理由                                                                       |
+| ----------------------------- | ----------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | c1-t1-localized-distractor-v1 | localized_investigation_distractors | fixture、prompt、oracle、expected writable scope 全部保持 v1 hash | 保留 side-effect fidelity 连续性，验证越界变化能被 prospective provenance 归因 |
-| c1-t2-multi-file-migration-v1 | multi_file_multi_source | fixture、prompt、oracle、expected writable scope 全部保持 v1 hash | 保留已观察到的多文件 recovery 压力，避免通过换成简单任务掩盖问题 |
+| c1-t2-multi-file-migration-v1 | multi_file_multi_source             | fixture、prompt、oracle、expected writable scope 全部保持 v1 hash | 保留已观察到的多文件 recovery 压力，避免通过换成简单任务掩盖问题               |
 
 两项 task 的 fixture content SHA、fixture tree SHA、prompt SHA、objective oracle 和 regression oracle 必须在第一条 response 前从当前 manifest 重算并写入 v2 contract。它们与 v1 相同是设计意图，不代表可以引用 v1 artifact 作为 v2 结果。
 
 候选 study shape：
 
-~~~yaml
+```yaml
 runsPerTask: 16
 totalRuns: 32
 runOrder: deterministic_balanced_alternation
 alternationSeed: PENDING_FREEZE
-~~~
+```
 
 每个 v2 study 使用一个 fresh、single-use studyId，登记 32 个新的唯一 runId。固定 run order、task panel、重复次数和预算必须在第一条 response 前完成。所有 run（包括 tool failure、budget exhaustion 和 ordinary task failure）都保留在分母中；只有共享合同、identity、evidence 或基础设施 invalidator 才能阻断剩余 study。
 
-## 5. Ground-truth firewall
+## 5. Ground-truth firewall 与 post-run 顺序
 
-下列内容只能在 run 完成、fixture 清理之后由 post-run adjudicator 读取：
+oracle 和 expected writable scope 绝不能进入 model-visible execution path。它们可以在运行结束后检查冻结的
+post-run 状态，但不能被 cleanup 先销毁。v2 的顺序必须冻结为：
 
-~~~text
+```text
+execution terminates
+  → freeze immutable post-run fixture snapshot + content/tree hash
+  → oracle / writable-scope adjudication inspects the frozen state
+  → persist adjudication evidence and snapshot reference
+  → cleanup the live sandbox
+```
+
+如果 adjudicator 使用隔离副本，副本和它的 hash 也必须在 live sandbox cleanup 前完成。cleanup 后只允许读取已
+持久化的 immutable snapshot/evidence，不得回到一个已销毁的 live fixture 猜测结果。
+
+下列内容只能在 execution 已终止、post-run snapshot 已冻结后由 post-run adjudicator 读取：
+
+```text
 objective oracle
 regression oracle
 reference answer / reference fixture
@@ -109,17 +123,18 @@ expectedWritablePaths
 removalGroundTruth
 F0-v1 outcomes and labels
 historical prevalence or success statistics
-~~~
+```
 
 执行路径和 model-visible context 不得读取上述内容。工具执行器可以在内部生成 before/after snapshot 和安全的 changed-path metadata，但不得把 expected writable scope、oracle 判断或 v1 统计写入模型可见结果。
 
 Provenance 允许进入 metadata-only artifact 的字段：
 
-~~~text
+```text
 toolRequestId / ordinal
 toolName
 commandClass (bash only)
 commandHash (bash only)
+canonicalRequestSignature
 failureClass
 errorDigest
 beforeSnapshotHash / afterSnapshotHash
@@ -127,8 +142,14 @@ changedPaths
 changedPathsStatus
 sideEffectSource
 recoveryAction
-repeatedFailureCount
-~~~
+consecutiveFailureStreak
+recoveryOfToolCallId (when linked)
+recoveryAttemptOrdinal (when linked)
+```
+
+run-level adjudication evidence must additionally retain `postRunFixtureSnapshotHash`,
+`postRunFixtureSnapshotStatus` and the immutable snapshot reference used by oracle and writable-scope evaluation. These
+fields are created before live sandbox cleanup; a missing snapshot is an adjudication unknown, not an inferred clean state.
 
 禁止持久化 assistant content、原始 tool arguments、原始 bash command、provider payload、tool-result content、credential 或 recovery 中的敏感文本。缺失或无法观察的字段保持 UNKNOWN / UNAVAILABLE，不得填零。
 
@@ -136,15 +157,16 @@ repeatedFailureCount
 
 每个工具请求都经过同一个 prospective executor：
 
-1. 请求前记录安全 snapshot 摘要；
+1. 以 tool name + canonicalized semantic arguments（对象 key 排序，原文不落盘）计算 canonical request signature，并记录安全 snapshot 摘要；
 2. 执行 read/edit/bash，并记录成功或固定 failure class；
 3. 请求后再次记录 snapshot，计算 changed paths 和 side-effect source；
 4. 对可恢复失败向下一次 model observation 提供结构化 recovery hint；
-5. 对同一失败签名计数，达到第三次相同失败时阻断并记录 BLOCKED_REPEATED_FAILURE。
+5. 对同一 canonical request 维护 consecutive failure streak，达到第三次相同失败时阻断并记录 BLOCKED_REPEATED_FAILURE；不同 request 或成功执行都会 reset streak。
 
 恢复语义必须满足：
 
-- 任何纠正后重试都由模型发出新请求，request signature 必须不同；执行器不得隐式重放原请求；
+- 任何纠正后重试都由模型发出新请求，canonical request signature 必须不同；执行器不得隐式重放原请求；
+- corrected request 和后续成功通过 recoveryOfToolCallId / recoveryAttemptOrdinal 关联到最近一次失败；不同 signature 的成功因此计入 RECOVERED；
 - PATH_NOT_FOUND、EDIT_MATCH_COUNT、COMMAND_FAILED、COMMAND_TIMEOUT 等类别必须有稳定映射；未知失败归入 UNKNOWN，不能静默转成成功；
 - recovery hint 只说明错误类别和安全的下一步，不暴露 oracle、expected scope 或原始错误内容；
 - blocked repeated failure 不产生新的 edit/bash side effect，也不改变 task fixture；
@@ -155,7 +177,7 @@ repeatedFailureCount
 
 v2 沿用 v1 的三个正交事实轴：
 
-~~~text
+```text
 terminationStatus
   TERMINAL_COMPLETE | TERMINAL_FAILED | BUDGET_EXHAUSTED
   PROVIDER_BOUNDARY_FAILURE | TOOL_BOUNDARY_FAILURE | BLOCKED
@@ -165,11 +187,11 @@ oracleStatus
 
 evidenceStatus
   COMPLETE | PARTIAL | INVALID
-~~~
+```
 
 并增加仅用于 v2 诊断与 safety gate 的轴：
 
-~~~text
+```text
 provenanceStatus
   COMPLETE | PARTIAL | INVALID
 
@@ -178,73 +200,113 @@ recoveryStatus
 
 sideEffectAttributionStatus
   NOT_APPLICABLE | ATTRIBUTED | UNKNOWN | CONFLICT
-~~~
+```
 
-runDisposition 仍由 termination、oracle、evidence 和 fixture cleanup 派生，不能因为 recovery 成功就绕过 oracle 或 scope gate：
+composite run disposition must preserve adjudication uncertainty instead of converting it into a failure:
 
-~~~text
+```text
 FEASIBILITY_SUCCESS
   := TERMINAL_COMPLETE
      AND oracleStatus=PASS
      AND evidenceStatus=COMPLETE
      AND provenanceStatus=COMPLETE
      AND fixtureCleaned=true
-~~~
 
-如果共享证据或 provenance schema 不可信，使用 STUDY_INVALID；如果只是单 run 的工具错误、普通失败或预算耗尽，使用 FEASIBILITY_FAILURE 并继续既定 run。
+FEASIBILITY_FAILURE
+  := observed non-completion or task failure
+     AND evidenceStatus=COMPLETE
+     AND provenanceStatus=COMPLETE
+     AND oracleStatus != UNKNOWN
+     AND sideEffectAttributionStatus != UNKNOWN when scope adjudication is required
+
+FEASIBILITY_UNKNOWN / UNADJUDICABLE
+  := no shared invalidator
+     AND (oracleStatus=UNKNOWN
+          OR evidenceStatus=PARTIAL
+          OR provenanceStatus=PARTIAL
+          OR sideEffectAttributionStatus=UNKNOWN
+          OR postRunFixtureSnapshotStatus=UNAVAILABLE)
+
+STUDY_INVALID
+  := missing provenance row
+     OR schema conflict
+     OR raw sensitive-content leakage
+     OR another shared contract / identity / evidence invalidator
+```
+
+FEASIBILITY_UNKNOWN 只描述复合判定，不抹掉独立可观察的 termination、budget 或 tool-error 计数。普通单 run
+失败或预算耗尽在 evidence 完整、状态可判定时才归入 FEASIBILITY_FAILURE；如果 oracle、snapshot 或 provenance
+不完整，则归入 FEASIBILITY_UNKNOWN，并由 precision / unknown-rate 规则处理。任何共享证据缺失、schema conflict
+或 raw-data leakage 都是 STUDY_INVALID，不能只删除该 run。
 
 ## 8. 预先声明的指标与 gates
 
 ### 8.1 Primary feasibility metrics
 
-为保持和 F0-v1 的可解释性，v2 提案沿用相同的 per-task gate（最终仍需 freeze review 明确确认）：
+为保持和 F0-v1 的可解释性，v2 提案沿用相同的 per-task gate 线，但显式把 UNKNOWN 从 observed failure 中分离
+（最终仍需 freeze review 明确确认）：
 
-~~~text
-endToEndSuccessRate
+```text
+successAmongAdjudicable
+startedRunSuccessRate (v1-compatible descriptive metric)
+unknownRunRate
+adjudicableRunRate
 budgetExhaustionRate
 unrecoveredToolFailureRunRate
 oraclePassAmongAdjudicable
-~~~
+```
+
+`successAmongAdjudicable` 的分母只包含 `FEASIBILITY_SUCCESS` 与已充分观测的 `FEASIBILITY_FAILURE`；
+`FEASIBILITY_UNKNOWN / UNADJUDICABLE` 不计入该分母，但必须进入 `unknownRunRate`。`startedRunSuccessRate`
+保留为与 v1 对照的描述性指标，不作为绕过 unknown-rate gate 的依据。budget exhaustion 和 unrecovered
+tool-failure 仍按 started runs 计数，因为它们是独立可观察的运行事实。
 
 每个 task 单独计算 one-sided 95% Clopper–Pearson exact interval，候选门槛为：
 
-~~~text
-lower95(endToEndSuccessRate) >= 0.80
+```text
+lower95(successAmongAdjudicable) >= 0.80
 upper95(budgetExhaustionRate) <= 0.20
 upper95(unrecoveredToolFailureRunRate) <= 0.20
 lower95(oraclePassAmongAdjudicable) >= 0.80
-~~~
+```
 
-若保留 16 runs/task，这组规则与 v1 相同：它要求在零失败边界附近才可通过，不能在看到 v2 结果后降低门槛或合并两个 task 来获得 GO。
+`unknownRunRate` 的上限和每个 task 的最小 adjudicable runs（记为 U 与 M）必须在第一条 response 前冻结。
+若 unknown 超过 U 或 adjudicable runs 少于 M，PRECISION_GATE 失败并进入 HOLD/INCONCLUSIVE；不能把 unknown
+改记为 failure，也不能在看到 v2 结果后降低 U、M 或合并两个 task 来获得 GO。
 
 ### 8.2 Provenance safety gate
 
-~~~text
+```text
 PROVENANCE_GATE:
   every observed tool execution has exactly one provenance record
   AND provenance schema validates
   AND no raw command / argument / payload / credential leakage
   AND blocked repeated failure produces no side effect
-~~~
+```
 
-所有工具事件都必须进入事件覆盖率分母。changedPathsStatus=UNKNOWN 可以作为可观察性限制保留，但如果事件缺少 provenance row、出现 schema conflict 或发现原文泄漏，则整个 study NO_GO，不能只删除该 run。
+所有工具事件都必须进入事件覆盖率分母。provenance row 存在但 snapshot 不可用时，记录
+`provenanceStatus=PARTIAL`、`sideEffectAttributionStatus=UNKNOWN`，由 unknown-rate / precision 规则处理；
+它不是已观察的 feasibility failure。事件缺少 provenance row、出现 schema conflict 或发现原文泄漏，则整个
+study NO_GO，不能只删除该 run。
 
 ### 8.3 Recovery safety gate
 
-~~~text
+```text
 RECOVERY_SAFETY_GATE:
   maxIdenticalFailureAttempts = 2
+  AND canonical request signature normalizes semantic JSON arguments
   AND no implicit identical-request replay
-  AND corrected retry has a different request signature
-  AND third identical failure is blocked
+  AND corrected retry has a different canonical request signature
+  AND consecutive failure streak resets on a different request or success
+  AND third consecutive identical failure is blocked
   AND blocked request has zero side-effect paths
-~~~
+```
 
 该 gate 关注执行安全，不把发生过工具错误本身判为失败；工具错误事件率继续作为诊断指标。
 
 ### 8.4 Study-level adjudication
 
-~~~text
+```text
 VALIDITY_GATE:
   sharedInvalidatorCount = 0
   AND bindings valid
@@ -257,6 +319,8 @@ PRECISION_GATE:
   16 started runs per task
   AND both task strata represented
   AND predeclared confidence rule satisfied
+  AND unknownRunRate <= U
+  AND adjudicableRuns >= M per task
   AND no post-hoc task/run removal
 
 FEASIBILITY_GATE:
@@ -268,11 +332,11 @@ F0-v2_GO:
   AND PROVENANCE_GATE
   AND RECOVERY_SAFETY_GATE
   AND FEASIBILITY_GATE
-~~~
+```
 
 最终裁定保持分层：
 
-~~~text
+```text
 VALIDITY / provenance / recovery safety fail
   → F0_V2_NO_GO
 
@@ -284,7 +348,7 @@ VALIDITY + PRECISION + safety pass + FEASIBILITY pass
 
 VALIDITY + PRECISION + safety pass + FEASIBILITY fail
   → F0_V2_FEASIBILITY_NO_GO
-~~~
+```
 
 GO_TO_T0_DESIGN 只允许开始 T0 设计评审，不授权 T0 Provider execution，也不证明 Context Runtime 的 causal effectiveness。
 
@@ -312,7 +376,7 @@ GO_TO_T0_DESIGN 只允许开始 T0 设计评审，不授权 T0 Provider executio
 
 1. 独立 review 本设计，确认保持 v1 workload、预算和 per-task gate 的理由；
 2. 将 C1_F0_TOOL_HARDENING_V1 接入独立的 F0-v2 Native runner，不能改写历史 runner 的默认行为；
-3. 完成零 Provider credential-free 端到端测试，覆盖 side effect attribution、failure class、纠正请求、repeated-failure block、oracle firewall 和 metadata-only retention；
+3. 完成零 Provider credential-free 端到端测试，覆盖 side effect attribution、failure class、纠正请求、repeated-failure block、post-run snapshot→adjudication→cleanup 顺序、UNKNOWN 分层、oracle firewall 和 metadata-only retention；
 4. 从 manifest 重算 task/prompt/fixture/oracle hashes，生成新的 machine-readable v2 contract；
 5. 在 clean head、Node 24 和远端 CI 通过后冻结新的 executionRevision、executionSurfaceHash 和 runContractSha256；
 6. 创建 fresh、never-claimed studyId，形成绑定上述字段、provider hash、预算和 safety policy 的一次性授权；
@@ -322,7 +386,7 @@ GO_TO_T0_DESIGN 只允许开始 T0 设计评审，不授权 T0 Provider executio
 
 ## 当前状态
 
-~~~text
+```text
 F0-v1 study                  VALID / F0_FEASIBILITY_NO_GO / CONSUMED
 F0-RCA hardening             MERGED / PROSPECTIVE / ZERO_PROVIDER
 F0-v2 contract design        DRAFT / NOT_EXECUTABLE
@@ -330,6 +394,6 @@ F0-v2 implementation        NOT_STARTED
 F0-v2 authorization          NO_GO
 T0                           HOLD
 E1                           HOLD
-~~~
+```
 
 本提案的下一道门是独立 review 和 contract freeze review；在此之前不访问 Provider，不创建 study identity，不修改 F0-v1 artifact，也不把 T0 从 HOLD 推进为可执行状态。
