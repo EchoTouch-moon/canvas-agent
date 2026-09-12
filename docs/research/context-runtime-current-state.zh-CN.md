@@ -29,9 +29,9 @@ E0 live attempt           TERMINAL / NO_GO（`9cb656f5`）
 Formal research stance   ACCEPTED / F0-T0-E1
 F0 contract structure    MERGED / ACCEPTED
 F0 numerical freeze      MERGED / ACCEPTED
-F0 executable contract   FROZEN / READY_FOR_INDEPENDENT_REVIEW
-F0 implementation        IMPLEMENTED / CREDENTIAL_FREE_32_RUNNER_PASS / NO_PROVIDER
-F0 owner authorization   NO_GO
+F0 executable contract   FROZEN / LIVE_BINDING_REVIEW_PENDING
+F0 implementation        IMPLEMENTED / LIVE_BINDING_FAKE_FETCH_PASS / NO_PROVIDER
+F0 owner authorization   REAUTHORIZATION_REQUIRED
 Old study resume/reuse    FORBIDDEN
 Wave B / productization   NO_GO
 ```
@@ -77,9 +77,14 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
   task failure 与 per-run budget exhaustion 保留在分母并继续后续 run；oracle 在执行 sandbox 清理后由独立副本执行，
   checkpoint、response ledger、task adjudication 与 feasibility summary 均为 metadata-only。credential-free 集成回归
   已覆盖完整 32-run 编排、oracle firewall、单次失败继续和单侧 95% Clopper–Pearson 裁决；该替身不读取 credential、
-  不访问 Provider，也不构成 F0 可行性结果。F0 executable binding 为 `codeRevision=7fde9d475eb0c10eb7543dc304f5357efc70ba63`、
-  `executionSurfaceHash=8ecc92e011d8246311b360b35670115dcc6a5cbbeb68a28827a6f90deb4d17ee`，合同 hash 为
-  `e93e3f2bf0dda34a616d1b171399fb102d9148d82fdc961abaab2b4c203438c1`；independent review 与新的 owner authorization 仍待完成。
+  不访问 Provider，也不构成 F0 可行性结果。F0 executable binding 为 `codeRevision=c38785ada3573c2cc7a3927fd53c6670142eb537`、
+  `executionSurfaceHash=587e4ec6cd7532ff405cb18214215f15d8cd7b0e90a8a58a6220336e82f5eeff`，合同 hash 为
+  `a564ae3f3102678142d7a67c3e0a33f238c22d3221784d7926cc2b44d8349122`；live binding review 与新 binding 的 owner reauthorization 仍待完成。
+- F0 authorized live binding 已接入同一 Native-only 编排：真实 response source、provider-reported usage、network
+  request 计数和 memory-only credential seam 已完成；fake-fetch 32-run 回归通过，旧 binding 会在 identity claim 和
+  credential read 前拒绝。新 live binding 的 exact revision 为 `c38785ada3573c2cc7a3927fd53c6670142eb537`，surface hash 为
+  `587e4ec6cd7532ff405cb18214215f15d8cd7b0e90a8a58a6220336e82f5eeff`，合同 hash 为
+  `a564ae3f3102678142d7a67c3e0a33f238c22d3221784d7926cc2b44d8349122`；真实 F0 仍等待 live binding review 和重新授权。
 - 已裁定并本地修复（零 Provider）：SV1 暴露“响应已返回但诊断提前终止导致 `RESPONSE_RECEIVED`/`RESPONSE_RECORDED`
   未持久化”的证据缺口——`checkpoints.jsonl` 只剩 1 条许可、`permitsWithoutRecordedResponse=1`，该次响应的
   tool-request 数与 usage 结构性缺失。修复提交 `cf0d45b47ffb1d35f1630e993675b50c53777455`：先让驱动落盘已知响应，
@@ -144,6 +149,7 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 [F0 Numerical Freeze 提案](../plan/c1-f0-numerical-freeze-proposal-2026-09-12.zh-CN.md) ·
 [F0 Execution Feasibility Contract 冻结准备](../verification/cspv-c1-f0-execution-feasibility-contract-2026-09-12.zh-CN.md) ·
 [F0 Native-only Runner 验证](../verification/cspv-c1-f0-execution-runner-2026-09-12.zh-CN.md) ·
+[F0 Authorized Live Binding 验证](../verification/cspv-c1-f0-live-binding-2026-09-12.zh-CN.md) ·
 [后续实施验证](../verification/cspv-c1-followup-execution-2026-09-08.zh-CN.md) ·
 [机制 Canary 计划](../plan/cspv-mechanism-canary-2026-09-08.zh-CN.md) ·
 [本轮执行计划](../plan/cspv-c1-next-execution-2026-09-08.zh-CN.md) ·
@@ -179,7 +185,7 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 | PR #116                          | `MERGED / CI_GREEN`                                  | merge commit `7b33e75249c8cb864cf4b41819e69ba9cd3694e5`；Node 24 post-merge CI run `34567191785` success；完成失败 leg partial checkpoint、计数和 cleanup truth hardening                                                                                                                                                                                                                                                  |
 | E0 live attempt `9cb656f5`       | `TERMINAL / NO_GO / CONSUMED`                        | 新绑定一次性授权运行；2/8 legs attempted、1 Native completed、1 Runtime budget exhausted、6 blocked；37 response、78 tool executions、0 lifecycle eligibility、0 dose；不输出 treatment effect                                                                                                                                                                                                                             |
 | F0 numerical freeze              | `MERGED / ACCEPTED`                                  | #119 数值提案已合并；两个 frozen task、16 runs/task、32 runs/study、单侧 95% Clopper–Pearson 和 per-task feasibility lines 已固定；不代表 F0 已执行                                                                                                                                                                                                                                                                        |
-| F0 executable contract           | `FROZEN / READY_FOR_INDEPENDENT_REVIEW`              | [F0 合同冻结准备记录](../verification/cspv-c1-f0-execution-feasibility-contract-2026-09-12.zh-CN.md)；机器可读合同 hash `e93e3f2bf0dda34a616d1b171399fb102d9148d82fdc961abaab2b4c203438c1`；`codeRevision=7fde9d475eb0c10eb7543dc304f5357efc70ba63`，`executionSurfaceHash=8ecc92e011d8246311b360b35670115dcc6a5cbbeb68a28827a6f90deb4d17ee`                                                                               |
+| F0 executable contract           | `FROZEN / LIVE_BINDING_REVIEW_PENDING`               | [F0 合同冻结准备记录](../verification/cspv-c1-f0-execution-feasibility-contract-2026-09-12.zh-CN.md)；机器可读合同 hash `a564ae3f3102678142d7a67c3e0a33f238c22d3221784d7926cc2b44d8349122`；`codeRevision=c38785ada3573c2cc7a3927fd53c6670142eb537`，`executionSurfaceHash=587e4ec6cd7532ff405cb18214215f15d8cd7b0e90a8a58a6220336e82f5eeff`                                                                               |
 | SV1 响应证据缺口                 | `ADJUDICATED / FIXED (local)`                        | 原件仅 1×`OUTBOUND_PERMITTED`、`permitsWithoutRecordedResponse=1`、`responseStatus=NOT_RECORDED`；根因是 canary 在 `responseSource.next` 内抛错早于驱动落盘；修复 `cf0d45b47ffb1d35f1630e993675b50c53777455`；历史原件不回填，该次 usage 与 tool-request 数保持未知                                                                                                                                                        |
 | PR #105                          | `OPEN / CI_GREEN / REVIEW_REQUIRED`                  | head `012093274da742eddd8178b4448d105e6b27c4ac`，base `main`；CI run `34240182684` 的 `check` 与 `macos-electron` 均 success；尚无独立 review，CI 绿不替代内容审查                                                                                                                                                                                                                                                         |
 | `main` CI 基线（2026-09-09）     | `BLOCKED / UPSTREAM_ADVISORY`                        | `origin/main` 仍锁定 `js-yaml@4.3.1`，其 `pnpm audit --prod --audit-level high` 受 `GHSA-2883-xcg3-v3hh` 阻塞；修复在独立 PR #107（`js-yaml@4.3.2`），其后 CR-ARCH #109 与 SV2 #110 的 Context Runtime / Electron workflows 已分别通过。#107 合并前，不能把 `main` 的旧绿灯 run 当作当前基线；修复仍与研究证据 PR 分离                                                                                                     |
