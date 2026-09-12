@@ -31,7 +31,8 @@ F0 contract structure    MERGED / ACCEPTED
 F0 numerical freeze      MERGED / ACCEPTED
 F0 executable contract   FROZEN / LIVE_BINDING_REVIEW_PENDING
 F0 implementation        IMPLEMENTED / LIVE_BINDING_FAKE_FETCH_PASS / NO_PROVIDER
-F0 owner authorization   REAUTHORIZATION_REQUIRED
+F0 live execution        COMPLETED / F0_FEASIBILITY_NO_GO
+F0 owner authorization   CONSUMED / STUDY_RETIRED
 Old study resume/reuse    FORBIDDEN
 Wave B / productization   NO_GO
 ```
@@ -85,6 +86,11 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
   credential read 前拒绝。新 live binding 的 exact revision 为 `c38785ada3573c2cc7a3927fd53c6670142eb537`，surface hash 为
   `587e4ec6cd7532ff405cb18214215f15d8cd7b0e90a8a58a6220336e82f5eeff`，合同 hash 为
   `a564ae3f3102678142d7a67c3e0a33f238c22d3221784d7926cc2b44d8349122`；真实 F0 仍等待 live binding review 和重新授权。
+- F0 真实 Native-only study `c1-f0-20260912-41753674` 已按新 binding 完成 32/32 run：513 次 Provider/network
+  request、717 次 tool execution，VALIDITY/PRECISION 通过，FEASIBILITY 未通过，最终为 `F0_FEASIBILITY_NO_GO`。
+  `c1-t1-localized-distractor-v1` 为 14/16 end-to-end success（下界 0.6562），`c1-t2-multi-file-migration-v1`
+  为 4/16（下界 0.0903），并有 10/16 budget exhaustion；该结果只更新 execution feasibility，不支持 Runtime
+  effect 或 E1 结论。原始 artifact 与不可变绑定见 [F0 真实执行报告](../verification/cspv-c1-f0-live-execution-2026-09-12.zh-CN.md)。
 - 已裁定并本地修复（零 Provider）：SV1 暴露“响应已返回但诊断提前终止导致 `RESPONSE_RECEIVED`/`RESPONSE_RECORDED`
   未持久化”的证据缺口——`checkpoints.jsonl` 只剩 1 条许可、`permitsWithoutRecordedResponse=1`，该次响应的
   tool-request 数与 usage 结构性缺失。修复提交 `cf0d45b47ffb1d35f1630e993675b50c53777455`：先让驱动落盘已知响应，
@@ -150,6 +156,7 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 [F0 Execution Feasibility Contract 冻结准备](../verification/cspv-c1-f0-execution-feasibility-contract-2026-09-12.zh-CN.md) ·
 [F0 Native-only Runner 验证](../verification/cspv-c1-f0-execution-runner-2026-09-12.zh-CN.md) ·
 [F0 Authorized Live Binding 验证](../verification/cspv-c1-f0-live-binding-2026-09-12.zh-CN.md) ·
+[F0 真实执行报告](../verification/cspv-c1-f0-live-execution-2026-09-12.zh-CN.md) ·
 [后续实施验证](../verification/cspv-c1-followup-execution-2026-09-08.zh-CN.md) ·
 [机制 Canary 计划](../plan/cspv-mechanism-canary-2026-09-08.zh-CN.md) ·
 [本轮执行计划](../plan/cspv-c1-next-execution-2026-09-08.zh-CN.md) ·
@@ -186,6 +193,7 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 | E0 live attempt `9cb656f5`       | `TERMINAL / NO_GO / CONSUMED`                        | 新绑定一次性授权运行；2/8 legs attempted、1 Native completed、1 Runtime budget exhausted、6 blocked；37 response、78 tool executions、0 lifecycle eligibility、0 dose；不输出 treatment effect                                                                                                                                                                                                                             |
 | F0 numerical freeze              | `MERGED / ACCEPTED`                                  | #119 数值提案已合并；两个 frozen task、16 runs/task、32 runs/study、单侧 95% Clopper–Pearson 和 per-task feasibility lines 已固定；不代表 F0 已执行                                                                                                                                                                                                                                                                        |
 | F0 executable contract           | `FROZEN / LIVE_BINDING_REVIEW_PENDING`               | [F0 合同冻结准备记录](../verification/cspv-c1-f0-execution-feasibility-contract-2026-09-12.zh-CN.md)；机器可读合同 hash `a564ae3f3102678142d7a67c3e0a33f238c22d3221784d7926cc2b44d8349122`；`codeRevision=c38785ada3573c2cc7a3927fd53c6670142eb537`，`executionSurfaceHash=587e4ec6cd7532ff405cb18214215f15d8cd7b0e90a8a58a6220336e82f5eeff`                                                                               |
+| F0 live execution                | `COMPLETED / F0_FEASIBILITY_NO_GO / CONSUMED`        | study `c1-f0-20260912-41753674`；32/32 run，513 Provider/network requests，717 tool executions；VALIDITY/PRECISION PASS，task-level FEASIBILITY FAIL；[真实执行报告](../verification/cspv-c1-f0-live-execution-2026-09-12.zh-CN.md)                                                                                                                                                                                        |
 | SV1 响应证据缺口                 | `ADJUDICATED / FIXED (local)`                        | 原件仅 1×`OUTBOUND_PERMITTED`、`permitsWithoutRecordedResponse=1`、`responseStatus=NOT_RECORDED`；根因是 canary 在 `responseSource.next` 内抛错早于驱动落盘；修复 `cf0d45b47ffb1d35f1630e993675b50c53777455`；历史原件不回填，该次 usage 与 tool-request 数保持未知                                                                                                                                                        |
 | PR #105                          | `OPEN / CI_GREEN / REVIEW_REQUIRED`                  | head `012093274da742eddd8178b4448d105e6b27c4ac`，base `main`；CI run `34240182684` 的 `check` 与 `macos-electron` 均 success；尚无独立 review，CI 绿不替代内容审查                                                                                                                                                                                                                                                         |
 | `main` CI 基线（2026-09-09）     | `BLOCKED / UPSTREAM_ADVISORY`                        | `origin/main` 仍锁定 `js-yaml@4.3.1`，其 `pnpm audit --prod --audit-level high` 受 `GHSA-2883-xcg3-v3hh` 阻塞；修复在独立 PR #107（`js-yaml@4.3.2`），其后 CR-ARCH #109 与 SV2 #110 的 Context Runtime / Electron workflows 已分别通过。#107 合并前，不能把 `main` 的旧绿灯 run 当作当前基线；修复仍与研究证据 PR 分离                                                                                                     |
