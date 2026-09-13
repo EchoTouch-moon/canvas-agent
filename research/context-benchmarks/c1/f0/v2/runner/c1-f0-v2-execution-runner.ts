@@ -1220,11 +1220,15 @@ export async function computeC1F0V2ExecutionBinding(repoRoot: string): Promise<{
   readonly executionRevision: string
   readonly executionSurfaceHash: string
 }> {
-  const revisionResult = await runProcess('git', ['rev-parse', 'HEAD'], {
-    cwd: repoRoot,
-    timeoutMs: 30_000,
-    env: buildSanitizedChildEnvironment()
-  })
+  const revisionResult = await runProcess(
+    'git',
+    ['log', '-1', '--format=%H', '--', ...C1_F0_V2_EXECUTION_SURFACE_PATHS],
+    {
+      cwd: repoRoot,
+      timeoutMs: 30_000,
+      env: buildSanitizedChildEnvironment()
+    }
+  )
   const revision = revisionResult.stdout.trim()
   if (
     revisionResult.exitCode !== 0 ||
