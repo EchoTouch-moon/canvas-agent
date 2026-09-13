@@ -2,7 +2,7 @@
 
 日期：2026-09-13（Asia/Shanghai）
 
-状态：IMPLEMENTED / CREDENTIAL_FREE_E2E_PASS / REBOUND_BINDING_REVIEW_REQUIRED / NO_PROVIDER
+状态：IMPLEMENTED / CREDENTIAL_FREE_E2E_PASS / REBOUND_BINDING_REVIEW_PASS / NO_PROVIDER
 
 本记录对应冻结的 F0-v2 candidate contract 和独立 runner：
 research/context-benchmarks/c1/f0/v2/runner/c1-f0-v2-execution-runner.ts。
@@ -76,5 +76,6 @@ final-bound contract                rebound and locally validated; independent b
 owner authorization                 NO_GO
 ```
 
-本次 runner evidence correction 已产生新的 executable binding；旧的 `164a3e… / 7f540b…` 不再适用。只有独立
-binding review、fresh live identity 和 owner authorization 都完成后，才可进入 F0-v2 live。
+本次 runner evidence correction 已产生新的 executable binding；旧的 `164a3e… / 7f540b…` 不再适用。当前仅有
+credential-free fake runner；authorized-provider live response source 仍待单独实现和 review。只有 fresh live identity
+和 owner authorization 都完成后，才可进入 F0-v2 live。
