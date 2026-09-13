@@ -13,8 +13,8 @@ research/context-benchmarks/c1/f0/v2/runner/c1-f0-v2-execution-runner.ts。
 ```text
 contract                    = C1_F0_EXECUTION_FEASIBILITY_V2
 freezeCandidateRunContract  = 31663b2833ea8ecf46fdc1165dd69b87e12c4ce1999fd595307368448d0606a7
-executionRevision           = 467bafb0449f3c764a04dc75393bd7d3d702b865
-executionSurfaceHash        = 51bb30861320649d0d87a4d40a614b3c9a2c5fdb6f456f8cf6d001ce721b5844
+executionRevision           = e46a9484818a21deec27b578b53357f3608890ef
+executionSurfaceHash        = 750ebde473bd56a3778e66573da809f569225947716058cfd992ab61b4377608
 responseSource              = SCRIPTED_FAKE
 providerCalls / network     = 0 / 0
 task panel                  = same two F0-v1 tasks
