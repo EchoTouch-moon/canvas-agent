@@ -4,7 +4,7 @@
 
 状态：`DRAFT / PREPARED / PENDING_OWNER_AUTHORIZATION / ZERO_PROVIDER`
 
-本记录把已经通过独立 binding review 并合并的 F0-v2 final-bound binding 整理成授权草案。它不构成 owner
+本记录把已实现并通过 PR #131 review/合并的 F0-v2 live binding 整理成授权草案。它不构成 owner
 授权，不 claim 或 consume study identity，不读取 `STEP_PLAN_API_KEY`，也不执行 Provider。
 
 ## 授权边界
@@ -24,18 +24,18 @@
 Contract ID                         = C1_F0_EXECUTION_FEASIBILITY_V2
 Final-bound contract                = research/context-benchmarks/c1/f0/contracts/c1-f0-execution-feasibility-v2-final-bound.json
 Freeze candidate SHA-256            = 31663b2833ea8ecf46fdc1165dd69b87e12c4ce1999fd595307368448d0606a7
-Final-bound run-contract SHA-256    = 85b031207d8c3d7c3decafd9708db6a0d35238faba5949c2b657ce96ca9b4884
-Execution revision                  = 926be0a5e6eeecd08303a644a3858d61bb8212ba
-Execution surface SHA-256           = 9b600f7d20f6d543939881c9c92fd9badac55025d2982692bbc18dc2727b3974
+Final-bound run-contract SHA-256    = b340c987903318b0fed72de26007cc4a29d88cae0ac51a399eaa33cd4c6ebdab
+Execution revision                  = c072af5c4fb3245a74e457a616d0c2b78ddd3f3d
+Execution surface SHA-256           = bde57600d2f57ab48210298bcaa0b58283fe003301f617aa506eacddb46f0ae2
 Enrollment manifest                 = research/context-benchmarks/c1/manifests/c1-effectiveness-v1.json
 Enrollment manifest SHA-256         = 2bfcad11078758c21a9ca799357553d08beb08065cea2efd179eade7e0a04e38
 Provider config SHA-256             = bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a
 Node range                          = >=24.0.0 <25.0.0
-Binding correction merge commit    = 8b98fb1c25d2b9ab0322799adf4e900c0f8e3843
-Binding correction PR               = #129
+Live binding merge commit          = eb060c37e7bf74038c279a858c98523f7d322467
+Live binding PR                    = #131
 ```
 
-`926be0a…` 是由 executable surface 解析出的 revision；后续文档、合同数据和授权准备记录不改变它。`31663b…`
+`c072af5…` 是由 executable surface 解析出的 revision；后续文档、合同数据和授权准备记录不改变它。`31663b…`
 是不可变的 research freeze candidate hash，不能被 final binding 替换。
 
 ## Provider binding
@@ -51,24 +51,26 @@ Runtime intervention                = DISABLED
 Response source required for live   = AUTHORIZED_PROVIDER
 ```
 
-当前已合并的 v2 runner 的执行模式仍是：
+credential-free runner 仍保持独立，当前已合并的 live runner 另外提供 authorized-provider 模式：
 
 ```text
 C1_F0_V2_RUNNER_MODE               = CREDENTIAL_FREE_NATIVE_ONLY
 responseSource                      = SCRIPTED_FAKE
 providerCalls / networkRequests     = 0 / 0
+
+C1_F0_V2_LIVE_BINDING_MODE         = AUTHORIZED_PROVIDER_NATIVE_ONLY
+responseSource                      = AUTHORIZED_PROVIDER
 ```
 
-因此这份草案**不能**被用于切换 fake runner 到真实 Provider。若要进行 live execution，必须先有明确的
-authorized-provider response source、usage/evidence 接线和独立 review；在该前置条件完成前，Provider execution
-保持 `NO_GO`。
+因此 live execution 已有独立 wiring，但仍必须使用 exact final binding、fresh identity 和 owner sign-off；这份草案
+本身不自动授权 Provider。
 
 ## Fresh study identity 候选
 
 ```text
-Candidate studyId                   = c1-f0-v2-20260913-3b9ba3db
+Candidate studyId                   = c1-f0-v2-20260913-de68f062
 Identity status                     = NOT_CLAIMED / NOT_RESERVED
-Derivation                          = SHA-256(final-bound contract SHA + date + authorization-prep-v1)[0:8]
+Derivation                          = SHA-256(final-bound contract SHA + date + authorization-prep-v2)[0:8]
 ```
 
 该候选值只写入本准备记录，不创建报告目录，不写入 live output store，也不消耗 identity。准备时已检查仓库文本与
@@ -148,18 +150,18 @@ preserve durable evidence
 | --- | --- |
 | Frozen research semantics | `PASS / IMMUTABLE` |
 | Freeze candidate hash | `PASS / 31663b…` |
-| Final-bound contract | `PASS / 85b031…` |
-| Actual surface ↔ contract binding | `PASS / 926be0a… + 9b600f7…` |
+| Final-bound contract | `PASS / b340c9…` |
+| Actual surface ↔ contract binding | `PASS / c072af5… + bde57600…` |
 | PR #129 independent review | `APPROVED` |
 | PR #129 merge + post-merge CI | `PASS / 8b98fb1… / 34745499654` |
+| PR #131 live binding review + merge | `APPROVED / MERGED / eb060c3…` |
 | PR #128 final-binding stack | `OPEN / DRAFT / MERGE PENDING` |
 | Credential-free E2E | `PASS / ZERO_PROVIDER` |
-| Authorized-provider live response source | `NOT READY / NO_GO` |
+| Authorized-provider live response source | `IMPLEMENTED / FAKE_FETCH_E2E_PASS` |
 | Candidate identity | `NOT_CLAIMED / NOT_RESERVED` |
 | Owner decision | `PENDING EXPLICIT SIGN-OFF` |
 
-在 `PR #128` stack 收口、live response source 完成并独立 review、以及 owner 明确签署前，不得 claim identity 或发出
-第一条 Provider request。
+在 `PR #128` stack 收口、exact final binding 复核和 owner 明确签署前，不得 claim identity 或发出第一条 Provider request。
 
 ## Owner sign-off template（未授权）
 
@@ -170,12 +172,12 @@ Authorization owner:              <owner to sign>
 Authorization timestamp (UTC):   <set only at sign-off>
 Contract ID:                      C1_F0_EXECUTION_FEASIBILITY_V2
 Freeze candidate SHA-256:          31663b2833ea8ecf46fdc1165dd69b87e12c4ce1999fd595307368448d0606a7
-Final-bound run-contract SHA-256:  85b031207d8c3d7c3decafd9708db6a0d35238faba5949c2b657ce96ca9b4884
-Execution revision:               926be0a5e6eeecd08303a644a3858d61bb8212ba
-Execution surface SHA-256:        9b600f7d20f6d543939881c9c92fd9badac55025d2982692bbc18dc2727b3974
+Final-bound run-contract SHA-256:  b340c987903318b0fed72de26007cc4a29d88cae0ac51a399eaa33cd4c6ebdab
+Execution revision:               c072af5c4fb3245a74e457a616d0c2b78ddd3f3d
+Execution surface SHA-256:        bde57600d2f57ab48210298bcaa0b58283fe003301f617aa506eacddb46f0ae2
 Enrollment manifest SHA-256:      2bfcad11078758c21a9ca799357553d08beb08065cea2efd179eade7e0a04e38
 Provider config SHA-256:          bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a
-Study identity:                   c1-f0-v2-20260913-3b9ba3db
+Study identity:                   c1-f0-v2-20260913-de68f062
 Identity status:                  NOT_CLAIMED / NOT_RESERVED
 Provider/model:                   step-plan / step-3.7-flash
 Endpoint:                         https://api.stepfun.com/step_plan/v1/chat/completions
@@ -187,7 +189,7 @@ Budgets:                           24/96/600000 per run; 768/3072/19200000 study
 Unknown policy:                   U=0.125 / M=14 / UNKNOWN is not failure
 Recovery:                          max identical attempts=2; corrected retry model-emitted; no implicit retry
 Resume/retry/reuse/rebind:        FORBIDDEN
-Provider execution:               NO_GO UNTIL LIVE SOURCE REVIEW + EXPLICIT OWNER SIGN-OFF
+Provider execution:               NO_GO UNTIL EXACT STACK + EXPLICIT OWNER SIGN-OFF
 ```
 
 该 block 只有在所有 binding 仍与本记录一致、fresh identity 仍未 claim、live source 已独立 review 后，才可由 owner
@@ -196,9 +198,7 @@ Provider execution:               NO_GO UNTIL LIVE SOURCE REVIEW + EXPLICIT OWNE
 ## 下一步
 
 1. 收口并合并 `PR #128`，或对包含 exact final-bound contract 的执行 checkout 完成一次新的独立确认；
-2. 单独实现并审查 authorized-provider response source、真实 usage 与 live evidence path；
-3. 若 live source 改变 executable surface，重新计算 execution revision、surface hash 和 final-bound hash；
-4. 重新核对候选 identity 未 claim、报告路径为空、预算与合同逐项相等；
-5. 由 owner 明确签署后，才允许原子 claim identity 和执行一次 F0-v2 live study。
+2. 重新核对候选 identity `c1-f0-v2-20260913-de68f062` 未 claim、报告路径为空、预算与合同逐项相等；
+3. 由 owner 明确签署后，才允许原子 claim identity 和执行一次 F0-v2 live study。
 
 在这些步骤完成前，F0-v2 live、T0 和 E1 继续为 `NO_GO / HOLD`。

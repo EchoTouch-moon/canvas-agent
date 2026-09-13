@@ -2,7 +2,7 @@
 
 日期：2026-09-13（Asia/Shanghai）
 
-状态：IMPLEMENTED / CREDENTIAL_FREE_E2E_PASS / REBOUND_BINDING_REVIEW_PASS / NO_PROVIDER
+状态：IMPLEMENTED / CREDENTIAL_FREE_E2E_PASS / LIVE_REBOUND_BINDING_REVIEW_PASS / NO_PROVIDER
 
 本记录对应冻结的 F0-v2 candidate contract 和独立 runner：
 research/context-benchmarks/c1/f0/v2/runner/c1-f0-v2-execution-runner.ts。
@@ -13,8 +13,8 @@ research/context-benchmarks/c1/f0/v2/runner/c1-f0-v2-execution-runner.ts。
 ```text
 contract                    = C1_F0_EXECUTION_FEASIBILITY_V2
 freezeCandidateRunContract  = 31663b2833ea8ecf46fdc1165dd69b87e12c4ce1999fd595307368448d0606a7
-executionRevision           = 926be0a5e6eeecd08303a644a3858d61bb8212ba
-executionSurfaceHash        = 9b600f7d20f6d543939881c9c92fd9badac55025d2982692bbc18dc2727b3974
+executionRevision           = c072af5c4fb3245a74e457a616d0c2b78ddd3f3d
+executionSurfaceHash        = bde57600d2f57ab48210298bcaa0b58283fe003301f617aa506eacddb46f0ae2
 responseSource              = SCRIPTED_FAKE
 providerCalls / network     = 0 / 0
 task panel                  = same two F0-v1 tasks
@@ -72,10 +72,9 @@ Node 24 runner integration tests   9/9 passed
 Node 24 benchmark suite             36 files / 279 tests passed
 headless core gate                 audit / format / lint / typecheck / test / build passed
 Provider / network                  0 / 0
-final-bound contract                rebound and locally validated; independent binding review required
+final-bound contract                rebound for live surface; independent binding review required
 owner authorization                 NO_GO
 ```
 
-本次 runner evidence correction 已产生新的 executable binding；旧的 `164a3e… / 7f540b…` 不再适用。当前仅有
-credential-free fake runner；authorized-provider live response source 仍待单独实现和 review。只有 fresh live identity
-和 owner authorization 都完成后，才可进入 F0-v2 live。
+本次 runner evidence correction 已产生新的 executable binding；旧的 `164a3e… / 7f540b…` 不再适用。PR #131
+已完成 review/merge；仍需 fresh live identity 和 owner authorization 才可进入 F0-v2 live。
