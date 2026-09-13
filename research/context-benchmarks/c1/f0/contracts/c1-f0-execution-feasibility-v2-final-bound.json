@@ -98,8 +98,8 @@
     "model": "step-3.7-flash",
     "endpoint": "https://api.stepfun.com/step_plan/v1/chat/completions",
     "nodeRange": ">=24.0.0 <25.0.0",
-    "codeRevision": "af2a9331c0991c53aee8bc7b9b96df3f6b5a34aa",
-    "executionSurfaceHash": "d92d2b517ea1424797c920d3339cae8d5413bdd0c44e33978404dc0e93ec7068",
+    "codeRevision": "4218be167ea6f1f10434fd01d498cdf06e6156bc",
+    "executionSurfaceHash": "f8ef241c343fdd7341a3572caf780f7cc447906f58ea80fe886749cac4028731",
     "credentialEnv": "STEP_PLAN_API_KEY",
     "credentialPersistence": "MEMORY_ONLY",
     "fallback": "NONE",
@@ -305,7 +305,7 @@
     "credentialFreeE2ERequired": true,
     "providerExecution": "NO_GO_UNTIL_OWNER_AUTHORIZATION"
   },
-  "runContractSha256": "83b14dc4fe4cd710a9e2fe2253ab7c4b9aec33162705d04d9dc7f8c0c46604e7",
+  "runContractSha256": "5fd83c5b7651551541025f09752350c77aa86843e3138c643b07f786e7229677",
   "freezeCandidateRunContractSha256": "31663b2833ea8ecf46fdc1165dd69b87e12c4ce1999fd595307368448d0606a7",
-  "finalBoundRunContractSha256": "83b14dc4fe4cd710a9e2fe2253ab7c4b9aec33162705d04d9dc7f8c0c46604e7"
+  "finalBoundRunContractSha256": "5fd83c5b7651551541025f09752350c77aa86843e3138c643b07f786e7229677"
 }
