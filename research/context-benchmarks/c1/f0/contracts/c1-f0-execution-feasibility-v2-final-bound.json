@@ -24,10 +24,7 @@
     "runOrder": {
       "algorithmId": "C1_F0_DETERMINISTIC_BALANCED_ALTERNATION_V1",
       "seed": "c1-f0-v2-task-order-20260913",
-      "pattern": [
-        "c1-t1-localized-distractor-v1",
-        "c1-t2-multi-file-migration-v1"
-      ],
+      "pattern": ["c1-t1-localized-distractor-v1", "c1-t2-multi-file-migration-v1"],
       "repetitions": 16
     },
     "confidence": {
@@ -41,27 +38,19 @@
       "taskId": "c1-t1-localized-distractor-v1",
       "stratum": "localized_investigation_distractors",
       "fixturePath": "research/context-benchmarks/corpus/L3-noisy-bug-hunt/fixture",
-      "expectedWritablePaths": [
-        "src/scheduler/paginator.js"
-      ],
+      "expectedWritablePaths": ["src/scheduler/paginator.js"],
       "fixtureTreeObjectId": "860da37c32e15ba749b106a0187dde5a36a161a9",
       "fixtureContentSha256": "09d921c46e6a7c524d8992f7ec87753efbcc69e5bd1470d5873f53f72927d8d5",
       "promptSha256": "7ede05ac9f2f5d77771ad72ca2b83d652bf26b8dcc61dbba03aa4f6978068615",
       "objectiveOracle": {
         "command": "node",
-        "args": [
-          "--test",
-          "test/pagination.test.js"
-        ],
+        "args": ["--test", "test/pagination.test.js"],
         "expectedExitCode": 0,
         "timeoutMs": 30000
       },
       "regressionOracle": {
         "command": "node",
-        "args": [
-          "--test",
-          "test/regression.test.js"
-        ],
+        "args": ["--test", "test/regression.test.js"],
         "expectedExitCode": 0,
         "timeoutMs": 30000
       }
@@ -86,19 +75,13 @@
       "promptSha256": "1c09fb86ab5e4cfde9a9cf1ba05282b5007081b5c468df2fe3c9b44eff084a03",
       "objectiveOracle": {
         "command": "node",
-        "args": [
-          "--test",
-          "test/format-price.test.js"
-        ],
+        "args": ["--test", "test/format-price.test.js"],
         "expectedExitCode": 0,
         "timeoutMs": 30000
       },
       "regressionOracle": {
         "command": "node",
-        "args": [
-          "--test",
-          "test/regression.test.js"
-        ],
+        "args": ["--test", "test/regression.test.js"],
         "expectedExitCode": 0,
         "timeoutMs": 30000
       }
@@ -131,17 +114,11 @@
       "maxIdenticalFailureAttempts": 2,
       "requestSignature": "SHA256(toolName + NUL + canonicalJson(semanticArguments))",
       "canonicalization": "JSON_OBJECT_KEYS_SORTED_RECURSIVELY",
-      "streakResetOn": [
-        "DIFFERENT_CANONICAL_REQUEST",
-        "SUCCESS"
-      ],
+      "streakResetOn": ["DIFFERENT_CANONICAL_REQUEST", "SUCCESS"],
       "thirdIdenticalAction": "REPEATED_FAILURE_BLOCKED",
       "implicitRetry": "FORBIDDEN",
       "correctedRetry": "MODEL_EMITTED_ONLY",
-      "linkageFields": [
-        "recoveryOfToolCallId",
-        "recoveryAttemptOrdinal"
-      ]
+      "linkageFields": ["recoveryOfToolCallId", "recoveryAttemptOrdinal"]
     },
     "operationalRecoveryDefinition": "A successful tool execution linked by recoveryOfToolCallId to a preceding failed execution; this does not claim semantic task recovery."
   },
@@ -169,34 +146,11 @@
       "TOOL_BOUNDARY_FAILURE",
       "BLOCKED"
     ],
-    "oracleStatus": [
-      "PASS",
-      "FAIL",
-      "UNKNOWN",
-      "NOT_ADJUDICABLE"
-    ],
-    "evidenceStatus": [
-      "COMPLETE",
-      "PARTIAL",
-      "INVALID"
-    ],
-    "provenanceStatus": [
-      "COMPLETE",
-      "PARTIAL",
-      "INVALID"
-    ],
-    "recoveryStatus": [
-      "NONE",
-      "RECOVERED",
-      "UNRECOVERED",
-      "BLOCKED"
-    ],
-    "sideEffectAttributionStatus": [
-      "NOT_APPLICABLE",
-      "ATTRIBUTED",
-      "UNKNOWN",
-      "CONFLICT"
-    ],
+    "oracleStatus": ["PASS", "FAIL", "UNKNOWN", "NOT_ADJUDICABLE"],
+    "evidenceStatus": ["COMPLETE", "PARTIAL", "INVALID"],
+    "provenanceStatus": ["COMPLETE", "PARTIAL", "INVALID"],
+    "recoveryStatus": ["NONE", "RECOVERED", "UNRECOVERED", "BLOCKED"],
+    "sideEffectAttributionStatus": ["NOT_APPLICABLE", "ATTRIBUTED", "UNKNOWN", "CONFLICT"],
     "runDisposition": [
       "FEASIBILITY_SUCCESS",
       "FEASIBILITY_FAILURE",
@@ -231,11 +185,7 @@
       "CLEANUP_LIVE_SANDBOX"
     ],
     "oracleTiming": "AFTER_POST_RUN_SNAPSHOT_BEFORE_CLEANUP",
-    "modelVisibleProvenanceFields": [
-      "failureClass",
-      "recoveryAction",
-      "consecutiveFailureStreak"
-    ],
+    "modelVisibleProvenanceFields": ["failureClass", "recoveryAction", "consecutiveFailureStreak"],
     "durableProvenanceFields": [
       "toolRequestId",
       "ordinal",
