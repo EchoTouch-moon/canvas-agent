@@ -36,7 +36,8 @@ F0-RCA hardening         MERGED / PROSPECTIVE / ZERO_PROVIDER / SEMANTICS_REVISI
 F0-v2 contract design    PASS / FROZEN_FOR_IMPLEMENTATION / NO_PROVIDER
 F0-v2 machine contract  FROZEN / FROZEN_FOR_IMPLEMENTATION / NO_PROVIDER
 F0-v2 runner integration IMPLEMENTED / CREDENTIAL_FREE_E2E_PASS / REBOUND / NO_PROVIDER
-F0-v2 final-bound contract FINAL_BOUND_REBOUND / BINDING_REVIEW_REQUIRED / NO_PROVIDER
+F0-v2 final-bound contract FINAL_BOUND_REBOUND / BINDING_REVIEW_PASS / PR_#129_MERGED / NO_PROVIDER
+F0-v2 authorization prep DRAFT / PENDING_OWNER_AUTHORIZATION / LIVE_SOURCE_REQUIRED / NO_PROVIDER
 Old study resume/reuse    FORBIDDEN
 Wave B / productization   NO_GO
 ```
@@ -160,6 +161,7 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 [F0-v2 Contract Freeze Review 准备](../verification/cspv-c1-f0-v2-contract-freeze-review-2026-09-13.zh-CN.md) ·
 [F0-v2 Runner Integration 验证](../verification/cspv-c1-f0-v2-runner-integration-2026-09-13.zh-CN.md) ·
 [F0-v2 Final-bound Contract 验证](../verification/cspv-c1-f0-v2-final-binding-2026-09-13.zh-CN.md) ·
+[F0-v2 Owner Authorization 准备](../plan/cspv-c1-f0-v2-owner-authorization-prep-2026-09-13.zh-CN.md) ·
 [后续实施验证](../verification/cspv-c1-followup-execution-2026-09-08.zh-CN.md) ·
 [机制 Canary 计划](../plan/cspv-mechanism-canary-2026-09-08.zh-CN.md) ·
 [本轮执行计划](../plan/cspv-c1-next-execution-2026-09-08.zh-CN.md) ·
@@ -203,7 +205,8 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 | F0-v2 contract design            | `PASS / FROZEN_FOR_IMPLEMENTATION / NO_PROVIDER`               | 保持 F0-v1 task、prompt、Provider、24-call 预算和分层 gate；post-run snapshot→adjudication→cleanup、UNKNOWN 分层与 hardening recovery 语义均已闭合；[设计提案](../plan/c1-f0-v2-recovery-validation-design-2026-09-13.zh-CN.md) |
 | F0-v2 machine contract           | `FROZEN / FROZEN_FOR_IMPLEMENTATION / NO_PROVIDER`             | `C1_F0_EXECUTION_FEASIBILITY_V2` 的 freeze-candidate hash 为 `31663b2833ea8ecf46fdc1165dd69b87e12c4ce1999fd595307368448d0606a7`；完整 evidence/outcome/firewall/artifact semantics 已 exact-bind；phase-aware candidate/final-bound validator 已冻结；execution binding 仅允许在实现后重绑，study identity 未创建；[冻结准备记录](../verification/cspv-c1-f0-v2-contract-freeze-review-2026-09-13.zh-CN.md) |
 | F0-v2 runner integration         | `IMPLEMENTED / CREDENTIAL_FREE_E2E_PASS / REBOUND / NO_PROVIDER` | 独立 Native-only runner 已接入 hardening adapter、逐工具 provenance、post-run snapshot→pre-cleanup adjudication→cleanup→final disposition、UNKNOWN 与 ordinary/shared failure 场景；当前 executionRevision=`926be0a5e6eeecd08303a644a3858d61bb8212ba`、surfaceHash=`9b600f7d20f6d543939881c9c92fd9badac55025d2982692bbc18dc2727b3974`；final contract 数据不进入 surface；[验证记录](../verification/cspv-c1-f0-v2-runner-integration-2026-09-13.zh-CN.md) |
-| F0-v2 final-bound contract       | `FINAL_BOUND_REBOUND / BINDING_REVIEW_REQUIRED / NO_PROVIDER` | runner evidence correction 后已重新绑定 exact revision/surface；candidate hash=`31663b…`，final hash=`85b031207d8c3d7c3decafd9708db6a0d35238faba5949c2b657ce96ca9b4884`；现场 binding recomputation 回归已通过，study identity 未创建，owner authorization 仍 NO_GO；[验证记录](../verification/cspv-c1-f0-v2-final-binding-2026-09-13.zh-CN.md) |
+| F0-v2 final-bound contract       | `FINAL_BOUND_REBOUND / BINDING_REVIEW_PASS / PR_#129_MERGED / NO_PROVIDER` | runner evidence correction 后已重新绑定 exact revision/surface；candidate hash=`31663b…`，final hash=`85b031207d8c3d7c3decafd9708db6a0d35238faba5949c2b657ce96ca9b4884`；现场 binding recomputation 回归已通过，study identity 未创建；[验证记录](../verification/cspv-c1-f0-v2-final-binding-2026-09-13.zh-CN.md) |
+| F0-v2 authorization prep        | `DRAFT / PENDING_OWNER_AUTHORIZATION / LIVE_SOURCE_REQUIRED / NO_PROVIDER` | 候选 studyId=`c1-f0-v2-20260913-3b9ba3db`，当前仅记录为 NOT_CLAIMED / NOT_RESERVED；授权草案绑定 final contract、execution revision/surface、manifest、provider hash 与预算，但当前 runner 仍为 credential-free scripted fake，authorized-provider response source 尚未独立实现；[授权准备记录](../plan/cspv-c1-f0-v2-owner-authorization-prep-2026-09-13.zh-CN.md) |
 | SV1 响应证据缺口                 | `ADJUDICATED / FIXED (local)`                                   | 原件仅 1×`OUTBOUND_PERMITTED`、`permitsWithoutRecordedResponse=1`、`responseStatus=NOT_RECORDED`；根因是 canary 在 `responseSource.next` 内抛错早于驱动落盘；修复 `cf0d45b47ffb1d35f1630e993675b50c53777455`；历史原件不回填，该次 usage 与 tool-request 数保持未知                                                                                                                                                                                                                   |
 | PR #105                          | `OPEN / CI_GREEN / REVIEW_REQUIRED`                             | head `012093274da742eddd8178b4448d105e6b27c4ac`，base `main`；CI run `34240182684` 的 `check` 与 `macos-electron` 均 success；尚无独立 review，CI 绿不替代内容审查                                                                                                                                                                                                                                                                                                                    |
 | `main` CI 基线（2026-09-09）     | `BLOCKED / UPSTREAM_ADVISORY`                                   | `origin/main` 仍锁定 `js-yaml@4.3.1`，其 `pnpm audit --prod --audit-level high` 受 `GHSA-2883-xcg3-v3hh` 阻塞；修复在独立 PR #107（`js-yaml@4.3.2`），其后 CR-ARCH #109 与 SV2 #110 的 Context Runtime / Electron workflows 已分别通过。#107 合并前，不能把 `main` 的旧绿灯 run 当作当前基线；修复仍与研究证据 PR 分离                                                                                                                                                                |

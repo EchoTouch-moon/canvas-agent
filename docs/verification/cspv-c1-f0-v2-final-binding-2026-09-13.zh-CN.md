@@ -2,7 +2,7 @@
 
 日期：2026-09-13（Asia/Shanghai）
 
-状态：FINAL_BOUND_REBOUND / BINDING_REVIEW_REQUIRED / NO_PROVIDER
+状态：FINAL_BOUND_REBOUND / BINDING_REVIEW_PASS / PR_#129_MERGED / NO_PROVIDER
 
 本记录对应 research/context-benchmarks/c1/f0/contracts/c1-f0-execution-feasibility-v2-final-bound.json。
 它只形成不可变 binding candidate，不创建 study identity，不读取 credential，不执行 Provider。
@@ -41,7 +41,7 @@ Node 24 合同与 runner 回归、full benchmark 和 headless core gate 均通�
 
 ## 下一步
 
-1. 对本次 rebound final-bound binding 完成独立 review；
-2. 保持 final-bound contract 与 runner surface 不变，生成 owner authorization record；
+1. 保持 final-bound contract 与 runner surface 不变，准备 owner authorization record；
+2. 先完成 authorized-provider response source、真实 usage/evidence path 的实现与独立 review；
 3. 仅在 fresh never-claimed studyId、精确 hashes、预算和 safety policy 全部绑定后，等待 owner authorization；
 4. 授权前不得运行 F0-v2 live。
