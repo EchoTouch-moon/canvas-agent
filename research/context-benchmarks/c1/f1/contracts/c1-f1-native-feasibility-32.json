@@ -308,10 +308,10 @@
     "credentialFreeE2ERequired": true,
     "providerExecution": "NO_GO_UNTIL_OWNER_AUTHORIZATION"
   },
-  "runContractSha256": "1271765be7019d5d49116fef1e683b7408f3a34abf69222d6ac44d0b43895c58",
+  "runContractSha256": "5dbbd75d040b91152d4cbe7c16ee49e79147988384a402cbce740a9a7f9ce868",
   "surfaceEquivalenceWitness": {
     "schemaVersion": 1,
-    "mode": "PRE_BINDING_PER_PATH_CLASSIFICATION",
+    "mode": "PER_PATH_CLASSIFICATION",
     "anchorContractId": "C1_F0_EXECUTION_FEASIBILITY_V2",
     "anchorExecutionRevision": "6d0189a998772e8d9e379f8ec56bc7f429546a2a",
     "anchorExecutionSurfaceHash": "583f6c974c207eb3e338b89aa345ab1aadd894fb25d83455b06ee59af13fbe0a",
@@ -358,11 +358,18 @@
       "outcomes",
       "requiredArtifacts",
       "groundTruthFirewall",
-      "identityPolicy",
-      "terminationBehavior"
+      "budgets.perRun.maxToolRequests",
+      "budgets.perRun.maxWallClockMs",
+      "budgets.perRun.maxOutputTokensPerRequest",
+      "budgets.study.maxToolRequests",
+      "budgets.study.maxWallClockMs"
     ],
     "failClosedOn": ["OTHER_CHANGE", "MISSING_PATH", "UNRESOLVED_PATH"],
-    "witnessStatus": "REQUIRED_BEFORE_EXECUTION"
+    "phase": "PRE_BINDING",
+    "budgetOnlyProjectionSurfacePrefixes": ["research/context-benchmarks/c1/f1/runner/"],
+    "targetSurfacePaths": [],
+    "entries": [],
+    "witnessStatus": "PENDING_IMPLEMENTATION"
   },
   "frontier": {
     "pointBudget": 32,

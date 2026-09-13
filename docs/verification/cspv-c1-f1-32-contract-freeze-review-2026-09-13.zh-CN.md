@@ -13,7 +13,7 @@
 Contract ID                         = C1_F1_NATIVE_FEASIBILITY_32
 Contract path                       = research/context-benchmarks/c1/f1/contracts/c1-f1-native-feasibility-32.json
 runContractHashRole                 = FREEZE_CANDIDATE
-runContractSha256                   = 1271765be7019d5d49116fef1e683b7408f3a34abf69222d6ac44d0b43895c58
+runContractSha256                   = 5dbbd75d040b91152d4cbe7c16ee49e79147988384a402cbce740a9a7f9ce868
 executionBinding.codeRevision       = PENDING_F1_32_IMPLEMENTATION
 executionBinding.executionSurfaceHash = PENDING_F1_32_IMPLEMENTATION
 studyId                             = NOT_CREATED
@@ -42,9 +42,10 @@ anchor executionSurfaceHash   = 583f6c974c207eb3e338b89aa345ab1aadd894fb25d83455
 anchor runContractSha256      = 4120e8d4c5c029ce224fb1341989cdc208d96799f1c399e736ee77aa36ea0611
 ```
 
-`surfaceEquivalenceWitness` 预先冻结逐路径分类规则：只允许 `EXACT_UNCHANGED` 或 `BUDGET_ONLY_PROJECTION`。
-后者仅可出现在 per-run/study Provider ceiling 注入；缺失路径、无法回溯或任何 `OTHER_CHANGE` 都必须 fail closed。
-真正的 F1 runner surface witness 要在实现绑定阶段生成，不能在此候选合同中伪造。
+`surfaceEquivalenceWitness` 采用两阶段 schema。候选合同为 `PRE_BINDING`，只冻结 anchor、分类策略和空的
+target/entries；实现绑定阶段必须转为 `FINAL_BOUND`，写入实际 target binding 与逐路径 entries。分类只允许
+`EXACT_UNCHANGED` 或 `BUDGET_ONLY_PROJECTION`，后者仅可出现在 F1 budget plumbing；缺失路径、无法回溯、重复
+路径或任何 `OTHER_CHANGE` 都必须 fail closed。identity namespace 由合同自身单独冻结，不再冒充 surface exact match。
 
 ## Frontier 语义
 
@@ -63,7 +64,8 @@ budget-sensitive composite 失败且其它 validity/precision/evidence/t1/t2 非
 - candidate self-hash、32-call point、1024 study ceiling 与 identity 未创建；
 - F0-v2 historical anchor 与 surface witness；
 - 合法重算 self-hash 后的 study ceiling、outcome、surface witness drift fail closed；
-- candidate→final-bound 只允许填入 execution binding 与 phase/hash 字段。
+- candidate→final-bound 只允许填入 execution binding、phase/hash 字段和实际 surface witness evidence；witness target
+  binding 必须与 execution binding 双向一致。
 
 当前验证只使用 credential-free contract checks；没有读取 `.env`、创建 study identity 或发出 Provider/network 请求。
 后续顺序仍为：独立 contract review → credential-free runner → actual surface witness → final binding → fresh identity

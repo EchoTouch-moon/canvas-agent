@@ -12,7 +12,7 @@ export const C1_F1_NATIVE32_CONTRACT_ID = 'C1_F1_NATIVE_FEASIBILITY_32' as const
 export const C1_F1_NATIVE32_CONTRACT_SCHEMA_VERSION = 1 as const
 export const C1_F1_NATIVE32_PENDING_BINDING = 'PENDING_F1_32_IMPLEMENTATION' as const
 export const C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256 =
-  '1271765be7019d5d49116fef1e683b7408f3a34abf69222d6ac44d0b43895c58' as const
+  '5dbbd75d040b91152d4cbe7c16ee49e79147988384a402cbce740a9a7f9ce868' as const
 export const C1_F1_NATIVE32_PROVIDER_CONFIG_HASH =
   'bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a'
 export const C1_F1_NATIVE32_HISTORICAL_ANCHOR = Object.freeze({
@@ -140,9 +140,9 @@ function f0InheritedProjection(): JsonRecord {
   }
 }
 
-const F1_NATIVE32_SURFACE_WITNESS = Object.freeze({
+const F1_NATIVE32_SURFACE_WITNESS_POLICY = Object.freeze({
   schemaVersion: 1,
-  mode: 'PRE_BINDING_PER_PATH_CLASSIFICATION',
+  mode: 'PER_PATH_CLASSIFICATION',
   anchorContractId: C1_F1_NATIVE32_HISTORICAL_ANCHOR.contractId,
   anchorExecutionRevision: C1_F1_NATIVE32_HISTORICAL_ANCHOR.executionRevision,
   anchorExecutionSurfaceHash: C1_F1_NATIVE32_HISTORICAL_ANCHOR.executionSurfaceHash,
@@ -167,15 +167,12 @@ const F1_NATIVE32_SURFACE_WITNESS = Object.freeze({
     'package.json',
     'pnpm-lock.yaml'
   ],
-  targetExecutionBinding: {
-    codeRevision: C1_F1_NATIVE32_PENDING_BINDING,
-    executionSurfaceHash: C1_F1_NATIVE32_PENDING_BINDING
-  },
   allowedClassifications: ['EXACT_UNCHANGED', 'BUDGET_ONLY_PROJECTION'],
   budgetOnlyProjectionPaths: [
     'budgets.perRun.maxProviderRequests',
     'budgets.study.maxProviderRequests'
   ],
+  budgetOnlyProjectionSurfacePrefixes: ['research/context-benchmarks/c1/f1/runner/'],
   exactUnchangedDomains: [
     'taskPanel',
     'enrollmentBinding',
@@ -189,11 +186,25 @@ const F1_NATIVE32_SURFACE_WITNESS = Object.freeze({
     'outcomes',
     'requiredArtifacts',
     'groundTruthFirewall',
-    'identityPolicy',
-    'terminationBehavior'
+    'budgets.perRun.maxToolRequests',
+    'budgets.perRun.maxWallClockMs',
+    'budgets.perRun.maxOutputTokensPerRequest',
+    'budgets.study.maxToolRequests',
+    'budgets.study.maxWallClockMs'
   ],
-  failClosedOn: ['OTHER_CHANGE', 'MISSING_PATH', 'UNRESOLVED_PATH'],
-  witnessStatus: 'REQUIRED_BEFORE_EXECUTION'
+  failClosedOn: ['OTHER_CHANGE', 'MISSING_PATH', 'UNRESOLVED_PATH']
+} as const)
+
+const F1_NATIVE32_PRE_BINDING_SURFACE_WITNESS = Object.freeze({
+  ...F1_NATIVE32_SURFACE_WITNESS_POLICY,
+  phase: 'PRE_BINDING',
+  targetExecutionBinding: {
+    codeRevision: C1_F1_NATIVE32_PENDING_BINDING,
+    executionSurfaceHash: C1_F1_NATIVE32_PENDING_BINDING
+  },
+  targetSurfacePaths: [],
+  entries: [],
+  witnessStatus: 'PENDING_IMPLEMENTATION'
 } as const)
 
 const F1_NATIVE32_FRONTIER = Object.freeze({
@@ -375,10 +386,39 @@ export function assertC1F1Native32FreezeInvariants(raw: unknown): void {
     'budgets.study.networkRequestLimiter'
   )
 
+  const witness = record(root['surfaceEquivalenceWitness'], 'surfaceEquivalenceWitness')
   assertProjection(
-    root['surfaceEquivalenceWitness'],
-    F1_NATIVE32_SURFACE_WITNESS,
+    pick(witness, [
+      'schemaVersion',
+      'mode',
+      'anchorContractId',
+      'anchorExecutionRevision',
+      'anchorExecutionSurfaceHash',
+      'anchorSurfacePaths',
+      'allowedClassifications',
+      'budgetOnlyProjectionPaths',
+      'budgetOnlyProjectionSurfacePrefixes',
+      'exactUnchangedDomains',
+      'failClosedOn'
+    ]),
+    F1_NATIVE32_SURFACE_WITNESS_POLICY,
     'surfaceEquivalenceWitness'
+  )
+  exact(witness['phase'], 'PRE_BINDING', 'surfaceEquivalenceWitness.phase')
+  assertProjection(
+    witness['targetExecutionBinding'],
+    {
+      codeRevision: C1_F1_NATIVE32_PENDING_BINDING,
+      executionSurfaceHash: C1_F1_NATIVE32_PENDING_BINDING
+    },
+    'surfaceEquivalenceWitness.targetExecutionBinding'
+  )
+  exactArray(witness['targetSurfacePaths'], [], 'surfaceEquivalenceWitness.targetSurfacePaths')
+  exactArray(witness['entries'], [], 'surfaceEquivalenceWitness.entries')
+  exact(
+    witness['witnessStatus'],
+    'PENDING_IMPLEMENTATION',
+    'surfaceEquivalenceWitness.witnessStatus'
   )
   assertProjection(root['frontier'], F1_NATIVE32_FRONTIER, 'frontier')
 
@@ -411,6 +451,206 @@ export function assertC1F1Native32FreezeInvariants(raw: unknown): void {
   exact(identity['resume'], 'FORBIDDEN', 'identityPolicy.resume')
   exact(identity['reuse'], 'FORBIDDEN', 'identityPolicy.reuse')
   exactArray(identity['reservedPointIdentities'], [], 'identityPolicy.reservedPointIdentities')
+}
+
+function digest(value: unknown, path: string): string {
+  const candidate = string(value, path)
+  if (!/^[a-f0-9]{64}$/.test(candidate)) {
+    throw new C1F1Native32ContractError(path + ' must be a lowercase SHA-256 digest')
+  }
+  return candidate
+}
+
+function validateFinalBoundSurfaceWitness(root: JsonRecord): void {
+  const witness = record(root['surfaceEquivalenceWitness'], 'surfaceEquivalenceWitness')
+  assertProjection(
+    pick(witness, [
+      'schemaVersion',
+      'mode',
+      'anchorContractId',
+      'anchorExecutionRevision',
+      'anchorExecutionSurfaceHash',
+      'anchorSurfacePaths',
+      'allowedClassifications',
+      'budgetOnlyProjectionPaths',
+      'budgetOnlyProjectionSurfacePrefixes',
+      'exactUnchangedDomains',
+      'failClosedOn'
+    ]),
+    F1_NATIVE32_SURFACE_WITNESS_POLICY,
+    'surfaceEquivalenceWitness'
+  )
+  exact(witness['phase'], 'FINAL_BOUND', 'surfaceEquivalenceWitness.phase')
+  exact(witness['witnessStatus'], 'COMPLETE', 'surfaceEquivalenceWitness.witnessStatus')
+
+  const execution = record(root['executionBinding'], 'executionBinding')
+  const targetBinding = record(
+    witness['targetExecutionBinding'],
+    'surfaceEquivalenceWitness.targetExecutionBinding'
+  )
+  const codeRevision = string(execution['codeRevision'], 'executionBinding.codeRevision')
+  const executionSurfaceHash = digest(
+    execution['executionSurfaceHash'],
+    'executionBinding.executionSurfaceHash'
+  )
+  exact(
+    targetBinding['codeRevision'],
+    codeRevision,
+    'surfaceEquivalenceWitness.targetExecutionBinding.codeRevision'
+  )
+  exact(
+    targetBinding['executionSurfaceHash'],
+    executionSurfaceHash,
+    'surfaceEquivalenceWitness.targetExecutionBinding.executionSurfaceHash'
+  )
+
+  const policy = F1_NATIVE32_SURFACE_WITNESS_POLICY
+  const anchorPaths = policy.anchorSurfacePaths
+  const allowedClassifications = policy.allowedClassifications
+  const budgetPrefixes = policy.budgetOnlyProjectionSurfacePrefixes
+  const targetPaths = array(
+    witness['targetSurfacePaths'],
+    'surfaceEquivalenceWitness.targetSurfacePaths'
+  )
+  if (targetPaths.length === 0) {
+    throw new C1F1Native32ContractError(
+      'surfaceEquivalenceWitness.targetSurfacePaths must not be empty in FINAL_BOUND phase'
+    )
+  }
+  const targetPathSet = new Set<string>()
+  targetPaths.forEach((value, index) => {
+    const path = string(
+      value,
+      'surfaceEquivalenceWitness.targetSurfacePaths[' + String(index) + ']'
+    )
+    if (targetPathSet.has(path)) {
+      throw new C1F1Native32ContractError(
+        'surfaceEquivalenceWitness.targetSurfacePaths must contain unique paths'
+      )
+    }
+    targetPathSet.add(path)
+  })
+
+  const entries = array(witness['entries'], 'surfaceEquivalenceWitness.entries')
+  if (entries.length !== targetPaths.length) {
+    throw new C1F1Native32ContractError(
+      'surfaceEquivalenceWitness.entries must account for every target execution-surface path'
+    )
+  }
+  const seenTargetPaths = new Set<string>()
+  const seenAnchorPaths = new Set<string>()
+  entries.forEach((value, index) => {
+    const entry = record(value, 'surfaceEquivalenceWitness.entries[' + String(index) + ']')
+    const path = string(
+      entry['path'],
+      'surfaceEquivalenceWitness.entries[' + String(index) + '].path'
+    )
+    if (!targetPathSet.has(path) || seenTargetPaths.has(path)) {
+      throw new C1F1Native32ContractError(
+        'surfaceEquivalenceWitness.entries.' +
+          path +
+          ' is missing or duplicated in targetSurfacePaths'
+      )
+    }
+    seenTargetPaths.add(path)
+    const classification = string(
+      entry['classification'],
+      'surfaceEquivalenceWitness.entries[' + String(index) + '].classification'
+    )
+    if (
+      !allowedClassifications.includes(classification as (typeof allowedClassifications)[number])
+    ) {
+      throw new C1F1Native32ContractError(
+        'surfaceEquivalenceWitness.entries[' +
+          String(index) +
+          '].classification must be an allowed classification'
+      )
+    }
+    const targetHash = digest(
+      entry['targetHash'],
+      'surfaceEquivalenceWitness.entries[' + String(index) + '].targetHash'
+    )
+    const anchorPathValue = entry['anchorPath']
+    if (anchorPathValue === null) {
+      if (classification !== 'BUDGET_ONLY_PROJECTION') {
+        throw new C1F1Native32ContractError(
+          'surfaceEquivalenceWitness.entries[' +
+            String(index) +
+            '].anchorPath may be null only for BUDGET_ONLY_PROJECTION'
+        )
+      }
+      if (!budgetPrefixes.some((prefix) => path.startsWith(prefix))) {
+        throw new C1F1Native32ContractError(
+          'surfaceEquivalenceWitness.entries[' +
+            String(index) +
+            '].path is not a declared budget projection path'
+        )
+      }
+      if (entry['anchorHash'] !== null) {
+        throw new C1F1Native32ContractError(
+          'surfaceEquivalenceWitness.entries[' +
+            String(index) +
+            '].anchorHash must be null for target-only paths'
+        )
+      }
+      return
+    }
+
+    const anchorPath = string(
+      anchorPathValue,
+      'surfaceEquivalenceWitness.entries[' + String(index) + '].anchorPath'
+    )
+    if (!anchorPaths.includes(anchorPath as (typeof anchorPaths)[number])) {
+      throw new C1F1Native32ContractError(
+        'surfaceEquivalenceWitness.entries[' +
+          String(index) +
+          '].anchorPath is not in anchorSurfacePaths'
+      )
+    }
+    if (seenAnchorPaths.has(anchorPath)) {
+      throw new C1F1Native32ContractError(
+        'surfaceEquivalenceWitness.entries.' +
+          anchorPath +
+          ' accounts for an anchor path more than once'
+      )
+    }
+    seenAnchorPaths.add(anchorPath)
+    const anchorHash = digest(
+      entry['anchorHash'],
+      'surfaceEquivalenceWitness.entries[' + String(index) + '].anchorHash'
+    )
+    if (classification === 'EXACT_UNCHANGED') {
+      if (path !== anchorPath) {
+        throw new C1F1Native32ContractError(
+          'surfaceEquivalenceWitness.entries[' +
+            String(index) +
+            '].path must equal anchorPath for EXACT_UNCHANGED'
+        )
+      }
+      exact(
+        targetHash,
+        anchorHash,
+        'surfaceEquivalenceWitness.entries[' + String(index) + '].targetHash'
+      )
+    } else if (!budgetPrefixes.some((prefix) => path.startsWith(prefix))) {
+      throw new C1F1Native32ContractError(
+        'surfaceEquivalenceWitness.entries[' +
+          String(index) +
+          '].path is not a declared budget projection path'
+      )
+    }
+  })
+
+  if (seenTargetPaths.size !== targetPathSet.size) {
+    throw new C1F1Native32ContractError(
+      'surfaceEquivalenceWitness.entries must account for every target execution-surface path exactly once'
+    )
+  }
+  if (seenAnchorPaths.size !== anchorPaths.length) {
+    throw new C1F1Native32ContractError(
+      'surfaceEquivalenceWitness.entries must account for every anchor surface path exactly once'
+    )
+  }
 }
 
 function validateCandidate(raw: unknown): C1F1Native32Contract {
@@ -481,6 +721,7 @@ export function validateC1F1Native32FinalBoundContract(raw: unknown): C1F1Native
     throw new C1F1Native32ContractError(
       'executionBinding.executionSurfaceHash must be a 64-character SHA-256 digest'
     )
+  validateFinalBoundSurfaceWitness(root)
   const candidateLike = JSON.parse(JSON.stringify(root)) as JsonRecord
   candidateLike['status'] = 'FREEZE_REVIEW'
   candidateLike['designStatus'] = 'READY_FOR_CONTRACT_FREEZE_REVIEW'
@@ -490,6 +731,9 @@ export function validateC1F1Native32FinalBoundContract(raw: unknown): C1F1Native
   const candidateBinding = record(candidateLike['executionBinding'], 'executionBinding')
   candidateBinding['codeRevision'] = C1_F1_NATIVE32_PENDING_BINDING
   candidateBinding['executionSurfaceHash'] = C1_F1_NATIVE32_PENDING_BINDING
+  candidateLike['surfaceEquivalenceWitness'] = JSON.parse(
+    JSON.stringify(F1_NATIVE32_PRE_BINDING_SURFACE_WITNESS)
+  )
   candidateLike['runContractSha256'] = computeC1F1Native32RunContractSha256(candidateLike)
   validateCandidate(candidateLike)
   return Object.freeze(root as C1F1Native32Contract)
@@ -532,7 +776,7 @@ export function getC1F1Native32FrozenProjection(): JsonRecord {
       claims: F1_NATIVE32_CLAIMS,
       estimand: F1_NATIVE32_ESTIMAND,
       inherited: f0InheritedProjection(),
-      surfaceEquivalenceWitness: stableClone(F1_NATIVE32_SURFACE_WITNESS),
+      surfaceEquivalenceWitness: stableClone(F1_NATIVE32_PRE_BINDING_SURFACE_WITNESS),
       frontier: stableClone(F1_NATIVE32_FRONTIER)
     })
   ) as JsonRecord
