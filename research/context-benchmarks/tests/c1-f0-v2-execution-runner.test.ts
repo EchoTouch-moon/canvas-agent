@@ -133,7 +133,7 @@ describe('C1 F0-v2 credential-free execution runner', () => {
 
       expect(runManifest.runs).toHaveLength(1)
       expect(runManifest.runs[0]).toMatchObject({
-        runId: adjudicationRows[0]?.runId,
+        runId: adjudicationRows[0]?.['runId'],
         fixtureCleaned: true,
         runDisposition: report.runs[0]?.runDisposition
       })
