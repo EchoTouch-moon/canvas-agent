@@ -13,8 +13,8 @@ research/context-benchmarks/c1/f0/v2/runner/c1-f0-v2-execution-runner.ts。
 ```text
 contract                    = C1_F0_EXECUTION_FEASIBILITY_V2
 freezeCandidateRunContract  = 31663b2833ea8ecf46fdc1165dd69b87e12c4ce1999fd595307368448d0606a7
-executionRevision           = computed from clean runner head; final binding pending
-executionSurfaceHash       = computed from v2 runner surface; final binding pending
+executionRevision           = 467bafb0449f3c764a04dc75393bd7d3d702b865
+executionSurfaceHash        = 51bb30861320649d0d87a4d40a614b3c9a2c5fdb6f456f8cf6d001ce721b5844
 responseSource              = SCRIPTED_FAKE
 providerCalls / network     = 0 / 0
 task panel                  = same two F0-v1 tasks
@@ -60,7 +60,8 @@ tool-result content。测试使用临时 output root，结束后清理；其 stu
 
 ```text
 Node 24 runner integration tests   7/7 passed
-Node 24 benchmark suite             pending full core run
+Node 24 benchmark suite             35 files / 275 tests passed
+headless core gate                 audit / format / lint / typecheck / test / build passed
 Provider / network                  0 / 0
 final-bound contract                not created
 owner authorization                 NO_GO
