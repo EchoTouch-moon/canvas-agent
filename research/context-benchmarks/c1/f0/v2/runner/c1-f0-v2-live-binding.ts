@@ -164,6 +164,12 @@ function asLiveContract(contract: C1F0V2Contract): V2LiveContractView {
   return contract as unknown as V2LiveContractView
 }
 
+function isLiveSharedInvalidator(code: string): boolean {
+  return (
+    isSharedInvalidator(code) || code === 'PREFLIGHT_FAILURE' || code === 'USAGE_CONTRACT_MISMATCH'
+  )
+}
+
 export async function loadC1F0V2FinalBoundContract(repoRoot: string): Promise<C1F0V2Contract> {
   const path = resolve(repoRoot, C1_F0_V2_FINAL_BOUND_CONTRACT_RELATIVE_PATH)
   let parsed: unknown
@@ -450,6 +456,7 @@ function liveReportFailure(input: {
   readonly executionRevision: string | null
   readonly executionSurfaceHash: string | null
   readonly contract: C1F0V2Contract | null
+  readonly transportMode: 'NETWORK' | 'INJECTED_FAKE_FETCH'
   readonly failures: readonly { readonly code: string; readonly message: string }[]
 }): C1F0V2LiveExecutionReport {
   const view = input.contract === null ? null : asLiveContract(input.contract)
@@ -472,7 +479,7 @@ function liveReportFailure(input: {
     endpoint: C1_PROVIDER_ENDPOINT,
     nodeRange: C1_NODE_RANGE,
     responseSource: 'AUTHORIZED_PROVIDER',
-    transportMode: 'NETWORK',
+    transportMode: input.transportMode,
     providerCalls: 0,
     networkRequests: 0,
     providerCallPermits: 0,
@@ -710,7 +717,7 @@ export async function runC1F0V2AuthorizedStudy(
         failureCode = failure.code
         failures.push(failure)
         terminationStatus = classifyTermination(error)
-        if (isSharedInvalidator(failure.code)) {
+        if (isLiveSharedInvalidator(failure.code)) {
           sharedInvalidator = true
           invalidatorReasons.push(failure.message)
         }
@@ -781,7 +788,7 @@ export async function runC1F0V2AuthorizedStudy(
         responseCount
       )
       const evidenceStatus =
-        sharedInvalidator && failureCode !== undefined && isSharedInvalidator(failureCode)
+        sharedInvalidator && failureCode !== undefined && isLiveSharedInvalidator(failureCode)
           ? 'INVALID'
           : responseCount > 0 && joinComplete
             ? 'COMPLETE'
@@ -1007,6 +1014,7 @@ export async function runC1F0V2AuthorizedStudy(
       executionRevision,
       executionSurfaceHash,
       contract,
+      transportMode: options.fetchImpl === undefined ? 'NETWORK' : 'INJECTED_FAKE_FETCH',
       failures
     })
   }

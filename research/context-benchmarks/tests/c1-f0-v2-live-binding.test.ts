@@ -147,4 +147,55 @@ describe('C1 F0-v2 authorized-provider binding', () => {
     },
     120_000
   )
+
+  it.skipIf(!node24)(
+    'marks a provider usage schema conflict as a study invalidator',
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), 'canvas-c1-f0-v2-live-invalid-'))
+      const envFilePath = join(root, '.env')
+      let requestCount = 0
+      const fakeFetch: typeof fetch = async () => {
+        requestCount += 1
+        return new Response(
+          JSON.stringify({
+            id: 'invalid-usage-response-' + String(requestCount),
+            choices: [
+              {
+                message: { role: 'assistant', content: 'invalid usage response' },
+                finish_reason: 'stop'
+              }
+            ],
+            usage: { prompt_tokens: 11, completion_tokens: 5 }
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      }
+      try {
+        await writeFile(envFilePath, 'STEP_PLAN_API_KEY=fake-test-key\n')
+        const authorization = await buildAuthorization('c1-f0-v2-20260913-cccccccc')
+        const report = await runC1F0V2AuthorizedStudy({
+          repoRoot: REPO_ROOT,
+          outputRoot: join(root, 'output'),
+          envFilePath,
+          fetchImpl: fakeFetch,
+          authorization
+        })
+        expect(requestCount).toBe(1)
+        expect(report.status).toBe('F0_V2_NO_GO')
+        expect(report.providerCalls).toBe(1)
+        expect(report.networkRequests).toBe(0)
+        expect(report.runsStarted).toBe(1)
+        expect(report.blockedRuns).toBe(31)
+        expect(report.runs[0]).toMatchObject({
+          evidenceStatus: 'INVALID',
+          runDisposition: 'STUDY_INVALID',
+          failureCode: 'USAGE_CONTRACT_MISMATCH'
+        })
+        expect(report.failures[0]?.code).toBe('USAGE_CONTRACT_MISMATCH')
+      } finally {
+        await rm(root, { recursive: true, force: true })
+      }
+    },
+    120_000
+  )
 })
