@@ -29,8 +29,8 @@ FEASIBILITY_SUCCESS                  = 16/16
 Oracle PASS                         = 16/16
 Budget exhaustion                   = 0/16
 Changed path scope                  = PASS for 16/16
-Recovery status                     = RECOVERED for 16/16
-Unrecovered-tool-failure runs       = 4/16
+Task/trajectory recovery outcome    = RECOVERED for 16/16
+Strict per-tool recovery linkage    = INCOMPLETE for 4/16
 ```
 
 4 条严格标记为 unrecovered 的轨迹是：
@@ -43,8 +43,9 @@ Unrecovered-tool-failure runs       = 4/16
 | 29 | 8 | 11 | 2 | 1 | `PACKAGE_MANAGER → SHELL_OTHER` | task success / oracle PASS |
 
 这 4 条轨迹的共同结构是：早期 bash 命令失败，随后出现一条带 linkage 的纠正动作，但最终成功的验证命令本身
-没有通过 `recoveryOfToolCallId` 关联。因此当前 `unrecoveredToolFailure` 是严格的 operational 定义，不能直接等同于
-任务没有被语义恢复。
+没有通过 `recoveryOfToolCallId` 关联。因此“task/trajectory recovery outcome”是 `RECOVERED 16/16`，而
+“strict per-tool recovery linkage”仍是 `INCOMPLETE 4/16`。后者是严格的 operational 定义，不能直接等同于任务没有被
+语义恢复。
 
 这不是修改 F0-v2 gate 的理由。它说明后续设计需要单独区分：
 
