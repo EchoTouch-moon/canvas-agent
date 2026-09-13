@@ -1216,7 +1216,7 @@ function adjudicateV2Study(input: {
   }
 }
 
-async function computeC1F0V2ExecutionBinding(repoRoot: string): Promise<{
+export async function computeC1F0V2ExecutionBinding(repoRoot: string): Promise<{
   readonly executionRevision: string
   readonly executionSurfaceHash: string
 }> {
