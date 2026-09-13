@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { mkdir, open, readFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { createRunKillSwitch } from '@canvas-agent/pi-context-integration/experimental'
 import {
   C1HardBudgetGuard,
@@ -39,7 +39,6 @@ import {
 import {
   C1F0V2HardeningToolAdapter,
   C1F0V2CheckpointSink,
-  C1_F0_V2_EXECUTION_SURFACE_PATHS,
   C1_F0_V2_REQUIRED_ARTIFACTS,
   adjudicateV2Study,
   artifactSummary,
@@ -118,7 +117,6 @@ export interface C1F0V2LiveExecutionOptions {
   readonly envFilePath?: string
   /** Test-only transport seam. Supplying it prevents any external network request. */
   readonly fetchImpl?: typeof fetch
-  readonly requestTimeoutMs?: number
 }
 
 export interface C1F0V2LiveExecutionReport {
@@ -261,7 +259,7 @@ function assertLiveAuthorization(
 }
 
 async function writeDurable(path: string, content: string): Promise<void> {
-  await mkdir(resolve(path, '..'), { recursive: true })
+  await mkdir(dirname(path), { recursive: true })
   const handle = await open(path, 'w')
   try {
     await handle.write(content)
@@ -272,7 +270,7 @@ async function writeDurable(path: string, content: string): Promise<void> {
 }
 
 async function appendDurable(path: string, value: unknown): Promise<void> {
-  await mkdir(resolve(path, '..'), { recursive: true })
+  await mkdir(dirname(path), { recursive: true })
   const handle = await open(path, 'a')
   try {
     await handle.write(JSON.stringify(value) + '\n')
@@ -283,7 +281,7 @@ async function appendDurable(path: string, value: unknown): Promise<void> {
 }
 
 async function ensureFile(path: string): Promise<void> {
-  await mkdir(resolve(path, '..'), { recursive: true })
+  await mkdir(dirname(path), { recursive: true })
   const handle = await open(path, 'a')
   await handle.close()
 }
@@ -668,10 +666,7 @@ export async function runC1F0V2AuthorizedStudy(
           providerBinding: providerBinding!,
           apiKey,
           providerConfigHashOverride: options.authorization.providerConfigHash,
-          fetchImpl: countedFetch,
-          ...(options.requestTimeoutMs === undefined
-            ? {}
-            : { requestTimeoutMs: options.requestTimeoutMs })
+          fetchImpl: countedFetch
         }
         responseSource = new C1AuthorizedProviderResponseSource(sourceOptions)
         const observationSource = await C1LiveTaskObservationSource.fromFixture({
@@ -1016,5 +1011,3 @@ export async function runC1F0V2AuthorizedStudy(
     })
   }
 }
-
-export { C1_F0_V2_EXECUTION_SURFACE_PATHS }
