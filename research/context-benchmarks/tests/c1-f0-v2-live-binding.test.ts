@@ -198,4 +198,74 @@ describe('C1 F0-v2 authorized-provider binding', () => {
     },
     120_000
   )
+
+  it.skipIf(!node24)(
+    'keeps maxCalls budget exhaustion as an ordinary run failure',
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), 'canvas-c1-f0-v2-live-budget-'))
+      const envFilePath = join(root, '.env')
+      let requestCount = 0
+      const fakeFetch: typeof fetch = async () => {
+        requestCount += 1
+        return new Response(
+          JSON.stringify({
+            id: 'budget-response-' + String(requestCount),
+            choices: [
+              {
+                message: {
+                  role: 'assistant',
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: 'budget-tool-' + String(requestCount),
+                      type: 'function',
+                      function: {
+                        name: 'bash',
+                        arguments: JSON.stringify({ command: 'node --version' })
+                      }
+                    }
+                  ]
+                },
+                finish_reason: 'tool_calls'
+              }
+            ],
+            usage: {
+              prompt_tokens: 11,
+              completion_tokens: 5,
+              total_tokens: 16
+            }
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      }
+      try {
+        await writeFile(envFilePath, 'STEP_PLAN_API_KEY=fake-test-key\n')
+        const authorization = await buildAuthorization('c1-f0-v2-20260913-dddddddd')
+        const report = await runC1F0V2AuthorizedStudy({
+          repoRoot: REPO_ROOT,
+          outputRoot: join(root, 'output'),
+          envFilePath,
+          fetchImpl: fakeFetch,
+          testRunLimit: 1,
+          authorization
+        })
+        expect(requestCount).toBe(24)
+        expect(report.status).toBe('F0_V2_HOLD')
+        expect(report.providerCalls).toBe(24)
+        expect(report.networkRequests).toBe(0)
+        expect(report.runsStarted).toBe(1)
+        expect(report.blockedRuns).toBe(0)
+        expect(report.runs[0]).toMatchObject({
+          terminationStatus: 'BUDGET_EXHAUSTED',
+          runDisposition: 'FEASIBILITY_FAILURE',
+          evidenceStatus: 'COMPLETE',
+          fixtureCleaned: true
+        })
+        expect(report.failures[0]?.message).toContain('maxCalls=24')
+      } finally {
+        await rm(root, { recursive: true, force: true })
+      }
+    },
+    120_000
+  )
 })

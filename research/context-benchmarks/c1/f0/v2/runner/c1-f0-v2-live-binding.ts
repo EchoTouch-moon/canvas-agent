@@ -117,6 +117,8 @@ export interface C1F0V2LiveExecutionOptions {
   readonly envFilePath?: string
   /** Test-only transport seam. Supplying it prevents any external network request. */
   readonly fetchImpl?: typeof fetch
+  /** Test-only plan limit; production runs always execute the frozen 32-run plan. */
+  readonly testRunLimit?: number
 }
 
 export interface C1F0V2LiveExecutionReport {
@@ -164,7 +166,8 @@ function asLiveContract(contract: C1F0V2Contract): V2LiveContractView {
   return contract as unknown as V2LiveContractView
 }
 
-function isLiveSharedInvalidator(code: string): boolean {
+function isLiveSharedInvalidator(code: string, message = ''): boolean {
+  if (code === 'PREFLIGHT_FAILURE' && message.includes('maxCalls=')) return false
   return (
     isSharedInvalidator(code) || code === 'PREFLIGHT_FAILURE' || code === 'USAGE_CONTRACT_MISMATCH'
   )
@@ -616,7 +619,21 @@ export async function runC1F0V2AuthorizedStudy(
     const snapshotManifestPath = join(reportDir, 'post-run-snapshot-manifest.jsonl')
     const adjudicationPath = join(reportDir, 'task-adjudication.jsonl')
     const frozenStudy = await loadC1FrozenStudy(repoRoot)
-    const plans = buildC1F0V2ExecutionPlans(contract, options.authorization.studyId)
+    const allPlans = buildC1F0V2ExecutionPlans(contract, options.authorization.studyId)
+    if (
+      options.testRunLimit !== undefined &&
+      (process.env['NODE_ENV'] !== 'test' ||
+        !Number.isSafeInteger(options.testRunLimit) ||
+        options.testRunLimit < 1 ||
+        options.testRunLimit > allPlans.length)
+    ) {
+      throw new C1PreflightFailure(
+        'IDENTITY_INVALID',
+        'testRunLimit is restricted to Node test execution and the frozen plan range'
+      )
+    }
+    const plans =
+      options.testRunLimit === undefined ? allPlans : allPlans.slice(0, options.testRunLimit)
 
     for (const plan of plans) {
       if (sharedInvalidator) {
@@ -717,7 +734,7 @@ export async function runC1F0V2AuthorizedStudy(
         failureCode = failure.code
         failures.push(failure)
         terminationStatus = classifyTermination(error)
-        if (isLiveSharedInvalidator(failure.code)) {
+        if (isLiveSharedInvalidator(failure.code, failure.message)) {
           sharedInvalidator = true
           invalidatorReasons.push(failure.message)
         }
@@ -788,7 +805,9 @@ export async function runC1F0V2AuthorizedStudy(
         responseCount
       )
       const evidenceStatus =
-        sharedInvalidator && failureCode !== undefined && isLiveSharedInvalidator(failureCode)
+        sharedInvalidator &&
+        failureCode !== undefined &&
+        isLiveSharedInvalidator(failureCode, failures.at(-1)?.message ?? '')
           ? 'INVALID'
           : responseCount > 0 && joinComplete
             ? 'COMPLETE'

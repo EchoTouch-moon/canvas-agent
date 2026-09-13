@@ -13,8 +13,8 @@ research/context-benchmarks/c1/f0/v2/runner/c1-f0-v2-execution-runner.ts。
 ```text
 contract                    = C1_F0_EXECUTION_FEASIBILITY_V2
 freezeCandidateRunContract  = 31663b2833ea8ecf46fdc1165dd69b87e12c4ce1999fd595307368448d0606a7
-executionRevision           = c072af5c4fb3245a74e457a616d0c2b78ddd3f3d
-executionSurfaceHash        = bde57600d2f57ab48210298bcaa0b58283fe003301f617aa506eacddb46f0ae2
+executionRevision           = 6d0189a998772e8d9e379f8ec56bc7f429546a2a
+executionSurfaceHash        = 583f6c974c207eb3e338b89aa345ab1aadd894fb25d83455b06ee59af13fbe0a
 responseSource              = SCRIPTED_FAKE
 providerCalls / network     = 0 / 0
 task panel                  = same two F0-v1 tasks
@@ -72,7 +72,7 @@ Node 24 runner integration tests   9/9 passed
 Node 24 benchmark suite             36 files / 279 tests passed
 headless core gate                 audit / format / lint / typecheck / test / build passed
 Provider / network                  0 / 0
-final-bound contract                rebound for live surface; independent binding review required
+final-bound contract                rebound after maxCalls classification fix; independent binding review required
 owner authorization                 NO_GO
 ```
 

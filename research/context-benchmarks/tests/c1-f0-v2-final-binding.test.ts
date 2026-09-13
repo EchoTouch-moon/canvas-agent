@@ -29,11 +29,11 @@ describe('C1 F0-v2 final-bound contract candidate', () => {
       C1_F0_V2_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256
     )
     expect(validated['runContractSha256']).toBe(
-      'b340c987903318b0fed72de26007cc4a29d88cae0ac51a399eaa33cd4c6ebdab'
+      '4120e8d4c5c029ce224fb1341989cdc208d96799f1c399e736ee77aa36ea0611'
     )
     expect(validated['executionBinding']).toMatchObject({
-      codeRevision: 'c072af5c4fb3245a74e457a616d0c2b78ddd3f3d',
-      executionSurfaceHash: 'bde57600d2f57ab48210298bcaa0b58283fe003301f617aa506eacddb46f0ae2'
+      codeRevision: '6d0189a998772e8d9e379f8ec56bc7f429546a2a',
+      executionSurfaceHash: '583f6c974c207eb3e338b89aa345ab1aadd894fb25d83455b06ee59af13fbe0a'
     })
     const computedBinding = await computeC1F0V2ExecutionBinding(REPO_ROOT)
     const executionBinding = validated['executionBinding'] as Record<string, unknown>

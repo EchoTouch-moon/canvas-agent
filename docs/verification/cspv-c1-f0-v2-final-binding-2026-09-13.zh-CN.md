@@ -11,9 +11,9 @@
 
 ```text
 freezeCandidateRunContractSha256 = 31663b2833ea8ecf46fdc1165dd69b87e12c4ce1999fd595307368448d0606a7
-executionRevision                = c072af5c4fb3245a74e457a616d0c2b78ddd3f3d
-executionSurfaceHash             = bde57600d2f57ab48210298bcaa0b58283fe003301f617aa506eacddb46f0ae2
-finalBoundRunContractSha256      = b340c987903318b0fed72de26007cc4a29d88cae0ac51a399eaa33cd4c6ebdab
+executionRevision                = 6d0189a998772e8d9e379f8ec56bc7f429546a2a
+executionSurfaceHash             = 583f6c974c207eb3e338b89aa345ab1aadd894fb25d83455b06ee59af13fbe0a
+finalBoundRunContractSha256      = 4120e8d4c5c029ce224fb1341989cdc208d96799f1c399e736ee77aa36ea0611
 runContractHashRole               = FINAL_BOUND
 status / designStatus             = FROZEN / FINAL_BOUND
 studyId                           = NOT_CREATED
@@ -35,9 +35,8 @@ c1-f0-v2-final-binding.test.ts 覆盖：
 2. 现场重算 `computeC1F0V2ExecutionBinding(REPO_ROOT)` 并与 final contract 的 revision/surface hash 逐项相等；
 3. candidate/final contract 数据不进入 runner execution surface。
 
-此前的 `609629…` 与 `85b031…` final-bound hash 均随 executable-surface 变更失效；本记录仅保留新的
-`b340c9…` live-rebound binding。新增的 authorized-provider runner 仍需独立 review；本记录不代表 owner authorization，
-也不授权 live Provider。
+此前的 `609629…`、`85b031…` 与 `b340c9…` final-bound hash 均随 executable-surface 变更失效；本记录仅保留新的
+`4120e8…` runner-fix rebound，仍需独立 review；本记录不代表 owner authorization，也不授权 live Provider。
 
 ## 下一步
 
