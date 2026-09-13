@@ -6,6 +6,7 @@ import {
   C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256,
   C1_F1_NATIVE32_HISTORICAL_ANCHOR,
   C1_F1_NATIVE32_PENDING_BINDING,
+  assertC1F1Native32SurfaceWitnessMatchesActualPaths,
   computeC1F1Native32RunContractSha256,
   loadC1F1Native32Contract,
   validateC1F1Native32Contract,
@@ -185,6 +186,22 @@ describe('C1 F1 native feasibility 32-call point contract', () => {
     expect(
       (validated['surfaceEquivalenceWitness'] as Record<string, unknown>)['witnessStatus']
     ).toBe('COMPLETE')
+  })
+
+  it('joins final witness paths to an actual executable-surface inventory', async () => {
+    const finalBound = buildFinalBoundContract(await readContract())
+    const witness = finalBound['surfaceEquivalenceWitness'] as Record<string, unknown>
+    const actualPaths = witness['targetSurfacePaths'] as string[]
+    expect(() =>
+      assertC1F1Native32SurfaceWitnessMatchesActualPaths(finalBound, actualPaths)
+    ).not.toThrow()
+
+    expect(() =>
+      assertC1F1Native32SurfaceWitnessMatchesActualPaths(finalBound, [
+        ...actualPaths,
+        'research/context-benchmarks/c1/f1/runner/unknown.ts'
+      ])
+    ).toThrow('surfaceEquivalenceWitness targetSurfacePaths do not match actual execution surface')
   })
 
   it.each([

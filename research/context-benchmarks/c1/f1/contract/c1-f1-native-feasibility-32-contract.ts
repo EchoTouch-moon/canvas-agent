@@ -653,6 +653,42 @@ function validateFinalBoundSurfaceWitness(root: JsonRecord): void {
   }
 }
 
+/**
+ * Compare the final witness's declared target surface with the checkout inventory.
+ * The final-bound contract validator checks the witness's internal join; this helper
+ * closes the external join against the actual executable-surface enumeration.
+ */
+export function assertC1F1Native32SurfaceWitnessMatchesActualPaths(
+  raw: unknown,
+  actualTargetPaths: readonly string[]
+): void {
+  const root = record(raw, 'F1-32 final-bound contract')
+  validateFinalBoundSurfaceWitness(root)
+  const witness = record(root['surfaceEquivalenceWitness'], 'surfaceEquivalenceWitness')
+  const declared = array(
+    witness['targetSurfacePaths'],
+    'surfaceEquivalenceWitness.targetSurfacePaths'
+  ).map((value, index) =>
+    string(value, 'surfaceEquivalenceWitness.targetSurfacePaths[' + String(index) + ']')
+  )
+  const declaredSet = new Set(declared)
+  const actualSet = new Set(actualTargetPaths)
+  if (actualSet.size !== actualTargetPaths.length) {
+    throw new C1F1Native32ContractError(
+      'surfaceEquivalenceWitness actual execution surface contains duplicate paths'
+    )
+  }
+  if (
+    declaredSet.size !== actualSet.size ||
+    declared.some((path) => !actualSet.has(path)) ||
+    actualTargetPaths.some((path) => !declaredSet.has(path))
+  ) {
+    throw new C1F1Native32ContractError(
+      'surfaceEquivalenceWitness targetSurfacePaths do not match actual execution surface'
+    )
+  }
+}
+
 function validateCandidate(raw: unknown): C1F1Native32Contract {
   const root = record(raw, 'F1-32 contract')
   exact(root['contractId'], C1_F1_NATIVE32_CONTRACT_ID, 'contractId')
