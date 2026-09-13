@@ -108,6 +108,59 @@ describe('C1 F0-v2 contract freeze candidate', () => {
     )
   })
 
+  it('rejects outcome, artifact, and firewall drift after a valid self-hash recomputation', async () => {
+    const raw = JSON.parse(
+      await readFile(resolve(REPO_ROOT, C1_F0_V2_CONTRACT_RELATIVE_PATH), 'utf8')
+    ) as Record<string, unknown>
+    const cases: ReadonlyArray<{
+      readonly name: string
+      readonly expectedPath: string
+      readonly mutate: (contract: Record<string, unknown>) => void
+    }> = [
+      {
+        name: 'outcome semantics',
+        expectedPath: 'outcomes.feasibilityUnknown.0',
+        mutate: (contract) => {
+          const outcomes = contract['outcomes'] as Record<string, unknown>
+          const unknownRules = [...(outcomes['feasibilityUnknown'] as string[])]
+          unknownRules[0] = 'unknown-is-a-failure'
+          outcomes['feasibilityUnknown'] = unknownRules
+        }
+      },
+      {
+        name: 'required artifact set',
+        expectedPath: 'requiredArtifacts',
+        mutate: (contract) => {
+          contract['requiredArtifacts'] = (contract['requiredArtifacts'] as string[]).filter(
+            (artifact) => artifact !== 'response-ledger.jsonl'
+          )
+        }
+      },
+      {
+        name: 'execution forbidden input set',
+        expectedPath: 'groundTruthFirewall.executionForbiddenInputs',
+        mutate: (contract) => {
+          const firewall = contract['groundTruthFirewall'] as Record<string, unknown>
+          firewall['executionForbiddenInputs'] = (
+            firewall['executionForbiddenInputs'] as string[]
+          ).filter((field) => field !== 'regressionOracle')
+        }
+      }
+    ]
+
+    for (const testCase of cases) {
+      const mutated = JSON.parse(JSON.stringify(raw)) as Record<string, unknown>
+      testCase.mutate(mutated)
+      const rehashed = {
+        ...mutated,
+        runContractSha256: computeC1F0V2RunContractSha256(mutated)
+      }
+      expect(() => validateC1F0V2Contract(rehashed), testCase.name).toThrow(
+        'SEMANTIC_FREEZE_MISMATCH: ' + testCase.expectedPath
+      )
+    }
+  })
+
   it('accepts a final-bound contract when only phase and execution binding fields change', async () => {
     const raw = JSON.parse(
       await readFile(resolve(REPO_ROOT, C1_F0_V2_CONTRACT_RELATIVE_PATH), 'utf8')
