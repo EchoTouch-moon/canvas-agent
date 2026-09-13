@@ -40,6 +40,9 @@ F0-v2 live binding       IMPLEMENTED / FAKE_FETCH_E2E_PASS / RUNNER_FIX_REBOUND 
 F0-v2 final-bound contract FINAL_BOUND_LIVE_REBOUND / RUNNER_FIX_REBOUND / BINDING_REVIEW_PASS / PR_#132_MERGED / NO_PROVIDER
 F0-v2 live attempt      VALID / F0_V2_FEASIBILITY_NO_GO / CONSUMED
 F0-v2 owner authorization V2 CONSUMED / RETIRED
+F0-v2 failure anatomy  CLOSED / ZERO_PROVIDER / DESCRIPTIVE
+F1 Native calibration  NOT_STARTED / DESIGN_ONLY
+R0 Runtime rescue       NOT_STARTED / DESIGN_ONLY
 Old study resume/reuse    FORBIDDEN
 Wave B / productization   NO_GO
 ```
@@ -165,6 +168,7 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 [F0-v2 Live Binding 验证](../verification/cspv-c1-f0-v2-live-binding-2026-09-13.zh-CN.md) ·
 [F0-v2 Live Execution 报告](../verification/cspv-c1-f0-v2-live-execution-2026-09-13.zh-CN.md) ·
 [F0-v2 Live Execution V2 报告](../verification/cspv-c1-f0-v2-live-execution-v2-2026-09-13.zh-CN.md) ·
+[F0-v2 Failure Anatomy](../verification/cspv-c1-f0-v2-failure-anatomy-2026-09-13.zh-CN.md) ·
 [F0-v2 Final-bound Contract 验证](../verification/cspv-c1-f0-v2-final-binding-2026-09-13.zh-CN.md) ·
 [F0-v2 Owner Authorization V2](../plan/cspv-c1-f0-v2-owner-authorization-v2-2026-09-13.zh-CN.md) ·
 [后续实施验证](../verification/cspv-c1-followup-execution-2026-09-08.zh-CN.md) ·
@@ -215,6 +219,7 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 | F0-v2 live attempt `de68f062`    | `TERMINAL / STUDY_INVALID / CONSUMED`                                                            | 4/32 legs started，68 Provider calls，88 tool executions；第 4 leg 的 `maxCalls=24` 被错误升级为 shared invalidator，28 legs blocked；identity 与 artifacts 保留，不解释为 feasibility 结果，不得 retry/reuse；[执行报告](../verification/cspv-c1-f0-v2-live-execution-2026-09-13.zh-CN.md) |
 | F0-v2 owner authorization V2     | `CONSUMED / RETIRED`                                                                             | 授权 identity=`c1-f0-v2-20260913-341fbab9` 已完成一次完整 study，授权记录为 immutable historical binding；不得再次使用；[授权记录](../plan/cspv-c1-f0-v2-owner-authorization-v2-2026-09-13.zh-CN.md) |
 | F0-v2 live attempt V2 `341fbab9` | `VALID / F0_V2_FEASIBILITY_NO_GO / CONSUMED`                                                       | 32/32 runs started/completed，510 Provider/network requests，725 tool executions，validity/precision pass；t1=16/16 success 但 4/16 unrecovered tool-failure，t2=7/16 success、8/16 budget exhaustion；不输出 Runtime effect 或 T0/E1 结论；[执行报告](../verification/cspv-c1-f0-v2-live-execution-v2-2026-09-13.zh-CN.md) |
+| F0-v2 failure anatomy          | `CLOSED / ZERO_PROVIDER / DESCRIPTIVE`                                                           | 基于 immutable F0-v2 artifacts 完成 t1 unrecovered 与 t2 budget/tool/oracle 轨迹拆解；不修改 F0-v2 结果，不生成新 executable contract；F1 Native calibration 与 R0 Runtime rescue 仅作为后续候选问题；[离线分析](../verification/cspv-c1-f0-v2-failure-anatomy-2026-09-13.zh-CN.md) |
 | SV1 响应证据缺口                 | `ADJUDICATED / FIXED (local)`                                                                    | 原件仅 1×`OUTBOUND_PERMITTED`、`permitsWithoutRecordedResponse=1`、`responseStatus=NOT_RECORDED`；根因是 canary 在 `responseSource.next` 内抛错早于驱动落盘；修复 `cf0d45b47ffb1d35f1630e993675b50c53777455`；历史原件不回填，该次 usage 与 tool-request 数保持未知                                                                                                                                                        |
 | PR #105                          | `OPEN / CI_GREEN / REVIEW_REQUIRED`                                                              | head `012093274da742eddd8178b4448d105e6b27c4ac`，base `main`；CI run `34240182684` 的 `check` 与 `macos-electron` 均 success；尚无独立 review，CI 绿不替代内容审查                                                                                                                                                                                                                                                         |
 | `main` CI 基线（2026-09-09）     | `BLOCKED / UPSTREAM_ADVISORY`                                                                    | `origin/main` 仍锁定 `js-yaml@4.3.1`，其 `pnpm audit --prod --audit-level high` 受 `GHSA-2883-xcg3-v3hh` 阻塞；修复在独立 PR #107（`js-yaml@4.3.2`），其后 CR-ARCH #109 与 SV2 #110 的 Context Runtime / Electron workflows 已分别通过。#107 合并前，不能把 `main` 的旧绿灯 run 当作当前基线；修复仍与研究证据 PR 分离                                                                                                     |
