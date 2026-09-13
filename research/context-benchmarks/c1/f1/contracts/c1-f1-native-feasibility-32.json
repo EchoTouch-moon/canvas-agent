@@ -308,7 +308,7 @@
     "credentialFreeE2ERequired": true,
     "providerExecution": "NO_GO_UNTIL_OWNER_AUTHORIZATION"
   },
-  "runContractSha256": "7b5c1a45ebf020cba88930f7c8f200e322081d63e7ca1feb1c034eb0014c1eda",
+  "runContractSha256": "1271765be7019d5d49116fef1e683b7408f3a34abf69222d6ac44d0b43895c58",
   "surfaceEquivalenceWitness": {
     "schemaVersion": 1,
     "mode": "PRE_BINDING_PER_PATH_CLASSIFICATION",
@@ -405,5 +405,14 @@
       "noBracketWhenSearchChainBreaks": true,
       "noExactThresholdClaim": true
     }
+  },
+  "historicalAnchor": {
+    "contractId": "C1_F0_EXECUTION_FEASIBILITY_V2",
+    "studyId": "c1-f0-v2-20260913-341fbab9",
+    "budget": 24,
+    "status": "VALID / F0_V2_FEASIBILITY_NO_GO / CONSUMED",
+    "executionRevision": "6d0189a998772e8d9e379f8ec56bc7f429546a2a",
+    "executionSurfaceHash": "583f6c974c207eb3e338b89aa345ab1aadd894fb25d83455b06ee59af13fbe0a",
+    "runContractSha256": "4120e8d4c5c029ce224fb1341989cdc208d96799f1c399e736ee77aa36ea0611"
   }
 }

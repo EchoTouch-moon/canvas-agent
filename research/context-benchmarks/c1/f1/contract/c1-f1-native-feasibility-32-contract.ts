@@ -12,7 +12,7 @@ export const C1_F1_NATIVE32_CONTRACT_ID = 'C1_F1_NATIVE_FEASIBILITY_32' as const
 export const C1_F1_NATIVE32_CONTRACT_SCHEMA_VERSION = 1 as const
 export const C1_F1_NATIVE32_PENDING_BINDING = 'PENDING_F1_32_IMPLEMENTATION' as const
 export const C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256 =
-  '7b5c1a45ebf020cba88930f7c8f200e322081d63e7ca1feb1c034eb0014c1eda' as const
+  '1271765be7019d5d49116fef1e683b7408f3a34abf69222d6ac44d0b43895c58' as const
 export const C1_F1_NATIVE32_PROVIDER_CONFIG_HASH =
   'bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a'
 export const C1_F1_NATIVE32_HISTORICAL_ANCHOR = Object.freeze({
@@ -261,6 +261,8 @@ export function assertC1F1Native32FreezeInvariants(raw: unknown): void {
     groundTruthFirewall: root['groundTruthFirewall']
   }
   assertProjection(inherited, f0InheritedProjection(), '')
+
+  assertProjection(root['historicalAnchor'], C1_F1_NATIVE32_HISTORICAL_ANCHOR, 'historicalAnchor')
 
   exact(root['claims'], F1_NATIVE32_CLAIMS, 'claims')
   exact(root['estimand'], F1_NATIVE32_ESTIMAND, 'estimand')

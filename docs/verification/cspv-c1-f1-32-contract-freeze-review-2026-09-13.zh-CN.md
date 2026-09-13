@@ -13,7 +13,7 @@
 Contract ID                         = C1_F1_NATIVE_FEASIBILITY_32
 Contract path                       = research/context-benchmarks/c1/f1/contracts/c1-f1-native-feasibility-32.json
 runContractHashRole                 = FREEZE_CANDIDATE
-runContractSha256                   = 7b5c1a45ebf020cba88930f7c8f200e322081d63e7ca1feb1c034eb0014c1eda
+runContractSha256                   = 1271765be7019d5d49116fef1e683b7408f3a34abf69222d6ac44d0b43895c58
 executionBinding.codeRevision       = PENDING_F1_32_IMPLEMENTATION
 executionBinding.executionSurfaceHash = PENDING_F1_32_IMPLEMENTATION
 studyId                             = NOT_CREATED

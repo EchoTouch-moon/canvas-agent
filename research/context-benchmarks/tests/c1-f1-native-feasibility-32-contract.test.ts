@@ -67,6 +67,7 @@ describe('C1 F1 native feasibility 32-call point contract', () => {
       priorArtifactPolicy: 'IMMUTABLE_CONSUMED_NO_RESUME_RETRY_REUSE_REBIND',
       comparisonPolicy: 'DESCRIPTIVE_F0_V2_ANCHOR_ONLY_NOT_POOLED'
     })
+    expect(contract['historicalAnchor']).toEqual(C1_F1_NATIVE32_HISTORICAL_ANCHOR)
     expect(contract['surfaceEquivalenceWitness']).toMatchObject({
       anchorExecutionRevision: C1_F1_NATIVE32_HISTORICAL_ANCHOR.executionRevision,
       anchorExecutionSurfaceHash: C1_F1_NATIVE32_HISTORICAL_ANCHOR.executionSurfaceHash,
