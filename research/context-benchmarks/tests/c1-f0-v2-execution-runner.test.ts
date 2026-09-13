@@ -108,6 +108,41 @@ describe('C1 F0-v2 credential-free execution runner', () => {
   )
 
   it.skipIf(!node24)(
+    'joins pre-cleanup adjudication to one post-cleanup final disposition',
+    async () => {
+      const report = await runScenario('TOOL_RECOVERY', 'abababab', 1)
+      const adjudicationRows = (
+        await readFile(join(report.reportDir!, 'task-adjudication.jsonl'), 'utf8')
+      )
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+      const runManifest = JSON.parse(
+        await readFile(join(report.reportDir!, 'run-manifest.json'), 'utf8')
+      ) as { runs: Array<Record<string, unknown>> }
+
+      expect(adjudicationRows).toHaveLength(1)
+      expect(adjudicationRows[0]).toMatchObject({
+        adjudicationPhase: 'PRE_CLEANUP_ADJUDICATION',
+        runId: report.runs[0]?.runId,
+        postRunFixtureSnapshotStatus: 'FROZEN'
+      })
+      expect(adjudicationRows[0]).not.toHaveProperty('runDisposition')
+      expect(adjudicationRows[0]).not.toHaveProperty('fixtureCleaned')
+
+      expect(runManifest.runs).toHaveLength(1)
+      expect(runManifest.runs[0]).toMatchObject({
+        runId: adjudicationRows[0]?.runId,
+        fixtureCleaned: true,
+        runDisposition: report.runs[0]?.runDisposition
+      })
+      expect(runManifest.runs[0]).toHaveProperty('runDisposition')
+    },
+    120_000
+  )
+
+  it.skipIf(!node24)(
     'keeps snapshot and oracle uncertainty separate from observed failure',
     async () => {
       const report = await runScenario('UNKNOWN_SNAPSHOT', 'dddddddd', 1)

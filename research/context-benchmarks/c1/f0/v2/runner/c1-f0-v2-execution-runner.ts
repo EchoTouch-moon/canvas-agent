@@ -1749,18 +1749,6 @@ export async function runC1F0V2CredentialFreeStudy(
         provenanceStatus,
         executions: hardeningAdapter?.executions ?? []
       })
-      const runDisposition = taskDisposition({
-        terminationStatus,
-        oracleStatus: currentOracleStatus,
-        evidenceStatus,
-        provenanceStatus,
-        sideEffectAttributionStatus,
-        writableScopeStatus,
-        fixtureCleaned,
-        snapshotStatus: snapshot.status,
-        sharedInvalidator
-      })
-
       await appendDurable(snapshotManifestPath, {
         studyId,
         runOrdinal: plan.runOrdinal,
@@ -1774,6 +1762,7 @@ export async function runC1F0V2CredentialFreeStudy(
       })
 
       await appendDurable(adjudicationPath, {
+        adjudicationPhase: 'PRE_CLEANUP_ADJUDICATION',
         studyId,
         runOrdinal: plan.runOrdinal,
         taskId: plan.taskId,
@@ -1787,8 +1776,6 @@ export async function runC1F0V2CredentialFreeStudy(
         provenanceStatus,
         recoveryStatus: currentRecoveryStatus,
         sideEffectAttributionStatus,
-        runDisposition,
-        fixtureCleaned,
         postRunFixtureSnapshotStatus: snapshot.status,
         ...(snapshot.contentSha256 === undefined
           ? {}
@@ -1857,7 +1844,7 @@ export async function runC1F0V2CredentialFreeStudy(
             hardeningSummary.failedExecutions > hardeningSummary.recoveredExecutions,
           checkpointJoinComplete: joinComplete
         },
-        ...(runDisposition === 'FEASIBILITY_UNKNOWN'
+        ...(finalRunDisposition === 'FEASIBILITY_UNKNOWN'
           ? {
               unknownReason: [
                 snapshot.status === 'UNAVAILABLE' ? 'POST_RUN_SNAPSHOT_UNAVAILABLE' : null,

@@ -6,7 +6,10 @@ import {
   C1_F0_V2_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256,
   validateC1F0V2FinalBoundContract
 } from '../c1/f0/contract/c1-f0-v2-contract'
-import { C1_F0_V2_EXECUTION_SURFACE_PATHS } from '../c1/f0/v2/runner/c1-f0-v2-execution-runner'
+import {
+  C1_F0_V2_EXECUTION_SURFACE_PATHS,
+  computeC1F0V2ExecutionBinding
+} from '../c1/f0/v2/runner/c1-f0-v2-execution-runner'
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..', '..')
 const FINAL_CONTRACT_PATH = resolve(
@@ -32,6 +35,10 @@ describe('C1 F0-v2 final-bound contract candidate', () => {
       codeRevision: '164a3e101238116024e1e4eb98d97ff74faeffdb',
       executionSurfaceHash: '7f540b59755231f0e3319a641f6e3139493fab04f3a3a2ffbeb015a0531e14ed'
     })
+    const computedBinding = await computeC1F0V2ExecutionBinding(REPO_ROOT)
+    const executionBinding = validated['executionBinding'] as Record<string, unknown>
+    expect(computedBinding.executionRevision).toBe(executionBinding['codeRevision'])
+    expect(computedBinding.executionSurfaceHash).toBe(executionBinding['executionSurfaceHash'])
     expect(validated['identityPolicy']).toMatchObject({
       studyIdStatus: 'NOT_CREATED',
       retry: 'FORBIDDEN',
