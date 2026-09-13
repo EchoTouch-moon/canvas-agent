@@ -10,6 +10,7 @@ import {
   C1_F0_V2_CONTRACT_RELATIVE_PATH,
   computeC1F0V2RunContractSha256,
   loadC1F0V2Contract,
+  validateC1F0V2FinalBoundContract,
   validateC1F0V2Contract
 } from '../c1/f0/contract/c1-f0-v2-contract'
 
@@ -105,5 +106,31 @@ describe('C1 F0-v2 contract freeze candidate', () => {
     expect(() => validateC1F0V2Contract(rehashed)).toThrow(
       'SEMANTIC_FREEZE_MISMATCH: taskPanel.0.promptSha256'
     )
+  })
+
+  it('accepts a final-bound contract when only phase and execution binding fields change', async () => {
+    const raw = JSON.parse(
+      await readFile(resolve(REPO_ROOT, C1_F0_V2_CONTRACT_RELATIVE_PATH), 'utf8')
+    ) as Record<string, unknown>
+    const finalBound = JSON.parse(JSON.stringify(raw)) as Record<string, unknown>
+    finalBound['status'] = 'FROZEN'
+    finalBound['designStatus'] = 'FINAL_BOUND'
+    finalBound['runContractHashRole'] = 'FINAL_BOUND'
+    finalBound['freezeCandidateRunContractSha256'] = raw['runContractSha256']
+    finalBound['finalBoundRunContractSha256'] = 'PENDING_F0_V2_FINAL_HASH'
+    const execution = finalBound['executionBinding'] as Record<string, unknown>
+    execution['codeRevision'] = 'a'.repeat(40)
+    execution['executionSurfaceHash'] = 'b'.repeat(64)
+    const finalHash = computeC1F0V2RunContractSha256(finalBound)
+    finalBound['runContractSha256'] = finalHash
+    finalBound['finalBoundRunContractSha256'] = finalHash
+
+    const validated = validateC1F0V2FinalBoundContract(finalBound)
+    expect(validated['runContractHashRole']).toBe('FINAL_BOUND')
+    expect(validated['runContractSha256']).toBe(finalHash)
+    expect(validateC1F0V2Contract(finalBound)['executionBinding']).toMatchObject({
+      codeRevision: 'a'.repeat(40),
+      executionSurfaceHash: 'b'.repeat(64)
+    })
   })
 })

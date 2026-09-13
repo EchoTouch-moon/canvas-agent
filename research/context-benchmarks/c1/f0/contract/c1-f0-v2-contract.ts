@@ -9,17 +9,131 @@ export const C1_F0_V2_CONTRACT_SCHEMA_VERSION = 2 as const
 export const C1_F0_V2_PENDING_BINDING = 'PENDING_F0_V2_IMPLEMENTATION' as const
 export const C1_F0_V2_PROVIDER_CONFIG_HASH =
   'bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a'
+export const C1_F0_V2_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256 =
+  '31663b2833ea8ecf46fdc1165dd69b87e12c4ce1999fd595307368448d0606a7'
 export const C1_F0_V2_MAX_UNKNOWN_RUN_RATE = 0.125
 export const C1_F0_V2_MIN_ADJUDICABLE_RUNS_PER_TASK = 14
 
 type JsonRecord = Record<string, unknown>
+
+const F0_V2_EVIDENCE_AXES = {
+  terminationStatus: [
+    'TERMINAL_COMPLETE',
+    'TERMINAL_FAILED',
+    'BUDGET_EXHAUSTED',
+    'PROVIDER_BOUNDARY_FAILURE',
+    'TOOL_BOUNDARY_FAILURE',
+    'BLOCKED'
+  ],
+  oracleStatus: ['PASS', 'FAIL', 'UNKNOWN', 'NOT_ADJUDICABLE'],
+  evidenceStatus: ['COMPLETE', 'PARTIAL', 'INVALID'],
+  provenanceStatus: ['COMPLETE', 'PARTIAL', 'INVALID'],
+  recoveryStatus: ['NONE', 'RECOVERED', 'UNRECOVERED', 'BLOCKED'],
+  sideEffectAttributionStatus: ['NOT_APPLICABLE', 'ATTRIBUTED', 'UNKNOWN', 'CONFLICT'],
+  runDisposition: [
+    'FEASIBILITY_SUCCESS',
+    'FEASIBILITY_FAILURE',
+    'FEASIBILITY_UNKNOWN',
+    'STUDY_INVALID'
+  ]
+} as const
+
+const F0_V2_OUTCOMES = {
+  feasibilitySuccess: [
+    'terminationStatus=TERMINAL_COMPLETE',
+    'oracleStatus=PASS',
+    'evidenceStatus=COMPLETE',
+    'provenanceStatus=COMPLETE',
+    'fixtureCleaned=true'
+  ],
+  feasibilityFailure: [
+    'observed non-completion or task failure',
+    'evidenceStatus=COMPLETE',
+    'provenanceStatus=COMPLETE',
+    'oracleStatus!=UNKNOWN',
+    'sideEffectAttributionStatus!=UNKNOWN when scope adjudication is required'
+  ],
+  feasibilityUnknown: [
+    'no shared invalidator',
+    'oracleStatus=UNKNOWN OR evidenceStatus=PARTIAL OR provenanceStatus=PARTIAL',
+    'sideEffectAttributionStatus=UNKNOWN OR postRunFixtureSnapshotStatus=UNAVAILABLE'
+  ],
+  studyInvalidators: [
+    'CONTRACT_OR_IDENTITY_FAILURE',
+    'EVIDENCE_INTEGRITY_FAILURE',
+    'MISSING_PROVENANCE_ROW',
+    'PROVENANCE_SCHEMA_CONFLICT',
+    'CREDENTIAL_OR_RAW_PAYLOAD_LEAKAGE',
+    'SHARED_INFRASTRUCTURE_CORRUPTION'
+  ]
+} as const
+
+const F0_V2_REQUIRED_ARTIFACTS = [
+  'study-manifest.json',
+  'run-manifest.json',
+  'checkpoints.jsonl',
+  'checkpoint-summary.json',
+  'response-ledger.jsonl',
+  'tool-provenance.jsonl',
+  'post-run-snapshot-manifest.jsonl',
+  'task-adjudication.jsonl',
+  'feasibility-summary.json'
+] as const
+
+const F0_V2_GROUND_TRUTH_FIREWALL = {
+  executionForbiddenInputs: [
+    'objectiveOracle',
+    'regressionOracle',
+    'referenceAnswer',
+    'referenceFixture',
+    'expectedWritablePaths',
+    'removalGroundTruth',
+    'historicalLabels',
+    'prevalenceResults',
+    'priorStudyOutcomes'
+  ],
+  postRunAdjudicatorAllowedInputs: [
+    'objectiveOracle',
+    'regressionOracle',
+    'referenceFixture',
+    'expectedWritablePaths',
+    'frozenPostRunFixtureSnapshot'
+  ],
+  postRunSequence: [
+    'EXECUTION_TERMINATES',
+    'FREEZE_IMMUTABLE_POST_RUN_FIXTURE_SNAPSHOT',
+    'ORACLE_AND_WRITABLE_SCOPE_ADJUDICATION',
+    'PERSIST_ADJUDICATION_EVIDENCE',
+    'CLEANUP_LIVE_SANDBOX'
+  ],
+  oracleTiming: 'AFTER_POST_RUN_SNAPSHOT_BEFORE_CLEANUP',
+  modelVisibleProvenanceFields: ['failureClass', 'recoveryAction', 'consecutiveFailureStreak'],
+  durableProvenanceFields: [
+    'toolRequestId',
+    'ordinal',
+    'toolName',
+    'commandClass',
+    'commandHash',
+    'canonicalRequestSignature',
+    'failureClass',
+    'errorDigest',
+    'beforeSnapshotHash',
+    'afterSnapshotHash',
+    'changedPaths',
+    'changedPathsStatus',
+    'sideEffectSource',
+    'recoveryAction',
+    'consecutiveFailureStreak',
+    'recoveryOfToolCallId',
+    'recoveryAttemptOrdinal'
+  ]
+} as const
 
 /**
  * Minimal code-side binding for freeze-critical design fields. Execution
  * revision and surface hash remain intentionally outside this projection.
  */
 export const C1_F0_V2_FREEZE_INVARIANTS = Object.freeze({
-  runContractHashRole: 'FREEZE_CANDIDATE',
   claims: 'F0_V2_FEASIBILITY_ONLY_NO_RUNTIME_EFFECT_NO_RECOVERY_CAUSAL_CLAIM',
   estimand: 'NATIVE_EXECUTION_FEASIBILITY_ON_F0_V2_FROZEN_TASK_PANEL',
   studyRelation: {
@@ -194,6 +308,10 @@ export const C1_F0_V2_FREEZE_INVARIANTS = Object.freeze({
       operationalRecoveryRequiresLinkage: true
     }
   },
+  evidenceAxes: F0_V2_EVIDENCE_AXES,
+  outcomes: F0_V2_OUTCOMES,
+  requiredArtifacts: F0_V2_REQUIRED_ARTIFACTS,
+  groundTruthFirewall: F0_V2_GROUND_TRUTH_FIREWALL,
   identityPolicy: {
     studyIdPattern: '^c1-f0-v2-[0-9]{8}-[0-9a-f]{8}$',
     oneStudyIdPerStudy: true,
@@ -203,27 +321,20 @@ export const C1_F0_V2_FREEZE_INVARIANTS = Object.freeze({
     resume: 'FORBIDDEN',
     reuse: 'FORBIDDEN',
     studyIdStatus: 'NOT_CREATED'
-  },
-  groundTruthFirewall: {
-    postRunSequence: [
-      'EXECUTION_TERMINATES',
-      'FREEZE_IMMUTABLE_POST_RUN_FIXTURE_SNAPSHOT',
-      'ORACLE_AND_WRITABLE_SCOPE_ADJUDICATION',
-      'PERSIST_ADJUDICATION_EVIDENCE',
-      'CLEANUP_LIVE_SANDBOX'
-    ],
-    oracleTiming: 'AFTER_POST_RUN_SNAPSHOT_BEFORE_CLEANUP'
   }
 } as const)
 
 export interface C1F0V2Contract {
   readonly contractId: typeof C1_F0_V2_CONTRACT_ID
   readonly schemaVersion: typeof C1_F0_V2_CONTRACT_SCHEMA_VERSION
-  readonly status: 'FREEZE_REVIEW'
-  readonly designStatus: 'READY_FOR_CONTRACT_FREEZE_REVIEW'
+  readonly status: 'FREEZE_REVIEW' | 'FROZEN'
+  readonly designStatus: 'READY_FOR_CONTRACT_FREEZE_REVIEW' | 'FINAL_BOUND'
+  readonly runContractHashRole: 'FREEZE_CANDIDATE' | 'FINAL_BOUND'
   readonly runContractSha256: string
   readonly [key: string]: unknown
 }
+
+export type C1F0V2ContractPhase = 'AUTO' | 'FREEZE_CANDIDATE' | 'FINAL_BOUND'
 
 export class C1F0V2ContractError extends Error {
   override readonly name = 'C1F0V2ContractError'
@@ -259,6 +370,7 @@ function canonicalJson(value: unknown): string {
 export function computeC1F0V2RunContractSha256(contract: unknown): string {
   const clone = JSON.parse(JSON.stringify(contract)) as JsonRecord
   clone['runContractSha256'] = 'SELF'
+  if ('finalBoundRunContractSha256' in clone) clone['finalBoundRunContractSha256'] = 'SELF'
   return sha256(canonicalJson(clone))
 }
 
@@ -332,7 +444,6 @@ function freezeProjection(raw: unknown): JsonRecord {
   const feasibility = record(gates['feasibility'], 'gates.feasibility')
   const provenanceSafety = record(gates['provenanceSafety'], 'gates.provenanceSafety')
   const recoverySafety = record(gates['recoverySafety'], 'gates.recoverySafety')
-  const firewall = record(root['groundTruthFirewall'], 'groundTruthFirewall')
   return {
     runContractHashRole: root['runContractHashRole'],
     claims: root['claims'],
@@ -378,11 +489,11 @@ function freezeProjection(raw: unknown): JsonRecord {
       provenanceSafety,
       recoverySafety
     },
-    identityPolicy: root['identityPolicy'],
-    groundTruthFirewall: {
-      postRunSequence: firewall['postRunSequence'],
-      oracleTiming: firewall['oracleTiming']
-    }
+    evidenceAxes: root['evidenceAxes'],
+    outcomes: root['outcomes'],
+    requiredArtifacts: root['requiredArtifacts'],
+    groundTruthFirewall: root['groundTruthFirewall'],
+    identityPolicy: root['identityPolicy']
   }
 }
 
@@ -449,7 +560,7 @@ function validateTask(task: unknown, index: number): void {
   }
 }
 
-export function validateC1F0V2Contract(raw: unknown): C1F0V2Contract {
+function validateFreezeCandidateContract(raw: unknown): C1F0V2Contract {
   const root = record(raw, 'F0-v2 contract')
   exact(root['contractId'], C1_F0_V2_CONTRACT_ID, 'contractId')
   exact(root['schemaVersion'], C1_F0_V2_CONTRACT_SCHEMA_VERSION, 'schemaVersion')
@@ -466,6 +577,11 @@ export function validateC1F0V2Contract(raw: unknown): C1F0V2Contract {
     throw new C1F0V2ContractError('runContractSha256 does not match canonical contract content')
   }
   assertC1F0V2FreezeInvariants(root)
+  exact(root['runContractHashRole'], 'FREEZE_CANDIDATE', 'runContractHashRole')
+  exact(contractHash, C1_F0_V2_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256, 'runContractSha256')
+  if ('freezeCandidateRunContractSha256' in root || 'finalBoundRunContractSha256' in root) {
+    throw new C1F0V2ContractError('freeze candidate must not contain final-bound hash fields')
+  }
 
   const relation = record(root['studyRelation'], 'studyRelation')
   exact(
@@ -802,7 +918,83 @@ export function validateC1F0V2Contract(raw: unknown): C1F0V2Contract {
   return Object.freeze(root as C1F0V2Contract)
 }
 
-export async function loadC1F0V2Contract(repoRoot: string): Promise<C1F0V2Contract> {
+export function validateC1F0V2FreezeCandidate(raw: unknown): C1F0V2Contract {
+  return validateFreezeCandidateContract(raw)
+}
+
+export function validateC1F0V2FinalBoundContract(raw: unknown): C1F0V2Contract {
+  const root = record(raw, 'F0-v2 final-bound contract')
+  exact(root['contractId'], C1_F0_V2_CONTRACT_ID, 'contractId')
+  exact(root['schemaVersion'], C1_F0_V2_CONTRACT_SCHEMA_VERSION, 'schemaVersion')
+  exact(root['status'], 'FROZEN', 'status')
+  exact(root['designStatus'], 'FINAL_BOUND', 'designStatus')
+  exact(root['runContractHashRole'], 'FINAL_BOUND', 'runContractHashRole')
+  if ('studyId' in root) {
+    throw new C1F0V2ContractError('studyId must remain outside the final-bound contract')
+  }
+
+  const finalHash = string(root['runContractSha256'], 'runContractSha256')
+  if (!/^[a-f0-9]{64}$/.test(finalHash)) {
+    throw new C1F0V2ContractError('runContractSha256 must be a lowercase SHA-256 digest')
+  }
+  if (computeC1F0V2RunContractSha256(root) !== finalHash) {
+    throw new C1F0V2ContractError('runContractSha256 does not match canonical final-bound content')
+  }
+  exact(
+    root['freezeCandidateRunContractSha256'],
+    C1_F0_V2_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256,
+    'freezeCandidateRunContractSha256'
+  )
+  exact(root['finalBoundRunContractSha256'], finalHash, 'finalBoundRunContractSha256')
+
+  const execution = record(root['executionBinding'], 'executionBinding')
+  const codeRevision = string(execution['codeRevision'], 'executionBinding.codeRevision')
+  const executionSurfaceHash = string(
+    execution['executionSurfaceHash'],
+    'executionBinding.executionSurfaceHash'
+  )
+  if (!/^[a-f0-9]{40}$/.test(codeRevision)) {
+    throw new C1F0V2ContractError('executionBinding.codeRevision must be a 40-character Git SHA')
+  }
+  if (!/^[a-f0-9]{64}$/.test(executionSurfaceHash)) {
+    throw new C1F0V2ContractError(
+      'executionBinding.executionSurfaceHash must be a 64-character SHA-256 digest'
+    )
+  }
+
+  const candidateLike = JSON.parse(JSON.stringify(root)) as JsonRecord
+  candidateLike['status'] = 'FREEZE_REVIEW'
+  candidateLike['designStatus'] = 'READY_FOR_CONTRACT_FREEZE_REVIEW'
+  candidateLike['runContractHashRole'] = 'FREEZE_CANDIDATE'
+  delete candidateLike['freezeCandidateRunContractSha256']
+  delete candidateLike['finalBoundRunContractSha256']
+  const candidateBinding = record(candidateLike['executionBinding'], 'executionBinding')
+  candidateBinding['codeRevision'] = C1_F0_V2_PENDING_BINDING
+  candidateBinding['executionSurfaceHash'] = C1_F0_V2_PENDING_BINDING
+  candidateLike['runContractSha256'] = computeC1F0V2RunContractSha256(candidateLike)
+  validateFreezeCandidateContract(candidateLike)
+  return Object.freeze(root as C1F0V2Contract)
+}
+
+export function validateC1F0V2Contract(
+  raw: unknown,
+  phase: C1F0V2ContractPhase = 'AUTO'
+): C1F0V2Contract {
+  const root = record(raw, 'F0-v2 contract')
+  const role = root['runContractHashRole']
+  if (phase === 'FREEZE_CANDIDATE' || (phase === 'AUTO' && role === 'FREEZE_CANDIDATE')) {
+    return validateFreezeCandidateContract(root)
+  }
+  if (phase === 'FINAL_BOUND' || (phase === 'AUTO' && role === 'FINAL_BOUND')) {
+    return validateC1F0V2FinalBoundContract(root)
+  }
+  throw new C1F0V2ContractError('runContractHashRole must select a known contract phase')
+}
+
+export async function loadC1F0V2Contract(
+  repoRoot: string,
+  phase: C1F0V2ContractPhase = 'AUTO'
+): Promise<C1F0V2Contract> {
   const path = resolve(repoRoot, C1_F0_V2_CONTRACT_RELATIVE_PATH)
   let parsed: unknown
   try {
@@ -812,5 +1004,5 @@ export async function loadC1F0V2Contract(repoRoot: string): Promise<C1F0V2Contra
       'unable to read F0-v2 contract: ' + (error instanceof Error ? error.message : String(error))
     )
   }
-  return validateC1F0V2Contract(parsed)
+  return validateC1F0V2Contract(parsed, phase)
 }

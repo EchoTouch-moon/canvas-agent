@@ -30,6 +30,12 @@ feasibilityLines          = success >= 0.80 / budget <= 0.20 / unrecovered <= 0.
 `executionBinding.codeRevision` 与 `executionSurfaceHash` 后，完整合同内容会改变，必须重新生成
 `finalBoundRunContractSha256`；候选 hash 不会作为 Owner Authorization 的最终合同 hash。
 
+validator 已分为 candidate 与 final-bound 两个 phase-aware 入口，共享同一组 code-side freeze invariants。candidate
+要求两个 execution binding 字段仍为 pending；final-bound 只允许把 role/status/designStatus 切换到 FINAL_BOUND、填入
+40 位 execution revision 和 64 位 surface hash，并携带原始 candidate hash。任何 task、evidence、outcome、firewall、
+artifact、预算、门槛、Provider 或 recovery 语义变化都会在重新计算 self-hash 后以
+SEMANTIC_FREEZE_MISMATCH 拒绝。
+
 maxUnknownRunRate=0.125 允许每个 16-run stratum 至多 2 个 unknown；minAdjudicableRunsPerTask=14 要求至少
 14 个 run 进入 success/failure 的可判定分母，避免 missing evidence 掩盖 feasibility。unknown 不计作 failure，而由
 PRECISION_GATE 单独裁定。
@@ -84,13 +90,14 @@ feasibility-summary.json
 
 ## 零 Provider 校验
 
-c1-f0-v2-contract.test.ts 的 5 项回归通过：
+c1-f0-v2-contract.test.ts 的 6 项回归通过：
 
 1. 正确读取自哈希合同，并确认 execution revision/surface hash 仍是 pending、study identity 尚未创建；
 2. 顶层 key 顺序变化不改变 canonical contract hash；
 3. 修改 freeze 字段但不更新 hash 时 fail closed，拒绝不匹配的 runContractSha256；
 4. 修改 t1 expectedWritablePaths 并重算合法 self-hash 后，以 SEMANTIC_FREEZE_MISMATCH 拒绝；
-5. 修改 t1 promptSha256 并重算合法 self-hash 后，以 SEMANTIC_FREEZE_MISMATCH 拒绝。
+5. 修改 t1 promptSha256 并重算合法 self-hash 后，以 SEMANTIC_FREEZE_MISMATCH 拒绝；
+6. 只填充 execution revision/surface hash 并切换 phase 后，final-bound contract 可以通过共享 invariants 校验。
 
 ## 下一步
 
