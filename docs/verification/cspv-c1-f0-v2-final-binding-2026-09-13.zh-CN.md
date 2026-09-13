@@ -2,7 +2,7 @@
 
 日期：2026-09-13（Asia/Shanghai）
 
-状态：FINAL_BOUND_REBOUND / BINDING_REVIEW_REQUIRED / NO_PROVIDER
+状态：FINAL_BOUND_LIVE_REBOUND / BINDING_REVIEW_REQUIRED / NO_PROVIDER
 
 本记录对应 research/context-benchmarks/c1/f0/contracts/c1-f0-execution-feasibility-v2-final-bound.json。
 它只形成不可变 binding candidate，不创建 study identity，不读取 credential，不执行 Provider。
@@ -11,9 +11,9 @@
 
 ```text
 freezeCandidateRunContractSha256 = 31663b2833ea8ecf46fdc1165dd69b87e12c4ce1999fd595307368448d0606a7
-executionRevision                = 926be0a5e6eeecd08303a644a3858d61bb8212ba
-executionSurfaceHash             = 9b600f7d20f6d543939881c9c92fd9badac55025d2982692bbc18dc2727b3974
-finalBoundRunContractSha256      = 85b031207d8c3d7c3decafd9708db6a0d35238faba5949c2b657ce96ca9b4884
+executionRevision                = c072af5c4fb3245a74e457a616d0c2b78ddd3f3d
+executionSurfaceHash             = bde57600d2f57ab48210298bcaa0b58283fe003301f617aa506eacddb46f0ae2
+finalBoundRunContractSha256      = b340c987903318b0fed72de26007cc4a29d88cae0ac51a399eaa33cd4c6ebdab
 runContractHashRole               = FINAL_BOUND
 status / designStatus             = FROZEN / FINAL_BOUND
 studyId                           = NOT_CREATED
@@ -35,13 +35,13 @@ c1-f0-v2-final-binding.test.ts 覆盖：
 2. 现场重算 `computeC1F0V2ExecutionBinding(REPO_ROOT)` 并与 final contract 的 revision/surface hash 逐项相等；
 3. candidate/final contract 数据不进入 runner execution surface。
 
-上一个 `609629…` final-bound hash 随 runner evidence correction 失效；本记录仅保留新的 `85b031…` binding。
-Node 24 合同与 runner 回归、full benchmark 和 headless core gate 均通过；本记录不代表 owner authorization，
+此前的 `609629…` 与 `85b031…` final-bound hash 均随 executable-surface 变更失效；本记录仅保留新的
+`b340c9…` live-rebound binding。新增的 authorized-provider runner 仍需独立 review；本记录不代表 owner authorization，
 也不授权 live Provider。
 
 ## 下一步
 
-1. 对本次 rebound final-bound binding 完成独立 review；
+1. 对本次 live-rebound final-bound binding 完成独立 review；
 2. 保持 final-bound contract 与 runner surface 不变，生成 owner authorization record；
 3. 仅在 fresh never-claimed studyId、精确 hashes、预算和 safety policy 全部绑定后，等待 owner authorization；
 4. 授权前不得运行 F0-v2 live。
