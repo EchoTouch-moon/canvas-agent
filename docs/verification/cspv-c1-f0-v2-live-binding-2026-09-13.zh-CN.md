@@ -2,7 +2,7 @@
 
 日期：2026-09-13（Asia/Shanghai）
 
-状态：`IMPLEMENTED / FAKE_FETCH_E2E_PASS / BINDING_REVIEW_REQUIRED / NO_PROVIDER`
+状态：`IMPLEMENTED / FAKE_FETCH_E2E_PASS / RUNNER_FIX_REBOUND / BINDING_REVIEW_REQUIRED / NO_PROVIDER`
 
 本记录对应新增的 `research/context-benchmarks/c1/f0/v2/runner/c1-f0-v2-live-binding.ts`。它实现了 F0-v2
 的 authorized-provider wiring，但本记录只使用注入的 fake fetch，不读取真实 credential，不访问外部网络，不 claim
@@ -12,9 +12,9 @@ live study identity。
 
 ```text
 Freeze candidate SHA-256            = 31663b2833ea8ecf46fdc1165dd69b87e12c4ce1999fd595307368448d0606a7
-Final-bound run-contract SHA-256    = b340c987903318b0fed72de26007cc4a29d88cae0ac51a399eaa33cd4c6ebdab
-Execution revision                  = c072af5c4fb3245a74e457a616d0c2b78ddd3f3d
-Execution surface SHA-256           = bde57600d2f57ab48210298bcaa0b58283fe003301f617aa506eacddb46f0ae2
+Final-bound run-contract SHA-256    = 4120e8d4c5c029ce224fb1341989cdc208d96799f1c399e736ee77aa36ea0611
+Execution revision                  = 6d0189a998772e8d9e379f8ec56bc7f429546a2a
+Execution surface SHA-256           = 583f6c974c207eb3e338b89aa345ab1aadd894fb25d83455b06ee59af13fbe0a
 Provider config SHA-256              = bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a
 Enrollment manifest SHA-256          = 2bfcad11078758c21a9ca799357553d08beb08065cea2efd179eade7e0a04e38
 Node range                          = >=24.0.0 <25.0.0
@@ -82,8 +82,8 @@ Real Provider calls / network      0 / 0
 
 ## Fresh identity preparation
 
-当前授权准备记录中的候选 identity 仍只是未 claim 值。live binding 代码改动后，旧候选授权记录必须重新绑定；下一份
-授权记录应基于本记录的 exact final contract 与 execution surface 重新生成 fresh studyId。
+上一轮 `c1-f0-v2-20260913-de68f062` 因 runner classification defect 已 consumed；新的授权记录必须基于本次
+runner-fix exact final contract 与 execution surface 重新生成 fresh studyId，不能沿用旧 identity。
 
 在新的独立 binding review、PR #128 stack 收口和 owner 明确签署之前：
 
