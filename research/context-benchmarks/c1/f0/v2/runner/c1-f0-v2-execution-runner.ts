@@ -109,7 +109,7 @@ export type C1F0V2FakeScenario =
   | 'SINGLE_RUN_FAILURE'
   | 'STUDY_INVALIDATOR'
 
-interface V2TaskEntry {
+export interface V2TaskEntry {
   readonly taskId: string
   readonly stratum: string
   readonly fixturePath: string
@@ -118,7 +118,7 @@ interface V2TaskEntry {
   readonly fixtureTreeObjectId: string
 }
 
-interface V2ContractView {
+export interface V2ContractView {
   readonly contractId: string
   readonly executionBinding: {
     readonly providerConfigHash: string
@@ -330,7 +330,7 @@ export interface C1F0V2ExecutionRunnerOptions {
 const F0_V2_STUDY_ID_PATTERN = /^c1-f0-v2-\d{8}-[0-9a-f]{8}$/
 const F0_V2_RUN_ID_PREFIX_PATTERN = /^(c1-f0-v2-\d{8})-[0-9a-f]{8}$/
 const F0_V2_CREDENTIAL_SENTINEL = 'c1-f0-v2-credential-free-in-memory-sentinel'
-const F0_V2_REQUIRED_ARTIFACTS = Object.freeze([
+export const C1_F0_V2_REQUIRED_ARTIFACTS = Object.freeze([
   'study-manifest.json',
   'run-manifest.json',
   'checkpoints.jsonl',
@@ -542,7 +542,7 @@ class C1F0V2JsonlSink {
   }
 }
 
-interface C1F0V2ProvenanceSummary {
+export interface C1F0V2ProvenanceSummary {
   readonly toolExecutions: number
   readonly failedExecutions: number
   readonly recoveredExecutions: number
@@ -550,7 +550,7 @@ interface C1F0V2ProvenanceSummary {
   readonly uniqueFailureSignatures: number
 }
 
-class C1F0V2HardeningToolAdapter implements C1LiveToolExecutor {
+export class C1F0V2HardeningToolAdapter implements C1LiveToolExecutor {
   private readonly hardening: C1F0ProspectiveToolExecutor
   private readonly provenanceSink: C1F0V2JsonlSink
   private readonly studyId: string
@@ -654,7 +654,7 @@ class C1F0V2HardeningToolAdapter implements C1LiveToolExecutor {
   }
 }
 
-class C1F0V2CheckpointSink implements C1LiveBindingEvidenceSink {
+export class C1F0V2CheckpointSink implements C1LiveBindingEvidenceSink {
   private readonly entries: C1LiveBindingCheckpoint[] = []
   private ordinal = 0
 
@@ -674,7 +674,7 @@ class C1F0V2CheckpointSink implements C1LiveBindingEvidenceSink {
   }
 }
 
-function failureOf(error: unknown): { readonly code: string; readonly message: string } {
+export function failureOf(error: unknown): { readonly code: string; readonly message: string } {
   if (error instanceof C1PreflightFailure) {
     return { code: error.code, message: error.message }
   }
@@ -684,7 +684,7 @@ function failureOf(error: unknown): { readonly code: string; readonly message: s
   }
 }
 
-function classifyTermination(error: unknown): C1F0V2TerminationStatus {
+export function classifyTermination(error: unknown): C1F0V2TerminationStatus {
   if (error instanceof C1PreflightFailure) {
     if (error.code === 'BUDGET_BREACH' || error.message.includes('maxCalls')) {
       return 'BUDGET_EXHAUSTED'
@@ -700,7 +700,7 @@ function classifyTermination(error: unknown): C1F0V2TerminationStatus {
   return 'TERMINAL_FAILED'
 }
 
-function isSharedInvalidator(code: string): boolean {
+export function isSharedInvalidator(code: string): boolean {
   return new Set([
     'CONTRACT_BINDING_MISMATCH',
     'MANIFEST_BINDING_MISMATCH',
@@ -712,7 +712,7 @@ function isSharedInvalidator(code: string): boolean {
   ]).has(code)
 }
 
-function evidenceForRun(
+export function evidenceForRun(
   checkpoints: readonly C1LiveBindingCheckpoint[],
   runId: string
 ): readonly C1LiveBindingEvidence[] {
@@ -726,7 +726,7 @@ function evidenceForRun(
     .map((checkpoint) => checkpoint.evidence)
 }
 
-function checkpointJoinComplete(
+export function checkpointJoinComplete(
   checkpoints: readonly C1LiveBindingCheckpoint[],
   runId: string,
   responseCalls: number
@@ -759,7 +759,7 @@ function checkpointJoinComplete(
   return true
 }
 
-function combineOracleStatus(
+export function combineOracleStatus(
   objective: C1F0V2OracleStatus,
   regression: C1F0V2OracleStatus
 ): C1F0V2OracleStatus {
@@ -770,13 +770,13 @@ function combineOracleStatus(
   return objective === 'PASS' && regression === 'PASS' ? 'PASS' : 'FAIL'
 }
 
-function oracleStatus(evaluation: C1TaskEvaluation | undefined): C1F0V2OracleStatus {
+export function oracleStatus(evaluation: C1TaskEvaluation | undefined): C1F0V2OracleStatus {
   if (evaluation === undefined) return 'NOT_ADJUDICABLE'
   if (evaluation.status === 'HARNESS_CONTRACT_FAILURE') return 'UNKNOWN'
   return evaluation.status === 'PASS' ? 'PASS' : 'FAIL'
 }
 
-function metadataEvidence(row: C1LiveBindingEvidence): Record<string, unknown> {
+export function metadataEvidence(row: C1LiveBindingEvidence): Record<string, unknown> {
   return {
     studyId: row.studyId,
     taskId: row.taskId,
@@ -842,7 +842,7 @@ async function appendDurable(path: string, value: unknown): Promise<void> {
   }
 }
 
-async function artifactSummary(
+export async function artifactSummary(
   reportDir: string,
   name: string
 ): Promise<{ readonly name: string; readonly sha256: string; readonly bytes: number }> {
@@ -850,7 +850,7 @@ async function artifactSummary(
   return { name, sha256: sha256Bytes(bytes), bytes: bytes.byteLength }
 }
 
-async function claimStudyDir(outputRoot: string, studyId: string): Promise<string> {
+export async function claimStudyDir(outputRoot: string, studyId: string): Promise<string> {
   const reportDir = join(outputRoot, studyId)
   await mkdir(outputRoot, { recursive: true })
   try {
@@ -864,13 +864,13 @@ async function claimStudyDir(outputRoot: string, studyId: string): Promise<strin
   return reportDir
 }
 
-async function claimLegDir(reportDir: string, runId: string): Promise<string> {
+export async function claimLegDir(reportDir: string, runId: string): Promise<string> {
   const legDir = join(reportDir, 'legs', runId)
   await mkdir(legDir, { recursive: true })
   return legDir
 }
 
-interface C1F0V2FrozenPostRunSnapshot {
+export interface C1F0V2FrozenPostRunSnapshot {
   readonly snapshotId: string
   readonly status: 'FROZEN' | 'UNAVAILABLE'
   readonly contentSha256?: string
@@ -879,7 +879,7 @@ interface C1F0V2FrozenPostRunSnapshot {
   readonly cleanup: () => Promise<void>
 }
 
-async function freezePostRunSnapshot(input: {
+export async function freezePostRunSnapshot(input: {
   readonly fixtureRoot: string
   readonly snapshotId: string
   readonly unavailable: boolean
@@ -909,14 +909,14 @@ async function freezePostRunSnapshot(input: {
   }
 }
 
-function recoveryStatus(summary: C1F0V2ProvenanceSummary): C1F0V2RecoveryStatus {
+export function recoveryStatus(summary: C1F0V2ProvenanceSummary): C1F0V2RecoveryStatus {
   if (summary.blockedRepeatedFailures > 0) return 'BLOCKED'
   if (summary.recoveredExecutions > 0) return 'RECOVERED'
   if (summary.failedExecutions > 0) return 'UNRECOVERED'
   return 'NONE'
 }
 
-function deriveSideEffectAttributionStatus(input: {
+export function deriveSideEffectAttributionStatus(input: {
   readonly changedPaths: readonly string[]
   readonly snapshotStatus: 'FROZEN' | 'UNAVAILABLE'
   readonly provenanceStatus: C1F0V2ProvenanceStatus
@@ -932,7 +932,7 @@ function deriveSideEffectAttributionStatus(input: {
   return input.changedPaths.every((path) => attributedPaths.has(path)) ? 'ATTRIBUTED' : 'UNKNOWN'
 }
 
-function taskDisposition(input: {
+export function taskDisposition(input: {
   readonly terminationStatus: C1F0V2TerminationStatus
   readonly oracleStatus: C1F0V2OracleStatus
   readonly evidenceStatus: C1F0V2EvidenceStatus
@@ -1140,7 +1140,7 @@ function taskSummary(
   }
 }
 
-function adjudicateV2Study(input: {
+export function adjudicateV2Study(input: {
   readonly contract: V2ContractView
   readonly runs: readonly C1F0V2RunRecord[]
   readonly sharedInvalidator: boolean
@@ -1265,7 +1265,7 @@ export async function computeC1F0V2ExecutionBinding(repoRoot: string): Promise<{
   }
 }
 
-function defaultV2RunRecord(
+export function defaultV2RunRecord(
   plan: C1F0V2ExecutionPlan,
   failureCode: string,
   disposition: C1F0V2RunDisposition = 'STUDY_INVALID'
@@ -1373,7 +1373,7 @@ async function writeV2Artifacts(input: {
       stratum: task.stratum
     })),
     runsPlanned: input.contract.design.totalRuns,
-    requiredArtifacts: F0_V2_REQUIRED_ARTIFACTS
+    requiredArtifacts: C1_F0_V2_REQUIRED_ARTIFACTS
   }
   const runManifest = {
     studyId: input.studyId,
@@ -1425,11 +1425,11 @@ async function writeV2Artifacts(input: {
     await ensureFile(join(input.reportDir, name))
   }
   const artifacts = []
-  for (const name of F0_V2_REQUIRED_ARTIFACTS) {
+  for (const name of C1_F0_V2_REQUIRED_ARTIFACTS) {
     artifacts.push(await artifactSummary(input.reportDir, name))
   }
   const serialized = await Promise.all(
-    F0_V2_REQUIRED_ARTIFACTS.map(async (name) => readFile(join(input.reportDir, name), 'utf8'))
+    C1_F0_V2_REQUIRED_ARTIFACTS.map(async (name) => readFile(join(input.reportDir, name), 'utf8'))
   )
   if (
     serialized.some((content) =>
