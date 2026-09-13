@@ -21,6 +21,7 @@ describe('C1 F0-v2 contract freeze candidate', () => {
     expect(contract.contractId).toBe('C1_F0_EXECUTION_FEASIBILITY_V2')
     expect(contract.schemaVersion).toBe(2)
     expect(contract.status).toBe('FREEZE_REVIEW')
+    expect(contract['runContractHashRole']).toBe('FREEZE_CANDIDATE')
     expect(contract['executionBinding']).toMatchObject({
       codeRevision: C1_F0_V2_PENDING_BINDING,
       executionSurfaceHash: C1_F0_V2_PENDING_BINDING,
@@ -68,5 +69,41 @@ describe('C1 F0-v2 contract freeze candidate', () => {
         }
       })
     ).toThrow(/runContractSha256/)
+  })
+
+  it('rejects writable-scope drift even when the attacker recomputes the self hash', async () => {
+    const raw = JSON.parse(
+      await readFile(resolve(REPO_ROOT, C1_F0_V2_CONTRACT_RELATIVE_PATH), 'utf8')
+    ) as Record<string, unknown>
+    const taskPanel = JSON.parse(JSON.stringify(raw['taskPanel'])) as Array<Record<string, unknown>>
+    const firstTask = taskPanel[0]
+    if (firstTask === undefined) throw new Error('missing first task')
+    firstTask['expectedWritablePaths'] = ['src/other.js']
+    const mutated = { ...raw, taskPanel }
+    const rehashed = {
+      ...mutated,
+      runContractSha256: computeC1F0V2RunContractSha256(mutated)
+    }
+    expect(() => validateC1F0V2Contract(rehashed)).toThrow(
+      'SEMANTIC_FREEZE_MISMATCH: taskPanel.0.expectedWritablePaths'
+    )
+  })
+
+  it('rejects prompt or fixture identity drift after a valid self-hash recomputation', async () => {
+    const raw = JSON.parse(
+      await readFile(resolve(REPO_ROOT, C1_F0_V2_CONTRACT_RELATIVE_PATH), 'utf8')
+    ) as Record<string, unknown>
+    const taskPanel = JSON.parse(JSON.stringify(raw['taskPanel'])) as Array<Record<string, unknown>>
+    const firstTask = taskPanel[0]
+    if (firstTask === undefined) throw new Error('missing first task')
+    firstTask['promptSha256'] = '0'.repeat(64)
+    const mutated = { ...raw, taskPanel }
+    const rehashed = {
+      ...mutated,
+      runContractSha256: computeC1F0V2RunContractSha256(mutated)
+    }
+    expect(() => validateC1F0V2Contract(rehashed)).toThrow(
+      'SEMANTIC_FREEZE_MISMATCH: taskPanel.0.promptSha256'
+    )
   })
 })

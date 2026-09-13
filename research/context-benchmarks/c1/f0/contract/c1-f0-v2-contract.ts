@@ -14,6 +14,208 @@ export const C1_F0_V2_MIN_ADJUDICABLE_RUNS_PER_TASK = 14
 
 type JsonRecord = Record<string, unknown>
 
+/**
+ * Minimal code-side binding for freeze-critical design fields. Execution
+ * revision and surface hash remain intentionally outside this projection.
+ */
+export const C1_F0_V2_FREEZE_INVARIANTS = Object.freeze({
+  runContractHashRole: 'FREEZE_CANDIDATE',
+  claims: 'F0_V2_FEASIBILITY_ONLY_NO_RUNTIME_EFFECT_NO_RECOVERY_CAUSAL_CLAIM',
+  estimand: 'NATIVE_EXECUTION_FEASIBILITY_ON_F0_V2_FROZEN_TASK_PANEL',
+  studyRelation: {
+    priorContractId: 'C1_F0_EXECUTION_FEASIBILITY_V1',
+    priorStudyId: 'c1-f0-20260912-41753674',
+    priorArtifactPolicy: 'IMMUTABLE_CONSUMED_NO_RESUME_RETRY_REUSE_REBIND',
+    comparisonPolicy: 'DESCRIPTIVE_V1_V2_ONLY_NOT_POOLED'
+  },
+  design: {
+    arm: 'NATIVE_ONLY',
+    runtimeIntervention: 'DISABLED',
+    taskPanelId: 'C1_F0_TASK_PANEL_V1',
+    taskCount: 2,
+    runsPerTask: 16,
+    totalRuns: 32,
+    maxConcurrency: 1,
+    runOrder: {
+      algorithmId: 'C1_F0_DETERMINISTIC_BALANCED_ALTERNATION_V1',
+      seed: 'c1-f0-v2-task-order-20260913',
+      pattern: ['c1-t1-localized-distractor-v1', 'c1-t2-multi-file-migration-v1'],
+      repetitions: 16
+    },
+    confidence: {
+      level: 0.95,
+      intervalMethod: 'CLOPPER_PEARSON_EXACT',
+      tail: 'ONE_SIDED'
+    }
+  },
+  taskPanel: [
+    {
+      taskId: 'c1-t1-localized-distractor-v1',
+      stratum: 'localized_investigation_distractors',
+      fixturePath: 'research/context-benchmarks/corpus/L3-noisy-bug-hunt/fixture',
+      expectedWritablePaths: ['src/scheduler/paginator.js'],
+      fixtureTreeObjectId: '860da37c32e15ba749b106a0187dde5a36a161a9',
+      fixtureContentSha256: '09d921c46e6a7c524d8992f7ec87753efbcc69e5bd1470d5873f53f72927d8d5',
+      promptSha256: '7ede05ac9f2f5d77771ad72ca2b83d652bf26b8dcc61dbba03aa4f6978068615',
+      objectiveOracle: {
+        command: 'node',
+        args: ['--test', 'test/pagination.test.js'],
+        expectedExitCode: 0,
+        timeoutMs: 30000
+      },
+      regressionOracle: {
+        command: 'node',
+        args: ['--test', 'test/regression.test.js'],
+        expectedExitCode: 0,
+        timeoutMs: 30000
+      }
+    },
+    {
+      taskId: 'c1-t2-multi-file-migration-v1',
+      stratum: 'multi_file_multi_source',
+      fixturePath: 'research/context-benchmarks/corpus/L1-multi-file-refactor/fixture',
+      expectedWritablePaths: [
+        'utils/format.js',
+        'models/product.js',
+        'models/order.js',
+        'models/shipment.js',
+        'services/cart.js',
+        'services/pricing.js',
+        'services/inventory.js',
+        'services/billing.js',
+        'index.js'
+      ],
+      fixtureTreeObjectId: 'd0ac86afcc7bb76b19e0f6d6e052ce642d25e784',
+      fixtureContentSha256: '1a9ecd5bc168568ce9285c405257d7c2875090411fd8f594dc5849d1f868ede3',
+      promptSha256: '1c09fb86ab5e4cfde9a9cf1ba05282b5007081b5c468df2fe3c9b44eff084a03',
+      objectiveOracle: {
+        command: 'node',
+        args: ['--test', 'test/format-price.test.js'],
+        expectedExitCode: 0,
+        timeoutMs: 30000
+      },
+      regressionOracle: {
+        command: 'node',
+        args: ['--test', 'test/regression.test.js'],
+        expectedExitCode: 0,
+        timeoutMs: 30000
+      }
+    }
+  ],
+  enrollmentBinding: {
+    taskManifestPath: 'research/context-benchmarks/c1/manifests/c1-effectiveness-v1.json',
+    taskManifestSha256: '2bfcad11078758c21a9ca799357553d08beb08065cea2efd179eade7e0a04e38',
+    panelSelection: 'FROZEN_F0_TASK_PANEL_ONLY',
+    historicalOpportunityUse: 'NOT_USED_FOR_EXECUTION_OR_SELECTION_AFTER_FREEZE'
+  },
+  executionBinding: {
+    provider: 'step-plan',
+    model: 'step-3.7-flash',
+    endpoint: 'https://api.stepfun.com/step_plan/v1/chat/completions',
+    nodeRange: '>=24.0.0 <25.0.0',
+    credentialEnv: 'STEP_PLAN_API_KEY',
+    credentialPersistence: 'MEMORY_ONLY',
+    fallback: 'NONE',
+    runtimeIntervention: 'DISABLED',
+    providerConfigHash: C1_F0_V2_PROVIDER_CONFIG_HASH
+  },
+  toolHardening: {
+    moduleId: 'C1_F0_TOOL_HARDENING_V1',
+    modulePath: 'research/context-benchmarks/c1/f0/hardening/c1-f0-tool-hardening.ts',
+    mode: 'PROSPECTIVE_OPT_IN_ONLY',
+    recoveryPolicy: {
+      maxIdenticalFailureAttempts: 2,
+      requestSignature: 'SHA256(toolName + NUL + canonicalJson(semanticArguments))',
+      canonicalization: 'JSON_OBJECT_KEYS_SORTED_RECURSIVELY',
+      streakResetOn: ['DIFFERENT_CANONICAL_REQUEST', 'SUCCESS'],
+      thirdIdenticalAction: 'REPEATED_FAILURE_BLOCKED',
+      implicitRetry: 'FORBIDDEN',
+      correctedRetry: 'MODEL_EMITTED_ONLY',
+      linkageFields: ['recoveryOfToolCallId', 'recoveryAttemptOrdinal']
+    },
+    operationalRecoveryDefinition:
+      'A successful tool execution linked by recoveryOfToolCallId to a preceding failed execution; this does not claim semantic task recovery.'
+  },
+  budgets: {
+    perRun: {
+      maxProviderRequests: 24,
+      maxToolRequests: 96,
+      maxWallClockMs: 600000,
+      maxOutputTokensPerRequest: 16384
+    },
+    study: {
+      maxProviderRequests: 768,
+      maxToolRequests: 3072,
+      maxWallClockMs: 19200000,
+      maxRuns: 32,
+      maxConcurrency: 1
+    }
+  },
+  gates: {
+    validity: {
+      sharedInvalidatorCount: 0,
+      bindingsValid: true,
+      singleStudyId: true,
+      uniqueRunIds: true,
+      checkpointReportJoin: 'REQUIRED',
+      provenanceEventCoverage: 'REQUIRED',
+      rawCredentialOrPayloadLeakage: 'FORBIDDEN',
+      missingProvenanceRow: 'STUDY_INVALID',
+      schemaConflict: 'STUDY_INVALID'
+    },
+    precision: {
+      startedRunsPerTask: 16,
+      taskPanelCoverage: 2,
+      confidenceRule: 'ONE_SIDED_95_PERCENT_CLOPPER_PEARSON_EXACT',
+      maxUnknownRunRate: 0.125,
+      minAdjudicableRunsPerTask: 14,
+      unknownIsNotFailure: true,
+      postHocRemoval: 'FORBIDDEN'
+    },
+    feasibility: {
+      perTaskSuccessAmongAdjudicableLowerBound: 0.8,
+      perTaskBudgetExhaustionUpperBound: 0.2,
+      perTaskUnrecoveredToolFailureRunUpperBound: 0.2,
+      perTaskOraclePassAmongAdjudicableLowerBound: 0.8,
+      startedRunSuccessRate: 'DESCRIPTIVE_ONLY'
+    },
+    provenanceSafety: {
+      everyToolExecutionHasExactlyOneRow: true,
+      noRawCommandArgumentPayload: true,
+      blockedRequestHasZeroSideEffectPaths: true
+    },
+    recoverySafety: {
+      canonicalSignatureRequired: true,
+      maxIdenticalFailureAttempts: 2,
+      thirdConsecutiveIdenticalRequest: 'BLOCKED',
+      differentRequestOrSuccessResetsStreak: true,
+      correctedRetryMustBeModelEmitted: true,
+      correctedRetrySignatureMustDiffer: true,
+      operationalRecoveryRequiresLinkage: true
+    }
+  },
+  identityPolicy: {
+    studyIdPattern: '^c1-f0-v2-[0-9]{8}-[0-9a-f]{8}$',
+    oneStudyIdPerStudy: true,
+    runIdPattern: '^c1-f0-v2-[0-9]{8}-run-[0-9]{2}-[0-9a-f]{8}$',
+    runIdsUnique: true,
+    retry: 'FORBIDDEN',
+    resume: 'FORBIDDEN',
+    reuse: 'FORBIDDEN',
+    studyIdStatus: 'NOT_CREATED'
+  },
+  groundTruthFirewall: {
+    postRunSequence: [
+      'EXECUTION_TERMINATES',
+      'FREEZE_IMMUTABLE_POST_RUN_FIXTURE_SNAPSHOT',
+      'ORACLE_AND_WRITABLE_SCOPE_ADJUDICATION',
+      'PERSIST_ADJUDICATION_EVIDENCE',
+      'CLEANUP_LIVE_SANDBOX'
+    ],
+    oracleTiming: 'AFTER_POST_RUN_SNAPSHOT_BEFORE_CLEANUP'
+  }
+} as const)
+
 export interface C1F0V2Contract {
   readonly contractId: typeof C1_F0_V2_CONTRACT_ID
   readonly schemaVersion: typeof C1_F0_V2_CONTRACT_SCHEMA_VERSION
@@ -32,6 +234,7 @@ function sha256(value: string): string {
 }
 
 function canonicalJson(value: unknown): string {
+  if (value === undefined) return '"__MISSING__"'
   if (value === null) return 'null'
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
     const encoded = JSON.stringify(value)
@@ -97,6 +300,124 @@ function exactArray(value: unknown, expected: readonly unknown[], path: string):
   }
 }
 
+function pick(source: JsonRecord, keys: readonly string[]): JsonRecord {
+  return Object.fromEntries(keys.map((key) => [key, source[key]]))
+}
+
+function freezeProjection(raw: unknown): JsonRecord {
+  const root = record(raw, 'F0-v2 contract')
+  const design = record(root['design'], 'design')
+  const runOrder = record(design['runOrder'], 'design.runOrder')
+  const confidence = record(design['confidence'], 'design.confidence')
+  const tasks = array(root['taskPanel'], 'taskPanel')
+  const taskPanel = tasks.map((task, index) => {
+    const entry = record(task, 'taskPanel.' + String(index))
+    return pick(entry, [
+      'taskId',
+      'stratum',
+      'fixturePath',
+      'expectedWritablePaths',
+      'fixtureTreeObjectId',
+      'fixtureContentSha256',
+      'promptSha256',
+      'objectiveOracle',
+      'regressionOracle'
+    ])
+  })
+  const enrollment = record(root['enrollmentBinding'], 'enrollmentBinding')
+  const execution = record(root['executionBinding'], 'executionBinding')
+  const gates = record(root['gates'], 'gates')
+  const validity = record(gates['validity'], 'gates.validity')
+  const precision = record(gates['precision'], 'gates.precision')
+  const feasibility = record(gates['feasibility'], 'gates.feasibility')
+  const provenanceSafety = record(gates['provenanceSafety'], 'gates.provenanceSafety')
+  const recoverySafety = record(gates['recoverySafety'], 'gates.recoverySafety')
+  const firewall = record(root['groundTruthFirewall'], 'groundTruthFirewall')
+  return {
+    runContractHashRole: root['runContractHashRole'],
+    claims: root['claims'],
+    estimand: root['estimand'],
+    studyRelation: root['studyRelation'],
+    design: {
+      ...pick(design, [
+        'arm',
+        'runtimeIntervention',
+        'taskPanelId',
+        'taskCount',
+        'runsPerTask',
+        'totalRuns',
+        'maxConcurrency'
+      ]),
+      runOrder,
+      confidence
+    },
+    taskPanel,
+    enrollmentBinding: pick(enrollment, [
+      'taskManifestPath',
+      'taskManifestSha256',
+      'panelSelection',
+      'historicalOpportunityUse'
+    ]),
+    executionBinding: pick(execution, [
+      'provider',
+      'model',
+      'endpoint',
+      'nodeRange',
+      'credentialEnv',
+      'credentialPersistence',
+      'fallback',
+      'runtimeIntervention',
+      'providerConfigHash'
+    ]),
+    toolHardening: root['toolHardening'],
+    budgets: root['budgets'],
+    gates: {
+      validity,
+      precision,
+      feasibility,
+      provenanceSafety,
+      recoverySafety
+    },
+    identityPolicy: root['identityPolicy'],
+    groundTruthFirewall: {
+      postRunSequence: firewall['postRunSequence'],
+      oracleTiming: firewall['oracleTiming']
+    }
+  }
+}
+
+function firstMismatch(actual: unknown, expected: unknown, path: string): string | undefined {
+  if (expected === null || typeof expected !== 'object') {
+    return actual === expected ? undefined : path
+  }
+  if (actual === null || typeof actual !== 'object') return path
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(actual) || actual.length !== expected.length) return path
+    for (let index = 0; index < expected.length; index += 1) {
+      const mismatch = firstMismatch(actual[index], expected[index], path + '.' + String(index))
+      if (mismatch !== undefined) return mismatch
+    }
+    return undefined
+  }
+  if (Array.isArray(actual)) return path
+  for (const key of Object.keys(expected)) {
+    const mismatch = firstMismatch(
+      (actual as JsonRecord)[key],
+      (expected as JsonRecord)[key],
+      path.length === 0 ? key : path + '.' + key
+    )
+    if (mismatch !== undefined) return mismatch
+  }
+  return undefined
+}
+
+export function assertC1F0V2FreezeInvariants(raw: unknown): void {
+  const mismatch = firstMismatch(freezeProjection(raw), C1_F0_V2_FREEZE_INVARIANTS, '')
+  if (mismatch !== undefined) {
+    throw new C1F0V2ContractError('SEMANTIC_FREEZE_MISMATCH: ' + mismatch)
+  }
+}
+
 function validateTask(task: unknown, index: number): void {
   const path = 'taskPanel[' + String(index) + ']'
   const entry = record(task, path)
@@ -134,8 +455,9 @@ export function validateC1F0V2Contract(raw: unknown): C1F0V2Contract {
   exact(root['schemaVersion'], C1_F0_V2_CONTRACT_SCHEMA_VERSION, 'schemaVersion')
   exact(root['status'], 'FREEZE_REVIEW', 'status')
   exact(root['designStatus'], 'READY_FOR_CONTRACT_FREEZE_REVIEW', 'designStatus')
-  if ('studyId' in root)
+  if ('studyId' in root) {
     throw new C1F0V2ContractError('studyId must not exist before authorization')
+  }
   const contractHash = string(root['runContractSha256'], 'runContractSha256')
   if (!/^[a-f0-9]{64}$/.test(contractHash)) {
     throw new C1F0V2ContractError('runContractSha256 must be a lowercase SHA-256 digest')
@@ -143,6 +465,7 @@ export function validateC1F0V2Contract(raw: unknown): C1F0V2Contract {
   if (computeC1F0V2RunContractSha256(root) !== contractHash) {
     throw new C1F0V2ContractError('runContractSha256 does not match canonical contract content')
   }
+  assertC1F0V2FreezeInvariants(root)
 
   const relation = record(root['studyRelation'], 'studyRelation')
   exact(

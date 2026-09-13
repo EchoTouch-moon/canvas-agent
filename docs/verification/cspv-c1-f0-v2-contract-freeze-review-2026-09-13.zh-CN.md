@@ -13,7 +13,8 @@ revision，不读取 credential，也不授权 Provider。
 
 ```text
 contractId                = C1_F0_EXECUTION_FEASIBILITY_V2
-runContractSha256         = b2b4646703ccc926c000767431256b9f553b08fff944e3b16ad1f22f932d6ae9
+freezeCandidateRunContractSha256 = 31663b2833ea8ecf46fdc1165dd69b87e12c4ce1999fd595307368448d0606a7
+finalBoundRunContractSha256      = PENDING_F0_V2_IMPLEMENTATION
 taskPanel                 = c1-t1-localized-distractor-v1 + c1-t2-multi-file-migration-v1
 runsPerTask               = 16
 totalRuns                 = 32
@@ -24,6 +25,10 @@ maxUnknownRunRate         = 0.125
 minAdjudicableRunsPerTask = 14
 feasibilityLines          = success >= 0.80 / budget <= 0.20 / unrecovered <= 0.20 / oracle >= 0.80
 ```
+
+`31663b...` 是 `runContractHashRole=FREEZE_CANDIDATE` 的完整合同 hash。后续填入
+`executionBinding.codeRevision` 与 `executionSurfaceHash` 后，完整合同内容会改变，必须重新生成
+`finalBoundRunContractSha256`；候选 hash 不会作为 Owner Authorization 的最终合同 hash。
 
 maxUnknownRunRate=0.125 允许每个 16-run stratum 至多 2 个 unknown；minAdjudicableRunsPerTask=14 要求至少
 14 个 run 进入 success/failure 的可判定分母，避免 missing evidence 掩盖 feasibility。unknown 不计作 failure，而由
@@ -79,11 +84,13 @@ feasibility-summary.json
 
 ## 零 Provider 校验
 
-c1-f0-v2-contract.test.ts 的 3 项回归通过：
+c1-f0-v2-contract.test.ts 的 5 项回归通过：
 
 1. 正确读取自哈希合同，并确认 execution revision/surface hash 仍是 pending、study identity 尚未创建；
 2. 顶层 key 顺序变化不改变 canonical contract hash；
-3. 修改 freeze 字段后 fail closed，拒绝不匹配的 runContractSha256。
+3. 修改 freeze 字段但不更新 hash 时 fail closed，拒绝不匹配的 runContractSha256；
+4. 修改 t1 expectedWritablePaths 并重算合法 self-hash 后，以 SEMANTIC_FREEZE_MISMATCH 拒绝；
+5. 修改 t1 promptSha256 并重算合法 self-hash 后，以 SEMANTIC_FREEZE_MISMATCH 拒绝。
 
 ## 下一步
 

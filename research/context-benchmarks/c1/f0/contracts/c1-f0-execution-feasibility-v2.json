@@ -6,6 +6,7 @@
   "createdAt": "2026-09-13T00:00:00.000Z",
   "estimand": "NATIVE_EXECUTION_FEASIBILITY_ON_F0_V2_FROZEN_TASK_PANEL",
   "claims": "F0_V2_FEASIBILITY_ONLY_NO_RUNTIME_EFFECT_NO_RECOVERY_CAUSAL_CLAIM",
+  "runContractHashRole": "FREEZE_CANDIDATE",
   "studyRelation": {
     "priorContractId": "C1_F0_EXECUTION_FEASIBILITY_V1",
     "priorStudyId": "c1-f0-20260912-41753674",
@@ -304,5 +305,5 @@
     "credentialFreeE2ERequired": true,
     "providerExecution": "NO_GO_UNTIL_OWNER_AUTHORIZATION"
   },
-  "runContractSha256": "b2b4646703ccc926c000767431256b9f553b08fff944e3b16ad1f22f932d6ae9"
+  "runContractSha256": "31663b2833ea8ecf46fdc1165dd69b87e12c4ce1999fd595307368448d0606a7"
 }
