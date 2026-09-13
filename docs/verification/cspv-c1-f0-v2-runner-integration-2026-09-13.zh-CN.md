@@ -13,8 +13,8 @@ research/context-benchmarks/c1/f0/v2/runner/c1-f0-v2-execution-runner.ts。
 ```text
 contract                    = C1_F0_EXECUTION_FEASIBILITY_V2
 freezeCandidateRunContract  = 31663b2833ea8ecf46fdc1165dd69b87e12c4ce1999fd595307368448d0606a7
-executionRevision           = e46a9484818a21deec27b578b53357f3608890ef
-executionSurfaceHash        = 750ebde473bd56a3778e66573da809f569225947716058cfd992ab61b4377608
+executionRevision           = 164a3e101238116024e1e4eb98d97ff74faeffdb
+executionSurfaceHash        = 7f540b59755231f0e3319a641f6e3139493fab04f3a3a2ffbeb015a0531e14ed
 responseSource              = SCRIPTED_FAKE
 providerCalls / network     = 0 / 0
 task panel                  = same two F0-v1 tasks
@@ -24,6 +24,9 @@ budgets                     = 24 provider / 96 tool / 600000 ms per run
 
 runner 显式加载 FREEZE_CANDIDATE phase，并拒绝已经填入 execution revision 或 surface hash 的 candidate。
 future final-bound contract 必须由 phase-aware validator 另行校验。
+
+contract JSON 属于研究合同数据，由 runContractSha256 绑定，刻意不进入 execution surface；否则 candidate→final-bound
+替换会与 executionSurfaceHash 形成循环。
 
 ## 已接入的执行链
 
