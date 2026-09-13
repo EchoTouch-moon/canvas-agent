@@ -62,8 +62,8 @@ tool-result content。测试使用临时 output root，结束后清理；其 stu
 ## 验证结果
 
 ```text
-Node 24 runner integration tests   7/7 passed
-Node 24 benchmark suite             35 files / 275 tests passed
+Node 24 runner integration tests   8/8 passed
+Node 24 benchmark suite             35 files / 276 tests passed
 headless core gate                 audit / format / lint / typecheck / test / build passed
 Provider / network                  0 / 0
 final-bound contract                not created
