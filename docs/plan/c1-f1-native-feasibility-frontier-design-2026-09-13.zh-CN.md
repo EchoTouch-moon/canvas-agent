@@ -196,14 +196,30 @@ VALID_STABLE_FEASIBLE
 这些标签只描述单个 budget point，不把 32/40/48 points pooled，也不把 `VALID_STABLE_FEASIBLE` 解释成 Runtime
 效果或跨任务总体分布。
 
-若历史 24-call anchor 为 NO_GO，且 F1 的首个稳定可行 point 为 `B`，输出必须写成：
+若历史 24-call anchor 为 NO_GO，且 F1 的首个稳定可行 point 为 `B`，先定义：
+
+```text
+L = highest tested budget below B whose point label is VALID_INFEASIBLE
+    and whose continuation was driven by FRONTIER_DRIVING_GATE
+```
+
+只有搜索链从 `L` 连续推进到 `B` 时，输出才写成：
 
 ```text
 FIRST_TESTED_STABLE_FEASIBLE_POINT = B
-OBSERVED_TRANSITION_BRACKET         = (24, B]
+OBSERVED_TRANSITION_BRACKET         = (L, B]
 ```
 
-这表示观测到 transition bracket，不表示真实临界值精确等于 `B`。若 32/40/48 均未达到稳定可行，则报告
+例如：
+
+```text
+32 PASS                         → (24, 32]
+32 FAIL → 40 PASS               → (32, 40]
+32 FAIL → 40 FAIL → 48 PASS     → (40, 48]
+```
+
+这表示观测到 transition bracket，不表示真实临界值精确等于 `B`。如果中间出现 `INVALID`、`INCONCLUSIVE` 或
+`FRONTIER_INCONCLUSIVE_NON_BUDGET`，搜索链已经断开，不能形成 bracket。若 32/40/48 均未达到稳定可行，则报告
 `NO_STABLE_POINT_IN_TESTED_SET`，不外推更高 budget 的结果。
 
 ## 重点分析
