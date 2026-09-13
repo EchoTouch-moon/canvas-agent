@@ -67,15 +67,16 @@ import {
   type V2ContractView
 } from './c1-f0-v2-execution-runner'
 import {
-  C1_F0_V2_CONTRACT_RELATIVE_PATH,
   C1_F0_V2_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256,
-  loadC1F0V2Contract,
+  validateC1F0V2FinalBoundContract,
   type C1F0V2Contract
 } from '../../contract/c1-f0-v2-contract'
 
 export const C1_F0_V2_LIVE_BINDING_ID = 'C1_F0_V2_LIVE_BINDING_V1' as const
 export const C1_F0_V2_LIVE_BINDING_SCHEMA_VERSION = 1 as const
 export const C1_F0_V2_LIVE_BINDING_MODE = 'AUTHORIZED_PROVIDER_NATIVE_ONLY' as const
+export const C1_F0_V2_FINAL_BOUND_CONTRACT_RELATIVE_PATH =
+  'research/context-benchmarks/c1/f0/contracts/c1-f0-execution-feasibility-v2-final-bound.json'
 const F0_V2_LIVE_CREDENTIAL_ENV = 'STEP_PLAN_API_KEY'
 const F0_V2_LIVE_STUDY_ID_PATTERN = /^c1-f0-v2-\d{8}-[0-9a-f]{8}$/
 
@@ -163,6 +164,29 @@ export interface C1F0V2LiveExecutionReport {
 
 function asLiveContract(contract: C1F0V2Contract): V2LiveContractView {
   return contract as unknown as V2LiveContractView
+}
+
+export async function loadC1F0V2FinalBoundContract(repoRoot: string): Promise<C1F0V2Contract> {
+  const path = resolve(repoRoot, C1_F0_V2_FINAL_BOUND_CONTRACT_RELATIVE_PATH)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(await readFile(path, 'utf8')) as unknown
+  } catch (error) {
+    throw new C1PreflightFailure(
+      'CONTRACT_BINDING_MISMATCH',
+      'unable to read F0-v2 final-bound contract: ' +
+        (error instanceof Error ? error.message : String(error))
+    )
+  }
+  try {
+    return validateC1F0V2FinalBoundContract(parsed)
+  } catch (error) {
+    throw new C1PreflightFailure(
+      'CONTRACT_BINDING_MISMATCH',
+      'F0-v2 final-bound contract validation failed: ' +
+        (error instanceof Error ? error.message : String(error))
+    )
+  }
 }
 
 function sha256Bytes(value: Uint8Array): string {
@@ -522,7 +546,7 @@ export async function runC1F0V2AuthorizedStudy(
       )
     }
     await assertC1LiveWorktreeClean(repoRoot)
-    contract = await loadC1F0V2Contract(repoRoot, 'FINAL_BOUND')
+    contract = await loadC1F0V2FinalBoundContract(repoRoot)
     const view = asLiveContract(contract)
     const binding = await computeC1F0V2ExecutionBinding(repoRoot)
     executionRevision = binding.executionRevision
@@ -993,4 +1017,4 @@ export async function runC1F0V2AuthorizedStudy(
   }
 }
 
-export { C1_F0_V2_EXECUTION_SURFACE_PATHS, C1_F0_V2_CONTRACT_RELATIVE_PATH }
+export { C1_F0_V2_EXECUTION_SURFACE_PATHS }

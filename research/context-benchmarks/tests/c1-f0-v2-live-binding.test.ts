@@ -2,12 +2,10 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import {
-  C1_F0_V2_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256,
-  loadC1F0V2Contract
-} from '../c1/f0/contract/c1-f0-v2-contract'
+import { C1_F0_V2_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256 } from '../c1/f0/contract/c1-f0-v2-contract'
 import { computeC1F0V2ExecutionBinding } from '../c1/f0/v2/runner/c1-f0-v2-execution-runner'
 import {
+  loadC1F0V2FinalBoundContract,
   runC1F0V2AuthorizedStudy,
   type C1F0V2LiveAuthorization
 } from '../c1/f0/v2/runner/c1-f0-v2-live-binding'
@@ -16,7 +14,7 @@ const REPO_ROOT = resolve(import.meta.dirname, '..', '..', '..')
 const node24 = Number(process.versions.node.split('.')[0]) === 24
 
 async function buildAuthorization(studyId: string): Promise<C1F0V2LiveAuthorization> {
-  const contract = await loadC1F0V2Contract(REPO_ROOT, 'FINAL_BOUND')
+  const contract = await loadC1F0V2FinalBoundContract(REPO_ROOT)
   const binding = await computeC1F0V2ExecutionBinding(REPO_ROOT)
   const contractRecord = contract as unknown as {
     readonly runContractSha256: string
