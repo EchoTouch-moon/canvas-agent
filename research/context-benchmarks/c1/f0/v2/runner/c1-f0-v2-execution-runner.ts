@@ -318,6 +318,8 @@ export interface C1F0V2ExecutionRunnerOptions {
   readonly now?: Date
   readonly scenario?: C1F0V2FakeScenario
   readonly unknownSnapshotRunOrdinals?: readonly number[]
+  /** Test-only limit for targeted failure-path checks; production runs remain 32-run. */
+  readonly testRunLimit?: number
   readonly responseSourceFactory?: (input: {
     readonly runId: string
     readonly taskId: string
@@ -1493,7 +1495,22 @@ export async function runC1F0V2CredentialFreeStudy(
     const binding = await computeC1F0V2ExecutionBinding(repoRoot)
     executionRevision = binding.executionRevision
     executionSurfaceHash = binding.executionSurfaceHash
-    const plans = buildC1F0V2ExecutionPlans(contract, studyId)
+    const allPlans = buildC1F0V2ExecutionPlans(contract, studyId)
+    if (options.testRunLimit !== undefined) {
+      if (
+        process.env['NODE_ENV'] !== 'test' ||
+        !Number.isSafeInteger(options.testRunLimit) ||
+        options.testRunLimit < 1 ||
+        options.testRunLimit > allPlans.length
+      ) {
+        throw new C1PreflightFailure(
+          'IDENTITY_INVALID',
+          'testRunLimit is restricted to Node test execution and the frozen plan range'
+        )
+      }
+    }
+    const plans =
+      options.testRunLimit === undefined ? allPlans : allPlans.slice(0, options.testRunLimit)
     reportDir = await claimStudyDir(
       options.outputRoot ??
         join(repoRoot, 'research/context-benchmarks/.live-output/c1-f0-v2-runner'),

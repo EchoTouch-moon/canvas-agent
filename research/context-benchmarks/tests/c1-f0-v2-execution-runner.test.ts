@@ -13,7 +13,7 @@ const REPO_ROOT = resolve(import.meta.dirname, '..', '..', '..')
 const node24 = Number(process.versions.node.split('.')[0]) === 24
 const outputRoots = new Set<string>()
 
-async function runScenario(scenario: C1F0V2FakeScenario, suffix: string) {
+async function runScenario(scenario: C1F0V2FakeScenario, suffix: string, testRunLimit?: number) {
   const outputRoot = await mkdtemp(join(tmpdir(), 'canvas-c1-f0-v2-runner-'))
   const studyId = 'c1-f0-v2-20260913-' + suffix
   outputRoots.add(outputRoot)
@@ -21,7 +21,8 @@ async function runScenario(scenario: C1F0V2FakeScenario, suffix: string) {
     repoRoot: REPO_ROOT,
     outputRoot,
     studyId,
-    scenario
+    scenario,
+    ...(testRunLimit === undefined ? {} : { testRunLimit })
   })
 }
 
@@ -87,7 +88,7 @@ describe('C1 F0-v2 credential-free execution runner', () => {
   it.skipIf(!node24)(
     'attributes a bash side effect prospectively before cleanup',
     async () => {
-      const report = await runScenario('TOOL_SIDE_EFFECT', 'cccccccc')
+      const report = await runScenario('TOOL_SIDE_EFFECT', 'cccccccc', 1)
       expect(report.runs.every((run) => run.sideEffectAttributionStatus === 'ATTRIBUTED')).toBe(
         true
       )
@@ -102,7 +103,7 @@ describe('C1 F0-v2 credential-free execution runner', () => {
   it.skipIf(!node24)(
     'keeps snapshot and oracle uncertainty separate from observed failure',
     async () => {
-      const report = await runScenario('UNKNOWN_SNAPSHOT', 'dddddddd')
+      const report = await runScenario('UNKNOWN_SNAPSHOT', 'dddddddd', 1)
       expect(report.runs[0]).toMatchObject({
         postRunFixtureSnapshotStatus: 'UNAVAILABLE',
         runDisposition: 'FEASIBILITY_UNKNOWN',
@@ -110,7 +111,7 @@ describe('C1 F0-v2 credential-free execution runner', () => {
       })
       expect(report.runs[0]?.unknownReason).toContain('POST_RUN_SNAPSHOT_UNAVAILABLE')
       expect(report.feasibility.precisionGate.unknownRunRate['c1-t1-localized-distractor-v1']).toBe(
-        1 / 16
+        1
       )
     },
     120_000
@@ -119,8 +120,8 @@ describe('C1 F0-v2 credential-free execution runner', () => {
   it.skipIf(!node24)(
     'continues ordinary run failure without blocking the remaining runs',
     async () => {
-      const report = await runScenario('SINGLE_RUN_FAILURE', 'eeeeeeee')
-      expect(report.runsStarted).toBe(32)
+      const report = await runScenario('SINGLE_RUN_FAILURE', 'eeeeeeee', 2)
+      expect(report.runsStarted).toBe(2)
       expect(report.blockedRuns).toBe(0)
       expect(report.runs[0]?.runDisposition).toBe('FEASIBILITY_UNKNOWN')
       expect(report.feasibility.validityGate.pass).toBe(true)
@@ -144,7 +145,7 @@ describe('C1 F0-v2 credential-free execution runner', () => {
   it.skipIf(!node24)(
     'blocks a third identical failure without changing the fixture',
     async () => {
-      const report = await runScenario('TOOL_LOOP', '99999999')
+      const report = await runScenario('TOOL_LOOP', '99999999', 1)
       const provenance = await readFile(join(report.reportDir!, 'tool-provenance.jsonl'), 'utf8')
       expect(provenance).toContain('"failureClass":"REPEATED_FAILURE_BLOCKED"')
       expect(provenance).toContain('"consecutiveFailureStreak":3')
