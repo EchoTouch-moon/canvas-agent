@@ -64,7 +64,6 @@ export const C1_F0_V2_EXECUTION_SURFACE_PATHS = Object.freeze([
   'research/context-benchmarks/c1/f0/v2',
   'research/context-benchmarks/c1/f0/hardening',
   'research/context-benchmarks/c1/f0/contract',
-  'research/context-benchmarks/c1/f0/contracts/c1-f0-execution-feasibility-v2.json',
   'research/context-benchmarks/scripts/c1-f0-v2-execution-runner.ts',
   'research/context-benchmarks/src/c1-live-preflight.ts',
   'research/context-benchmarks/src/c1-live-binding.ts',

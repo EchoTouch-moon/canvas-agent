@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  C1_F0_V2_EXECUTION_SURFACE_PATHS,
   buildC1F0V2ExecutionPlans,
   runC1F0V2CredentialFreeStudy,
   type C1F0V2FakeScenario
@@ -32,6 +33,12 @@ afterEach(async () => {
 })
 
 describe('C1 F0-v2 credential-free execution runner', () => {
+  it('keeps contract data outside the executable surface to avoid final-binding self-reference', () => {
+    expect(C1_F0_V2_EXECUTION_SURFACE_PATHS).not.toContain(
+      'research/context-benchmarks/c1/f0/contracts/c1-f0-execution-feasibility-v2.json'
+    )
+  })
+
   it('builds the frozen 32-run plan with v2 identities and balanced task order', async () => {
     const contract = await loadC1F0V2Contract(REPO_ROOT, 'FREEZE_CANDIDATE')
     const plans = buildC1F0V2ExecutionPlans(contract, 'c1-f0-v2-20260913-aaaaaaaa')
