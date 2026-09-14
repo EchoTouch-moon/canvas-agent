@@ -536,6 +536,38 @@ function validateF1ModelResponse(response: C1LiveModelResponse): void {
   if (!['CONTINUE', 'COMPLETE', 'FAILED'].includes(response.outcome)) {
     throw new C1PreflightFailure('PREFLIGHT_FAILURE', 'F1-32 response has an unknown outcome')
   }
+  if (typeof response.assistantContent !== 'string') {
+    throw new C1PreflightFailure(
+      'PREFLIGHT_FAILURE',
+      'F1-32 response assistant content is not normalized'
+    )
+  }
+  if (
+    typeof response.usage !== 'object' ||
+    response.usage === null ||
+    Array.isArray(response.usage) ||
+    response.usage.usageSource !== 'SCRIPTED_FAKE'
+  ) {
+    throw new C1PreflightFailure(
+      'USAGE_CONTRACT_MISMATCH',
+      'F1-32 scripted usage has invalid provenance'
+    )
+  }
+  for (const field of [
+    'inputTokens',
+    'outputTokens',
+    'cacheReadTokens',
+    'cacheWriteTokens',
+    'totalTokens'
+  ] as const) {
+    const value = response.usage[field]
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new C1PreflightFailure(
+        'USAGE_CONTRACT_MISMATCH',
+        'F1-32 scripted usage has an invalid token field'
+      )
+    }
+  }
   const requests = new Map<string, C1LiveToolRequest>()
   for (const request of response.toolRequests) {
     if (
@@ -1185,7 +1217,7 @@ async function writeF1Artifacts(input: {
         {
           executionRevision: input.executionRevision,
           executionSurfaceHash: input.executionSurfaceHash,
-          inventory: input.surfaceWitness['targetSurfacePaths'],
+          inventory: input.surfaceWitness['entries'],
           targetInventoryDigest: input.surfaceWitness['targetInventoryDigest']
         },
         null,

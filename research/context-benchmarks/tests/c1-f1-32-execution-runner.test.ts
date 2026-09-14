@@ -81,6 +81,19 @@ describe('C1 F1-32 credential-free execution runner', () => {
     await expect(readFile(join(report.reportDir!, '.env'), 'utf8')).rejects.toThrow()
   })
 
+  it('runs the complete 32-leg fake study with the derived 1024-call study ceiling', async () => {
+    const report = await runScenario('COMPLETE', 'dddddddd', 32)
+    expect(report.providerCalls).toBe(0)
+    expect(report.networkRequests).toBe(0)
+    expect(report.runsPlanned).toBe(32)
+    expect(report.runsStarted).toBe(32)
+    expect(report.runsCompleted).toBe(32)
+    expect(report.blockedRuns).toBe(0)
+    expect(report.responseCalls).toBe(32)
+    expect(report.runs).toHaveLength(32)
+    expect(report.surfaceWitness?.['targetInventoryDigest']).toBe(report.executionSurfaceHash)
+  }, 120_000)
+
   it('enforces the 32-call per-run budget with a scripted continuation loop', async () => {
     const report = await runScenario('BUDGET_EXHAUSTION', 'bbbbbbbb')
     expect(report.providerCalls).toBe(0)
