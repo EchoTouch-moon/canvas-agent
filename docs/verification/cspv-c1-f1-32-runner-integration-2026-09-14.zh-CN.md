@@ -50,7 +50,7 @@ runner 在 clean checkout 中实际枚举 execution 与 binding-control inventor
 `c1-f1-32-execution-runner.test.ts` 覆盖：
 
 - 32-run balanced scheduler 与 F1 identity namespace；
-- 282-file actual inventory、execution revision/surface hash 与 3-file binding-control hash；
+- 282-file actual inventory、execution revision/surface hash 与 4-file binding-control hash；
 - complete 32-leg fake study；
 - 32-call per-run exhaustion；
 - prospective side-effect provenance；
