@@ -13,16 +13,17 @@ Provider、tool semantics、recovery policy、gate 或 32-call 研究参数。
 runner                         = research/context-benchmarks/c1/f1/runner/c1-f1-32-execution-runner.ts
 runner id                      = C1_F1_NATIVE_FEASIBILITY_RUNNER_32
 execution mode                 = CREDENTIAL_FREE_NATIVE_ONLY
-executionRevision              = 5997cedae078fedea4e832c4546ef3efbfe3349e
-executionSurfaceHash           = 698a285400ac373269d368d4c8fef77a2a982c65bcf64202b28c10b4490e4555
-bindingControlSurfaceHash      = 8ac49f85392dd09a4637ff9d78649a86c28c0ee9d00baaa8341e64e17b198e00
+executionRevision              = computed at binding time with `git rev-parse HEAD`
+executionSurfaceRevision       = computed at binding time with `git log -1 -- <execution paths>`
+executionSurfaceHash           = computed at binding time from the actual 282-file inventory
+bindingControlSurfaceHash      = computed at binding time from the actual 4-file inventory
 target inventory               = 282 files
   ├─ F0-v2 anchor files         = 281（全部 EXACT_UNCHANGED）
   └─ F1 budget adapter          = 1（BUDGET_ONLY_PROJECTION）
 binding control inventory      = 4 files（F1 contract validator、anchor inventory、contract JSON、carried-removals dependency）
 supplemental dependency hash   = de2538329df22823da68237ed7690042d0abb080173c924431c1e6df1dfd93bf
 freezeCandidateRunContractSha256 = 053fa42d540e3955b8228303036191ffd985292ddd9665d87397b232570885da
-finalBoundRunContractSha256    = 440a58fe2f984ddc3e89837855d794aa50b0fbca8974d311f29cd2118bbf0d90（内存/报告绑定）
+finalBoundRunContractSha256    = computed after the binding tuple is captured（内存/报告绑定）
 ```
 
 runner 在 clean checkout 中实际枚举 execution 与 binding-control inventory，读取文件字节计算 per-path hash，再分别
@@ -64,5 +65,7 @@ typecheck             = passed
 pnpm check:core       = passed
 ```
 
-本阶段不创建 F1-32 fresh study identity、不读取 `.env`、不发送真实 Provider 请求。下一步是独立 binding review；只有
+本阶段不创建 F1-32 fresh study identity、不读取 `.env`、不发送真实 Provider 请求。`executionRevision` 的
+authoritative 语义是完整 clean checkout 的 `git rev-parse HEAD`；`executionSurfaceRevision` 仅保留 surface 最近
+变更点，二者不混用。下一步是独立 binding review；只有
 binding review 通过并获得 owner authorization 后，才允许生成 fresh identity 和进行 live F1-32。
