@@ -13,7 +13,11 @@
       "nativeThenRuntime": 2,
       "runtimeThenNative": 2
     },
-    "enrollmentCohort": "HISTORICAL_OPPORTUNITY_ENRICHED"
+    "enrollmentCohort": "HISTORICAL_OPPORTUNITY_ENRICHED",
+    "qualificationGate": {
+      "minNonZeroTreatmentPairs": 2,
+      "minNonZeroDistinctTasks": 2
+    }
   },
   "enrollmentBinding": {
     "manifestId": "C1_EFFECTIVENESS_E0_ENROLLMENT_V1",
@@ -57,11 +61,12 @@
     "model": "step-3.7-flash",
     "endpoint": "https://api.stepfun.com/step_plan/v1/chat/completions",
     "nodeRange": ">=24.0.0 <25.0.0",
-    "codeRevision": "PENDING_E0_EXECUTION",
+    "codeRevision": "4aa8c06282ab4c0c0937563f550564f1f165d1cf",
     "credentialEnv": "STEP_PLAN_API_KEY",
     "credentialPersistence": "MEMORY_ONLY",
     "fallback": "NONE",
-    "executionMode": "E0_STRICT"
+    "executionMode": "E0_STRICT",
+    "providerConfigHash": "bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a"
   },
   "budgets": {
     "perLeg": {
@@ -119,5 +124,5 @@
   "claims": "E0_DIRECTIONAL_QUALIFICATION_ONLY",
   "estimand": "NOT_CONFIRMATORY",
   "noResumeRetryReuse": true,
-  "runContractSha256": "fb32ad79352353f3350dd28812eed730ba2acdbd8ff2ff3a636a9535e168ab5d"
+  "runContractSha256": "5c3ca28c9e4507b11bbe1944d2e01fd6fe262063d0a5618ae4d4b6ac3eb656d1"
 }

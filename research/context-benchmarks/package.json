@@ -21,6 +21,7 @@
     "benchmark:c1-live-study-dry-run": "tsx src/cli.ts c1-live-study-dry-run",
     "benchmark:c1-live-study": "tsx src/cli.ts c1-live-study",
     "benchmark:c1-e0-binding": "tsx scripts/c1-e0-binding.ts",
+    "benchmark:c1-e0-runner": "tsx scripts/c1-e0-execution-runner.ts",
     "benchmark:c1-lifecycle-canary-sv2": "tsx scripts/c1-lifecycle-canary-sv2.ts"
   },
   "dependencies": {

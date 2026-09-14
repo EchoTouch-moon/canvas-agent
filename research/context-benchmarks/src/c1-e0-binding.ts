@@ -2,6 +2,13 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { z } from 'zod'
+import { C1_AUTHORIZED_PROVIDER_MAX_TOKENS } from './c1-authorized-provider'
+import {
+  C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE,
+  C1_MODEL_ID,
+  C1_PROVIDER_ENDPOINT,
+  C1_PROVIDER_ID
+} from './c1-live-preflight'
 
 export const C1_E0_ENROLLMENT_MANIFEST_ID = 'C1_EFFECTIVENESS_E0_ENROLLMENT_V1'
 export const C1_E0_ENROLLMENT_MANIFEST_RELATIVE_PATH =
@@ -22,6 +29,8 @@ export const C1_E0_ENDPOINT = 'https://api.stepfun.com/step_plan/v1/chat/complet
 export const C1_E0_NODE_RANGE = '>=24.0.0 <25.0.0'
 export const C1_E0_PAIR_COUNT = 4
 export const C1_E0_TOTAL_LEG_COUNT = C1_E0_PAIR_COUNT * 2
+export const C1_E0_MIN_NON_ZERO_TREATMENT_PAIRS = 2
+export const C1_E0_MIN_NON_ZERO_DISTINCT_TASKS = 2
 
 const hash64Schema = z.string().regex(/^[a-f0-9]{64}$/i, 'expected a SHA-256 hash')
 const gitHashSchema = z
@@ -54,6 +63,32 @@ export function sha256C1E0(value: string): string {
 export function hashCanonicalC1E0(value: unknown): string {
   return sha256C1E0(canonicalC1E0Json(value))
 }
+
+/**
+ * Credential-free digest of the actual outbound request configuration used by
+ * the authorized provider source. Optional wire fields are represented as
+ * null when omitted from the request body; no credential or response data is
+ * part of this binding.
+ */
+export const C1_E0_PROVIDER_REQUEST_CONFIG = Object.freeze({
+  provider: C1_PROVIDER_ID,
+  endpoint: C1_PROVIDER_ENDPOINT,
+  request: {
+    model: C1_MODEL_ID,
+    max_tokens: C1_AUTHORIZED_PROVIDER_MAX_TOKENS,
+    temperature: null,
+    top_p: null,
+    stream: C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE.providerNativeMetadata.streaming,
+    tool_choice: null,
+    tools: {
+      structuralFingerprint: C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE.structuralFingerprint,
+      definitions: C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE.tools
+    }
+  },
+  providerNativeOptions: C1_FROZEN_PROVIDER_STRUCTURAL_ENVELOPE.providerNativeMetadata
+} as const)
+
+export const C1_E0_PROVIDER_CONFIG_HASH = hashCanonicalC1E0(C1_E0_PROVIDER_REQUEST_CONFIG)
 
 const c1E0EnrollmentRuleSchema = z
   .object({
@@ -393,7 +428,13 @@ export const c1E0RunContractSchema = z
         armOrderQuota: z
           .object({ nativeThenRuntime: z.literal(2), runtimeThenNative: z.literal(2) })
           .strict(),
-        enrollmentCohort: z.literal(C1_E0_ENROLLMENT_COHORT)
+        enrollmentCohort: z.literal(C1_E0_ENROLLMENT_COHORT),
+        qualificationGate: z
+          .object({
+            minNonZeroTreatmentPairs: z.literal(C1_E0_MIN_NON_ZERO_TREATMENT_PAIRS),
+            minNonZeroDistinctTasks: z.literal(C1_E0_MIN_NON_ZERO_DISTINCT_TASKS)
+          })
+          .strict()
       })
       .strict(),
     enrollmentBinding: z
@@ -434,7 +475,8 @@ export const c1E0RunContractSchema = z
         credentialEnv: z.literal('STEP_PLAN_API_KEY'),
         credentialPersistence: z.literal('MEMORY_ONLY'),
         fallback: z.literal('NONE'),
-        executionMode: z.literal('E0_STRICT')
+        executionMode: z.literal('E0_STRICT'),
+        providerConfigHash: hash64Schema
       })
       .strict(),
     budgets: z
@@ -485,6 +527,16 @@ export function assertC1E0RunContract(
 ): void {
   if (computeC1E0RunContractSha256(contract) !== contract.runContractSha256) {
     throw new Error('E0 run contract hash mismatch')
+  }
+  if (contract.executionBinding.providerConfigHash !== C1_E0_PROVIDER_CONFIG_HASH) {
+    throw new Error('E0 provider configuration binding mismatch')
+  }
+  if (
+    C1_E0_PROVIDER !== C1_PROVIDER_ID ||
+    C1_E0_MODEL !== C1_MODEL_ID ||
+    C1_E0_ENDPOINT !== C1_PROVIDER_ENDPOINT
+  ) {
+    throw new Error('E0 provider constants drifted from the authorized provider implementation')
   }
   const binding = contract.enrollmentBinding
   if (
