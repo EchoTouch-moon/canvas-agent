@@ -1,3 +1,5 @@
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -15,6 +17,7 @@ import {
 } from '../c1/f1/contract/c1-f1-native-feasibility-32-contract'
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..', '..')
+const execFileAsync = promisify(execFile)
 const outputRoots = new Set<string>()
 
 async function runScenario(scenario: C1F1Native32FakeScenario, suffix: string, testRunLimit = 1) {
@@ -60,6 +63,9 @@ describe('C1 F1-32 credential-free execution runner', () => {
       binding.inventory.some((entry) => entry.path === C1_F1_NATIVE32_EXECUTION_SURFACE_PATH)
     ).toBe(true)
     expect(binding.executionRevision).toMatch(/^[a-f0-9]{40}$/)
+    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT })
+    expect(binding.executionRevision).toBe(stdout.trim())
+    expect(binding.executionSurfaceRevision).toMatch(/^[a-f0-9]{40}$/)
     expect(binding.executionSurfaceHash).toMatch(/^[a-f0-9]{64}$/)
     expect(binding.bindingControlInventory.length).toBe(4)
     expect(
@@ -74,6 +80,7 @@ describe('C1 F1-32 credential-free execution runner', () => {
     expect(report.networkRequests).toBe(0)
     expect(report.runsPlanned).toBe(32)
     expect(report.runsStarted).toBe(1)
+    expect(report.executionSurfaceRevision).toMatch(/^[a-f0-9]{40}$/)
     expect(report.pointLabel).toBe('INCONCLUSIVE')
     expect(report.surfaceWitness).toMatchObject({
       phase: 'FINAL_BOUND',
