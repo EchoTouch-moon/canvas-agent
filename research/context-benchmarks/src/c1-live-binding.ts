@@ -1,4 +1,5 @@
 import { c1ToolPairFingerprint, type C1CarriedRemoval } from './c1-carried-removals'
+import type { C1E0DoseObservation } from './c1-e0-dose'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -589,7 +590,13 @@ export class C1SandboxToolExecutor implements C1LiveToolExecutor {
           `edit ${path.relativePath} expected one oldText match, received ${String(matches)}`
         )
       }
-      await writeFile(path.absolutePath, existing.replace(oldText, newText), 'utf8')
+      // Use a replacer callback so literal `$` sequences in source text are
+      // not interpreted as String.replace replacement patterns.
+      await writeFile(
+        path.absolutePath,
+        existing.replace(oldText, () => newText),
+        'utf8'
+      )
       return {
         result: 'SUCCESS',
         content: `edited ${path.relativePath}`,
@@ -825,6 +832,10 @@ export interface C1LiveBindingEvidence {
   readonly providerConfigHash: string
   readonly contextStrategy: C1ProviderBoundCapture['contextStrategy']
   readonly providerBoundSourceKeys: readonly string[]
+  readonly prePolicyProviderBoundMessagesHash?: string
+  readonly postPolicyProviderBoundMessagesHash?: string
+  /** Optional E0 metadata-only dose observation for this composition. */
+  readonly dose?: C1E0DoseObservation
   readonly modelVisibleSemanticContextFingerprint: string
   readonly systemDeveloperToolStructuresFingerprint: string
   readonly workingSetId: string
@@ -1073,6 +1084,8 @@ export class C1LiveBindingDriver {
       readonly providerBinding: C1StrictProviderBinding
       readonly budgetGuard: C1HardBudgetGuard
       readonly evidenceSink: C1LiveBindingEvidenceSink
+      /** Optional outer-study request configuration hash. */
+      readonly providerConfigHashOverride?: string
     }
   ) {
     this.executor = new C1LegExecutor({
@@ -1166,7 +1179,9 @@ export class C1LiveBindingDriver {
           provider: C1_PROVIDER_ID,
           model: C1_MODEL_ID,
           endpoint: C1_PROVIDER_ENDPOINT,
-          providerConfigHash: this.options.providerBinding.providerConfigHash
+          providerConfigHash:
+            this.options.providerConfigHashOverride ??
+            this.options.providerBinding.providerConfigHash
         })
         let execution: C1LegExecutionResult
         try {
@@ -1185,6 +1200,9 @@ export class C1LiveBindingDriver {
             providerBinding: this.options.providerBinding,
             transport,
             treatmentReady: true,
+            ...(this.options.providerConfigHashOverride === undefined
+              ? {}
+              : { providerConfigHashOverride: this.options.providerConfigHashOverride }),
             killSwitch,
             previousWorkingSet,
             carriedRemovals: [...carriedRemovals.values()],
@@ -1260,6 +1278,18 @@ export class C1LiveBindingDriver {
           providerConfigHash: execution.capture.providerConfigHash,
           contextStrategy: execution.capture.contextStrategy,
           providerBoundSourceKeys: execution.capture.providerBoundSourceKeys,
+          ...(execution.capture.prePolicyProviderBoundMessagesHash === undefined
+            ? {}
+            : {
+                prePolicyProviderBoundMessagesHash:
+                  execution.capture.prePolicyProviderBoundMessagesHash
+              }),
+          ...(execution.capture.postPolicyProviderBoundMessagesHash === undefined
+            ? {}
+            : {
+                postPolicyProviderBoundMessagesHash:
+                  execution.capture.postPolicyProviderBoundMessagesHash
+              }),
           modelVisibleSemanticContextFingerprint:
             execution.capture.modelVisibleSemanticContextFingerprint,
           systemDeveloperToolStructuresFingerprint:
@@ -1441,7 +1471,8 @@ export class C1LiveBindingDriver {
       validateC1LiveBindingEvidence(evidence, {
         arm: input.arm,
         responseSource: input.responseSource.kind,
-        providerConfigHash: this.options.providerBinding.providerConfigHash
+        providerConfigHash:
+          this.options.providerConfigHashOverride ?? this.options.providerBinding.providerConfigHash
       })
       return {
         status: 'COMPLETED',
