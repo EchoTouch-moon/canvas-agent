@@ -13,17 +13,20 @@ Provider、tool semantics、recovery policy、gate 或 32-call 研究参数。
 runner                         = research/context-benchmarks/c1/f1/runner/c1-f1-32-execution-runner.ts
 runner id                      = C1_F1_NATIVE_FEASIBILITY_RUNNER_32
 execution mode                 = CREDENTIAL_FREE_NATIVE_ONLY
-executionRevision              = 3c355aee99cf9c4439e0f53176158c46ec2c7d40
-executionSurfaceHash           = b69e5048eebb1936b6a114a2f54b4a31c946f584012a3d0905c8e33c15540935
+executionRevision              = f6a49a8ccfeb22b264745cd9b6b887ad46b9bfd5
+executionSurfaceHash           = 0b9c57e1a50714958d52890bfc6fa92da5c30502ef48132fb5a729c4fa108994
+bindingControlSurfaceHash      = bfa22c14f716eda9e8aa8d86fcd2800406ea2ab782f9ac616eb7513d890e9992
 target inventory               = 282 files
   ├─ F0-v2 anchor files         = 281（全部 EXACT_UNCHANGED）
   └─ F1 budget adapter          = 1（BUDGET_ONLY_PROJECTION）
+binding control inventory      = 3 files（F1 contract validator、anchor inventory、contract JSON）
 freezeCandidateRunContractSha256 = 053fa42d540e3955b8228303036191ffd985292ddd9665d87397b232570885da
 ```
 
-runner 在 clean checkout 中实际枚举 target inventory，读取文件字节计算 per-path hash，再重算 aggregate surface
-digest；不会从 witness 反推文件内容。anchor path 的当前 hash 若偏离历史 inventory 会立即停止，新增 executable path
-若不在声明的 F1 runner prefix 中也会停止。
+runner 在 clean checkout 中实际枚举 execution 与 binding-control inventory，读取文件字节计算 per-path hash，再分别
+重算 aggregate digest；不会从 witness 反推文件内容。anchor path 的当前 hash 若偏离历史 inventory 会立即停止，
+新增 executable path 若不在声明的 F1 runner prefix 中也会停止，control path/hash 或 control aggregate 不一致同样
+会停止。
 
 ## credential-free 行为
 
@@ -44,7 +47,7 @@ digest；不会从 witness 反推文件内容。anchor path 的当前 hash 若�
 `c1-f1-32-execution-runner.test.ts` 覆盖：
 
 - 32-run balanced scheduler 与 F1 identity namespace；
-- 282-file actual inventory、execution revision/surface hash；
+- 282-file actual inventory、execution revision/surface hash 与 3-file binding-control hash；
 - complete 32-leg fake study；
 - 32-call per-run exhaustion；
 - prospective side-effect provenance；
