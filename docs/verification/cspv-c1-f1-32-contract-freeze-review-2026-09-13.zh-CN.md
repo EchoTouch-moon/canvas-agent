@@ -13,7 +13,7 @@
 Contract ID                         = C1_F1_NATIVE_FEASIBILITY_32
 Contract path                       = research/context-benchmarks/c1/f1/contracts/c1-f1-native-feasibility-32.json
 runContractHashRole                 = FREEZE_CANDIDATE
-runContractSha256                   = 5dbbd75d040b91152d4cbe7c16ee49e79147988384a402cbce740a9a7f9ce868
+runContractSha256                   = 053fa42d540e3955b8228303036191ffd985292ddd9665d87397b232570885da
 executionBinding.codeRevision       = PENDING_F1_32_IMPLEMENTATION
 executionBinding.executionSurfaceHash = PENDING_F1_32_IMPLEMENTATION
 studyId                             = NOT_CREATED
@@ -46,6 +46,12 @@ anchor runContractSha256      = 4120e8d4c5c029ce224fb1341989cdc208d96799f1c399e7
 target/entries；实现绑定阶段必须转为 `FINAL_BOUND`，写入实际 target binding 与逐路径 entries。分类只允许
 `EXACT_UNCHANGED` 或 `BUDGET_ONLY_PROJECTION`，后者仅可出现在 F1 budget plumbing；缺失路径、无法回溯、重复
 路径或任何 `OTHER_CHANGE` 都必须 fail closed。identity namespace 由合同自身单独冻结，不再冒充 surface exact match。
+
+Anchor 已携带 281 个 Git-tracked 文件的逐路径 SHA-256 inventory，并以同一规范计算 aggregate surface digest：
+原始文件字节逐项 SHA-256，使用 POSIX repo-relative path，按 lexicographic code-unit 排序，拼接
+`<sha256>␠␠<path><LF>` 行后再做 UTF-8 SHA-256。final-bound 的 target inventory 必须使用同一算法，且其
+逐路径 hash 与 `executionBinding.executionSurfaceHash` 同时一致；现场 inventory join helper 还会逐项对账实际
+checkout hash。
 
 ## Frontier 语义
 

@@ -6,7 +6,8 @@ import {
   C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256,
   C1_F1_NATIVE32_HISTORICAL_ANCHOR,
   C1_F1_NATIVE32_PENDING_BINDING,
-  assertC1F1Native32SurfaceWitnessMatchesActualPaths,
+  assertC1F1Native32SurfaceWitnessMatchesActualInventory,
+  computeC1F1Native32SurfaceInventoryHash,
   computeC1F1Native32RunContractSha256,
   loadC1F1Native32Contract,
   validateC1F1Native32Contract,
@@ -30,23 +31,23 @@ function buildFinalBoundContract(candidate: Record<string, unknown>): Record<str
 
   const execution = finalBound['executionBinding'] as Record<string, unknown>
   execution['codeRevision'] = 'a'.repeat(40)
-  execution['executionSurfaceHash'] = 'b'.repeat(64)
+  execution['executionSurfaceHash'] = 'PENDING_F1_32_SURFACE_HASH'
 
   const witness = finalBound['surfaceEquivalenceWitness'] as Record<string, unknown>
-  const anchorPaths = witness['anchorSurfacePaths'] as string[]
+  const anchorInventory = witness['anchorSurfaceInventory'] as Array<{
+    path: string
+    sha256: string
+  }>
+  const anchorPaths = anchorInventory.map((entry) => entry.path)
   const targetOnlyPath = 'research/context-benchmarks/c1/f1/runner/c1-f1-32-budget-projection.ts'
   witness['phase'] = 'FINAL_BOUND'
-  witness['targetExecutionBinding'] = {
-    codeRevision: execution['codeRevision'],
-    executionSurfaceHash: execution['executionSurfaceHash']
-  }
   witness['targetSurfacePaths'] = [...anchorPaths, targetOnlyPath]
   witness['entries'] = [
-    ...anchorPaths.map((path) => ({
-      path,
-      anchorPath: path,
-      anchorHash: 'c'.repeat(64),
-      targetHash: 'c'.repeat(64),
+    ...anchorInventory.map((entry) => ({
+      path: entry.path,
+      anchorPath: entry.path,
+      anchorHash: entry.sha256,
+      targetHash: entry.sha256,
       classification: 'EXACT_UNCHANGED'
     })),
     {
@@ -57,6 +58,18 @@ function buildFinalBoundContract(candidate: Record<string, unknown>): Record<str
       classification: 'BUDGET_ONLY_PROJECTION'
     }
   ]
+  const targetInventoryDigest = computeC1F1Native32SurfaceInventoryHash(
+    (witness['entries'] as Array<Record<string, unknown>>).map((entry) => ({
+      path: entry['path'] as string,
+      sha256: entry['targetHash'] as string
+    }))
+  )
+  execution['executionSurfaceHash'] = targetInventoryDigest
+  witness['targetExecutionBinding'] = {
+    codeRevision: execution['codeRevision'],
+    executionSurfaceHash: execution['executionSurfaceHash']
+  }
+  witness['targetInventoryDigest'] = targetInventoryDigest
   witness['witnessStatus'] = 'COMPLETE'
 
   const finalHash = computeC1F1Native32RunContractSha256(finalBound)
@@ -114,12 +127,30 @@ describe('C1 F1 native feasibility 32-call point contract', () => {
       comparisonPolicy: 'DESCRIPTIVE_F0_V2_ANCHOR_ONLY_NOT_POOLED'
     })
     expect(contract['historicalAnchor']).toEqual(C1_F1_NATIVE32_HISTORICAL_ANCHOR)
+    const witness = contract['surfaceEquivalenceWitness'] as Record<string, unknown>
+    expect(
+      computeC1F1Native32SurfaceInventoryHash(
+        witness['anchorSurfaceInventory'] as Array<{ path: string; sha256: string }>
+      )
+    ).toBe(C1_F1_NATIVE32_HISTORICAL_ANCHOR.executionSurfaceHash)
     expect(contract['surfaceEquivalenceWitness']).toMatchObject({
       phase: 'PRE_BINDING',
       anchorExecutionRevision: C1_F1_NATIVE32_HISTORICAL_ANCHOR.executionRevision,
       anchorExecutionSurfaceHash: C1_F1_NATIVE32_HISTORICAL_ANCHOR.executionSurfaceHash,
       allowedClassifications: ['EXACT_UNCHANGED', 'BUDGET_ONLY_PROJECTION'],
       witnessStatus: 'PENDING_IMPLEMENTATION'
+    })
+    expect(contract['surfaceEquivalenceWitness']).toMatchObject({
+      anchorInventoryDigest: C1_F1_NATIVE32_HISTORICAL_ANCHOR.executionSurfaceHash,
+      hashing: {
+        perPathHash: 'SHA256_RAW_FILE_BYTES',
+        inventoryHash: 'SHA256_UTF8_CANONICAL_ROWS_V1',
+        rowFormat: '<lowercase_sha256>  <posix_repo_relative_path><LF>',
+        pathNormalization: 'REPO_RELATIVE_POSIX',
+        pathOrdering: 'LEXICOGRAPHIC_CODE_UNIT',
+        directoryExpansion: 'RECURSIVE_GIT_TRACKED_FILES_AT_REVISION',
+        emptyDirectory: 'FORBIDDEN'
+      }
     })
   })
 
@@ -162,6 +193,26 @@ describe('C1 F1 native feasibility 32-call point contract', () => {
         witness['allowedClassifications'] = ['EXACT_UNCHANGED']
       },
       expectedPath: 'surfaceEquivalenceWitness.allowedClassifications'
+    },
+    {
+      name: 'anchor per-path hash drift',
+      mutate: (contract: Record<string, unknown>) => {
+        const witness = contract['surfaceEquivalenceWitness'] as Record<string, unknown>
+        const inventory = witness['anchorSurfaceInventory'] as Array<Record<string, unknown>>
+        const firstEntry = inventory[0]
+        if (firstEntry === undefined) throw new Error('missing anchor inventory entry')
+        firstEntry['sha256'] = '0'.repeat(64)
+      },
+      expectedPath: 'surfaceEquivalenceWitness.anchorSurfaceInventory.0.sha256'
+    },
+    {
+      name: 'hashing algorithm drift',
+      mutate: (contract: Record<string, unknown>) => {
+        const witness = contract['surfaceEquivalenceWitness'] as Record<string, unknown>
+        const hashing = witness['hashing'] as Record<string, unknown>
+        hashing['pathOrdering'] = 'GIT_TREE_ORDER'
+      },
+      expectedPath: 'surfaceEquivalenceWitness.hashing.pathOrdering'
     }
   ])(
     'fails closed on $name after a valid self-hash recomputation',
@@ -191,17 +242,32 @@ describe('C1 F1 native feasibility 32-call point contract', () => {
   it('joins final witness paths to an actual executable-surface inventory', async () => {
     const finalBound = buildFinalBoundContract(await readContract())
     const witness = finalBound['surfaceEquivalenceWitness'] as Record<string, unknown>
-    const actualPaths = witness['targetSurfacePaths'] as string[]
+    const witnessEntries = witness['entries'] as Array<Record<string, unknown>>
+    const actualInventory = witnessEntries.map((entry) => ({
+      path: entry['path'] as string,
+      sha256: entry['targetHash'] as string
+    }))
     expect(() =>
-      assertC1F1Native32SurfaceWitnessMatchesActualPaths(finalBound, actualPaths)
+      assertC1F1Native32SurfaceWitnessMatchesActualInventory(finalBound, actualInventory)
     ).not.toThrow()
 
+    const actualPaths = actualInventory.map((entry) => entry.path)
     expect(() =>
-      assertC1F1Native32SurfaceWitnessMatchesActualPaths(finalBound, [
-        ...actualPaths,
-        'research/context-benchmarks/c1/f1/runner/unknown.ts'
+      assertC1F1Native32SurfaceWitnessMatchesActualInventory(finalBound, [
+        ...actualInventory,
+        {
+          path: 'research/context-benchmarks/c1/f1/runner/unknown.ts',
+          sha256: 'e'.repeat(64)
+        }
       ])
     ).toThrow('surfaceEquivalenceWitness targetSurfacePaths do not match actual execution surface')
+
+    const mismatchedHashInventory = actualInventory.map((entry, index) =>
+      index === 0 ? { ...entry, sha256: 'f'.repeat(64) } : entry
+    )
+    expect(() =>
+      assertC1F1Native32SurfaceWitnessMatchesActualInventory(finalBound, mismatchedHashInventory)
+    ).toThrow('surfaceEquivalenceWitness.entries.' + actualPaths[0] + '.targetHash')
   })
 
   it.each([
@@ -221,6 +287,25 @@ describe('C1 F1 native feasibility 32-call point contract', () => {
         target['codeRevision'] = 'e'.repeat(40)
       },
       expected: 'surfaceEquivalenceWitness.targetExecutionBinding.codeRevision'
+    },
+    {
+      name: 'anchor hash mismatch',
+      mutate: (contract: Record<string, unknown>) => {
+        const witness = contract['surfaceEquivalenceWitness'] as Record<string, unknown>
+        const entries = witness['entries'] as Array<Record<string, unknown>>
+        const firstEntry = entries[0]
+        if (firstEntry === undefined) throw new Error('missing witness entry')
+        firstEntry['anchorHash'] = 'e'.repeat(64)
+      },
+      expected: 'surfaceEquivalenceWitness.entries[0].anchorHash'
+    },
+    {
+      name: 'target aggregate hash mismatch',
+      mutate: (contract: Record<string, unknown>) => {
+        const witness = contract['surfaceEquivalenceWitness'] as Record<string, unknown>
+        witness['targetInventoryDigest'] = '0'.repeat(64)
+      },
+      expected: 'surfaceEquivalenceWitness.targetInventoryDigest'
     },
     {
       name: 'missing anchor path',

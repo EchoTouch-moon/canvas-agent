@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import {
@@ -5,6 +6,12 @@ import {
   C1_F0_V2_FREEZE_INVARIANTS,
   computeC1F0V2RunContractSha256
 } from '../../f0/contract/c1-f0-v2-contract'
+import {
+  C1_F1_NATIVE32_ANCHOR_SURFACE_INVENTORY,
+  C1_F1_NATIVE32_ANCHOR_SURFACE_PATH_ROOTS,
+  C1_F1_NATIVE32_SURFACE_HASH_ALGORITHM,
+  type C1F1Native32SurfaceInventoryEntry
+} from './c1-f1-native-feasibility-32-anchor-inventory'
 
 export const C1_F1_NATIVE32_CONTRACT_RELATIVE_PATH =
   'research/context-benchmarks/c1/f1/contracts/c1-f1-native-feasibility-32.json'
@@ -12,7 +19,7 @@ export const C1_F1_NATIVE32_CONTRACT_ID = 'C1_F1_NATIVE_FEASIBILITY_32' as const
 export const C1_F1_NATIVE32_CONTRACT_SCHEMA_VERSION = 1 as const
 export const C1_F1_NATIVE32_PENDING_BINDING = 'PENDING_F1_32_IMPLEMENTATION' as const
 export const C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256 =
-  '5dbbd75d040b91152d4cbe7c16ee49e79147988384a402cbce740a9a7f9ce868' as const
+  '053fa42d540e3955b8228303036191ffd985292ddd9665d87397b232570885da' as const
 export const C1_F1_NATIVE32_PROVIDER_CONFIG_HASH =
   'bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a'
 export const C1_F1_NATIVE32_HISTORICAL_ANCHOR = Object.freeze({
@@ -146,27 +153,11 @@ const F1_NATIVE32_SURFACE_WITNESS_POLICY = Object.freeze({
   anchorContractId: C1_F1_NATIVE32_HISTORICAL_ANCHOR.contractId,
   anchorExecutionRevision: C1_F1_NATIVE32_HISTORICAL_ANCHOR.executionRevision,
   anchorExecutionSurfaceHash: C1_F1_NATIVE32_HISTORICAL_ANCHOR.executionSurfaceHash,
-  anchorSurfacePaths: [
-    'research/context-benchmarks/c1/f0/v2',
-    'research/context-benchmarks/c1/f0/hardening',
-    'research/context-benchmarks/c1/f0/contract',
-    'research/context-benchmarks/scripts/c1-f0-v2-execution-runner.ts',
-    'research/context-benchmarks/src/c1-live-preflight.ts',
-    'research/context-benchmarks/src/c1-live-binding.ts',
-    'research/context-benchmarks/src/c1-live-study.ts',
-    'research/context-benchmarks/src/fixture-generator.ts',
-    'packages/context-runtime',
-    'packages/pi-context-integration',
-    'packages/contracts',
-    'packages/domain',
-    'packages/persistence',
-    'packages/worker-runtime',
-    'packages/repository-observer',
-    'packages/codex-context-integration',
-    'packages/context-conformance',
-    'package.json',
-    'pnpm-lock.yaml'
-  ],
+  anchorSurfacePathRoots: C1_F1_NATIVE32_ANCHOR_SURFACE_PATH_ROOTS,
+  anchorSurfacePaths: C1_F1_NATIVE32_ANCHOR_SURFACE_INVENTORY.map((entry) => entry.path),
+  anchorSurfaceInventory: C1_F1_NATIVE32_ANCHOR_SURFACE_INVENTORY,
+  anchorInventoryDigest: C1_F1_NATIVE32_HISTORICAL_ANCHOR.executionSurfaceHash,
+  hashing: C1_F1_NATIVE32_SURFACE_HASH_ALGORITHM,
   allowedClassifications: ['EXACT_UNCHANGED', 'BUDGET_ONLY_PROJECTION'],
   budgetOnlyProjectionPaths: [
     'budgets.perRun.maxProviderRequests',
@@ -202,6 +193,7 @@ const F1_NATIVE32_PRE_BINDING_SURFACE_WITNESS = Object.freeze({
     codeRevision: C1_F1_NATIVE32_PENDING_BINDING,
     executionSurfaceHash: C1_F1_NATIVE32_PENDING_BINDING
   },
+  targetInventoryDigest: C1_F1_NATIVE32_PENDING_BINDING,
   targetSurfacePaths: [],
   entries: [],
   witnessStatus: 'PENDING_IMPLEMENTATION'
@@ -394,7 +386,11 @@ export function assertC1F1Native32FreezeInvariants(raw: unknown): void {
       'anchorContractId',
       'anchorExecutionRevision',
       'anchorExecutionSurfaceHash',
+      'anchorSurfacePathRoots',
       'anchorSurfacePaths',
+      'anchorSurfaceInventory',
+      'anchorInventoryDigest',
+      'hashing',
       'allowedClassifications',
       'budgetOnlyProjectionPaths',
       'budgetOnlyProjectionSurfacePrefixes',
@@ -404,6 +400,12 @@ export function assertC1F1Native32FreezeInvariants(raw: unknown): void {
     F1_NATIVE32_SURFACE_WITNESS_POLICY,
     'surfaceEquivalenceWitness'
   )
+  assertAnchorInventoryBinding()
+  exact(
+    F1_NATIVE32_SURFACE_WITNESS_POLICY.anchorInventoryDigest,
+    F1_NATIVE32_SURFACE_WITNESS_POLICY.anchorExecutionSurfaceHash,
+    'surfaceEquivalenceWitness.anchorInventoryDigest'
+  )
   exact(witness['phase'], 'PRE_BINDING', 'surfaceEquivalenceWitness.phase')
   assertProjection(
     witness['targetExecutionBinding'],
@@ -412,6 +414,11 @@ export function assertC1F1Native32FreezeInvariants(raw: unknown): void {
       executionSurfaceHash: C1_F1_NATIVE32_PENDING_BINDING
     },
     'surfaceEquivalenceWitness.targetExecutionBinding'
+  )
+  exact(
+    witness['targetInventoryDigest'],
+    C1_F1_NATIVE32_PENDING_BINDING,
+    'surfaceEquivalenceWitness.targetInventoryDigest'
   )
   exactArray(witness['targetSurfacePaths'], [], 'surfaceEquivalenceWitness.targetSurfacePaths')
   exactArray(witness['entries'], [], 'surfaceEquivalenceWitness.entries')
@@ -461,6 +468,58 @@ function digest(value: unknown, path: string): string {
   return candidate
 }
 
+function sha256(value: string | Uint8Array): string {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+function assertNormalizedSurfacePath(path: string, label: string): void {
+  if (
+    path.startsWith('/') ||
+    path.includes('\\') ||
+    path === '.' ||
+    path === '..' ||
+    path.includes('/./') ||
+    path.includes('/../') ||
+    path.endsWith('/.') ||
+    path.endsWith('/..')
+  ) {
+    throw new C1F1Native32ContractError(label + ' must be a normalized POSIX repo-relative path')
+  }
+}
+
+export function computeC1F1Native32SurfaceInventoryHash(
+  inventory: readonly C1F1Native32SurfaceInventoryEntry[]
+): string {
+  if (inventory.length === 0) {
+    throw new C1F1Native32ContractError('surface inventory must not be empty')
+  }
+  const rows = inventory
+    .map((entry, index) => {
+      const path = string(entry.path, 'surface inventory[' + String(index) + '].path')
+      assertNormalizedSurfacePath(path, 'surface inventory[' + String(index) + '].path')
+      const hash = digest(entry.sha256, 'surface inventory[' + String(index) + '].sha256')
+      return { path, hash }
+    })
+    .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
+  for (let index = 1; index < rows.length; index += 1) {
+    if (rows[index - 1]?.path === rows[index]?.path) {
+      throw new C1F1Native32ContractError(
+        'surface inventory paths must be unique: ' + rows[index]?.path
+      )
+    }
+  }
+  return sha256(rows.map((row) => row.hash + '  ' + row.path).join('\n') + '\n')
+}
+
+function assertAnchorInventoryBinding(): void {
+  const computed = computeC1F1Native32SurfaceInventoryHash(C1_F1_NATIVE32_ANCHOR_SURFACE_INVENTORY)
+  exact(
+    computed,
+    C1_F1_NATIVE32_HISTORICAL_ANCHOR.executionSurfaceHash,
+    'surfaceEquivalenceWitness.anchorInventoryDigest'
+  )
+}
+
 function validateFinalBoundSurfaceWitness(root: JsonRecord): void {
   const witness = record(root['surfaceEquivalenceWitness'], 'surfaceEquivalenceWitness')
   assertProjection(
@@ -470,7 +529,11 @@ function validateFinalBoundSurfaceWitness(root: JsonRecord): void {
       'anchorContractId',
       'anchorExecutionRevision',
       'anchorExecutionSurfaceHash',
+      'anchorSurfacePathRoots',
       'anchorSurfacePaths',
+      'anchorSurfaceInventory',
+      'anchorInventoryDigest',
+      'hashing',
       'allowedClassifications',
       'budgetOnlyProjectionPaths',
       'budgetOnlyProjectionSurfacePrefixes',
@@ -505,7 +568,16 @@ function validateFinalBoundSurfaceWitness(root: JsonRecord): void {
   )
 
   const policy = F1_NATIVE32_SURFACE_WITNESS_POLICY
+  assertAnchorInventoryBinding()
+  exact(
+    policy.anchorInventoryDigest,
+    policy.anchorExecutionSurfaceHash,
+    'surfaceEquivalenceWitness.anchorInventoryDigest'
+  )
   const anchorPaths = policy.anchorSurfacePaths
+  const anchorHashByPath = new Map(
+    policy.anchorSurfaceInventory.map((entry) => [entry.path, entry.sha256])
+  )
   const allowedClassifications = policy.allowedClassifications
   const budgetPrefixes = policy.budgetOnlyProjectionSurfacePrefixes
   const targetPaths = array(
@@ -619,6 +691,17 @@ function validateFinalBoundSurfaceWitness(root: JsonRecord): void {
       entry['anchorHash'],
       'surfaceEquivalenceWitness.entries[' + String(index) + '].anchorHash'
     )
+    const expectedAnchorHash = anchorHashByPath.get(anchorPath)
+    if (expectedAnchorHash === undefined) {
+      throw new C1F1Native32ContractError(
+        'surfaceEquivalenceWitness.entries[' + String(index) + '].anchorPath has no frozen hash'
+      )
+    }
+    exact(
+      anchorHash,
+      expectedAnchorHash,
+      'surfaceEquivalenceWitness.entries[' + String(index) + '].anchorHash'
+    )
     if (classification === 'EXACT_UNCHANGED') {
       if (path !== anchorPath) {
         throw new C1F1Native32ContractError(
@@ -651,6 +734,27 @@ function validateFinalBoundSurfaceWitness(root: JsonRecord): void {
       'surfaceEquivalenceWitness.entries must account for every anchor surface path exactly once'
     )
   }
+  const targetInventory = entries.map((value, index) => {
+    const entry = record(value, 'surfaceEquivalenceWitness.entries[' + String(index) + ']')
+    return {
+      path: string(entry['path'], 'surfaceEquivalenceWitness.entries[' + String(index) + '].path'),
+      sha256: digest(
+        entry['targetHash'],
+        'surfaceEquivalenceWitness.entries[' + String(index) + '].targetHash'
+      )
+    }
+  })
+  const targetInventoryDigest = computeC1F1Native32SurfaceInventoryHash(targetInventory)
+  exact(
+    witness['targetInventoryDigest'],
+    targetInventoryDigest,
+    'surfaceEquivalenceWitness.targetInventoryDigest'
+  )
+  exact(
+    targetInventoryDigest,
+    executionSurfaceHash,
+    'surfaceEquivalenceWitness.targetInventoryDigest'
+  )
 }
 
 /**
@@ -658,9 +762,9 @@ function validateFinalBoundSurfaceWitness(root: JsonRecord): void {
  * The final-bound contract validator checks the witness's internal join; this helper
  * closes the external join against the actual executable-surface enumeration.
  */
-export function assertC1F1Native32SurfaceWitnessMatchesActualPaths(
+export function assertC1F1Native32SurfaceWitnessMatchesActualInventory(
   raw: unknown,
-  actualTargetPaths: readonly string[]
+  actualTargetInventory: readonly C1F1Native32SurfaceInventoryEntry[]
 ): void {
   const root = record(raw, 'F1-32 final-bound contract')
   validateFinalBoundSurfaceWitness(root)
@@ -671,22 +775,56 @@ export function assertC1F1Native32SurfaceWitnessMatchesActualPaths(
   ).map((value, index) =>
     string(value, 'surfaceEquivalenceWitness.targetSurfacePaths[' + String(index) + ']')
   )
-  const declaredSet = new Set(declared)
-  const actualSet = new Set(actualTargetPaths)
-  if (actualSet.size !== actualTargetPaths.length) {
+  const actualPaths = actualTargetInventory.map((entry, index) =>
+    string(entry.path, 'actual surface inventory[' + String(index) + '].path')
+  )
+  const actualSet = new Set(actualPaths)
+  if (actualSet.size !== actualPaths.length) {
     throw new C1F1Native32ContractError(
       'surfaceEquivalenceWitness actual execution surface contains duplicate paths'
     )
   }
+  const declaredSet = new Set(declared)
   if (
     declaredSet.size !== actualSet.size ||
     declared.some((path) => !actualSet.has(path)) ||
-    actualTargetPaths.some((path) => !declaredSet.has(path))
+    actualPaths.some((path) => !declaredSet.has(path))
   ) {
     throw new C1F1Native32ContractError(
       'surfaceEquivalenceWitness targetSurfacePaths do not match actual execution surface'
     )
   }
+  const witnessEntries = array(witness['entries'], 'surfaceEquivalenceWitness.entries')
+  const witnessTargetHashes = new Map(
+    witnessEntries.map((value, index) => {
+      const entry = record(value, 'surfaceEquivalenceWitness.entries[' + String(index) + ']')
+      return [
+        string(entry['path'], 'surfaceEquivalenceWitness.entries[' + String(index) + '].path'),
+        digest(
+          entry['targetHash'],
+          'surfaceEquivalenceWitness.entries[' + String(index) + '].targetHash'
+        )
+      ] as const
+    })
+  )
+  const normalizedActual = actualTargetInventory.map((entry, index) => ({
+    path: string(entry.path, 'actual surface inventory[' + String(index) + '].path'),
+    sha256: digest(entry.sha256, 'actual surface inventory[' + String(index) + '].sha256')
+  }))
+  normalizedActual.forEach((entry) => {
+    exact(
+      witnessTargetHashes.get(entry.path),
+      entry.sha256,
+      'surfaceEquivalenceWitness.entries.' + entry.path + '.targetHash'
+    )
+  })
+  const actualInventoryDigest = computeC1F1Native32SurfaceInventoryHash(normalizedActual)
+  const execution = record(root['executionBinding'], 'executionBinding')
+  exact(
+    actualInventoryDigest,
+    execution['executionSurfaceHash'],
+    'executionBinding.executionSurfaceHash'
+  )
 }
 
 function validateCandidate(raw: unknown): C1F1Native32Contract {
