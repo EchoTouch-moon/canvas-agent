@@ -13,16 +13,16 @@ Provider、tool semantics、recovery policy、gate 或 32-call 研究参数。
 runner                         = research/context-benchmarks/c1/f1/runner/c1-f1-32-execution-runner.ts
 runner id                      = C1_F1_NATIVE_FEASIBILITY_RUNNER_32
 execution mode                 = CREDENTIAL_FREE_NATIVE_ONLY
-executionRevision              = f6a49a8ccfeb22b264745cd9b6b887ad46b9bfd5
-executionSurfaceHash           = 0b9c57e1a50714958d52890bfc6fa92da5c30502ef48132fb5a729c4fa108994
-bindingControlSurfaceHash      = bfa22c14f716eda9e8aa8d86fcd2800406ea2ab782f9ac616eb7513d890e9992
+executionRevision              = 5997cedae078fedea4e832c4546ef3efbfe3349e
+executionSurfaceHash           = 698a285400ac373269d368d4c8fef77a2a982c65bcf64202b28c10b4490e4555
+bindingControlSurfaceHash      = 8ac49f85392dd09a4637ff9d78649a86c28c0ee9d00baaa8341e64e17b198e00
 target inventory               = 282 files
   ├─ F0-v2 anchor files         = 281（全部 EXACT_UNCHANGED）
   └─ F1 budget adapter          = 1（BUDGET_ONLY_PROJECTION）
 binding control inventory      = 4 files（F1 contract validator、anchor inventory、contract JSON、carried-removals dependency）
 supplemental dependency hash   = de2538329df22823da68237ed7690042d0abb080173c924431c1e6df1dfd93bf
 freezeCandidateRunContractSha256 = 053fa42d540e3955b8228303036191ffd985292ddd9665d87397b232570885da
-finalBoundRunContractSha256    = d6c9ce8822d6a13f4a8dd1069b70213e70cee6e03c0db1b09cb75e40b035b927（内存/报告绑定）
+finalBoundRunContractSha256    = 440a58fe2f984ddc3e89837855d794aa50b0fbca8974d311f29cd2118bbf0d90（内存/报告绑定）
 ```
 
 runner 在 clean checkout 中实际枚举 execution 与 binding-control inventory，读取文件字节计算 per-path hash，再分别
