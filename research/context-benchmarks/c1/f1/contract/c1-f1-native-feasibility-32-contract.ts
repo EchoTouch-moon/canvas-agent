@@ -29,7 +29,8 @@ export const C1_F1_NATIVE32_BINDING_CONTROL_SURFACE_PATH_ROOTS = Object.freeze([
 export const C1_F1_NATIVE32_SUPPLEMENTAL_EXECUTION_DEPENDENCIES = Object.freeze([
   {
     path: 'research/context-benchmarks/src/c1-carried-removals.ts',
-    historicalHash: '1bd1c23def28407678ea8ca87adbfffcf921aa37'
+    historicalHash: 'de2538329df22823da68237ed7690042d0abb080173c924431c1e6df1dfd93bf',
+    historicalGitBlobSha1: '1bd1c23def28407678ea8ca87adbfffcf921aa37'
   }
 ] as const)
 export const C1_F1_NATIVE32_HISTORICAL_ANCHOR = Object.freeze({

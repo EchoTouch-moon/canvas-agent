@@ -19,7 +19,8 @@ bindingControlSurfaceHash      = bfa22c14f716eda9e8aa8d86fcd2800406ea2ab782f9ac6
 target inventory               = 282 files
   ├─ F0-v2 anchor files         = 281（全部 EXACT_UNCHANGED）
   └─ F1 budget adapter          = 1（BUDGET_ONLY_PROJECTION）
-binding control inventory      = 3 files（F1 contract validator、anchor inventory、contract JSON）
+binding control inventory      = 4 files（F1 contract validator、anchor inventory、contract JSON、carried-removals dependency）
+supplemental dependency hash   = de2538329df22823da68237ed7690042d0abb080173c924431c1e6df1dfd93bf
 freezeCandidateRunContractSha256 = 053fa42d540e3955b8228303036191ffd985292ddd9665d87397b232570885da
 finalBoundRunContractSha256    = d6c9ce8822d6a13f4a8dd1069b70213e70cee6e03c0db1b09cb75e40b035b927（内存/报告绑定）
 ```
