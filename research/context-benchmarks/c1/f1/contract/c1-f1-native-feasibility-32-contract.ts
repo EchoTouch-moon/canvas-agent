@@ -22,6 +22,17 @@ export const C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256 =
   '053fa42d540e3955b8228303036191ffd985292ddd9665d87397b232570885da' as const
 export const C1_F1_NATIVE32_PROVIDER_CONFIG_HASH =
   'bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a'
+export const C1_F1_NATIVE32_BINDING_CONTROL_SURFACE_PATH_ROOTS = Object.freeze([
+  'research/context-benchmarks/c1/f1/contract',
+  'research/context-benchmarks/c1/f1/contracts'
+] as const)
+export const C1_F1_NATIVE32_SUPPLEMENTAL_EXECUTION_DEPENDENCIES = Object.freeze([
+  {
+    path: 'research/context-benchmarks/src/c1-carried-removals.ts',
+    historicalHash: 'de2538329df22823da68237ed7690042d0abb080173c924431c1e6df1dfd93bf',
+    historicalGitBlobSha1: '1bd1c23def28407678ea8ca87adbfffcf921aa37'
+  }
+] as const)
 export const C1_F1_NATIVE32_HISTORICAL_ANCHOR = Object.freeze({
   contractId: 'C1_F0_EXECUTION_FEASIBILITY_V2',
   studyId: 'c1-f0-v2-20260913-341fbab9',
@@ -827,6 +838,47 @@ export function assertC1F1Native32SurfaceWitnessMatchesActualInventory(
   )
 }
 
+export function assertC1F1Native32BindingControlSurfaceMatchesActualInventory(
+  raw: unknown,
+  actualControlInventory: readonly C1F1Native32SurfaceInventoryEntry[]
+): void {
+  const root = record(raw, 'F1-32 final-bound contract')
+  validateC1F1Native32FinalBoundContract(root)
+  const declaredPaths = array(root['bindingControlSurfacePaths'], 'bindingControlSurfacePaths').map(
+    (value, index) => string(value, 'bindingControlSurfacePaths[' + String(index) + ']')
+  )
+  const actualPaths = actualControlInventory.map((entry, index) =>
+    string(entry.path, 'actual binding control inventory[' + String(index) + '].path')
+  )
+  const declaredSet = new Set(declaredPaths)
+  const actualSet = new Set(actualPaths)
+  if (
+    declaredSet.size !== actualSet.size ||
+    declaredPaths.some((path) => !actualSet.has(path)) ||
+    actualPaths.some((path) => !declaredSet.has(path))
+  ) {
+    throw new C1F1Native32ContractError(
+      'bindingControlSurfacePaths do not match actual control surface inventory'
+    )
+  }
+  const actualByPath = new Map(
+    actualControlInventory.map((entry, index) => [
+      string(entry.path, 'actual binding control inventory[' + String(index) + '].path'),
+      digest(entry.sha256, 'actual binding control inventory[' + String(index) + '].sha256')
+    ])
+  )
+  for (const dependency of C1_F1_NATIVE32_SUPPLEMENTAL_EXECUTION_DEPENDENCIES) {
+    exact(
+      actualByPath.get(dependency.path),
+      dependency.historicalHash,
+      'bindingControlSurface supplemental dependency ' + dependency.path
+    )
+  }
+  const expectedHash = string(root['bindingControlSurfaceHash'], 'bindingControlSurfaceHash')
+  const actualHash = computeC1F1Native32SurfaceInventoryHash(actualControlInventory)
+  exact(actualHash, expectedHash, 'bindingControlSurfaceHash')
+}
+
 function validateCandidate(raw: unknown): C1F1Native32Contract {
   const root = record(raw, 'F1-32 contract')
   exact(root['contractId'], C1_F1_NATIVE32_CONTRACT_ID, 'contractId')
@@ -895,6 +947,38 @@ export function validateC1F1Native32FinalBoundContract(raw: unknown): C1F1Native
     throw new C1F1Native32ContractError(
       'executionBinding.executionSurfaceHash must be a 64-character SHA-256 digest'
     )
+  const controlHash = string(root['bindingControlSurfaceHash'], 'bindingControlSurfaceHash')
+  if (!/^[a-f0-9]{64}$/.test(controlHash))
+    throw new C1F1Native32ContractError(
+      'bindingControlSurfaceHash must be a 64-character SHA-256 digest'
+    )
+  const controlPaths = array(root['bindingControlSurfacePaths'], 'bindingControlSurfacePaths').map(
+    (value, index) => string(value, 'bindingControlSurfacePaths[' + String(index) + ']')
+  )
+  if (controlPaths.length === 0 || new Set(controlPaths).size !== controlPaths.length) {
+    throw new C1F1Native32ContractError(
+      'bindingControlSurfacePaths must contain unique non-empty paths'
+    )
+  }
+  if (
+    controlPaths.some(
+      (path) =>
+        path.startsWith('/') ||
+        path.includes('\\') ||
+        path.includes('/./') ||
+        path.includes('/../') ||
+        (!C1_F1_NATIVE32_BINDING_CONTROL_SURFACE_PATH_ROOTS.some(
+          (rootPath) => path === rootPath || path.startsWith(rootPath + '/')
+        ) &&
+          !C1_F1_NATIVE32_SUPPLEMENTAL_EXECUTION_DEPENDENCIES.some(
+            (dependency) => dependency.path === path
+          ))
+    )
+  ) {
+    throw new C1F1Native32ContractError(
+      'bindingControlSurfacePaths contains a path outside declared control roots'
+    )
+  }
   validateFinalBoundSurfaceWitness(root)
   const candidateLike = JSON.parse(JSON.stringify(root)) as JsonRecord
   candidateLike['status'] = 'FREEZE_REVIEW'
@@ -902,6 +986,8 @@ export function validateC1F1Native32FinalBoundContract(raw: unknown): C1F1Native
   candidateLike['runContractHashRole'] = 'FREEZE_CANDIDATE'
   delete candidateLike['freezeCandidateRunContractSha256']
   delete candidateLike['finalBoundRunContractSha256']
+  delete candidateLike['bindingControlSurfaceHash']
+  delete candidateLike['bindingControlSurfacePaths']
   const candidateBinding = record(candidateLike['executionBinding'], 'executionBinding')
   candidateBinding['codeRevision'] = C1_F1_NATIVE32_PENDING_BINDING
   candidateBinding['executionSurfaceHash'] = C1_F1_NATIVE32_PENDING_BINDING

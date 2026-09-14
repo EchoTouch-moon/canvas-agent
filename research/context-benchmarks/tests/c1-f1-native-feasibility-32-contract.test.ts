@@ -71,6 +71,13 @@ function buildFinalBoundContract(candidate: Record<string, unknown>): Record<str
   }
   witness['targetInventoryDigest'] = targetInventoryDigest
   witness['witnessStatus'] = 'COMPLETE'
+  finalBound['bindingControlSurfaceHash'] = 'e'.repeat(64)
+  finalBound['bindingControlSurfacePaths'] = [
+    'research/context-benchmarks/c1/f1/contract/c1-f1-native-feasibility-32-anchor-inventory.ts',
+    'research/context-benchmarks/c1/f1/contract/c1-f1-native-feasibility-32-contract.ts',
+    'research/context-benchmarks/c1/f1/contracts/c1-f1-native-feasibility-32.json',
+    'research/context-benchmarks/src/c1-carried-removals.ts'
+  ]
 
   const finalHash = computeC1F1Native32RunContractSha256(finalBound)
   finalBound['runContractSha256'] = finalHash
