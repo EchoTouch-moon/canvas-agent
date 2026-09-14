@@ -14,6 +14,7 @@ import {
   C1_F1_NATIVE32_PENDING_BINDING,
   C1_F1_NATIVE32_PROVIDER_CONFIG_HASH,
   C1_F1_NATIVE32_BINDING_CONTROL_SURFACE_PATH_ROOTS,
+  C1_F1_NATIVE32_SUPPLEMENTAL_EXECUTION_DEPENDENCIES,
   assertC1F1Native32BindingControlSurfaceMatchesActualInventory,
   assertC1F1Native32SurfaceWitnessMatchesActualInventory,
   computeC1F1Native32SurfaceInventoryHash,
@@ -312,7 +313,10 @@ export async function computeC1F1Native32ExecutionBinding(
       'unable to resolve F1-32 execution revision'
     )
   }
-  const controlRoots = [...C1_F1_NATIVE32_BINDING_CONTROL_SURFACE_PATH_ROOTS]
+  const controlRoots = [
+    ...C1_F1_NATIVE32_BINDING_CONTROL_SURFACE_PATH_ROOTS,
+    ...C1_F1_NATIVE32_SUPPLEMENTAL_EXECUTION_DEPENDENCIES.map((dependency) => dependency.path)
+  ]
   const controlFilesResult = await runProcess('git', ['ls-files', '-z', '--', ...controlRoots], {
     cwd: repoRoot,
     timeoutMs: 30_000,

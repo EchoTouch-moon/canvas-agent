@@ -9,7 +9,10 @@ import {
   runC1F1Native32CredentialFreeStudy,
   type C1F1Native32FakeScenario
 } from '../c1/f1/runner/c1-f1-32-execution-runner'
-import { loadC1F1Native32Contract } from '../c1/f1/contract/c1-f1-native-feasibility-32-contract'
+import {
+  assertC1F1Native32BindingControlSurfaceMatchesActualInventory,
+  loadC1F1Native32Contract
+} from '../c1/f1/contract/c1-f1-native-feasibility-32-contract'
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..', '..')
 const outputRoots = new Set<string>()
@@ -58,6 +61,11 @@ describe('C1 F1-32 credential-free execution runner', () => {
     ).toBe(true)
     expect(binding.executionRevision).toMatch(/^[a-f0-9]{40}$/)
     expect(binding.executionSurfaceHash).toMatch(/^[a-f0-9]{64}$/)
+    expect(binding.bindingControlInventory.length).toBe(4)
+    expect(
+      binding.bindingControlInventory.some((entry) => entry.path.endsWith('c1-carried-removals.ts'))
+    ).toBe(true)
+    expect(binding.bindingControlSurfaceHash).toMatch(/^[a-f0-9]{64}$/)
   })
 
   it('runs a credential-free leg and persists final-bound witness evidence', async () => {
@@ -73,11 +81,31 @@ describe('C1 F1-32 credential-free execution runner', () => {
       targetInventoryDigest: report.executionSurfaceHash
     })
     expect(report.finalBoundRunContractSha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(report.bindingControlSurfaceHash).toMatch(/^[a-f0-9]{64}$/)
     expect(report.reportDir).not.toBeNull()
     const witness = JSON.parse(
       await readFile(join(report.reportDir!, 'surface-witness.json'), 'utf8')
     ) as Record<string, unknown>
     expect(witness['targetSurfacePaths']).toHaveLength(282)
+    const finalBound = JSON.parse(
+      await readFile(join(report.reportDir!, 'final-bound-contract.json'), 'utf8')
+    ) as Record<string, unknown>
+    const binding = await computeC1F1Native32ExecutionBinding(REPO_ROOT)
+    expect(() =>
+      assertC1F1Native32BindingControlSurfaceMatchesActualInventory(
+        finalBound,
+        binding.bindingControlInventory
+      )
+    ).not.toThrow()
+    const driftedControlInventory = binding.bindingControlInventory.map((entry) =>
+      entry.path.endsWith('c1-carried-removals.ts') ? { ...entry, sha256: '0'.repeat(64) } : entry
+    )
+    expect(() =>
+      assertC1F1Native32BindingControlSurfaceMatchesActualInventory(
+        finalBound,
+        driftedControlInventory
+      )
+    ).toThrow('bindingControlSurface supplemental dependency')
     await expect(readFile(join(report.reportDir!, '.env'), 'utf8')).rejects.toThrow()
   })
 
