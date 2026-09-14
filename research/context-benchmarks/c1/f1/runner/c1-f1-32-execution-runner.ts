@@ -1,24 +1,19 @@
 import { createHash } from 'node:crypto'
-import { mkdir, open, readFile, rm } from 'node:fs/promises'
+import { mkdir, open, readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
-import {
-  createRunKillSwitch,
-  type RunKillSwitch
-} from '@canvas-agent/pi-context-integration/experimental'
-import type { ContextWorkingSet, RemovalRecord } from '@canvas-agent/context-runtime'
+import { createRunKillSwitch } from '@canvas-agent/pi-context-integration/experimental'
+import type { ContextWorkingSet } from '@canvas-agent/context-runtime'
 import type { PiMessageView } from '@canvas-agent/pi-context-integration'
 import { c1ToolPairFingerprint, type C1CarriedRemoval } from '../../../src/c1-carried-removals'
 import {
   C1_F1_NATIVE32_ANCHOR_SURFACE_INVENTORY,
-  C1_F1_NATIVE32_ANCHOR_SURFACE_PATH_ROOTS,
   type C1F1Native32SurfaceInventoryEntry
 } from '../contract/c1-f1-native-feasibility-32-anchor-inventory'
 import {
-  C1_F1_NATIVE32_CONTRACT_RELATIVE_PATH,
   C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256,
-  C1_F1_NATIVE32_HISTORICAL_ANCHOR,
   C1_F1_NATIVE32_PENDING_BINDING,
   C1_F1_NATIVE32_PROVIDER_CONFIG_HASH,
+  assertC1F1Native32SurfaceWitnessMatchesActualInventory,
   computeC1F1Native32SurfaceInventoryHash,
   computeC1F1Native32RunContractSha256,
   loadC1F1Native32Contract,
@@ -71,7 +66,6 @@ import {
   verifyC1FixtureBinding,
   writableScopePass,
   type C1AgentObservation,
-  type C1FrozenStudy,
   type C1LegExecutionResult,
   type C1PreflightTask,
   type C1StrictProviderBinding
@@ -629,9 +623,7 @@ class C1F1Native32BindingDriver {
     }
   }
 
-  private async appendCheckpoint(
-    checkpoint: C1F1Native32CheckpointInput
-  ): Promise<void> {
+  private async appendCheckpoint(checkpoint: C1F1Native32CheckpointInput): Promise<void> {
     const next = Object.freeze({
       checkpointOrdinal: ++this.checkpointOrdinal,
       ...checkpoint
@@ -1294,8 +1286,6 @@ export async function runC1F1Native32CredentialFreeStudy(
     const bound = buildFinalBoundF1Contract({ candidate, binding })
     finalBoundContract = bound.contract
     surfaceWitness = bound.surfaceWitness
-    const { assertC1F1Native32SurfaceWitnessMatchesActualInventory } =
-      await import('../contract/c1-f1-native-feasibility-32-contract')
     assertC1F1Native32SurfaceWitnessMatchesActualInventory(finalBoundContract, binding.inventory)
     const allPlans = buildC1F1Native32ExecutionPlans(candidate, studyId)
     if (
@@ -1324,12 +1314,6 @@ export async function runC1F1Native32CredentialFreeStudy(
       env: { STEP_PLAN_API_KEY: F1_NATIVE32_CREDENTIAL_SENTINEL }
     })
     try {
-      if (providerBinding.providerConfigHash !== C1_F1_NATIVE32_PROVIDER_CONFIG_HASH) {
-        throw new C1PreflightFailure(
-          'PROVIDER_BINDING_MISMATCH',
-          'F1-32 fake provider config hash mismatch'
-        )
-      }
       const frozenStudy = await loadC1FrozenStudy(repoRoot)
       const budgetGuard = new C1HardBudgetGuard({
         perLeg: {
