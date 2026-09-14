@@ -21,6 +21,7 @@ target inventory               = 282 files
   └─ F1 budget adapter          = 1（BUDGET_ONLY_PROJECTION）
 binding control inventory      = 3 files（F1 contract validator、anchor inventory、contract JSON）
 freezeCandidateRunContractSha256 = 053fa42d540e3955b8228303036191ffd985292ddd9665d87397b232570885da
+finalBoundRunContractSha256    = d6c9ce8822d6a13f4a8dd1069b70213e70cee6e03c0db1b09cb75e40b035b927（内存/报告绑定）
 ```
 
 runner 在 clean checkout 中实际枚举 execution 与 binding-control inventory，读取文件字节计算 per-path hash，再分别
