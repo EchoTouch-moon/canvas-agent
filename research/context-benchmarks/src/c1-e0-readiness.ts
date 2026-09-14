@@ -266,6 +266,7 @@ export function validateC1E0ReadinessDose(value: unknown): C1E0DoseSummary {
   return {
     schemaId: 'C1_EFFECTIVENESS_DOSE_V1',
     schemaVersion: 1,
+    experimentPairId: observation.experimentPairId,
     runtimeOutboundCalls: 1,
     runtimeContextChangedCalls: observation.runtimeContextChanged ? 1 : 0,
     uniqueEligiblePairs: observation.uniqueEligiblePairIds,

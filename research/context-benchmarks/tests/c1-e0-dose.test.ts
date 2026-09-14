@@ -22,6 +22,7 @@ function observation(overrides: Partial<C1E0DoseObservation> = {}): C1E0DoseObse
   return {
     schemaId: C1_E0_DOSE_SCHEMA_ID,
     schemaVersion: 1,
+    experimentPairId: 'pair-01',
     callOrdinal: 1,
     prePolicyProviderBoundMessagesHash: HASH_A,
     postPolicyProviderBoundMessagesHash: HASH_B,
@@ -87,6 +88,7 @@ describe('C1 E0 dose schema', () => {
     const summary = aggregateC1E0Dose([observation()])
 
     expect(summary.uniqueEligiblePairs).toEqual(['pair-01'])
+    expect(summary.experimentPairId).toBe('pair-01')
     expect(summary.uniqueSelectedPairs).toEqual(['pair-01'])
     expect(summary.uniqueRemovedPairs).toEqual(['pair-01'])
     expect(summary.uniqueRemovedSourceElements).toEqual([REMOVED_CALL, REMOVED_RESULT])
@@ -211,6 +213,33 @@ describe('C1 E0 dose schema', () => {
         observation({ suppressedStalePairIds: [], suppressedStalePairCallExposures: 1 })
       )
     ).toThrow(/at most once/)
+  })
+
+  it('keeps experiment pair identity separate from lifecycle pair identity', () => {
+    const first = observation({
+      uniqueRemovedPairIds: ['lifecycle-a'],
+      uniqueSelectedPairIds: ['lifecycle-a'],
+      uniqueEligiblePairIds: ['lifecycle-a'],
+      uniqueRemovedSourceElementKeys: ['run/tool-call://a', 'run/tool-result://a'],
+      newRemovalPairIds: ['lifecycle-a'],
+      suppressedStalePairIds: ['lifecycle-a']
+    })
+    const second = observation({
+      callOrdinal: 2,
+      experimentPairId: 'pair-02',
+      prePolicyProviderBoundMessagesHash: HASH_B,
+      postPolicyProviderBoundMessagesHash: HASH_C,
+      uniqueRemovedPairIds: [],
+      uniqueSelectedPairIds: [],
+      uniqueEligiblePairIds: [],
+      uniqueRemovedSourceElementKeys: [],
+      newRemovalPairIds: [],
+      suppressedStalePairIds: [],
+      suppressedStalePairCallExposures: 0,
+      suppressedSourceElementCallExposures: 0,
+      runtimeContextChanged: true
+    })
+    expect(() => aggregateC1E0Dose([first, second])).toThrow(/one experiment pair/)
   })
 
   it('separates counterpart execution from experiment invalidation', () => {
