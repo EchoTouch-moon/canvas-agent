@@ -1,0 +1,1167 @@
+export interface C1F1Native32SurfaceInventoryEntry {
+  readonly path: string
+  readonly sha256: string
+}
+
+export const C1_F1_NATIVE32_ANCHOR_SURFACE_PATH_ROOTS = Object.freeze([
+  'research/context-benchmarks/c1/f0/v2',
+  'research/context-benchmarks/c1/f0/hardening',
+  'research/context-benchmarks/c1/f0/contract',
+  'research/context-benchmarks/scripts/c1-f0-v2-execution-runner.ts',
+  'research/context-benchmarks/src/c1-live-preflight.ts',
+  'research/context-benchmarks/src/c1-live-binding.ts',
+  'research/context-benchmarks/src/c1-live-study.ts',
+  'research/context-benchmarks/src/fixture-generator.ts',
+  'packages/context-runtime',
+  'packages/pi-context-integration',
+  'packages/contracts',
+  'packages/domain',
+  'packages/persistence',
+  'packages/worker-runtime',
+  'packages/repository-observer',
+  'packages/codex-context-integration',
+  'packages/context-conformance',
+  'package.json',
+  'pnpm-lock.yaml'
+] as const)
+
+/**
+ * Immutable per-file inventory for the F0-v2 executable surface at the historical anchor revision.
+ * Hashes are SHA-256 over the exact Git blob bytes at that revision.
+ */
+export const C1_F1_NATIVE32_ANCHOR_SURFACE_INVENTORY = Object.freeze([
+  {
+    path: 'package.json',
+    sha256: 'e4bd13d1e227437d44d18e27d61f371960f278e2e957abeb99b600c9883bc087'
+  },
+  {
+    path: 'packages/codex-context-integration/package.json',
+    sha256: '49d9e7a602429b89c0bf6775e91b4631a34eaf21d44ca5ccd52d5c6f70b376f5'
+  },
+  {
+    path: 'packages/codex-context-integration/src/codex-committed-context-adapter.ts',
+    sha256: '744fd4b05f2bdbc30791941314004a8793c6bb9158d8f9a9bf7b3b488671bcde'
+  },
+  {
+    path: 'packages/codex-context-integration/src/codex-prompt-reconstruction.ts',
+    sha256: 'b0f64cef32a1d0540f81b376176b928062e5c03eb9eb8195d4f288f39e98d89a'
+  },
+  {
+    path: 'packages/codex-context-integration/src/index.ts',
+    sha256: 'c29359d6395bddaf8a6da47823cb1afcf6ab211a485da71b2a622ad2b6ef49f2'
+  },
+  {
+    path: 'packages/codex-context-integration/tests/codex-conformance.test.ts',
+    sha256: '1425b80eda14fe376d1df6a19f480f02ec013af6a145d413e0f5ec95c777bd76'
+  },
+  {
+    path: 'packages/codex-context-integration/tsconfig.json',
+    sha256: 'e5bd0b7731c516492c844fb8af234af1287147f24f4805cb2705c0f7fca930f2'
+  },
+  {
+    path: 'packages/context-conformance/package.json',
+    sha256: 'dd538274f14c788c93399acc733fe6004bc4e5b68522fc93f90919fbf9bdab78'
+  },
+  {
+    path: 'packages/context-conformance/src/canonical.ts',
+    sha256: '088660b40e03a8eed84ef1d0f6c6af3b25dcbdc2bd61bcd695e88a3b2c407167'
+  },
+  {
+    path: 'packages/context-conformance/src/index.ts',
+    sha256: 'ff5dd4545e1f559fc5c96f34d01171bc9d3d855a24171cce12346ec89566eed1'
+  },
+  {
+    path: 'packages/context-conformance/tests/canonical.test.ts',
+    sha256: '7c657ab256b65a2b4d2ab8091f745906fbfffbbc8b76214c82c86d41ad2ef76e'
+  },
+  {
+    path: 'packages/context-conformance/tsconfig.json',
+    sha256: 'e5bd0b7731c516492c844fb8af234af1287147f24f4805cb2705c0f7fca930f2'
+  },
+  {
+    path: 'packages/context-runtime/corpus/README.md',
+    sha256: '58af76384344decb46c0c7373a7cb323eeb2d5f2aeeed2d5027824b282a2753c'
+  },
+  {
+    path: 'packages/context-runtime/corpus/cases.ts',
+    sha256: 'd47ee622a742038d745111ef1a1e554829315c573c6547c415574993cd504eca'
+  },
+  {
+    path: 'packages/context-runtime/package.json',
+    sha256: '8161567bf755dd402842f22f9025168b697a9e851b9ca52991078dd4aa9fc693'
+  },
+  {
+    path: 'packages/context-runtime/src/admission/admission.ts',
+    sha256: 'a905f3e2d90fa41f76d8c03f3a912dfc71468268d126ecc05dbb055586af8a10'
+  },
+  {
+    path: 'packages/context-runtime/src/admission/receipt.ts',
+    sha256: 'c3ecd38b54af165e3c17c8aa8955da98dc70b86121b525c515cafafa9f7453cc'
+  },
+  {
+    path: 'packages/context-runtime/src/attribution/attribution.ts',
+    sha256: '0359a8efc39ea6bb1bb87c5776c79a78990ab2638d518bf896c5e92237678aa5'
+  },
+  {
+    path: 'packages/context-runtime/src/c0/evaluator.ts',
+    sha256: '6866d64b5d85ddee1b9a0acc1dd90a77d4706cd47c61edd689f652faff6a7772'
+  },
+  {
+    path: 'packages/context-runtime/src/elements/observed-element.ts',
+    sha256: '92dfbb9efd51dc1da744878fdb9b8210c3fa217fd8e5a5b7a759b3659a2cfdca'
+  },
+  {
+    path: 'packages/context-runtime/src/index.ts',
+    sha256: '60ec3ad1211e0784f8e114a4f19ef97dca7008cfaa31d1361d03f4162e763664'
+  },
+  {
+    path: 'packages/context-runtime/src/metrics/shadow-metrics.ts',
+    sha256: '8dc14df28722ee5772bc02e1f02958de8bcab6535a3c36bc630a8357b3300c5b'
+  },
+  {
+    path: 'packages/context-runtime/src/observation/normalize.ts',
+    sha256: '81ee0c88d0d1fe6a1e29b9f8c50c9c13718c5fae61b0ef19673183949ba34d50'
+  },
+  {
+    path: 'packages/context-runtime/src/observation/observe.ts',
+    sha256: 'c3def869a7b2329b5981f47118a68058e82269f7ca9e85b87530725b2767350b'
+  },
+  {
+    path: 'packages/context-runtime/src/observation/token-estimate.ts',
+    sha256: '254292b08ee6fc7028de0b97a68a16743c0bd1c95334149fe9af8ff80f369142'
+  },
+  {
+    path: 'packages/context-runtime/src/observation/types.ts',
+    sha256: 'd745c9337f96256363e44fa24133867e5829c933f2d8b49d1a95199128e5f486'
+  },
+  {
+    path: 'packages/context-runtime/src/planning/planner.ts',
+    sha256: '7b7e442c8e089909259ab355fc58a4d6c80978e2c50c9945e3bd13369908160e'
+  },
+  {
+    path: 'packages/context-runtime/src/planning/planning-request.ts',
+    sha256: '6c7a3369848c71b816a9e06f434842d80cf600343197bf5096c2b300290886d8'
+  },
+  {
+    path: 'packages/context-runtime/src/planning/policy-v0.ts',
+    sha256: 'dbe1a2cfd7563281be6103d5274a4ded7d9e679896ff694b5aeed0cefe067eb0'
+  },
+  {
+    path: 'packages/context-runtime/src/planning/proposed-working-set.ts',
+    sha256: '16e6becacb09bf8812d312d8f660bae9f7efab99f2eb27332d601148bbd6ba4e'
+  },
+  {
+    path: 'packages/context-runtime/src/representation/context-representation.ts',
+    sha256: '84d3ec47de8548aef693fdf45ea79461693249630a0bf7d6cbd26945eb8f238d'
+  },
+  {
+    path: 'packages/context-runtime/src/session/runtime-session.ts',
+    sha256: '08e10b6c37e9de16c67156ac480b55940a31db2b2a9d7a4de7d64bafae05139f'
+  },
+  {
+    path: 'packages/context-runtime/src/sink/in-memory-sink.ts',
+    sha256: 'c555331d08b402c5d16425e72c7b140e7e3952ca11c3cf322cdb81f6ebd71372'
+  },
+  {
+    path: 'packages/context-runtime/src/sink/jsonl-sink.ts',
+    sha256: '1d1561930b0847c1b37fad3d348594133e5bf47af1ccb8441ebf48293c3719c8'
+  },
+  {
+    path: 'packages/context-runtime/src/sink/redaction.ts',
+    sha256: '696b582a33af9dab37e643da9bc914d49cd3a6458ed64e4b98ea4a1a0f03af38'
+  },
+  {
+    path: 'packages/context-runtime/src/source/fixture-observer.ts',
+    sha256: 'ad807ba4e5f6a04705013abb9e00665efbfaff9827b2540791e0f1ace581abf9'
+  },
+  {
+    path: 'packages/context-runtime/src/source/reconciliation.ts',
+    sha256: 'fdd83957ee039e60293e94040164ed8956e3bf3f8c22d91d9449ccc2c6a57777'
+  },
+  {
+    path: 'packages/context-runtime/src/source/source-types.ts',
+    sha256: '40fde1b19776559616e6ca64f13349d07726c393ddd80fcf51acb3a240174e73'
+  },
+  {
+    path: 'packages/context-runtime/src/transition/transition.ts',
+    sha256: '092fe1ef35d2f4dd25c14edd135c36e15774cfc0e0ce40db16334144e18d9f92'
+  },
+  {
+    path: 'packages/context-runtime/src/universe/context-universe.ts',
+    sha256: '80ae3fb702e4b8042bb3956afef437f6f063234b09fb62cf8756b9b385f22f83'
+  },
+  {
+    path: 'packages/context-runtime/src/universe/revision.ts',
+    sha256: 'c97c6830f950c765c12b790f618f96e16a045013c5ed847f569c73619569bc8b'
+  },
+  {
+    path: 'packages/context-runtime/src/util/hash.ts',
+    sha256: '44079bb33498db744ee135575a1e9db404fbdf849a1d207e0762e38e55a0254a'
+  },
+  {
+    path: 'packages/context-runtime/src/util/utf8.ts',
+    sha256: 'b45fff7cadeb13e4126d16d5929fbd9e258a866524890d98f0a6bdc44b1f317b'
+  },
+  {
+    path: 'packages/context-runtime/src/working-set/committed-working-set.ts',
+    sha256: '067cbfa6f507809593eb99d1aa8fdb468361c853ee0180cd1cdf8f6a1e17b776'
+  },
+  {
+    path: 'packages/context-runtime/src/working-set/working-set-types.ts',
+    sha256: 'a2d75d5960f773e5cd477b228cf6fc8a5db4a1e99fd3fbe4393817d7d1e56c9e'
+  },
+  {
+    path: 'packages/context-runtime/tests/c0-evaluator.test.ts',
+    sha256: '0a4db006fd0af7193f0264a5b61ac50465b10cd7194669362f319dfdc5c912dc'
+  },
+  {
+    path: 'packages/context-runtime/tests/context-runtime-core.test.ts',
+    sha256: '827b098214031eabfbf664e3daabe55b797262e1dc09aaa51ba2d44b06d34576'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/policy-lifecycle/common.ts',
+    sha256: 'd3421cb6678451711c038d4c406dd9193b7d755da233b4846c724fc1a79ce695'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/policy-lifecycle/composite-trace.ts',
+    sha256: '4d86d1fdd63beb94fd36188a73fea0f1ec4d01488534db357b179a7d97c8ca98'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/policy-lifecycle/distractor-elimination.ts',
+    sha256: '3ce7acead2d113b1888e9014a4a3362f3703a07d1627ee9d848ff45a0431d0d8'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/policy-lifecycle/events.ts',
+    sha256: '750177198a8903cee4a05fe47635073fffb1ff35fc142d1f186a2ddf8c6809e3'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/policy-lifecycle/index.ts',
+    sha256: 'c398df7fbcde7ce56c97f126fa52a97bf65ca76025df23b1df05e57cc00a0c7e'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/policy-lifecycle/mandatory-budget.ts',
+    sha256: 'c729974caf7ac44d7e0b38901bb87c50927cadee1b7b66f81ead1372538312f0'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/policy-lifecycle/oracle.ts',
+    sha256: '956bd2f4acbdd36e3c876c320d38dfe9f9aba0076582ccb46fbad0cdc14e05d9'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/policy-lifecycle/phase-shift.ts',
+    sha256: 'ab2b2b1f8c17b35aeb0a4c0a207779c8e8ef350958fabe47aec5da4393c22d84'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/policy-lifecycle/runner.ts',
+    sha256: '21a53657a6ea01dcc0ecd43d0ff33b048259eb3f4c88bddb28d64f86a743e35e'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/policy-lifecycle/superseded-evidence.ts',
+    sha256: '06807a2c0b0088094eb8a5077fd7cef12b4686e29db816f4c616dd4acb2c8cc4'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/policy-lifecycle/types.ts',
+    sha256: '0211844804fab948dd421300b71926f06b410da8f1e23080d0c2d007e31f5e88'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/policy-lifecycle/unavailable-source.ts',
+    sha256: 'bc04e76e3088d62b8edbaac88323389f26c7212a159e12cd918030ba3c9e284b'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/policy-lifecycle/wrong-path-recovery.ts',
+    sha256: '1f9c1f3a7a39673ccb6cc385c822f0ff95f705fede51d153e687b1c408332a3f'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/source-identity/candidate.ts',
+    sha256: 'b085f042552f2726a78261347f1956707192a975bf87bddc3f297d4ab55d3825'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/source-identity/oracle.ts',
+    sha256: '5a38585fbde225d9b2e66d3e7105fb4aaceb348ae7ac502e6542a2fde2c43a13'
+  },
+  {
+    path: 'packages/context-runtime/tests/fixtures/source-identity/types.ts',
+    sha256: '078c34820c56ca7d45236e2135060b5735cd69fe792b1efa782e89ec080e8fd9'
+  },
+  {
+    path: 'packages/context-runtime/tests/observation.test.ts',
+    sha256: '5c2fe4bda902c18912ac98e0a69dc5631e71260ac5b295f6c4dd7ce0cf322049'
+  },
+  {
+    path: 'packages/context-runtime/tests/planner.test.ts',
+    sha256: 'd4c71e3df0974694458fff89e0cda59e14d4621a1590d5adb2dda1207feb48cb'
+  },
+  {
+    path: 'packages/context-runtime/tests/policy-lifecycle-b1.test.ts',
+    sha256: '606fdd8fcf0b58be78ee972212f167319018d15d93306c52d7ffb214e55e253d'
+  },
+  {
+    path: 'packages/context-runtime/tests/policy-lifecycle.test.ts',
+    sha256: '1e89764cab235db9342b8883079026ad9f7da0be9a3c39bacb8ecab325669f6d'
+  },
+  {
+    path: 'packages/context-runtime/tests/sinks.test.ts',
+    sha256: '8e04cc274db5f0bdb8035a46454e0a1f372d469eaeef8674f5476ab73b2f43a9'
+  },
+  {
+    path: 'packages/context-runtime/tests/source-identity.test.ts',
+    sha256: 'bb547a6b81d229e8a0de71f692f1ddce1b1f8875fa75976601348ea45168e231'
+  },
+  {
+    path: 'packages/context-runtime/tests/source-universe.test.ts',
+    sha256: '7eb5432b47d8d94bd951935564d642b6d2a01b29ca002be5ed64a890961c68c7'
+  },
+  {
+    path: 'packages/context-runtime/tsconfig.json',
+    sha256: 'eede9c4bf6d6e7a51ca24d9762412b6c90c99e430e23878c9d523069200d87d5'
+  },
+  {
+    path: 'packages/contracts/package.json',
+    sha256: '19ba262cd96b0806c05437ff9855a1dd1ed9de6353b7967dcb956160012ebca8'
+  },
+  {
+    path: 'packages/contracts/src/command.ts',
+    sha256: 'd10c61344db171e9048dcd72ae48a1a5734269f4188e00498d2ef8b04d0e4794'
+  },
+  {
+    path: 'packages/contracts/src/execution-request.ts',
+    sha256: 'cbcf8ac0be00cbbcd925b1356d4ac648128e0bb604e887ba53fe9f4c852c960c'
+  },
+  {
+    path: 'packages/contracts/src/index.ts',
+    sha256: '9ff963bcda92201bbd1a070cd5624d87b3946f4f7ec8d1b285ceddb3de0bf762'
+  },
+  {
+    path: 'packages/contracts/src/ipc.ts',
+    sha256: '483e46e10f07997766e2c6ac19fe2e3241735949c1682cadc9147ce62fe5ba82'
+  },
+  {
+    path: 'packages/contracts/src/source-reference.ts',
+    sha256: '0df58c36a7136abec1a76cb3bd7de5835c51b28fb4555a241e0a1b7d6341cfcc'
+  },
+  {
+    path: 'packages/contracts/tests/command.test.ts',
+    sha256: '60273173d739aa0fa62fe470d4e93e10f3ef0370d0ef89b45b329c496f687c9e'
+  },
+  {
+    path: 'packages/contracts/tests/execution-request.test.ts',
+    sha256: '77394812aec56fffc8935ed3c20e0b7e89f702e6d5d27bf3718a5bbe369950b2'
+  },
+  {
+    path: 'packages/contracts/tests/source-reference.test.ts',
+    sha256: '3ab3370aced816281b161f24f475569095c834946fa966553c67785ca720cc46'
+  },
+  {
+    path: 'packages/contracts/tsconfig.json',
+    sha256: '95574987a732a8b34edd990129d579ec9246aa8ed940a0aef2f2e5f08cb928ea'
+  },
+  {
+    path: 'packages/domain/package.json',
+    sha256: 'e90aa7fd9b2080b289e5c10debbe3b808f393aa61b5ea665b88f5c4bd4e6f8d6'
+  },
+  {
+    path: 'packages/domain/src/index.ts',
+    sha256: '6537adaa46ea889f3a8e6a1220e2eb7833a076d6df3b14b0ec6d01eba5598d4e'
+  },
+  {
+    path: 'packages/domain/src/invariants.ts',
+    sha256: 'b4a9c623e93521fba8220c1a77f58516c7dd2c083767a005094d0a401e7064ea'
+  },
+  {
+    path: 'packages/domain/src/model.ts',
+    sha256: '0b76c4b7e739013ad2c5584a820711acea23117e2ec670c9912f71cb6d4d5b15'
+  },
+  {
+    path: 'packages/domain/tests/invariants.test.ts',
+    sha256: '0cfd6376a3791ddbe87e461630914976b0c43fde4d43882faa71d134e9a47bcf'
+  },
+  {
+    path: 'packages/domain/tsconfig.json',
+    sha256: '95574987a732a8b34edd990129d579ec9246aa8ed940a0aef2f2e5f08cb928ea'
+  },
+  {
+    path: 'packages/persistence/README.md',
+    sha256: '188eacfd2a0d17b655720ad46e9e7bbf7fd728aba12031c8894583cdabf1f191'
+  },
+  {
+    path: 'packages/persistence/drizzle.config.ts',
+    sha256: '785f177677445ff46350e47185a4e020b66fbeb5e34e22e45d5a08390ad91a62'
+  },
+  {
+    path: 'packages/persistence/drizzle/20260806140031_init/migration.sql',
+    sha256: 'db758f5fb3e2356e1fd87ee6553c3a791367ab3394823d65b673f235a4168f47'
+  },
+  {
+    path: 'packages/persistence/drizzle/20260806140031_init/snapshot.json',
+    sha256: '6ba22abe945074d653f5a6d282722ada7b6c88bd38a741fd78120dd36dd53dc8'
+  },
+  {
+    path: 'packages/persistence/drizzle/20260808023009_run-history/migration.sql',
+    sha256: '88e891722426e50b1f7d8a74e3aaa346862f1b6e065143495a6eddf3d739d152'
+  },
+  {
+    path: 'packages/persistence/drizzle/20260808023009_run-history/snapshot.json',
+    sha256: 'c781f830559409cdbb2976171b0181b45832b7d15fd5e5ec07f1dd377dbe3b1e'
+  },
+  {
+    path: 'packages/persistence/drizzle/20260808050016_acceptance-evaluation/migration.sql',
+    sha256: '7662e024277984be76d9f73e4327da9a4f9acd7c0bc1f9f063f7c5cc3e728716'
+  },
+  {
+    path: 'packages/persistence/drizzle/20260808050016_acceptance-evaluation/snapshot.json',
+    sha256: '13f1894c5f8e4949fe16358a1e83ea824cc51914d0f5b9a419521dbc4fd34993'
+  },
+  {
+    path: 'packages/persistence/drizzle/20260808084217_result-adoption/migration.sql',
+    sha256: '254eb8630cc97a33653e63c7b4863f1bd1af51f3123c192d308b8e8e6b79c1f8'
+  },
+  {
+    path: 'packages/persistence/drizzle/20260808084217_result-adoption/snapshot.json',
+    sha256: 'a2f471d3394f8eb01be4ab6faf9d1d2f042c21f8ba54bf23794b280d1ea9d33c'
+  },
+  {
+    path: 'packages/persistence/package.json',
+    sha256: 'a14757a3bd2d0b109589a1cef1d6c2e79e5c53bcf31be5b4da3c8369f75ee4cd'
+  },
+  {
+    path: 'packages/persistence/src/commands/acceptance.ts',
+    sha256: 'a988b269b26dcb910309fd51966f878f1c546acf17802f42b3da549cd8adc1d9'
+  },
+  {
+    path: 'packages/persistence/src/commands/application.ts',
+    sha256: '6cde265b0acc6a552b880f27fcf1c24cdcd6f9ca94d6d21d18363cb5fefd434c'
+  },
+  {
+    path: 'packages/persistence/src/commands/audit.ts',
+    sha256: '5b3f5dace82a02990e04e5c5a7f54a14d1b40b9d895b13fc23bdc00821d1fe94'
+  },
+  {
+    path: 'packages/persistence/src/commands/baseline.ts',
+    sha256: 'e74430c536c8a98adeeab78500011d9cafd911ffea23a1eb97c2fabec55cdfdb'
+  },
+  {
+    path: 'packages/persistence/src/commands/edge.ts',
+    sha256: '7a89503f80b10b92bcea5bbe9cf8f74bdf946390fcc29de8451bdd35267acab1'
+  },
+  {
+    path: 'packages/persistence/src/commands/index.ts',
+    sha256: 'fa72004b940da78b99cf9c0293095510686cc8fee21ebaceb2f5ca4f6dccc541'
+  },
+  {
+    path: 'packages/persistence/src/commands/node.ts',
+    sha256: '19683d9de23ddd746f138eb74ed1f03c77ad129219c5f016ab8df72615a7bb35'
+  },
+  {
+    path: 'packages/persistence/src/commands/project.ts',
+    sha256: '6fb2332289c12c126939bf46a3dafffc4480fb283c11003614eb5d7c515f92f5'
+  },
+  {
+    path: 'packages/persistence/src/commands/repository-revision.ts',
+    sha256: '5e5e57d0d46f6aad5fabc70c8ce4372c20dc1692a206202806e00021f52527e2'
+  },
+  {
+    path: 'packages/persistence/src/commands/run.ts',
+    sha256: '074bab52b6115a143e4895e6c05a32d698812103ac0af0d1711070079ed4b544'
+  },
+  {
+    path: 'packages/persistence/src/commands/snapshot.ts',
+    sha256: '0fdedf76c2c0e76b6450eb030d0a25ef2ce1a461cb7d6608df234a1d0fc32495'
+  },
+  {
+    path: 'packages/persistence/src/commands/task.ts',
+    sha256: '762c24f211f2562fde16925602c75eb12e1842fbbcecd674f5793622331a6326'
+  },
+  {
+    path: 'packages/persistence/src/db.ts',
+    sha256: '4880c2be93fa2d35b40c1b76e089756443dd8f9dc6dc761c5d75ab636ca7c168'
+  },
+  {
+    path: 'packages/persistence/src/errors.ts',
+    sha256: '73f597e7033f3941258d9e20aa565e300c99bee6acd240e0e79fe15364d5a624'
+  },
+  {
+    path: 'packages/persistence/src/index.ts',
+    sha256: '20f82e57bc44d8962742b697df6a32e4b8585ddff98940ae2c85ee31584c8c2b'
+  },
+  {
+    path: 'packages/persistence/src/schema/acceptance.ts',
+    sha256: 'b4cfd3118cacfe789eac598963a8b0e1bfee6430350fbfaa5bf5f7aa9ad339b3'
+  },
+  {
+    path: 'packages/persistence/src/schema/application.ts',
+    sha256: 'f0d9776de4d4ea0c267f00982fab114f2d295ba7dd5d10c841184f64250f810b'
+  },
+  {
+    path: 'packages/persistence/src/schema/audit.ts',
+    sha256: '393faa923ee7d10cf90812ebe8d59c3707c1f9802a38d09cef3594a8eef213ee'
+  },
+  {
+    path: 'packages/persistence/src/schema/baseline.ts',
+    sha256: '38f436517b077cb9f494b29c75e24ff3ed3fc1c58ac7c996beae73005b8be285'
+  },
+  {
+    path: 'packages/persistence/src/schema/context.ts',
+    sha256: '0122cf62eb9324f00963ffb329ba7a7f71acda0981e024ba8d257eaf54cce536'
+  },
+  {
+    path: 'packages/persistence/src/schema/graph.ts',
+    sha256: '0b4e511a61ef5b1275a78ccb7efc8589b99b34229f4d6892a04f44901d077e94'
+  },
+  {
+    path: 'packages/persistence/src/schema/index.ts',
+    sha256: 'c020c1c0064f1dad602891b0b7fde198d05cf9d29afe3507d76b68464a46a7dd'
+  },
+  {
+    path: 'packages/persistence/src/schema/project.ts',
+    sha256: '8896f0cebca339f9b57872538daf775d3653a091b29eaaf4e37cb2a501779158'
+  },
+  {
+    path: 'packages/persistence/src/schema/run.ts',
+    sha256: '63ce29aaa641e4636fcbaaff5b9512857e43123b10fcd83f5f7cde44a8b86a50'
+  },
+  {
+    path: 'packages/persistence/src/schema/task.ts',
+    sha256: '2436d715f1b4ab3aa03130241194fe844e2dcf827e48539c65e52c6443ddb6d4'
+  },
+  {
+    path: 'packages/persistence/src/services.ts',
+    sha256: '407cf923ddc37dd264e2a6fe0beb2b078cd5542ed50cfa4b1850fc6c51d4ad36'
+  },
+  {
+    path: 'packages/persistence/tests/acceptance.test.ts',
+    sha256: '4750ec1e6c6cb2f6e7bf4017f0496e3a84b38dcc0bdaa0ca722fc92ef84935f5'
+  },
+  {
+    path: 'packages/persistence/tests/application.test.ts',
+    sha256: '434cb4b02d04079985507cbe6c254b0058f4ec2a300b52be73401e9423f339f3'
+  },
+  {
+    path: 'packages/persistence/tests/baseline.test.ts',
+    sha256: '52f0926da960c0e39ddb4dfd8f4e6603fd562ef6c23d032707e79daf867bfc81'
+  },
+  {
+    path: 'packages/persistence/tests/concurrency.test.ts',
+    sha256: '4d2e51cf691d4eac77277557751eacc42a389ff6271519bffb0a2f172adf15f2'
+  },
+  {
+    path: 'packages/persistence/tests/cross-project.test.ts',
+    sha256: 'd6fd70d2e33cf728d504dd0a7e83f4c6c6c6c4235f37124632541cf85057ab18'
+  },
+  {
+    path: 'packages/persistence/tests/db.test.ts',
+    sha256: '50dc715d692fa3c9d54db39a0a8c69cb2b6886c195272c67aec2d6a6aac48564'
+  },
+  {
+    path: 'packages/persistence/tests/edge.test.ts',
+    sha256: 'a85d53dd3273280d339f2d501a66e8ad2c9e7c538dee7295c1c0587270abeca9'
+  },
+  {
+    path: 'packages/persistence/tests/helpers.ts',
+    sha256: '69bdd6982f7f8c1abfcf4c1c8068b1960a64e739c4ca9d643bc36d27d17ba81b'
+  },
+  {
+    path: 'packages/persistence/tests/immutability.test.ts',
+    sha256: 'c12586ae97b5cac9c9bd948c7eee0376195e9498a9f727fdae416e3105a64dd8'
+  },
+  {
+    path: 'packages/persistence/tests/node.test.ts',
+    sha256: '18b0dc30632d50277fbf7c8e5d7ac5fae24f68786f39c3b7ba9a78031a534c6d'
+  },
+  {
+    path: 'packages/persistence/tests/project.test.ts',
+    sha256: '582aacc2d767642c3aa9d9ecb838bd04f8ca1b5d6bbf506b6cd0c162045410c9'
+  },
+  {
+    path: 'packages/persistence/tests/reads.test.ts',
+    sha256: '6d5cbb5d64c62446b3618c3ceacea4a2bdbe6d8aae61b4ea1e37b828beea0728'
+  },
+  {
+    path: 'packages/persistence/tests/run.test.ts',
+    sha256: 'eab1a97201c8c4b68cf701d550f9219792b293be4041cfdab9f27d4690971ae6'
+  },
+  {
+    path: 'packages/persistence/tests/snapshot.test.ts',
+    sha256: 'c26a9d1360c0d2e63e46d87c9a36ac2a409a6eb3356884aa7cec95eef2e550bd'
+  },
+  {
+    path: 'packages/persistence/tests/task.test.ts',
+    sha256: '5d65c71d0e0642c1094df6b307bde66a79fda3764c5907b5e6ab59e0029fb357'
+  },
+  {
+    path: 'packages/persistence/tsconfig.json',
+    sha256: '9fc5d251b6ef5689d3d816978af785c89ff787acc4202a3c53108494139391b8'
+  },
+  {
+    path: 'packages/pi-context-integration/package.json',
+    sha256: 'd05dc88f0a0c06a6159a2a68b876281c5ad8780d1ad91b68ba2992f043996e22'
+  },
+  {
+    path: 'packages/pi-context-integration/src/active/capability-profile.ts',
+    sha256: 'fbdc7d48926c843006303d44db2b6ec46338cdb2435713b8a44ee52ef6f06bc7'
+  },
+  {
+    path: 'packages/pi-context-integration/src/active/kill-switch.ts',
+    sha256: '9120edf01ddf29ad3a6075988ce9c75d266d8bea34102af06a1e40b252c89287'
+  },
+  {
+    path: 'packages/pi-context-integration/src/active/lc1-active-rewrite-composition.ts',
+    sha256: 'b77606c1130da43d826b56487ac26548a934726ac38e12f1e9c198e8f979b0c4'
+  },
+  {
+    path: 'packages/pi-context-integration/src/active/lc1-production-mapping.ts',
+    sha256: '3c7c41c5de2b70c9215edabb16c146dc309d26fdd5254d1504b1493ddb3205dc'
+  },
+  {
+    path: 'packages/pi-context-integration/src/active/lc1-runtime-admission-composition.ts',
+    sha256: 'b2dee38fd1f14a19aeb21ab7f82530e72df2ba1a8e7726cfe03fb8a7080d9d74'
+  },
+  {
+    path: 'packages/pi-context-integration/src/active/lc1-runtime-admission-pi-extension.ts',
+    sha256: '5e3f266425d607748076e652791824400ad362875026c253428535d525220f56'
+  },
+  {
+    path: 'packages/pi-context-integration/src/active/lc1-runtime-repository-admission.ts',
+    sha256: '3e7228aac43047d81b7c3d868f3a0b9b1c6e6ff9f3b7df75ee683f441cf11ef0'
+  },
+  {
+    path: 'packages/pi-context-integration/src/active/native-message-analysis.ts',
+    sha256: 'fc4d96c67edf7f2cb73e52a8c5c4d1c1f5f74decc7d8d6f3bd4b1cda6f4813b2'
+  },
+  {
+    path: 'packages/pi-context-integration/src/active/pi-committed-context-adapter.ts',
+    sha256: 'd22a3996b857ccec86ab3eeed9a3eb77e6c7606489e51b8a91fc8ba116095ab6'
+  },
+  {
+    path: 'packages/pi-context-integration/src/active/pre-send-guard.ts',
+    sha256: 'f298921b174215c8cd7dcb0e0d9b94ab4e55b01031b6a74440bd16d70991e9fd'
+  },
+  {
+    path: 'packages/pi-context-integration/src/active/request-parity.ts',
+    sha256: 'e263d59cd185b9e6c0e940cf0392636cab8c4874cc8f28ea40126dcd928212ba'
+  },
+  {
+    path: 'packages/pi-context-integration/src/active/rewrite-composer.ts',
+    sha256: '02c408cfd7908f3f5f3e2e4d3a10d16230ee2627fdca0d01363319f47a12687e'
+  },
+  {
+    path: 'packages/pi-context-integration/src/element-decomposition.ts',
+    sha256: 'fe4d529601932c602366f48f9fb8ba9c9d44e7698cd1858b8d407dfae0c2132b'
+  },
+  {
+    path: 'packages/pi-context-integration/src/experimental.ts',
+    sha256: 'f2ebab2e2e8db33cae7ad5b4aca5c2e6dba9f42a585b5c087557a02f4b55cf61'
+  },
+  {
+    path: 'packages/pi-context-integration/src/extension/active-rewrite-extension.ts',
+    sha256: '857219e69e438b55d1632b4cb4e36ce38cf140edf3d11ef282f627052d2fbac5'
+  },
+  {
+    path: 'packages/pi-context-integration/src/extension/enriched-shadow-extension.ts',
+    sha256: 'bacbc10a801c64800e2e841c41b51a7b9c5a41ddc2d74169660c2ebc26e78c46'
+  },
+  {
+    path: 'packages/pi-context-integration/src/extension/shadow-extension.ts',
+    sha256: '8f7832ade50940ab1e5a1cfaa05fdb1097373aeba8f2b1d31f4a0757b5d87b62'
+  },
+  {
+    path: 'packages/pi-context-integration/src/extension/shadow-planner-extension.ts',
+    sha256: '425fc9619827a4d28f483fbdd75a377d238071ca7508fdbae4c82b2a07a7c890'
+  },
+  {
+    path: 'packages/pi-context-integration/src/index.ts',
+    sha256: '9c7e28b0c85d4977505511fedc35e80ce568e3e7a6de168b20b242b5772f334a'
+  },
+  {
+    path: 'packages/pi-context-integration/src/model-provider.ts',
+    sha256: '1ff11c7d5ae1b201c76549db5e20f8002912ad51b569947a564459406cc04160'
+  },
+  {
+    path: 'packages/pi-context-integration/src/pi-message-mapper.ts',
+    sha256: '02035158c1ee15f4a76ecc1bce3389b4851165faae4f78ce54bc26d3ca6d3863'
+  },
+  {
+    path: 'packages/pi-context-integration/src/pi-source-methods.ts',
+    sha256: 'a8486b24996ca3a07af05cc3dc16e5ed58ffe1425f2afd06f9484797c3d96fcd'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/c0-boundary-guard.ts',
+    sha256: '94ab482b26d851a103d37ca187990d0447a25219a807ee8891c3ac7e08d1c4df'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/c0-canary-smoke.ts',
+    sha256: 'cd6c628ef742d28bbcef04d030911d8cd602d37fc9ffe3fd24e777c373011b8c'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/c0-kill-switch.ts',
+    sha256: 'd6e204e99b4d38e7dadb8c169918b99196daa1f7052989bd3f907e5c4c0b5c3f'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/c0-prompt-deadline.ts',
+    sha256: '84fbad378a44f6df4a82fc930e11966dea1bdd909794dc30d63a5b7e8862fa21'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/c0-provider-transport.ts',
+    sha256: '771f7569a05a835b35f783401a51d24961562e59002583d67d785449b49c3390'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/c0-provider-usage.ts',
+    sha256: '79ceef9e7f302e0cdddc58948cf17f3560abd9f7a3f91b19b3d71c040c195815'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/c0-report-directory.ts',
+    sha256: 'b7e46f3878181ce59afb9cfde986db6dfa4bb9771a5ab361a9b232becdd595b9'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/c0-scenarios.ts',
+    sha256: '6613c4b345c3cc9ff39231e7f1e5c55553aca0722b50ac1207ab8d3974d42ae5'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/cr004-matrix-smoke.ts',
+    sha256: '35efa9ca264164b6bdefa21300eb70a8c29d9eb36f415d84de027afef5e2c868'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/cr004-stage1-smoke.ts',
+    sha256: '381fd042d52d11f46c240df457ac4c0ac7459ab21f1900b3c9219ca8e1124c1e'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/deepseek-smoke.ts',
+    sha256: '63892d30d8844ec3b82ca682acf23de24ea78ce35646d8610378ebbe408c3751'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/enriched-deepseek-smoke.ts',
+    sha256: '985b3a28b60ca29bd9d71d762c01b226bf140c826a587158a3c2dd9351a8a6d6'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/file-aware-pi-smoke.ts',
+    sha256: '28b7139b92b288d93e31d497e148dfe233f3699b0f91323bafccbdeb5a3ff794'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/leg-deadline.ts',
+    sha256: 'dd17207052ee99d8be18b51868acef81b083d6e502fc845685778595fcecd063'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/matrix-core.ts',
+    sha256: '2fa3cc9803a94833714dce2f4afcb53d7b000ee0f7c1313e9e8d91cdf32a64df'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/model-provider-smoke.ts',
+    sha256: 'e95fa2d79cc9ab9bff28bb547b7ecbd893fa5e2df3b178c15972b7ca5e9adaf7'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/mx-evidence-root.ts',
+    sha256: 'c2c50e3215a6876e1387e699e7ae1d862787a45a52c73e2201874405bbc18886'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/mx-profiles.ts',
+    sha256: 'c200cd1be518f0b884e8faddd6e63af82653c0553a7d47d4f33dc1ea4f0a0d7b'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/mx-report-directory.ts',
+    sha256: '26f16305bafd05a2d480848c6d25e99b281284a56d942c073293ee306d0de7bf'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/real-provider-parity-smoke.ts',
+    sha256: '78a133e0483f9ab3689c7feb3ee349c5232eb20bc36be92eed177fe18e076595'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/s1-pair-core.ts',
+    sha256: '305f3d95de48c03fcb03181df678344544abf4b669d82adc775bba2da181de29'
+  },
+  {
+    path: 'packages/pi-context-integration/src/smoke/shadow-planner-smoke.ts',
+    sha256: 'bb3f95d7823ce5a525dd4331db7ad3cbe8529a1fa02f1bbbc8cd035f8f751f07'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/api-surface.test.ts',
+    sha256: '08f3443fa01d0da449d25a65db27518af4ef397a3316a90a0bf91fd8eea6e6d1'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/c0-boundary-guard.test.ts',
+    sha256: '435a065c548006cc1d0bd0d711be9fb119ea0bdbc23b2a4efcfd374629cc7be8'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/c0-canary-scenarios.test.ts',
+    sha256: '834a6ec7ac1fe5a576dcd3dd8466101c0cadffb11b4acecd2ffef9a21a99d1cf'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/c0-kill-switch.test.ts',
+    sha256: 'def4572c05e2fe8e4cdffdb7c9cf75f1322ac1759ddec331b2f7da5561d7578c'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/c0-prompt-deadline.test.ts',
+    sha256: '7f74ce3adea1c7815c6d81b831f2985dadca5755d447ca4999e22d38984ec0f2'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/c0-provider-transport.test.ts',
+    sha256: 'cbcc6efb00d91412b18783eaaa3270f6a0177ade781764bcb7e3dcec6fabed20'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/c0-provider-usage.test.ts',
+    sha256: '96364be6c2f58b8c2fb989b171a600c939bb3908858af27c3e3e0fde9b3de108'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/c0-report-directory.test.ts',
+    sha256: '343c4b73ad1508e72fb4ddc223a7dc902774d3901ab73c054966b589a94fd88a'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/cr004-lifecycle-conformance.test.ts',
+    sha256: '13ce7b49a5d9417e8377e80a4daf0bcf4f263b11ec4bea8704d86ec0ee328862'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/cr004-matrix.test.ts',
+    sha256: '4c4f731c54697e1a3635701402ef772e6bfee011308bd070992c5e5991ccba1a'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/cr004-mechanism-coverage.test.ts',
+    sha256: '39aa87c050e1a649a64997bd51908d35284ac44a50d03ee5fd0e0cab67e15b90'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/cr004-policy-v2.test.ts',
+    sha256: '94d527556a5026b174da3453c521789ae619f0e39efe1968a30789cee2a77fa2'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/cr004-policy-v3.test.ts',
+    sha256: '7738401654cacef57ccfc1f2b5e0a9c992223996e624832c187dd1cf98f73211'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/cr004-stage0.test.ts',
+    sha256: '753003e0b7dc1450e95e837e2e9ab4f996a0a2913f8977aea0c7e383aa21382b'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/cr004-stage1.test.ts',
+    sha256: 'a6eb692a3803f57f9fd4640e7ad47b1cb331dffb9aeae8eae0fc991441896c1d'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/cr004-transactional.test.ts',
+    sha256: 'a07da45a832cb75e8e1ee1b2f4223b7d27729495878d22c36edadfb8f855379b'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/enriched-shadow.test.ts',
+    sha256: '8d1d1b900b8e326c0c6f87ab1c166a7ea3753db1150785a1c6bb1aa86604ea13'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/fixtures/lc1-pi-identity-bridge.ts',
+    sha256: '7ad130a3173a60877d5965a94e80c3f231351788df02ba68d8826d5caea0e892'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/lc1-active-composition-safety.test.ts',
+    sha256: '09a29db6fff5f0a9fbcbc71ccbca76913671a590e51741dc6c62b4a1b8bc1d99'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/lc1-active-rewrite-agent-session.test.ts',
+    sha256: '4a0545b435eb2afde43a3a9a47aeda5e4325ce3eabd4f70fef4392ceeb27179d'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/lc1-active-rewrite-composition.test.ts',
+    sha256: 'a6235f546bc7f8b7f18b0f79c438bd0158f2584ad1dbc04e43eca519f1a084e3'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/lc1-pi-identity-bridge.test.ts',
+    sha256: 'f1571b790ef3becb141fa791cab6a3bc0a475022eb4a8d4aa4a435016706742c'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/lc1-pi-repository-bridge.test.ts',
+    sha256: '69f8316d01d4310198428cb836d1115d0c08407387ef92d1e4e854dcaca3062f'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/lc1-pi-repository-queue-safety-audit.test.ts',
+    sha256: '54027715c24a2205734f74efeaafa23256bf6a1b657e38aa9950335c1b000907'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/lc1-pi-repository-queue.test.ts',
+    sha256: 'cbfc18963abe8689a57a9d6606149bb5e696274b9679f646af8f5455ff366ab9'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/lc1-production-mapper-instance-safety-audit.test.ts',
+    sha256: '7be242cb29f7485d672c305c7716ad8bb9e6267f986a0ef0ae3d1ab3197e494c'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/lc1-production-mapping.test.ts',
+    sha256: 'e15bf6f1af535bfc3aea5f3d493a773f5d05b07042ede2a1bf1df0afc00c2e0b'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/lc1-runtime-admission-agent-session-reload.test.ts',
+    sha256: '030fd19cf1905d10eaf7289ffed9c3da575da96c6817436f329f71663ae4a9a9'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/lc1-runtime-admission-agent-session.test.ts',
+    sha256: '0a2cce85ed4a59fbfb819914edd4702be9182b6ac4f980ccad48e2e2d4b0b18e'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/lc1-runtime-admission-composition.integration.test.ts',
+    sha256: 'e5e2a019cd087d6d2aabbcc113ccd9f88d5cbc06182bdfc88c1f837029921d8c'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/lc1-runtime-admission-composition.test.ts',
+    sha256: '4905f02dafd57e1630d27dbfca3885bc81950fc6891c0d893c8398b9ba644f8d'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/lc1-runtime-admission-pi-extension.test.ts',
+    sha256: 'e255c5ba058e2ebb823dfba05a7e244120f52d85bb3ef4491ae153fe71e566b6'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/lc1-source-identity-gap.test.ts',
+    sha256: '2f75f3357aa90d08d99be011df8a530c3cd3b93726541c9de14349284a50872c'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/leg-deadline.test.ts',
+    sha256: '48622c79df33b221ecc5bf273032ccaadb52aeb9b4357f87d06478d9a595eca7'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/model-provider.test.ts',
+    sha256: 'bc3e934d1e18807788efc24511691d81fd5827a450d2efd5daf8a89a9cc1af3a'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/mx-evidence-root.test.ts',
+    sha256: 'a13d0b09e895cb0a889e2fef8e9f224f1bcb53816aa604e09ec20cc7a5b0bb0f'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/mx-profiles.test.ts',
+    sha256: 'e981e5aa891404bbbac52118d8f7d72452072b3a671d6d95ebeea919d5603297'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/mx-report-directory.test.ts',
+    sha256: '2cc59b20af8e0c455cd7113d0616f5bd900456215814855664c2eadd7d475d67'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/request-parity.test.ts',
+    sha256: 'be8d8641802b40401aa1599e1044726dda267630417d09ac93ccc7971c671e21'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/shadow-planner.test.ts',
+    sha256: '5465f161d928cfae301a22c9a2083eb8a62520c4bac2b02f727b7ada9f8e6459'
+  },
+  {
+    path: 'packages/pi-context-integration/tests/shadow.test.ts',
+    sha256: 'e4307df6bac6c2e5af816a9e72c7e5f7d97299314f631622c9c519c06a18aa35'
+  },
+  {
+    path: 'packages/pi-context-integration/tsconfig.json',
+    sha256: 'eede9c4bf6d6e7a51ca24d9762412b6c90c99e430e23878c9d523069200d87d5'
+  },
+  {
+    path: 'packages/repository-observer/package.json',
+    sha256: 'c094dcaadbacba859f996f634230ab837658f9bb71cf0d9320aaf9875a7f2b2b'
+  },
+  {
+    path: 'packages/repository-observer/src/git-blob-reader.ts',
+    sha256: 'bfc389ea19566b84f1908d2754af5aced2a1b8e2b7baa8691583efb8131ceb8a'
+  },
+  {
+    path: 'packages/repository-observer/src/git-child-environment.ts',
+    sha256: '0797149856b0738f196e04bf9ea6fd97ddd070c2062be40f9c84eae2fa9d82d5'
+  },
+  {
+    path: 'packages/repository-observer/src/index.ts',
+    sha256: '505a225509ac82f32fcac835f30f79d5d14293658d6aa4527089bd716afca889'
+  },
+  {
+    path: 'packages/repository-observer/src/pinned-tree.ts',
+    sha256: 'bc95f3ec03e3ff5275da9a8c7f098483b8bdafa708fee8579e4126f7050300af'
+  },
+  {
+    path: 'packages/repository-observer/src/repository-observer.ts',
+    sha256: '9d698887a892888ffd0b530f0b5b268fffb313bbe93dbfc26ec46149d7480f5b'
+  },
+  {
+    path: 'packages/repository-observer/src/representation-provider.ts',
+    sha256: '00dbb1a5b0e34d1851b4bd4f8c44330b7856c13ac00ccb470807eae0c5f80753'
+  },
+  {
+    path: 'packages/repository-observer/src/smoke/file-aware-smoke.ts',
+    sha256: '4625b3f51ac7fecdf3db0240c90aa68f51a7e6dac72df35fa8a6118ad110d59c'
+  },
+  {
+    path: 'packages/repository-observer/src/smoke/git-repo-smoke.ts',
+    sha256: '295b88980949b570e24091abe9b9022ea87da519bd48e087d4fbf29cc84c9ad1'
+  },
+  {
+    path: 'packages/repository-observer/src/types.ts',
+    sha256: '31ef89f0331e1ce4943e2359e1afa97d89fb5e9155d69340ddeed0f15c0bce88'
+  },
+  {
+    path: 'packages/repository-observer/tests/helpers.ts',
+    sha256: 'a7ae4681d407c1d380928e6d7ca6925fb5cbbd592821cf4d327b5b8cf6c470f0'
+  },
+  {
+    path: 'packages/repository-observer/tests/repository-observer.test.ts',
+    sha256: 'ec12ee067e15b7a6e63312f2edb9b0b7d23c225fdc745fdb84a075d9b20f79ec'
+  },
+  {
+    path: 'packages/repository-observer/tests/representation-provider.test.ts',
+    sha256: '8353341f616356e674b2e59bd897fffa5a3d3a0dbec2c908cb315f16cbdea7d3'
+  },
+  {
+    path: 'packages/repository-observer/tsconfig.json',
+    sha256: 'eede9c4bf6d6e7a51ca24d9762412b6c90c99e430e23878c9d523069200d87d5'
+  },
+  {
+    path: 'packages/worker-runtime/README.md',
+    sha256: 'e009af246b0400a6f5069d5b1de8f35da13bd19c7aafe8bc6eb99beb99e5eaa0'
+  },
+  {
+    path: 'packages/worker-runtime/package.json',
+    sha256: '64f3b5ac87bc2e2bd123442c36f6d11333abbadfe8db58bb286c2255237a7336'
+  },
+  {
+    path: 'packages/worker-runtime/scripts/smoke-core-loop.ts',
+    sha256: 'f69d100372713996a002ca0162a50c622b28f0bdf710cf15fe2401e488f14ccf'
+  },
+  {
+    path: 'packages/worker-runtime/src/agent-adapter.ts',
+    sha256: '3052a104ef944dbf047d8b44d754c8c39ec0727ab70d0c2a79820046253d8a97'
+  },
+  {
+    path: 'packages/worker-runtime/src/claim.ts',
+    sha256: 'f5ee8e8408d23dc869ca5e0bc2b3c1f9131ad9c69f415bc4990b4a330794fa3b'
+  },
+  {
+    path: 'packages/worker-runtime/src/codex-agent-adapter.ts',
+    sha256: 'cad5d351e597b1fc52edff5d446c5566f2fb4cd002c1a7dc1e90af876c69e7df'
+  },
+  {
+    path: 'packages/worker-runtime/src/codex-output-schema.ts',
+    sha256: '0b13bb72308b72df3d0e097d059cb328783eb733b15540a156711d123437b98c'
+  },
+  {
+    path: 'packages/worker-runtime/src/codex-version.ts',
+    sha256: 'a9293f8f7f75c7a1cd114e537b96f9458a565222b58471252748955ce21a8478'
+  },
+  {
+    path: 'packages/worker-runtime/src/errors.ts',
+    sha256: '94767b9660f48c87567b22fe0b6c858605c7355cdfdd861d7937bc3e190eb9ca'
+  },
+  {
+    path: 'packages/worker-runtime/src/index.ts',
+    sha256: 'a11bc93938487d9cb0df8a6c147d9aaede2ab59e9798254fecc796cefa29efb1'
+  },
+  {
+    path: 'packages/worker-runtime/src/local-cli-runner.ts',
+    sha256: 'd75c02f52c6f189a4dd86e61e3b22133d82d949a821266d6eda0961b7f38c4a3'
+  },
+  {
+    path: 'packages/worker-runtime/src/process-runner.ts',
+    sha256: '362214bef7dc2254149504aff441485c0ec5428c90e34ff58082140b4d983c55'
+  },
+  {
+    path: 'packages/worker-runtime/src/revision.ts',
+    sha256: 'e4deb1fbe6858a96420d9321b550ce1fe7cc2148aafbbd43a4546ad83d057a37'
+  },
+  {
+    path: 'packages/worker-runtime/src/types.ts',
+    sha256: 'f465a255ebc836f5fa9cfac31cba015de0ddfd1a2b9acf43fbd5b39d1cc6d231'
+  },
+  {
+    path: 'packages/worker-runtime/src/validation.ts',
+    sha256: 'b1e450cc06fcfb5efbb060286f2d3eb35a9e974a57c47ac3ea21a57725b3b298'
+  },
+  {
+    path: 'packages/worker-runtime/src/worker.ts',
+    sha256: 'c4d4b9f91ecc926a5a3057aa19eac35519a900682e5d1230fd5742b014e556c1'
+  },
+  {
+    path: 'packages/worker-runtime/src/worktree.ts',
+    sha256: '978b4c99e93c11376ef1dfdd0dfcf1bdba3c67731221d6d95208334dd4a2fb50'
+  },
+  {
+    path: 'packages/worker-runtime/tests/codex-agent-adapter.test.ts',
+    sha256: '30de67b421abed1c6cc97151eea3e838d9cce7a2c9a566b55df223c7cc482a3c'
+  },
+  {
+    path: 'packages/worker-runtime/tests/codex-output-schema.test.ts',
+    sha256: '204f2dba87c400312f3889bced47e4e1a850095b3d2fc8313ee2993b1bf1b77d'
+  },
+  {
+    path: 'packages/worker-runtime/tests/codex-version.test.ts',
+    sha256: 'e0d15ea979b956a08bf7bbc38aad485b0da7850cd9d1c0629135e2c5d065af7f'
+  },
+  {
+    path: 'packages/worker-runtime/tests/context-bundle.test.ts',
+    sha256: 'c74e43f96370377827eb2d33d635483654082c0ac2297b6402a3a598f05b8a96'
+  },
+  {
+    path: 'packages/worker-runtime/tests/helpers.ts',
+    sha256: '4ed9548c0f425c86b29f43f401fc787328a02501bbadc643128fc72d69e6a0bd'
+  },
+  {
+    path: 'packages/worker-runtime/tests/local-cli-runner.test.ts',
+    sha256: '4a90091015c51071ae1298d239fc682ab0a66b72d923378f478bdc619c40e0cb'
+  },
+  {
+    path: 'packages/worker-runtime/tests/persistence-integration.test.ts',
+    sha256: '19fbc0effcdd01b5f2084cc3fa144a6f1a492630088dd940d13ee34fcdddc6eb'
+  },
+  {
+    path: 'packages/worker-runtime/tests/process-runner.test.ts',
+    sha256: '616a52bf83de7773afe9a4b3b390c7883ff4d16b02c9604c1e6d2c93129a54bc'
+  },
+  {
+    path: 'packages/worker-runtime/tests/validation.test.ts',
+    sha256: '91f9fa0bad00c79225ef36a2332e5e24db4bbf67a4ad554dfd5a5cd7120a49b0'
+  },
+  {
+    path: 'packages/worker-runtime/tests/worker.test.ts',
+    sha256: 'a60690359bbc8e9de90f85c44a4153053a44c91ac306668c3cbfdb638755f6de'
+  },
+  {
+    path: 'packages/worker-runtime/tests/worktree.test.ts',
+    sha256: 'd861ced9daca6f05c4e797133d070e91adba0ec6dcb1482bfe02dd89377f576f'
+  },
+  {
+    path: 'packages/worker-runtime/tsconfig.json',
+    sha256: 'e5bd0b7731c516492c844fb8af234af1287147f24f4805cb2705c0f7fca930f2'
+  },
+  {
+    path: 'pnpm-lock.yaml',
+    sha256: 'd727772f42624e5271caf730b5a36e23f654d21eb8506a8e5bb46ad81bffdaf1'
+  },
+  {
+    path: 'research/context-benchmarks/c1/f0/contract/c1-f0-v2-contract.ts',
+    sha256: 'a060917f637be6f8218fd1b02871a49d9b0891f75ba249f299e0434e445962d2'
+  },
+  {
+    path: 'research/context-benchmarks/c1/f0/hardening/c1-f0-tool-hardening.ts',
+    sha256: 'b96fe0eca50629b25feeb26faf8e1ad38a5a5769a34435405d09c2cf25825c41'
+  },
+  {
+    path: 'research/context-benchmarks/c1/f0/v2/runner/c1-f0-v2-execution-runner.ts',
+    sha256: '9d824114c16b76de73f4d00b0c652a2a502b636e4b3bced81a684d5925b65f7d'
+  },
+  {
+    path: 'research/context-benchmarks/c1/f0/v2/runner/c1-f0-v2-live-binding.ts',
+    sha256: '7dab708b42b850d8d0c88d3357c9c3bce5f8d5580f635da01e89c9a8d53edfe3'
+  },
+  {
+    path: 'research/context-benchmarks/c1/f0/v2/runner/run-c1-f0-v2-live.ts',
+    sha256: '9379d2315176c2a7c08640cb4ead41ad279fffce9f32979d63b2a0380663c4f2'
+  },
+  {
+    path: 'research/context-benchmarks/scripts/c1-f0-v2-execution-runner.ts',
+    sha256: '321513932c53468e238da1c7b148bda7e656265c14ac680e7d8bc61064e93ac9'
+  },
+  {
+    path: 'research/context-benchmarks/src/c1-live-binding.ts',
+    sha256: '3d19671000624d543b79ae1564afaf02f631698c23c6aba3e5ca46225ebfd889'
+  },
+  {
+    path: 'research/context-benchmarks/src/c1-live-preflight.ts',
+    sha256: '4a366478a7b4f0fd36f43d1af766f1249bd3a5081e2eb5290ba678cb4fee91fd'
+  },
+  {
+    path: 'research/context-benchmarks/src/c1-live-study.ts',
+    sha256: 'd79ac5863d21ce0c12c9e7694b795cd845d5c75ab84acf89ef8ec27d4cfe0e39'
+  },
+  {
+    path: 'research/context-benchmarks/src/fixture-generator.ts',
+    sha256: '38bd3f81f02dd0a367ce641f9fa15d64565a78600c4c4aa75ccb953fcd6090bb'
+  }
+] as readonly C1F1Native32SurfaceInventoryEntry[])
+
+export const C1_F1_NATIVE32_SURFACE_HASH_ALGORITHM = Object.freeze({
+  perPathHash: 'SHA256_RAW_FILE_BYTES',
+  inventoryHash: 'SHA256_UTF8_CANONICAL_ROWS_V1',
+  rowFormat: '<lowercase_sha256>  <posix_repo_relative_path><LF>',
+  pathNormalization: 'REPO_RELATIVE_POSIX',
+  pathOrdering: 'LEXICOGRAPHIC_CODE_UNIT',
+  directoryExpansion: 'RECURSIVE_GIT_TRACKED_FILES_AT_REVISION',
+  emptyDirectory: 'FORBIDDEN'
+} as const)
