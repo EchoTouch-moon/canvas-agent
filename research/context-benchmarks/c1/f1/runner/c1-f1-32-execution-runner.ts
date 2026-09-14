@@ -454,7 +454,9 @@ class C1F1Native32ScriptedResponseSource implements C1LiveResponseSource {
     }
     const ordinal = ++this.cursor
     if (this.scenario === 'BUDGET_EXHAUSTION') {
-      return scriptedResponse(this.runId, ordinal, 'CONTINUE')
+      return scriptedResponse(this.runId, ordinal, 'CONTINUE', [
+        bashRequest(this.runId, ordinal, 'node --version')
+      ])
     }
     if (this.scenario === 'TOOL_RECOVERY') {
       if (ordinal === 1)
