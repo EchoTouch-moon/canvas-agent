@@ -13,6 +13,8 @@ import {
   C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256,
   C1_F1_NATIVE32_PENDING_BINDING,
   C1_F1_NATIVE32_PROVIDER_CONFIG_HASH,
+  C1_F1_NATIVE32_BINDING_CONTROL_SURFACE_PATH_ROOTS,
+  assertC1F1Native32BindingControlSurfaceMatchesActualInventory,
   assertC1F1Native32SurfaceWitnessMatchesActualInventory,
   computeC1F1Native32SurfaceInventoryHash,
   computeC1F1Native32RunContractSha256,
@@ -131,6 +133,8 @@ export interface C1F1Native32ExecutionPlan {
 export interface C1F1Native32ExecutionBinding {
   readonly executionRevision: string
   readonly executionSurfaceHash: string
+  readonly bindingControlSurfaceHash: string
+  readonly bindingControlInventory: readonly C1F1Native32SurfaceInventoryEntry[]
   readonly inventory: readonly C1F1Native32SurfaceInventoryEntry[]
 }
 
@@ -153,6 +157,7 @@ export interface C1F1Native32ExecutionReport {
   readonly reportDir: string | null
   readonly executionRevision: string | null
   readonly executionSurfaceHash: string | null
+  readonly bindingControlSurfaceHash: string | null
   readonly freezeCandidateRunContractSha256:
     typeof C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256 | null
   readonly finalBoundRunContractSha256: string | null
@@ -307,10 +312,42 @@ export async function computeC1F1Native32ExecutionBinding(
       'unable to resolve F1-32 execution revision'
     )
   }
+  const controlRoots = [...C1_F1_NATIVE32_BINDING_CONTROL_SURFACE_PATH_ROOTS]
+  const controlFilesResult = await runProcess('git', ['ls-files', '-z', '--', ...controlRoots], {
+    cwd: repoRoot,
+    timeoutMs: 30_000,
+    env: buildSanitizedChildEnvironment()
+  })
+  if (
+    controlFilesResult.exitCode !== 0 ||
+    controlFilesResult.timedOut ||
+    controlFilesResult.outputLimitExceeded
+  ) {
+    throw new C1PreflightFailure(
+      'CONTRACT_BINDING_MISMATCH',
+      'unable to enumerate F1-32 binding control surface'
+    )
+  }
+  const controlFiles = controlFilesResult.stdout.split('\0').filter(Boolean).sort()
+  if (controlFiles.length === 0) {
+    throw new C1PreflightFailure(
+      'CONTRACT_BINDING_MISMATCH',
+      'F1-32 binding control surface inventory is empty'
+    )
+  }
+  const bindingControlInventory: C1F1Native32SurfaceInventoryEntry[] = []
+  for (const file of controlFiles) {
+    bindingControlInventory.push({
+      path: file,
+      sha256: sha256(await readFile(join(repoRoot, file)))
+    })
+  }
   return {
     executionRevision,
     executionSurfaceHash: computeC1F1Native32SurfaceInventoryHash(inventory),
-    inventory: Object.freeze(inventory)
+    inventory: Object.freeze(inventory),
+    bindingControlSurfaceHash: computeC1F1Native32SurfaceInventoryHash(bindingControlInventory),
+    bindingControlInventory: Object.freeze(bindingControlInventory)
   }
 }
 
@@ -390,6 +427,10 @@ function buildFinalBoundF1Contract(input: {
   const execution = record(candidate['executionBinding'], 'executionBinding')
   execution['codeRevision'] = input.binding.executionRevision
   execution['executionSurfaceHash'] = input.binding.executionSurfaceHash
+  candidate['bindingControlSurfaceHash'] = input.binding.bindingControlSurfaceHash
+  candidate['bindingControlSurfacePaths'] = input.binding.bindingControlInventory.map(
+    (entry) => entry.path
+  )
   candidate['surfaceEquivalenceWitness'] = surfaceWitness
   const finalHash = computeC1F1Native32RunContractSha256(candidate)
   candidate['runContractSha256'] = finalHash
@@ -1114,6 +1155,8 @@ async function writeF1Artifacts(input: {
   readonly scenario: C1F1Native32FakeScenario
   readonly executionRevision: string
   readonly executionSurfaceHash: string
+  readonly bindingControlSurfaceHash: string
+  readonly bindingControlInventory: readonly C1F1Native32SurfaceInventoryEntry[]
   readonly finalBoundRunContractSha256: string
   readonly surfaceWitness: Record<string, unknown>
   readonly finalBoundContract: C1F1Native32Contract
@@ -1154,6 +1197,7 @@ async function writeF1Artifacts(input: {
     finalBoundRunContractSha256: input.finalBoundRunContractSha256,
     executionRevision: input.executionRevision,
     executionSurfaceHash: input.executionSurfaceHash,
+    bindingControlSurfaceHash: input.bindingControlSurfaceHash,
     provider: C1_PROVIDER_ID,
     model: C1_MODEL_ID,
     endpoint: C1_PROVIDER_ENDPOINT,
@@ -1217,8 +1261,21 @@ async function writeF1Artifacts(input: {
         {
           executionRevision: input.executionRevision,
           executionSurfaceHash: input.executionSurfaceHash,
+          bindingControlSurfaceHash: input.bindingControlSurfaceHash,
           inventory: input.surfaceWitness['entries'],
+          bindingControlInventory: input.bindingControlInventory,
           targetInventoryDigest: input.surfaceWitness['targetInventoryDigest']
+        },
+        null,
+        2
+      ) + '\n'
+    ],
+    [
+      'binding-control-inventory.json',
+      JSON.stringify(
+        {
+          bindingControlSurfaceHash: input.bindingControlSurfaceHash,
+          inventory: input.bindingControlInventory
         },
         null,
         2
@@ -1321,6 +1378,10 @@ export async function runC1F1Native32CredentialFreeStudy(
     finalBoundContract = bound.contract
     surfaceWitness = bound.surfaceWitness
     assertC1F1Native32SurfaceWitnessMatchesActualInventory(finalBoundContract, binding.inventory)
+    assertC1F1Native32BindingControlSurfaceMatchesActualInventory(
+      finalBoundContract,
+      binding.bindingControlInventory
+    )
     const allPlans = buildC1F1Native32ExecutionPlans(candidate, studyId)
     if (
       options.testRunLimit !== undefined &&
@@ -1719,6 +1780,8 @@ export async function runC1F1Native32CredentialFreeStudy(
           scenario,
           executionRevision: binding.executionRevision,
           executionSurfaceHash: binding.executionSurfaceHash,
+          bindingControlSurfaceHash: binding.bindingControlSurfaceHash,
+          bindingControlInventory: binding.bindingControlInventory,
           finalBoundRunContractSha256: finalBoundContract.runContractSha256,
           surfaceWitness,
           finalBoundContract,
@@ -1739,6 +1802,7 @@ export async function runC1F1Native32CredentialFreeStudy(
         reportDir,
         executionRevision: binding?.executionRevision ?? null,
         executionSurfaceHash: binding?.executionSurfaceHash ?? null,
+        bindingControlSurfaceHash: binding?.bindingControlSurfaceHash ?? null,
         freezeCandidateRunContractSha256: C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256,
         finalBoundRunContractSha256: finalBoundContract?.runContractSha256 ?? null,
         providerConfigHash: view.executionBinding.providerConfigHash,
@@ -1788,6 +1852,7 @@ export async function runC1F1Native32CredentialFreeStudy(
       reportDir,
       executionRevision: binding?.executionRevision ?? null,
       executionSurfaceHash: binding?.executionSurfaceHash ?? null,
+      bindingControlSurfaceHash: binding?.bindingControlSurfaceHash ?? null,
       freezeCandidateRunContractSha256: C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256,
       finalBoundRunContractSha256: finalBoundContract?.runContractSha256 ?? null,
       providerConfigHash:
