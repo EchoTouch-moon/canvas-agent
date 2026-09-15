@@ -1,3 +1,4 @@
+import { c1CompositionBasis, type C1CarriedRemoval } from './c1-carried-removals'
 import { EventEmitter } from 'node:events'
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
@@ -615,11 +616,7 @@ function parseOracleSpec(value: unknown, label: string): C1OracleSpec {
   if (args.length === 0) {
     fail('MANIFEST_BINDING_MISMATCH', `${label}.args must not be empty`)
   }
-  const expectedExitCode = intField(
-    record,
-    'expectedExitCode',
-    `${label}.expectedExitCode`
-  )
+  const expectedExitCode = intField(record, 'expectedExitCode', `${label}.expectedExitCode`)
   const timeoutMs = intField(record, 'timeoutMs', `${label}.timeoutMs`)
   if (timeoutMs < 1) {
     fail('MANIFEST_BINDING_MISMATCH', `${label}.timeoutMs must be positive`)
@@ -1490,6 +1487,10 @@ export interface C1ProviderBoundCapture {
   readonly sourceDerivation: 'PI_NATIVE_MESSAGE_ANALYSIS'
   readonly providerBoundSourceKeys: readonly string[]
   readonly modelVisibleSemanticContextFingerprint: string
+  /** Hash of the same Runtime composition before lifecycle policy application. */
+  readonly prePolicyProviderBoundMessagesHash?: string
+  /** Hash of the same Runtime composition after lifecycle policy application. */
+  readonly postPolicyProviderBoundMessagesHash?: string
   readonly systemDeveloperToolStructuresFingerprint: string
   readonly workingSetId: string
   readonly transitionId: string
@@ -1514,6 +1515,8 @@ export function captureC1PreflightArm(input: {
   readonly providerConfigHash?: string
   readonly providerBoundSourceKeys?: readonly string[]
   readonly modelVisibleSemanticContextFingerprint?: string
+  readonly prePolicyProviderBoundMessagesHash?: string
+  readonly postPolicyProviderBoundMessagesHash?: string
   readonly systemDeveloperToolStructuresFingerprint?: string
   readonly workingSetId?: string
   readonly transitionId?: string
@@ -1569,6 +1572,12 @@ export function captureC1PreflightArm(input: {
     sourceDerivation: input.sourceDerivation ?? 'PI_NATIVE_MESSAGE_ANALYSIS',
     providerBoundSourceKeys: sourceKeys,
     modelVisibleSemanticContextFingerprint: input.modelVisibleSemanticContextFingerprint,
+    ...(input.prePolicyProviderBoundMessagesHash === undefined
+      ? {}
+      : { prePolicyProviderBoundMessagesHash: input.prePolicyProviderBoundMessagesHash }),
+    ...(input.postPolicyProviderBoundMessagesHash === undefined
+      ? {}
+      : { postPolicyProviderBoundMessagesHash: input.postPolicyProviderBoundMessagesHash }),
     systemDeveloperToolStructuresFingerprint:
       input.systemDeveloperToolStructuresFingerprint ?? C1_TOOL_STRUCTURE_FINGERPRINT,
     workingSetId: input.workingSetId ?? `${contextStrategy}:unmanaged`,
@@ -1674,6 +1683,8 @@ export interface C1LegExecutionInput {
   readonly treatmentReady: boolean
   readonly killSwitch?: RunKillSwitch
   readonly previousWorkingSet?: ContextWorkingSet | null
+  /** Prior successful sends only; supplied by the shared driver, never by model output. */
+  readonly carriedRemovals?: readonly C1CarriedRemoval[]
   readonly recompositionSequence?: number
   readonly runtimeSessionId?: string
   /** Set only for the deterministic treatment-opportunity probe. */
@@ -1682,6 +1693,8 @@ export interface C1LegExecutionInput {
   readonly failureInjection?: C1LegFailureInjection
   /** Expected Native fingerprint for a fidelity comparison. */
   readonly nativeBaselineSemanticContextFingerprint?: string
+  /** Optional request-configuration hash for a stricter outer study binding. */
+  readonly providerConfigHashOverride?: string
 }
 
 export interface C1LegExecutionResult {
@@ -1697,6 +1710,9 @@ export interface C1LegExecutionResult {
   readonly workingSet: ContextWorkingSet | null
   readonly transition: ContextTransition | null
   readonly materializedWorkingSetFingerprint: string
+  readonly carriedRemovedSourceKeys: readonly string[]
+  readonly prePolicyProviderBoundMessagesHash?: string
+  readonly postPolicyProviderBoundMessagesHash?: string
   readonly runtimeContextChanged: boolean
   readonly lifecycleEligible: boolean
   readonly replayMismatch: 0
@@ -2039,6 +2055,7 @@ export class C1LegExecutor {
     let providerBoundMessages = input.observation.messages
     let lifecycleEligible = false
     let runtimeContextChanged = false
+    let carriedRemovedSourceKeys: readonly string[] = []
 
     if (input.arm === 'RUNTIME') {
       if (!input.treatmentReady) {
@@ -2069,8 +2086,19 @@ export class C1LegExecutor {
       lifecycleEligible =
         input.requireRuntimeDifference === true ||
         (input.observation.sourceLifecycleSignals?.length ?? 0) > 0
+      let basis: ReturnType<typeof c1CompositionBasis>
+      try {
+        basis = c1CompositionBasis(
+          input.observation.messages,
+          input.carriedRemovals ?? [],
+          new Set(planned.workingSet.items.flatMap((item) => item.sourceKeys))
+        )
+      } catch {
+        fail('REWRITE_FAILURE', 'carried removal provenance verification failed')
+      }
+      carriedRemovedSourceKeys = basis.removedSourceKeys
       const composition = composeActiveRewrite({
-        messages: input.observation.messages,
+        messages: basis.messages,
         workingSet: planned.workingSet,
         transition:
           input.failureInjection === 'REWRITE_FAILURE'
@@ -2143,9 +2171,12 @@ export class C1LegExecutor {
       studyId: input.studyId,
       turnId: input.turnId,
       modelCallId: input.modelCallId,
-      providerConfigHash: input.providerBinding.providerConfigHash,
+      providerConfigHash:
+        input.providerConfigHashOverride ?? input.providerBinding.providerConfigHash,
       providerBoundSourceKeys,
       modelVisibleSemanticContextFingerprint: activeMessagesHash(providerBoundMessages),
+      prePolicyProviderBoundMessagesHash: nativeFingerprint,
+      postPolicyProviderBoundMessagesHash: activeMessagesHash(providerBoundMessages),
       systemDeveloperToolStructuresFingerprint: C1_TOOL_STRUCTURE_FINGERPRINT,
       workingSetId: workingSet?.workingSetId ?? 'NATIVE_UNMANAGED',
       transitionId: transition?.transitionId ?? 'NATIVE_UNMANAGED',
@@ -2164,6 +2195,9 @@ export class C1LegExecutor {
       workingSet,
       transition,
       materializedWorkingSetFingerprint,
+      carriedRemovedSourceKeys,
+      prePolicyProviderBoundMessagesHash: nativeFingerprint,
+      postPolicyProviderBoundMessagesHash: activeMessagesHash(providerBoundMessages),
       runtimeContextChanged,
       lifecycleEligible,
       replayMismatch: 0

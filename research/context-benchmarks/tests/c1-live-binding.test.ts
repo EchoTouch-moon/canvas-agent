@@ -91,7 +91,7 @@ describe('C1 live execution binding', () => {
         providerCalls: 1,
         studyTerminal: true,
         nextLegBlockedBeforeResponse: true,
-        persistedCheckpointCount: 2
+        persistedCheckpointCount: 4
       })
     } finally {
       providerBinding.dispose()
@@ -273,14 +273,17 @@ describe('C1 live execution binding', () => {
       const task = study.tasks[0]!
       const budgetGuard = new C1HardBudgetGuard({
         perLeg: { maxProviderCalls: 1, maxToolCalls: 0, maxWallClockMs: 1_000 },
-        study: { maxProviderCalls: 3, maxToolCalls: 0, maxWallClockMs: 150, maxLegs: 3 }
+        study: {
+          maxProviderCalls: 3,
+          maxToolCalls: 0,
+          maxWallClockMs: 150,
+          maxLegs: 3
+        }
       })
       const driver = new C1LiveBindingDriver({
         providerBinding,
         budgetGuard,
-        evidenceSink: new C1JsonlLiveBindingEvidenceSink(
-          join(checkpointRoot, 'checkpoints.jsonl')
-        )
+        evidenceSink: new C1JsonlLiveBindingEvidenceSink(join(checkpointRoot, 'checkpoints.jsonl'))
       })
 
       const response = (prefix: string) => ({
@@ -328,8 +331,12 @@ describe('C1 live execution binding', () => {
         })
 
       await run('first')
-      await expect(run('second')).rejects.toMatchObject({ code: 'BUDGET_BREACH' })
-      await expect(run('third')).rejects.toMatchObject({ code: 'BUDGET_BREACH' })
+      await expect(run('second')).rejects.toMatchObject({
+        code: 'BUDGET_BREACH'
+      })
+      await expect(run('third')).rejects.toMatchObject({
+        code: 'BUDGET_BREACH'
+      })
 
       expect(driver.isStudyTerminal).toBe(true)
       expect(budgetGuard.ledger).toEqual({

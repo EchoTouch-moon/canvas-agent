@@ -1,0 +1,104 @@
+{
+  "allRecorded": {
+    "inputTokens": 1068755,
+    "outputTokens": 79486,
+    "responses": 223,
+    "toolExecutions": 279,
+    "toolRequests": 279,
+    "totalTokens": 1148241
+  },
+  "cacheCost": "NOT_ESTIMABLE",
+  "completedLegsOnly": {
+    "inputTokens": 885467,
+    "outputTokens": 66842,
+    "responses": 199,
+    "toolExecutions": 246,
+    "toolRequests": 246,
+    "totalTokens": 952309
+  },
+  "coverage": {
+    "attemptedLegs": 19,
+    "completePairs": 9,
+    "completedLegs": 18,
+    "pairsByObservedStratum": {
+      "localized_investigation_distractors": 8,
+      "multi_file_multi_source": 1
+    },
+    "plannedLegs": 64,
+    "unexecutedLegs": 45
+  },
+  "effectiveness": "NOT_ADJUDICATED",
+  "evidenceSha256": {
+    "checkpoints.jsonl": "4ce152739e6c48a604860ec8f7f627068d010777d8bba8fce5b9103e61ce3043",
+    "decision-evidence.jsonl": "8ff817d1d5f59de40dfcbaa0adb0ecdbfc761d2b6a68953c6be107decf43d184",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p01-NATIVE-438601a2/leg-manifest.json": "d15452570457998df54b08fae5d02db9c180cb14cd62cffc8b5f9a396280fd37",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p01-RUNTIME-bd0a85eb/leg-manifest.json": "5033e817aef6077d7b693fa27add31e6d5ec8de132140c13afd9f1237d13fff0",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p02-NATIVE-f92c98e0/leg-manifest.json": "371666d880b2a333a50a2099bc9de85ea10cda3ad5e94828e81eae2ad410ff61",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p02-RUNTIME-13689fd3/leg-manifest.json": "a159528bfdb0dd17e5933e9f65c32417c5980af7787cf4f67de5ef968470076b",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p03-NATIVE-e2bf2c1d/leg-manifest.json": "f3794e90efa85b9f8df1196c38ff9805d33867b026f743afb380e70bc4c949aa",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p03-RUNTIME-8453e14e/leg-manifest.json": "7e1b4d2fd5546c785bb708bb7073519bc8c9754f4327acadaae83d620cfb4a2e",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p04-NATIVE-d79c2ac0/leg-manifest.json": "03072bc0cd46283a3bf893d2f4a2f504135c80d74d93c6e9cad562efcebbb588",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p04-RUNTIME-993186af/leg-manifest.json": "3b55a133596e29985a24326ad1c63223a28ed4d5ee39d57fd5bf6baba2f19423",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p05-NATIVE-de10a171/leg-manifest.json": "d07e9b573b96d95bf01af114d096afd1404ca73da9040471aab6ce6a98f46e90",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p05-RUNTIME-6bdd4bf4/leg-manifest.json": "9a89145f90ff8be803a22438abd0e57ee10e5ec3b57273b1ffe15517a1c5101d",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p06-NATIVE-c8ed0990/leg-manifest.json": "dd344a72a7c46728d87d74e601ed62afd78862ab2d25e26bfd1509cad69753a4",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p06-RUNTIME-a2bfa2e9/leg-manifest.json": "d9bdc051335a83b18625ac7278fa263250a3328bad6246dfc3022a4fb20df3c9",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p07-NATIVE-e31ad8c2/leg-manifest.json": "4e4c0cc1fcb8d2cbd3bd476d8f3f6411fdbd662387411110e7785c1c6f8d0e44",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p07-RUNTIME-1257558a/leg-manifest.json": "c38f49bf24817abc7a6498a42a1a60c825c0ef740b3db5e6546178ad6973b812",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p08-NATIVE-874c629f/leg-manifest.json": "501770ed4da799b97b53297f26d206ea5693d4027cddae581683697cfe7dcb2c",
+    "legs/c1-20260906-c1-t1-localized-distractor-v1-p08-RUNTIME-909dcf71/leg-manifest.json": "568124119049395e7749e1c68e4d8b57b4cd2dc5a4b93963c1260c6a31e4e66d",
+    "legs/c1-20260906-c1-t2-multi-file-migration-v1-p04-NATIVE-de0ec148/leg-manifest.json": "ad5f5870ec79b3054727c6f5af3dbbfd159d8ae7c07e7cd82fac95cd8ec16cac",
+    "legs/c1-20260906-c1-t2-multi-file-migration-v1-p04-RUNTIME-ec8f45de/leg-manifest.json": "8186281e05adb90b73c94f5db08ccce0beacf47bac594ffffbe0762d93ec5dd3",
+    "outcome-evidence.jsonl": "b5f0b18e3afffb3e4eff504bda2aa273c996c5d564f74bec1fa802b4c50b4f5f",
+    "provider-usage-ledger.jsonl": "64d9035d9cd487adebabdfcf9936e129cd295ce930b0bd1bb69fae536c070085",
+    "replay-evidence.jsonl": "c33f1bbcf33daecf96e0d33f90c0a0410cb6f8085823c20c97ec9cb881a89b58",
+    "run-manifest.json": "1f1fbf5887b2874975cd741ac9478a22b2f83e5731de01618a2b32bb93e85a2d",
+    "tool-latency-evidence.jsonl": "217eebeeeaff3ad8f6a68afeef1e3d963d92d77dd895e7ee2d6c0a6573ca4b48",
+    "transition-evidence.jsonl": "a1f6ef5931d2b6ca7dc04c45a7d02816ced22f6b719c8afa8ffddc0a851fc682"
+  },
+  "executionRevision": "cf4b7ea61be784a92bcefec895b2d36888b91172",
+  "incompleteLegs": [
+    {
+      "finalOracle": "UNOBSERVED",
+      "recordedResponses": 24,
+      "runId": "c1-20260906-c1-t2-multi-file-migration-v1-p07-NATIVE-4a1d9357"
+    }
+  ],
+  "incompleteLegsOnly": {
+    "inputTokens": 183288,
+    "outputTokens": 12644,
+    "responses": 24,
+    "toolExecutions": 33,
+    "toolRequests": 33,
+    "totalTokens": 195932
+  },
+  "lifecycleRates": "NOT_ESTIMABLE",
+  "method": "OFFLINE_CHECKPOINT_RECONCILIATION_NOT_FROZEN_ANALYZER",
+  "originalFailureCodes": [
+    "PREFLIGHT_FAILURE"
+  ],
+  "permits": 223,
+  "permitsWithoutRecordedResponse": 0,
+  "projectionRows": {
+    "decision-evidence.jsonl": 199,
+    "outcome-evidence.jsonl": 199,
+    "provider-usage-ledger.jsonl": 199,
+    "replay-evidence.jsonl": 199,
+    "tool-latency-evidence.jsonl": 199,
+    "transition-evidence.jsonl": 199
+  },
+  "providerCallsThisAnalysis": 0,
+  "responses": 223,
+  "runtime": {
+    "changed": 0,
+    "decisionEntries": {
+      "ADD": 278,
+      "KEEP": 1784
+    },
+    "eligible": 0,
+    "recordedResponses": 100
+  },
+  "schemaVersion": 1,
+  "snapshotVerified": true,
+  "studyId": "c1-20260906-c1-feasibility-v1-5a4b5d58"
+}
