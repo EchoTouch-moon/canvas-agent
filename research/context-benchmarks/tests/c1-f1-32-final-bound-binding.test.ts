@@ -14,9 +14,13 @@ const FINAL_BOUND_PATH = resolve(
   REPO_ROOT,
   'research/context-benchmarks/c1/f1/bindings/c1-f1-native-feasibility-32-final-bound.json'
 )
-const STABLE_MAIN_REVISION = '51a409cb61ebb917b6584aaac1e746d123e7f6a0'
+const F1_32_EXECUTION_REVISION = '0e55a36f3a2c47bef9d90611df1c75a389a9263d'
+const F1_32_EXECUTION_SURFACE_HASH =
+  'f5b5f10c463014d951b0983f2c01c9668cd94aa54ff63024ca247e739e28ec51'
+const F1_32_BINDING_CONTROL_SURFACE_HASH =
+  '8ac49f85392dd09a4637ff9d78649a86c28c0ee9d00baaa8341e64e17b198e00'
 
-describe('C1 F1-32 final-bound binding on stable main', () => {
+describe('C1 F1-32 final-bound binding for the authorized runner', () => {
   it('validates the published tuple against the actual execution and control inventories', async () => {
     const parsed = JSON.parse(await readFile(FINAL_BOUND_PATH, 'utf8')) as Record<string, unknown>
     const contract = validateC1F1Native32FinalBoundContract(parsed)
@@ -30,10 +34,12 @@ describe('C1 F1-32 final-bound binding on stable main', () => {
       '053fa42d540e3955b8228303036191ffd985292ddd9665d87397b232570885da'
     )
     expect(contract['runContractSha256']).toBe(
-      'c4725887cac211a7d17a930e1349f93d9e9c6510a3db1257bd30402a129938a8'
+      'bbb7db4fd5a5ffdfb58ca9242e456c9e48de3a2577d97bb98241647439dcc1cf'
     )
     expect(computeC1F1Native32RunContractSha256(contract)).toBe(contract['runContractSha256'])
-    expect(execution['codeRevision']).toBe(STABLE_MAIN_REVISION)
+    expect(execution['codeRevision']).toBe(F1_32_EXECUTION_REVISION)
+    expect(execution['executionSurfaceHash']).toBe(F1_32_EXECUTION_SURFACE_HASH)
+    expect(contract['bindingControlSurfaceHash']).toBe(F1_32_BINDING_CONTROL_SURFACE_HASH)
     expect(contract['studyId']).toBeUndefined()
     expect((contract['identityPolicy'] as Record<string, unknown>)['studyIdStatus']).toBe(
       'NOT_CREATED'
