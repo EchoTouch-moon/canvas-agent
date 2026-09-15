@@ -1,0 +1,189 @@
+{
+  "corpusId": "C1_FEASIBILITY_CONSTRUCT_REPAIR_V1_SYNTHETIC_CORPUS",
+  "schemaVersion": 1,
+  "executionMode": "ZERO_PROVIDER",
+  "providerCalls": 0,
+  "notes": [
+    "Fixtures are synthetic. They must not embed consumed study run IDs or historical verdicts.",
+    "SX-REF-LINKAGE-GAP is isomorphic to the Failure Anatomy t1 referee pattern, but is not a replay of those runs."
+  ],
+  "cases": [
+    {
+      "caseId": "SX-A-SUCCESS-LINKAGE-COMPLETE",
+      "quadrant": "A",
+      "description": "semantic success + linkage complete",
+      "expectedLabel": "FEASIBLE",
+      "fixture": {
+        "terminationStatus": "TERMINAL_COMPLETE",
+        "objectiveOracleStatus": "PASS",
+        "regressionOracleStatus": "PASS",
+        "evidenceStatus": "COMPLETE",
+        "provenanceStatus": "COMPLETE",
+        "toolFailureObserved": true,
+        "reachedTerminalComplete": true,
+        "strictPerToolRecoveryLinkageComplete": true,
+        "missingRecoveryOfToolCallId": false,
+        "recoveryAttemptOrdinalIntegrity": true
+      }
+    },
+    {
+      "caseId": "SX-B-SUCCESS-LINKAGE-INCOMPLETE",
+      "quadrant": "B",
+      "description": "semantic success + linkage incomplete",
+      "expectedLabel": "FEASIBLE_PLUS_OBSERVABILITY_DEFECT",
+      "fixture": {
+        "terminationStatus": "TERMINAL_COMPLETE",
+        "objectiveOracleStatus": "PASS",
+        "regressionOracleStatus": "PASS",
+        "evidenceStatus": "COMPLETE",
+        "provenanceStatus": "COMPLETE",
+        "toolFailureObserved": true,
+        "reachedTerminalComplete": true,
+        "strictPerToolRecoveryLinkageComplete": false,
+        "missingRecoveryOfToolCallId": true,
+        "recoveryAttemptOrdinalIntegrity": true
+      }
+    },
+    {
+      "caseId": "SX-C-FAIL-LINKAGE-COMPLETE",
+      "quadrant": "C",
+      "description": "semantic failure + linkage complete",
+      "expectedLabel": "INFEASIBLE",
+      "fixture": {
+        "terminationStatus": "TERMINAL_FAILED",
+        "objectiveOracleStatus": "FAIL",
+        "regressionOracleStatus": "PASS",
+        "evidenceStatus": "COMPLETE",
+        "provenanceStatus": "COMPLETE",
+        "toolFailureObserved": true,
+        "reachedTerminalComplete": false,
+        "strictPerToolRecoveryLinkageComplete": true,
+        "missingRecoveryOfToolCallId": false,
+        "recoveryAttemptOrdinalIntegrity": true
+      }
+    },
+    {
+      "caseId": "SX-D-FAIL-LINKAGE-INCOMPLETE",
+      "quadrant": "D",
+      "description": "semantic failure + linkage incomplete",
+      "expectedLabel": "INFEASIBLE_PLUS_OBSERVABILITY_DEFECT",
+      "fixture": {
+        "terminationStatus": "TERMINAL_FAILED",
+        "objectiveOracleStatus": "FAIL",
+        "regressionOracleStatus": "PASS",
+        "evidenceStatus": "COMPLETE",
+        "provenanceStatus": "COMPLETE",
+        "toolFailureObserved": true,
+        "reachedTerminalComplete": false,
+        "strictPerToolRecoveryLinkageComplete": false,
+        "missingRecoveryOfToolCallId": true,
+        "recoveryAttemptOrdinalIntegrity": false
+      }
+    },
+    {
+      "caseId": "SX-E-SUCCESS-NO-TOOL-FAILURE",
+      "quadrant": "E",
+      "description": "semantic success without tool failure",
+      "expectedLabel": "FEASIBLE_NO_TOOL_FAILURE",
+      "fixture": {
+        "terminationStatus": "TERMINAL_COMPLETE",
+        "objectiveOracleStatus": "PASS",
+        "regressionOracleStatus": "PASS",
+        "evidenceStatus": "COMPLETE",
+        "provenanceStatus": "COMPLETE",
+        "toolFailureObserved": false,
+        "reachedTerminalComplete": true,
+        "strictPerToolRecoveryLinkageComplete": true,
+        "missingRecoveryOfToolCallId": false,
+        "recoveryAttemptOrdinalIntegrity": true
+      }
+    },
+    {
+      "caseId": "SX-F-FAIL-NO-TOOL-FAILURE",
+      "quadrant": "F",
+      "description": "semantic failure without tool failure (pure task/oracle miss)",
+      "expectedLabel": "INFEASIBLE_NO_TOOL_FAILURE",
+      "fixture": {
+        "terminationStatus": "TERMINAL_FAILED",
+        "objectiveOracleStatus": "FAIL",
+        "regressionOracleStatus": "PASS",
+        "evidenceStatus": "COMPLETE",
+        "provenanceStatus": "COMPLETE",
+        "toolFailureObserved": false,
+        "reachedTerminalComplete": false,
+        "strictPerToolRecoveryLinkageComplete": true,
+        "missingRecoveryOfToolCallId": false,
+        "recoveryAttemptOrdinalIntegrity": true
+      }
+    },
+    {
+      "caseId": "SX-U-UNKNOWN-EVIDENCE",
+      "quadrant": "U",
+      "description": "UNKNOWN evidence forces feasibility UNKNOWN",
+      "expectedLabel": "FEASIBILITY_UNKNOWN",
+      "fixture": {
+        "terminationStatus": "TERMINAL_COMPLETE",
+        "objectiveOracleStatus": "PASS",
+        "regressionOracleStatus": "PASS",
+        "evidenceStatus": "PARTIAL",
+        "provenanceStatus": "COMPLETE",
+        "toolFailureObserved": true,
+        "reachedTerminalComplete": true,
+        "strictPerToolRecoveryLinkageComplete": true,
+        "missingRecoveryOfToolCallId": false,
+        "recoveryAttemptOrdinalIntegrity": true
+      }
+    },
+    {
+      "caseId": "SX-G-SUCCESS-TRAJECTORY-UNRECOVERED",
+      "quadrant": "G",
+      "description": "Boundary: complete terminal+oracle PASS is required for Layer-1 PASS; if marked not reached terminal complete, Layer-1 fails even if oracles say PASS — fixture uses TERMINAL_FAILED to keep inputs consistent",
+      "expectedLabel": "INFEASIBLE_PLUS_OBSERVABILITY_DEFECT",
+      "notes": "Encodes semantic failure with unrecovered trajectory and incomplete linkage; prevents overfit to success+incomplete only.",
+      "fixture": {
+        "terminationStatus": "BUDGET_EXHAUSTED",
+        "objectiveOracleStatus": "PASS",
+        "regressionOracleStatus": "PASS",
+        "evidenceStatus": "COMPLETE",
+        "provenanceStatus": "COMPLETE",
+        "toolFailureObserved": true,
+        "reachedTerminalComplete": false,
+        "strictPerToolRecoveryLinkageComplete": false,
+        "missingRecoveryOfToolCallId": true,
+        "recoveryAttemptOrdinalIntegrity": true
+      }
+    },
+    {
+      "caseId": "SX-REF-LINKAGE-GAP",
+      "quadrant": "B",
+      "description": "Isomorphic referee pattern: tool failure → corrected action → task completes → oracle PASS → missing strict recovery linkage. No historical run IDs.",
+      "expectedLabel": "FEASIBLE_PLUS_OBSERVABILITY_DEFECT",
+      "expectedLayers": {
+        "semanticFeasibility": "PASS",
+        "trajectoryRecoveryOutcome": "RECOVERED",
+        "linkageCompleteness": "INCOMPLETE",
+        "overallExecutionFeasibility": "PASS",
+        "observabilityQuality": "FAIL"
+      },
+      "narrative": [
+        "tool failure",
+        "corrected action",
+        "task completes",
+        "oracle PASS",
+        "missing strict recovery linkage"
+      ],
+      "fixture": {
+        "terminationStatus": "TERMINAL_COMPLETE",
+        "objectiveOracleStatus": "PASS",
+        "regressionOracleStatus": "PASS",
+        "evidenceStatus": "COMPLETE",
+        "provenanceStatus": "COMPLETE",
+        "toolFailureObserved": true,
+        "reachedTerminalComplete": true,
+        "strictPerToolRecoveryLinkageComplete": false,
+        "missingRecoveryOfToolCallId": true,
+        "recoveryAttemptOrdinalIntegrity": true
+      }
+    }
+  ]
+}

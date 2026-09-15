@@ -1,0 +1,37 @@
+{
+  "contractId": "C1_FEASIBILITY_CONSTRUCT_REPAIR_V1",
+  "status": "SUPERSEDED_BY_FREEZE_CANDIDATE",
+  "freezeCandidateDoc": "docs/plan/c1-feasibility-construct-repair-v1-synthetic-validation-freeze-2026-09-15.zh-CN.md",
+  "freezeCandidateContract": "research/context-benchmarks/construct-repair/c1-feasibility-construct-repair-v1.freeze-candidate.json",
+  "designDocPath": "docs/plan/c1-feasibility-construct-repair-v1-design-2026-09-15.zh-CN.md",
+  "predecessor": {
+    "document": "F1 Failure Anatomy v1",
+    "path": "docs/verification/cspv-c1-f1-32-failure-anatomy-v1-2026-09-15.zh-CN.md",
+    "verdicts": {
+      "R": "NOT_ALIGNED_AS_FEASIBILITY_PROXY",
+      "M": "PARTIAL_MECHANISM_CANDIDATES_IDENTIFIED",
+      "C": "CONTRACT_REPAIR_CANDIDATE"
+    }
+  },
+  "route": {
+    "contractRepairDesign": "GO",
+    "nativeMechanismDesign": "HOLD_SECONDARY",
+    "f1_40Live": "NO_GO",
+    "r0Live": "HOLD",
+    "t0e1": "HOLD"
+  },
+  "layers": {
+    "1": "semantic_feasibility",
+    "2": "recovery_trajectory",
+    "3": "observability_linkage_quality"
+  },
+  "criticalPrinciple": "Layer 3 may gate safety/observability or diagnosis, but must not alone define execution infeasibility without semantic consequence",
+  "historicalOutcomes": "IMMUTABLE_UNDER_ORIGINAL_CONTRACT",
+  "nextGate": "READY_FOR_SYNTHETIC_VALIDATION_AFTER_DESIGN_FREEZE",
+  "syntheticQuadrants": [
+    "semantic_success_linkage_complete",
+    "semantic_success_linkage_incomplete",
+    "semantic_failure_linkage_complete",
+    "semantic_failure_linkage_incomplete"
+  ]
+}
