@@ -11,13 +11,23 @@
   "scripts": {
     "dev": "pnpm --filter @canvas-agent/desktop dev",
     "build": "pnpm -r --if-present build",
+    "build:core": "pnpm --filter '!@canvas-agent/desktop' -r --if-present build",
     "lint": "pnpm -r --if-present lint",
+    "lint:core": "pnpm --filter '!@canvas-agent/desktop' -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
+    "typecheck:core": "pnpm --filter '!@canvas-agent/desktop' -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
+    "test:core": "pnpm --filter '!@canvas-agent/desktop' -r --if-present test",
     "format": "pnpm --filter @canvas-agent/desktop format",
     "format:check": "pnpm --filter @canvas-agent/desktop format:check",
+    "format:check:core": "node scripts/ci/format-core.mjs",
+    "audit:core": "node scripts/ci/audit-core.mjs",
+    "check:core": "pnpm audit:core && pnpm format:check:core && pnpm lint:core && pnpm typecheck:core && pnpm test:core && pnpm build:core",
     "e2e:rc": "pnpm --filter @canvas-agent/desktop e2e:rc",
     "smoke:context": "pnpm --filter @canvas-agent/pi-context-integration smoke:deepseek",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "prettier": "^3.7.4"
   }
 }
