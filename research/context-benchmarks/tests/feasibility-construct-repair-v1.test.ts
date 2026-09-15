@@ -9,7 +9,7 @@ import {
   loadConstructRepairSyntheticCorpus,
   type ConstructRepairAdjudication,
   type ObservabilityQuality
-} from '../src/feasibility-construct-repair/adjudicate.ts'
+} from '../src/feasibility-construct-repair/adjudicate'
 
 describe('C1_FEASIBILITY_CONSTRUCT_REPAIR_V1 synthetic validation', () => {
   const corpus = loadConstructRepairSyntheticCorpus()
