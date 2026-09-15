@@ -14,11 +14,11 @@ const FINAL_BOUND_PATH = resolve(
   REPO_ROOT,
   'research/context-benchmarks/c1/f1/bindings/c1-f1-native-feasibility-32-final-bound.json'
 )
-const F1_32_EXECUTION_REVISION = '0e55a36f3a2c47bef9d90611df1c75a389a9263d'
+const F1_32_EXECUTION_REVISION = 'f3c799247aaf80f5fc3794d7ca5b09e5bcad4ef2'
 const F1_32_EXECUTION_SURFACE_HASH =
-  'f5b5f10c463014d951b0983f2c01c9668cd94aa54ff63024ca247e739e28ec51'
+  '8a41669a3b7266b3d396db2b9cbb156003f2e85a9ec4892288edd61572ec1d3f'
 const F1_32_BINDING_CONTROL_SURFACE_HASH =
-  '8ac49f85392dd09a4637ff9d78649a86c28c0ee9d00baaa8341e64e17b198e00'
+  'ab04d899781c4673ae35b3b10f8025bcd32d2d4c00182ab6bc6b4f0c0c697609'
 
 describe('C1 F1-32 final-bound binding for the authorized runner', () => {
   it('validates the published tuple against the actual execution and control inventories', async () => {
@@ -34,7 +34,7 @@ describe('C1 F1-32 final-bound binding for the authorized runner', () => {
       '053fa42d540e3955b8228303036191ffd985292ddd9665d87397b232570885da'
     )
     expect(contract['runContractSha256']).toBe(
-      'bbb7db4fd5a5ffdfb58ca9242e456c9e48de3a2577d97bb98241647439dcc1cf'
+      'd20fd0f7a231a6d3a810018e9a180545d49730629873ed7c4a3e78f978dffbc8'
     )
     expect(computeC1F1Native32RunContractSha256(contract)).toBe(contract['runContractSha256'])
     expect(execution['codeRevision']).toBe(F1_32_EXECUTION_REVISION)
