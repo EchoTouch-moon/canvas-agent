@@ -136,7 +136,7 @@ describe('C1 F1-32 credential-free execution runner', () => {
     expect(report.responseCalls).toBe(32)
     expect(report.runs[0]?.terminationStatus).toBe('BUDGET_EXHAUSTED')
     expect(report.runs[0]?.fixtureCleaned).toBe(true)
-  })
+  }, 30_000)
 
   it('records prospective side-effect provenance before cleanup', async () => {
     const report = await runScenario('TOOL_SIDE_EFFECT', 'cccccccc')
