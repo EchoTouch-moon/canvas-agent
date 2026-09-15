@@ -20,7 +20,6 @@
         "evidenceStatus": "COMPLETE",
         "provenanceStatus": "COMPLETE",
         "toolFailureObserved": true,
-        "reachedTerminalComplete": true,
         "strictPerToolRecoveryLinkageComplete": true,
         "missingRecoveryOfToolCallId": false,
         "recoveryAttemptOrdinalIntegrity": true
@@ -38,7 +37,6 @@
         "evidenceStatus": "COMPLETE",
         "provenanceStatus": "COMPLETE",
         "toolFailureObserved": true,
-        "reachedTerminalComplete": true,
         "strictPerToolRecoveryLinkageComplete": false,
         "missingRecoveryOfToolCallId": true,
         "recoveryAttemptOrdinalIntegrity": true
@@ -56,7 +54,6 @@
         "evidenceStatus": "COMPLETE",
         "provenanceStatus": "COMPLETE",
         "toolFailureObserved": true,
-        "reachedTerminalComplete": false,
         "strictPerToolRecoveryLinkageComplete": true,
         "missingRecoveryOfToolCallId": false,
         "recoveryAttemptOrdinalIntegrity": true
@@ -74,7 +71,6 @@
         "evidenceStatus": "COMPLETE",
         "provenanceStatus": "COMPLETE",
         "toolFailureObserved": true,
-        "reachedTerminalComplete": false,
         "strictPerToolRecoveryLinkageComplete": false,
         "missingRecoveryOfToolCallId": true,
         "recoveryAttemptOrdinalIntegrity": false
@@ -92,7 +88,6 @@
         "evidenceStatus": "COMPLETE",
         "provenanceStatus": "COMPLETE",
         "toolFailureObserved": false,
-        "reachedTerminalComplete": true,
         "strictPerToolRecoveryLinkageComplete": true,
         "missingRecoveryOfToolCallId": false,
         "recoveryAttemptOrdinalIntegrity": true
@@ -110,7 +105,6 @@
         "evidenceStatus": "COMPLETE",
         "provenanceStatus": "COMPLETE",
         "toolFailureObserved": false,
-        "reachedTerminalComplete": false,
         "strictPerToolRecoveryLinkageComplete": true,
         "missingRecoveryOfToolCallId": false,
         "recoveryAttemptOrdinalIntegrity": true
@@ -128,7 +122,6 @@
         "evidenceStatus": "PARTIAL",
         "provenanceStatus": "COMPLETE",
         "toolFailureObserved": true,
-        "reachedTerminalComplete": true,
         "strictPerToolRecoveryLinkageComplete": true,
         "missingRecoveryOfToolCallId": false,
         "recoveryAttemptOrdinalIntegrity": true
@@ -147,7 +140,6 @@
         "evidenceStatus": "COMPLETE",
         "provenanceStatus": "COMPLETE",
         "toolFailureObserved": true,
-        "reachedTerminalComplete": false,
         "strictPerToolRecoveryLinkageComplete": false,
         "missingRecoveryOfToolCallId": true,
         "recoveryAttemptOrdinalIntegrity": true
@@ -179,7 +171,6 @@
         "evidenceStatus": "COMPLETE",
         "provenanceStatus": "COMPLETE",
         "toolFailureObserved": true,
-        "reachedTerminalComplete": true,
         "strictPerToolRecoveryLinkageComplete": false,
         "missingRecoveryOfToolCallId": true,
         "recoveryAttemptOrdinalIntegrity": true

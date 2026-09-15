@@ -56,11 +56,29 @@ Synthetic validation 必须证明三个性质，缺一则不得升格为 `READY_
 
 ## 审查清单（独立 contract review）
 
-- [ ] Truth table 与 adjudicator 实现一致  
-- [ ] `SX-REF-LINKAGE-GAP` 证明的是 construct 分解，不是针对历史 run 的 gate 放宽  
-- [ ] 历史隔离条款完整  
-- [ ] `pnpm exec vitest run tests/feasibility-construct-repair-v1.test.ts` 全绿  
-- [ ] 明确：通过后才进入 `READY_FOR_SYNTHETIC_VALIDATION`（仍零 Provider）；其后才谈 Native mechanism / 新 live contract  
+- [x] Truth table 与 adjudicator 实现一致（contract JSON → `fixtureFromTruthTableRow` → adjudicator exact equality）  
+- [x] `SX-REF-LINKAGE-GAP` 证明的是 construct 分解，不是针对历史 run 的 gate 放宽  
+- [x] 历史隔离条款完整（corpus/contract loader fail-closed allowlist；负向测试拒绝 `.live-output` / consumed study ID）  
+- [x] Layer-2 composition：`reachedTerminalComplete` 仅从 `terminationStatus` 推导；`L1=PASS + L2=UNRECOVERED` fail-closed  
+- [x] `pnpm exec vitest run tests/feasibility-construct-repair-v1.test.ts` 全绿（本轮 review-fix：11/11）  
+- [x] `format:check:core` 目标文件 Prettier 已对齐  
+- [ ] 独立复审通过后才进入 `READY_FOR_SYNTHETIC_VALIDATION`（仍零 Provider）；其后才谈 Native mechanism / 新 live contract  
+
+## Review REQUEST_CHANGES 修复（2026-09-15）
+
+| Blocker | Resolution |
+|---|---|
+| L2 不参与 overall / 可构造矛盾输入 | `reachedTerminalComplete` 禁止独立字段；从 `terminationStatus` 推导；composition 对 `PASS+UNRECOVERED` fail-closed |
+| historical non-interference 仅声明 | loader 固定/allowlist `construct-repair/`；拒绝 `.live-output`、`.audit`、consumed study markers；负向测试 |
+| contract ↔ adjudicator 漂移 | 测试从 `crossLayerTruthTable` 派生 fixture 并 exact-equality 绑定 TT-A–F/U + RECOVERED+INCOMPLETE 合法态 |
+| CI `format:check:core` 红 | 本轮 Prettier 后重推 |
+
+当前升格状态仍为：
+
+```text
+READY_FOR_SYNTHETIC_VALIDATION_FREEZE   KEEP
+READY_FOR_SYNTHETIC_VALIDATION          NOT YET（等独立复审）
+```
 
 ## 路线锁
 

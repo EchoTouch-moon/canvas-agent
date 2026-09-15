@@ -30,7 +30,9 @@
           "enum": ["TERMINAL_COMPLETE", "TERMINAL_FAILED", "BUDGET_EXHAUSTED", "BLOCKED", "UNKNOWN"]
         },
         "objectiveOracleStatus": { "enum": ["PASS", "FAIL", "UNKNOWN"] },
-        "regressionOracleStatus": { "enum": ["PASS", "FAIL", "UNKNOWN", "NOT_APPLICABLE"] },
+        "regressionOracleStatus": {
+          "enum": ["PASS", "FAIL", "UNKNOWN", "NOT_APPLICABLE"]
+        },
         "evidenceStatus": { "enum": ["COMPLETE", "PARTIAL", "UNAVAILABLE"] },
         "provenanceStatus": { "enum": ["COMPLETE", "PARTIAL", "UNAVAILABLE"] }
       },
@@ -59,28 +61,33 @@
       "role": "TRAJECTORY_RECOVERY_CONSTRUCT",
       "inputs": {
         "toolFailureObserved": { "type": "boolean" },
-        "reachedTerminalComplete": { "type": "boolean" },
-        "semanticFeasibility": { "enum": ["PASS", "FAIL", "UNKNOWN"] }
+        "semanticFeasibility": { "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "reachedTerminalComplete": {
+          "derivation": "terminationStatus == TERMINAL_COMPLETE",
+          "independentFixtureField": "FORBIDDEN"
+        }
       },
       "rules": {
         "NOT_APPLICABLE_if": "toolFailureObserved == false",
         "UNKNOWN_if": "semanticFeasibility == UNKNOWN",
         "RECOVERED_if": [
           "toolFailureObserved == true",
-          "reachedTerminalComplete == true",
+          "reachedTerminalCompleteDerived == true",
           "semanticFeasibility == PASS"
         ],
         "UNRECOVERED_if": [
           "toolFailureObserved == true",
-          "NOT (reachedTerminalComplete == true AND semanticFeasibility == PASS)"
+          "NOT (reachedTerminalCompleteDerived == true AND semanticFeasibility == PASS)"
         ]
+      },
+      "illegalState": {
+        "name": "L1_PASS_AND_L2_UNRECOVERED",
+        "policy": "FAIL_CLOSED",
+        "reason": "L1 PASS requires TERMINAL_COMPLETE, which derives reachedTerminalComplete=true; with toolFailureObserved this forces L2 RECOVERED. Contradictory independent inputs are forbidden."
       },
       "explicitLegalState": {
         "name": "TRAJECTORY_RECOVERED_WITH_INCOMPLETE_TOOL_LINKAGE",
-        "when": [
-          "layer2 == RECOVERED",
-          "layer3.linkageCompleteness == INCOMPLETE"
-        ],
+        "when": ["layer2 == RECOVERED", "layer3.linkageCompleteness == INCOMPLETE"],
         "meaning": "Task/oracle converged after tool failure, but strict per-tool recovery linkage metadata is incomplete. Legal under this contract; does not force Layer-1 FAIL."
       },
       "outputs": {
@@ -109,7 +116,9 @@
         "INCOMPLETE_otherwise_when_toolFailureObserved": true
       },
       "outputs": {
-        "linkageCompleteness": { "enum": ["COMPLETE", "INCOMPLETE", "NOT_APPLICABLE"] },
+        "linkageCompleteness": {
+          "enum": ["COMPLETE", "INCOMPLETE", "NOT_APPLICABLE"]
+        },
         "observabilityQuality": { "enum": ["PASS", "FAIL", "NOT_APPLICABLE"] }
       },
       "mapping": {
@@ -118,6 +127,16 @@
         "NOT_APPLICABLE": { "observabilityQuality": "NOT_APPLICABLE" }
       },
       "forbiddenMapping": "INCOMPLETE must never alone set overallExecutionFeasibility=FAIL when semanticFeasibility=PASS and trajectoryRecoveryOutcome in {RECOVERED, NOT_APPLICABLE}"
+    }
+  },
+  "composition": {
+    "overallExecutionFeasibility": {
+      "PASS_if": "semanticFeasibility == PASS AND trajectoryRecoveryOutcome in {RECOVERED, NOT_APPLICABLE}",
+      "FAIL_if": "semanticFeasibility == FAIL",
+      "UNKNOWN_if": "semanticFeasibility == UNKNOWN",
+      "illegalState": "semanticFeasibility == PASS AND trajectoryRecoveryOutcome == UNRECOVERED",
+      "illegalStatePolicy": "FAIL_CLOSED",
+      "notes": "Overall feasibility uses L1 and L2. Layer 3 never alone sets overall FAIL when L1 PASS."
     }
   },
   "crossLayerTruthTable": [
@@ -199,6 +218,13 @@
       "historicalNonInterference": "Adjudicator must not read or write F0/F1 live-output or audit packages"
     },
     "corpusPath": "research/context-benchmarks/construct-repair/synthetic/corpus.v1.json",
+    "ioAllowlistRoot": "research/context-benchmarks/construct-repair",
+    "ioForbiddenPathMarkers": [
+      ".live-output",
+      ".audit",
+      "c1-f1-32-20260915-11df369c",
+      "c1-f0-v2-20260913-341fbab9"
+    ],
     "failClosed": "If any required property fails, status must remain below READY_FOR_SYNTHETIC_VALIDATION"
   },
   "routeLocks": {
