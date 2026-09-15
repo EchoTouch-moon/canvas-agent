@@ -11,6 +11,8 @@ import {
   type C1F1Native32SurfaceInventoryEntry
 } from '../contract/c1-f1-native-feasibility-32-anchor-inventory'
 import {
+  C1_F1_NATIVE32_BUDGET_ONLY_PROJECTION_PATH,
+  C1_F1_NATIVE32_EFFECTIVE_SURFACE_PARITY_POLICY,
   C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256,
   C1_F1_NATIVE32_PENDING_BINDING,
   C1_F1_NATIVE32_PROVIDER_CONFIG_HASH,
@@ -634,10 +636,11 @@ export function buildFinalBoundF1Contract(input: {
         classification: 'EXACT_UNCHANGED'
       }
     }
-    if (!entry.path.startsWith('research/context-benchmarks/c1/f1/runner/')) {
+    if (entry.path !== C1_F1_NATIVE32_BUDGET_ONLY_PROJECTION_PATH) {
       throw new C1PreflightFailure(
         'CONTRACT_BINDING_MISMATCH',
-        'F1-32 execution surface has an undeclared target-only path: ' + entry.path
+        'F1-32 execution surface has a target-only path outside the exact budget projection: ' +
+          entry.path
       )
     }
     return {
@@ -673,6 +676,9 @@ export function buildFinalBoundF1Contract(input: {
   candidate['bindingControlSurfacePaths'] = input.binding.bindingControlInventory.map(
     (entry) => entry.path
   )
+  candidate['effectiveSurfaceParity'] = JSON.parse(
+    JSON.stringify(C1_F1_NATIVE32_EFFECTIVE_SURFACE_PARITY_POLICY)
+  ) as unknown
   candidate['surfaceEquivalenceWitness'] = surfaceWitness
   const finalHash = computeC1F1Native32RunContractSha256(candidate)
   candidate['runContractSha256'] = finalHash
@@ -914,9 +920,14 @@ function validateF1ModelResponse(
 
 function withPreviousWorkingSet(
   observation: C1AgentObservation,
+  arm: 'NATIVE' | 'RUNTIME',
   previousWorkingSet: ContextWorkingSet | null
 ): C1AgentObservation {
-  if (previousWorkingSet !== null && observation.previousWorkingSetId === null) {
+  if (
+    arm === 'RUNTIME' &&
+    previousWorkingSet !== null &&
+    observation.previousWorkingSetId === null
+  ) {
     return { ...observation, previousWorkingSetId: previousWorkingSet.workingSetId }
   }
   return observation
@@ -934,7 +945,7 @@ type C1F1Native32CheckpointInput = C1LiveBindingCheckpoint extends infer Checkpo
  * adapter keeps its evidence and execution semantics while widening only the
  * point budget for F1-32.
  */
-class C1F1Native32BindingDriver {
+export class C1F1Native32BindingDriver {
   private readonly executor: C1LegExecutor
   private checkpointOrdinal = 0
   private studyTerminalReason: string | null = null
@@ -1021,7 +1032,11 @@ class C1F1Native32BindingDriver {
     let blockedProviderCallAttempts = 0
     try {
       for (let callOrdinal = 1; callOrdinal <= maxCalls; callOrdinal += 1) {
-        const currentObservation = withPreviousWorkingSet(observation, previousWorkingSet)
+        const currentObservation = withPreviousWorkingSet(
+          observation,
+          input.arm,
+          previousWorkingSet
+        )
         const transport = new C1LiveBindingTransport({
           provider: C1_PROVIDER_ID,
           model: C1_MODEL_ID,
@@ -1158,7 +1173,7 @@ class C1F1Native32BindingDriver {
           lifecycleEligible: execution.capture.lifecycleEligible,
           runtimeContextChanged: execution.capture.runtimeContextChanged,
           fallbackSent: false,
-          networkSent: false,
+          networkSent: input.responseSource.kind === 'AUTHORIZED_PROVIDER',
           replayMismatch: execution.replayMismatch
         }
         await this.appendCheckpoint({ phase: 'RESPONSE_RECEIVED', callOrdinal, receipt })
@@ -1186,6 +1201,18 @@ class C1F1Native32BindingDriver {
             execution: metadata
           })
           recordedTools.set(tool.toolCallId, metadata)
+        }
+        if (
+          response.toolRequests.length > 0 &&
+          input.responseSource.kind === 'AUTHORIZED_PROVIDER' &&
+          input.toolExecutor === undefined
+        ) {
+          const error = new C1PreflightFailure(
+            'PREFLIGHT_FAILURE',
+            'authorized provider tool requests require a tool executor'
+          )
+          this.studyTerminalReason ??= error.message
+          throw error
         }
         this.options.budgetGuard.reserveToolCalls(response.toolRequests.length)
         let effectiveResponse = response
@@ -1359,6 +1386,13 @@ function pointLabel(feasibility: C1F0V2AdjudicationSummary): C1F1Native32PointLa
   if (!feasibility.precisionGate.pass) return 'INCONCLUSIVE'
   if (!feasibility.feasibilityGate.pass) return 'VALID_INFEASIBLE'
   return 'VALID_STABLE_FEASIBLE'
+}
+
+function isAuthorizedProviderStudyInvalidator(code: string, message = ''): boolean {
+  if (code === 'PREFLIGHT_FAILURE' && message.includes('maxCalls=')) return false
+  return (
+    isSharedInvalidator(code) || code === 'PREFLIGHT_FAILURE' || code === 'USAGE_CONTRACT_MISMATCH'
+  )
 }
 
 function fallbackContractView(): V2ContractView {
@@ -1971,7 +2005,10 @@ async function runC1F1Native32StudyCore(
           failureCode = failure.code
           failures.push(failure)
           terminationStatus = classifyTermination(error)
-          if (isSharedInvalidator(failure.code)) {
+          const runInvalidator = authorizedProvider
+            ? isAuthorizedProviderStudyInvalidator(failure.code, failure.message)
+            : isSharedInvalidator(failure.code)
+          if (runInvalidator) {
             sharedInvalidator = true
             invalidatorReasons.push(failure.message)
           }
@@ -2048,7 +2085,11 @@ async function runC1F1Native32StudyCore(
           responseCount
         )
         const evidenceStatus =
-          sharedInvalidator && failureCode !== undefined && isSharedInvalidator(failureCode)
+          sharedInvalidator &&
+          failureCode !== undefined &&
+          (authorizedProvider
+            ? isAuthorizedProviderStudyInvalidator(failureCode, failures.at(-1)?.message ?? '')
+            : isSharedInvalidator(failureCode))
             ? 'INVALID'
             : responseCount > 0 && joinComplete
               ? 'COMPLETE'
