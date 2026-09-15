@@ -62,9 +62,9 @@ describe('C1 F1-32 credential-free execution runner', () => {
     expect(
       binding.inventory.some((entry) => entry.path === C1_F1_NATIVE32_EXECUTION_SURFACE_PATH)
     ).toBe(true)
-    expect(binding.executionRevision).toMatch(/^[a-f0-9]{40}$/)
+    expect(binding.checkoutRevision).toMatch(/^[a-f0-9]{40}$/)
     const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT })
-    expect(binding.executionRevision).toBe(stdout.trim())
+    expect(binding.checkoutRevision).toBe(stdout.trim())
     expect(binding.executionSurfaceRevision).toMatch(/^[a-f0-9]{40}$/)
     expect(binding.executionSurfaceHash).toMatch(/^[a-f0-9]{64}$/)
     expect(binding.bindingControlInventory.length).toBe(4)

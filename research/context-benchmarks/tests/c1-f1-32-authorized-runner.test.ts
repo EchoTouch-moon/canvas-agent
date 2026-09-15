@@ -35,7 +35,7 @@ async function authorizedRecord(studyId: string): Promise<C1F1Native32LiveAuthor
     authorizedAt: new Date().toISOString(),
     studyId,
     identityStatus: 'FRESH_NEVER_CLAIMED_SINGLE_USE',
-    executionRevision: binding.executionRevision,
+    executionSurfaceRevision: binding.executionSurfaceRevision,
     executionSurfaceHash: binding.executionSurfaceHash,
     bindingControlSurfaceHash: binding.bindingControlSurfaceHash,
     runContractSha256: String(root['runContractSha256']),
@@ -106,6 +106,38 @@ afterEach(async () => {
 })
 
 describe('C1 F1-32 authorized Provider runner', () => {
+  it('rejects the legacy checkout revision authorization field before credential access', async () => {
+    const outputRoot = await temporaryOutputRoot()
+    const authorization = {
+      ...(await authorizedRecord('c1-f1-32-20260915-00000000')),
+      executionRevision: 'a'.repeat(40)
+    } as C1F1Native32LiveAuthorization
+    let credentialReads = 0
+    let fetchCalls = 0
+    const report = await runC1F1Native32AuthorizedStudy({
+      repoRoot: REPO_ROOT,
+      outputRoot,
+      authorization,
+      readApiKey: () => {
+        credentialReads += 1
+        return API_KEY_SENTINEL
+      },
+      fetchImpl: async () => {
+        fetchCalls += 1
+        return providerResponse({
+          responseId: 'legacy-checkout-should-not-fetch',
+          finishReason: 'stop'
+        })
+      }
+    })
+
+    expect(report.status).toBe('NO_GO')
+    expect(report.failures.map((failure) => failure.code)).toContain('NOT_AUTHORIZED')
+    expect(credentialReads).toBe(0)
+    expect(fetchCalls).toBe(0)
+    expect(await readdir(outputRoot)).toEqual([])
+  })
+
   it('rejects a stale surface binding before credential access, identity claim, or fetch', async () => {
     const outputRoot = await temporaryOutputRoot()
     const authorization = await authorizedRecord('c1-f1-32-20260915-aaaaaaaa')

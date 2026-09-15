@@ -32,7 +32,9 @@ function buildFinalBoundContract(candidate: Record<string, unknown>): Record<str
   finalBound['finalBoundRunContractSha256'] = 'PENDING_F1_32_FINAL_HASH'
 
   const execution = finalBound['executionBinding'] as Record<string, unknown>
-  execution['codeRevision'] = 'a'.repeat(40)
+  delete execution['codeRevision']
+  execution['checkoutRevision'] = 'a'.repeat(40)
+  execution['executionSurfaceRevision'] = 'b'.repeat(40)
   execution['executionSurfaceHash'] = 'PENDING_F1_32_SURFACE_HASH'
 
   const witness = finalBound['surfaceEquivalenceWitness'] as Record<string, unknown>
@@ -68,7 +70,7 @@ function buildFinalBoundContract(candidate: Record<string, unknown>): Record<str
   )
   execution['executionSurfaceHash'] = targetInventoryDigest
   witness['targetExecutionBinding'] = {
-    codeRevision: execution['codeRevision'],
+    executionSurfaceRevision: execution['executionSurfaceRevision'],
     executionSurfaceHash: execution['executionSurfaceHash']
   }
   witness['targetInventoryDigest'] = targetInventoryDigest
@@ -265,6 +267,15 @@ describe('C1 F1 native feasibility 32-call point contract', () => {
     )
   })
 
+  it('treats checkoutRevision as provenance outside the semantic final-bound hash', async () => {
+    const finalBound = buildFinalBoundContract(await readContract())
+    const originalHash = finalBound['runContractSha256']
+    const execution = finalBound['executionBinding'] as Record<string, unknown>
+    execution['checkoutRevision'] = 'f'.repeat(40)
+    expect(computeC1F1Native32RunContractSha256(finalBound)).toBe(originalHash)
+    expect(() => validateC1F1Native32FinalBoundContract(finalBound)).not.toThrow()
+  })
+
   it('rejects a runner-directory path that is not the exact budget projection file', async () => {
     const finalBound = buildFinalBoundContract(await readContract())
     const witness = finalBound['surfaceEquivalenceWitness'] as Record<string, unknown>
@@ -329,9 +340,9 @@ describe('C1 F1 native feasibility 32-call point contract', () => {
       mutate: (contract: Record<string, unknown>) => {
         const witness = contract['surfaceEquivalenceWitness'] as Record<string, unknown>
         const target = witness['targetExecutionBinding'] as Record<string, unknown>
-        target['codeRevision'] = 'e'.repeat(40)
+        target['executionSurfaceRevision'] = 'e'.repeat(40)
       },
-      expected: 'surfaceEquivalenceWitness.targetExecutionBinding.codeRevision'
+      expected: 'SEMANTIC_FREEZE_MISMATCH: surfaceEquivalenceWitness.targetExecutionBinding'
     },
     {
       name: 'anchor hash mismatch',

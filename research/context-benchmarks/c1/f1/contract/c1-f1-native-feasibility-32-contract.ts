@@ -321,6 +321,19 @@ const F1_NATIVE32_CLAIMS =
 const F1_NATIVE32_ESTIMAND = 'NATIVE_EXECUTION_FEASIBILITY_AT_F1_32_PROVIDER_CALL_BUDGET'
 
 export function computeC1F1Native32RunContractSha256(contract: unknown): string {
+  if (
+    typeof contract === 'object' &&
+    contract !== null &&
+    !Array.isArray(contract) &&
+    (contract as JsonRecord)['runContractHashRole'] === 'FINAL_BOUND'
+  ) {
+    const semanticProjection = JSON.parse(JSON.stringify(contract)) as JsonRecord
+    const execution = record(semanticProjection['executionBinding'], 'executionBinding')
+    // checkoutRevision records where binding was computed; it is intentionally
+    // excluded from the semantic hash so artifact-only commits cannot retarget authorization.
+    delete execution['checkoutRevision']
+    return computeC1F0V2RunContractSha256(semanticProjection)
+  }
   return computeC1F0V2RunContractSha256(contract)
 }
 
@@ -624,20 +637,18 @@ function validateFinalBoundSurfaceWitness(root: JsonRecord): void {
     witness['targetExecutionBinding'],
     'surfaceEquivalenceWitness.targetExecutionBinding'
   )
-  const codeRevision = string(execution['codeRevision'], 'executionBinding.codeRevision')
+  const executionSurfaceRevision = string(
+    execution['executionSurfaceRevision'],
+    'executionBinding.executionSurfaceRevision'
+  )
   const executionSurfaceHash = digest(
     execution['executionSurfaceHash'],
     'executionBinding.executionSurfaceHash'
   )
-  exact(
-    targetBinding['codeRevision'],
-    codeRevision,
-    'surfaceEquivalenceWitness.targetExecutionBinding.codeRevision'
-  )
-  exact(
-    targetBinding['executionSurfaceHash'],
-    executionSurfaceHash,
-    'surfaceEquivalenceWitness.targetExecutionBinding.executionSurfaceHash'
+  assertExactJsonValue(
+    targetBinding,
+    { executionSurfaceRevision, executionSurfaceHash },
+    'surfaceEquivalenceWitness.targetExecutionBinding'
   )
 
   const policy = F1_NATIVE32_SURFACE_WITNESS_POLICY
@@ -1007,14 +1018,30 @@ export function validateC1F1Native32FinalBoundContract(raw: unknown): C1F1Native
     'effectiveSurfaceParity'
   )
   const execution = record(root['executionBinding'], 'executionBinding')
-  const revision = string(execution['codeRevision'], 'executionBinding.codeRevision')
+  if ('codeRevision' in execution) {
+    throw new C1F1Native32ContractError(
+      'executionBinding.codeRevision is freeze-candidate-only; final-bound contracts use checkoutRevision provenance and executionSurfaceRevision binding'
+    )
+  }
+  const checkoutRevision = string(
+    execution['checkoutRevision'],
+    'executionBinding.checkoutRevision'
+  )
+  const executionSurfaceRevision = string(
+    execution['executionSurfaceRevision'],
+    'executionBinding.executionSurfaceRevision'
+  )
   const surfaceHash = string(
     execution['executionSurfaceHash'],
     'executionBinding.executionSurfaceHash'
   )
-  if (!/^[a-f0-9]{40}$/.test(revision))
+  if (!/^[a-f0-9]{40}$/.test(checkoutRevision))
     throw new C1F1Native32ContractError(
-      'executionBinding.codeRevision must be a 40-character Git SHA'
+      'executionBinding.checkoutRevision must be a 40-character Git SHA'
+    )
+  if (!/^[a-f0-9]{40}$/.test(executionSurfaceRevision))
+    throw new C1F1Native32ContractError(
+      'executionBinding.executionSurfaceRevision must be a 40-character Git SHA'
     )
   if (!/^[a-f0-9]{64}$/.test(surfaceHash))
     throw new C1F1Native32ContractError(
@@ -1063,6 +1090,8 @@ export function validateC1F1Native32FinalBoundContract(raw: unknown): C1F1Native
   delete candidateLike['bindingControlSurfacePaths']
   delete candidateLike['effectiveSurfaceParity']
   const candidateBinding = record(candidateLike['executionBinding'], 'executionBinding')
+  delete candidateBinding['checkoutRevision']
+  delete candidateBinding['executionSurfaceRevision']
   candidateBinding['codeRevision'] = C1_F1_NATIVE32_PENDING_BINDING
   candidateBinding['executionSurfaceHash'] = C1_F1_NATIVE32_PENDING_BINDING
   candidateLike['surfaceEquivalenceWitness'] = JSON.parse(
