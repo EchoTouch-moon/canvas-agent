@@ -136,7 +136,8 @@ export interface C1F1Native32LiveAuthorization {
   readonly authorizedAt: string
   readonly studyId: string
   readonly identityStatus: 'FRESH_NEVER_CLAIMED_SINGLE_USE'
-  readonly executionRevision: string
+  /** Stable executable-surface commit; checkoutRevision is provenance, not an authorization key. */
+  readonly executionSurfaceRevision: string
   readonly executionSurfaceHash: string
   readonly bindingControlSurfaceHash: string
   readonly runContractSha256: string
@@ -180,7 +181,9 @@ export interface C1F1Native32ExecutionPlan {
 }
 
 export interface C1F1Native32ExecutionBinding {
-  readonly executionRevision: string
+  /** Current clean checkout HEAD, recorded for provenance only. */
+  readonly checkoutRevision: string
+  /** Last commit changing a declared executable-surface path; authorization binding anchor. */
   readonly executionSurfaceRevision: string
   readonly executionSurfaceHash: string
   readonly bindingControlSurfaceHash: string
@@ -217,7 +220,7 @@ export interface C1F1Native32ExecutionReport {
   readonly status: C1F1Native32PointLabel | 'NO_GO'
   readonly studyId: string
   readonly reportDir: string | null
-  readonly executionRevision: string | null
+  readonly checkoutRevision: string | null
   readonly executionSurfaceRevision: string | null
   readonly executionSurfaceHash: string | null
   readonly bindingControlSurfaceHash: string | null
@@ -391,12 +394,12 @@ export async function computeC1F1Native32ExecutionBinding(
     timeoutMs: 30_000,
     env: buildSanitizedChildEnvironment()
   })
-  const executionRevision = checkoutRevisionResult.stdout.trim()
+  const checkoutRevision = checkoutRevisionResult.stdout.trim()
   if (
     checkoutRevisionResult.exitCode !== 0 ||
     checkoutRevisionResult.timedOut ||
     checkoutRevisionResult.outputLimitExceeded ||
-    !/^[a-f0-9]{40}$/.test(executionRevision)
+    !/^[a-f0-9]{40}$/.test(checkoutRevision)
   ) {
     throw new C1PreflightFailure(
       'CONTRACT_BINDING_MISMATCH',
@@ -458,7 +461,7 @@ export async function computeC1F1Native32ExecutionBinding(
     })
   }
   return {
-    executionRevision,
+    checkoutRevision,
     executionSurfaceRevision,
     executionSurfaceHash: computeC1F1Native32SurfaceInventoryHash(inventory),
     inventory: Object.freeze(inventory),
@@ -502,7 +505,7 @@ function canonicalJson(value: unknown): string {
   return '{' + rows.join(',') + '}'
 }
 
-function assertC1F1Native32LiveAuthorization(input: {
+export function assertC1F1Native32LiveAuthorization(input: {
   readonly authorization: C1F1Native32LiveAuthorization
   readonly contract: C1F1Native32Contract
   readonly binding: C1F1Native32ExecutionBinding
@@ -517,7 +520,7 @@ function assertC1F1Native32LiveAuthorization(input: {
     'authorizedAt',
     'studyId',
     'identityStatus',
-    'executionRevision',
+    'executionSurfaceRevision',
     'executionSurfaceHash',
     'bindingControlSurfaceHash',
     'runContractSha256',
@@ -564,8 +567,9 @@ function assertC1F1Native32LiveAuthorization(input: {
     typeof studyId !== 'string' ||
     !/^c1-f1-32-\d{8}-[0-9a-f]{8}$/.test(studyId) ||
     authorization['identityStatus'] !== 'FRESH_NEVER_CLAIMED_SINGLE_USE' ||
-    authorization['executionRevision'] !== input.binding.executionRevision ||
-    authorization['executionRevision'] !== execution['codeRevision'] ||
+    // checkoutRevision is provenance and may advance through binding-only or merge commits.
+    authorization['executionSurfaceRevision'] !== input.binding.executionSurfaceRevision ||
+    authorization['executionSurfaceRevision'] !== execution['executionSurfaceRevision'] ||
     authorization['executionSurfaceHash'] !== input.binding.executionSurfaceHash ||
     authorization['executionSurfaceHash'] !== execution['executionSurfaceHash'] ||
     authorization['bindingControlSurfaceHash'] !== input.binding.bindingControlSurfaceHash ||
@@ -656,7 +660,7 @@ export function buildFinalBoundF1Contract(input: {
     ...candidateWitness,
     phase: 'FINAL_BOUND',
     targetExecutionBinding: {
-      codeRevision: input.binding.executionRevision,
+      executionSurfaceRevision: input.binding.executionSurfaceRevision,
       executionSurfaceHash: input.binding.executionSurfaceHash
     },
     targetInventoryDigest: input.binding.executionSurfaceHash,
@@ -670,7 +674,9 @@ export function buildFinalBoundF1Contract(input: {
   candidate['freezeCandidateRunContractSha256'] = candidate['runContractSha256']
   candidate['finalBoundRunContractSha256'] = 'PENDING_F1_32_FINAL_HASH'
   const execution = record(candidate['executionBinding'], 'executionBinding')
-  execution['codeRevision'] = input.binding.executionRevision
+  delete execution['codeRevision']
+  execution['checkoutRevision'] = input.binding.checkoutRevision
+  execution['executionSurfaceRevision'] = input.binding.executionSurfaceRevision
   execution['executionSurfaceHash'] = input.binding.executionSurfaceHash
   candidate['bindingControlSurfaceHash'] = input.binding.bindingControlSurfaceHash
   candidate['bindingControlSurfacePaths'] = input.binding.bindingControlInventory.map(
@@ -1468,7 +1474,7 @@ async function writeF1Artifacts(input: {
     readonly sha256: string
   } | null
   readonly secretToRedact: string | null
-  readonly executionRevision: string
+  readonly checkoutRevision: string
   readonly executionSurfaceRevision: string
   readonly executionSurfaceHash: string
   readonly bindingControlSurfaceHash: string
@@ -1511,7 +1517,7 @@ async function writeF1Artifacts(input: {
     contractId: input.contract.contractId,
     freezeCandidateRunContractSha256: C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256,
     finalBoundRunContractSha256: input.finalBoundRunContractSha256,
-    executionRevision: input.executionRevision,
+    checkoutRevision: input.checkoutRevision,
     executionSurfaceRevision: input.executionSurfaceRevision,
     executionSurfaceHash: input.executionSurfaceHash,
     bindingControlSurfaceHash: input.bindingControlSurfaceHash,
@@ -1581,7 +1587,7 @@ async function writeF1Artifacts(input: {
       'execution-binding.json',
       JSON.stringify(
         {
-          executionRevision: input.executionRevision,
+          checkoutRevision: input.checkoutRevision,
           executionSurfaceRevision: input.executionSurfaceRevision,
           executionSurfaceHash: input.executionSurfaceHash,
           bindingControlSurfaceHash: input.bindingControlSurfaceHash,
@@ -2277,7 +2283,7 @@ async function runC1F1Native32StudyCore(
           providerCallPermits,
           authorizationSummary,
           secretToRedact: apiKey,
-          executionRevision: binding.executionRevision,
+          checkoutRevision: binding.checkoutRevision,
           executionSurfaceRevision: binding.executionSurfaceRevision,
           executionSurfaceHash: binding.executionSurfaceHash,
           bindingControlSurfaceHash: binding.bindingControlSurfaceHash,
@@ -2300,7 +2306,7 @@ async function runC1F1Native32StudyCore(
         status: label,
         studyId,
         reportDir,
-        executionRevision: binding?.executionRevision ?? null,
+        checkoutRevision: binding?.checkoutRevision ?? null,
         executionSurfaceRevision,
         executionSurfaceHash: binding?.executionSurfaceHash ?? null,
         bindingControlSurfaceHash: binding?.bindingControlSurfaceHash ?? null,
@@ -2355,7 +2361,7 @@ async function runC1F1Native32StudyCore(
       status: 'NO_GO',
       studyId,
       reportDir,
-      executionRevision: binding?.executionRevision ?? null,
+      checkoutRevision: binding?.checkoutRevision ?? null,
       executionSurfaceRevision,
       executionSurfaceHash: binding?.executionSurfaceHash ?? null,
       bindingControlSurfaceHash: binding?.bindingControlSurfaceHash ?? null,
@@ -2480,7 +2486,7 @@ async function runC1F1Native32AuthorizedCli(): Promise<void> {
           executionMode: report.executionMode,
           status: report.status,
           studyId: report.studyId,
-          executionRevision: report.executionRevision,
+          checkoutRevision: report.checkoutRevision,
           finalBoundRunContractSha256: report.finalBoundRunContractSha256,
           providerCalls: report.providerCalls,
           networkRequests: report.networkRequests,

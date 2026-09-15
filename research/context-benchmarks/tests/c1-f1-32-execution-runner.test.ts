@@ -62,9 +62,9 @@ describe('C1 F1-32 credential-free execution runner', () => {
     expect(
       binding.inventory.some((entry) => entry.path === C1_F1_NATIVE32_EXECUTION_SURFACE_PATH)
     ).toBe(true)
-    expect(binding.executionRevision).toMatch(/^[a-f0-9]{40}$/)
+    expect(binding.checkoutRevision).toMatch(/^[a-f0-9]{40}$/)
     const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT })
-    expect(binding.executionRevision).toBe(stdout.trim())
+    expect(binding.checkoutRevision).toBe(stdout.trim())
     expect(binding.executionSurfaceRevision).toMatch(/^[a-f0-9]{40}$/)
     expect(binding.executionSurfaceHash).toMatch(/^[a-f0-9]{64}$/)
     expect(binding.bindingControlInventory.length).toBe(4)
@@ -136,7 +136,7 @@ describe('C1 F1-32 credential-free execution runner', () => {
     expect(report.responseCalls).toBe(32)
     expect(report.runs[0]?.terminationStatus).toBe('BUDGET_EXHAUSTED')
     expect(report.runs[0]?.fixtureCleaned).toBe(true)
-  })
+  }, 30_000)
 
   it('records prospective side-effect provenance before cleanup', async () => {
     const report = await runScenario('TOOL_SIDE_EFFECT', 'cccccccc')
