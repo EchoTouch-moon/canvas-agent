@@ -13,7 +13,11 @@ patchedDependencies:
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      prettier:
+        specifier: ^3.7.4
+        version: 3.9.6
 
   apps/desktop:
     dependencies:

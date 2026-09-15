@@ -1,12 +1,33 @@
-name: CI
+name: Context Runtime CI
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'packages/**'
+      - 'research/**'
+      - 'scripts/ci/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.prettierrc.yaml'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/electron.yml'
   pull_request:
+    paths:
+      - 'packages/**'
+      - 'research/**'
+      - 'scripts/ci/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.prettierrc.yaml'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/electron.yml'
 
 jobs:
   check:
+    name: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,64 +43,32 @@ jobs:
           node-version: 24.14.0
           cache: pnpm
 
-      - name: Install dependencies
+      - name: Install headless workspace dependencies
         run: |
           mkdir -p ci-artifacts/logs
           set -o pipefail
-          pnpm install --frozen-lockfile 2>&1 | tee ci-artifacts/logs/install.log
+          pnpm install --frozen-lockfile --filter '!@canvas-agent/desktop' 2>&1 | tee ci-artifacts/logs/install-core.log
 
-      - name: Audit production dependencies (high/critical)
+      - name: Audit headless production dependency paths
         run: |
           set -o pipefail
-          pnpm audit --prod --audit-level high 2>&1 | tee ci-artifacts/logs/audit-prod.log
+          node scripts/ci/audit-core.mjs 2>&1 | tee ci-artifacts/logs/audit-core.log
 
-      - name: Check (format / lint / typecheck / test / build)
+      - name: Check headless workspace
         run: |
+          mkdir -p ci-artifacts/logs
           set -o pipefail
-          pnpm check 2>&1 | tee ci-artifacts/logs/check.log
+          pnpm format:check:core 2>&1 | tee ci-artifacts/logs/format-core.log
+          pnpm lint:core 2>&1 | tee ci-artifacts/logs/lint-core.log
+          pnpm typecheck:core 2>&1 | tee ci-artifacts/logs/typecheck-core.log
+          pnpm test:core 2>&1 | tee ci-artifacts/logs/test-core.log
+          pnpm build:core 2>&1 | tee ci-artifacts/logs/build-core.log
+          node --test scripts/ci/audit-core.test.mjs 2>&1 | tee ci-artifacts/logs/audit-core-tests.log
 
-      - name: Upload source logs on failure
+      - name: Upload headless check logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: source-check-logs
-          path: ci-artifacts
-          if-no-files-found: error
-
-  macos-electron:
-    runs-on: macos-latest
-    needs: check
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.9.0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24.14.0
-          cache: pnpm
-
-      - name: Install dependencies
-        run: |
-          mkdir -p ci-artifacts/logs
-          set -o pipefail
-          pnpm install --frozen-lockfile 2>&1 | tee ci-artifacts/logs/install.log
-
-      - name: Credential-free Product MVP RC suite
-        run: |
-          mkdir -p ci-artifacts/logs
-          set -o pipefail
-          CANVAS_AGENT_RC_LOG_DIR="$PWD/ci-artifacts/logs" \
-          CANVAS_AGENT_RC_REPORT_DIR="$PWD/ci-artifacts/reports" \
-          CANVAS_AGENT_E2E_SCREENSHOT_DIR="$PWD/ci-artifacts/screenshots" \
-          pnpm e2e:rc 2>&1 | tee ci-artifacts/logs/rc-suite.log
-
-      - name: Upload logs, screenshots and reports on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-product-mvp-rc-evidence
+          name: context-runtime-check-logs
           path: ci-artifacts
           if-no-files-found: error
