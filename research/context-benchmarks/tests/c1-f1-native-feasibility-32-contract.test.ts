@@ -345,6 +345,14 @@ describe('C1 F1 native feasibility 32-call point contract', () => {
       expected: 'SEMANTIC_FREEZE_MISMATCH: surfaceEquivalenceWitness.targetExecutionBinding'
     },
     {
+      name: 'legacy checkout revision binding field',
+      mutate: (contract: Record<string, unknown>) => {
+        const execution = contract['executionBinding'] as Record<string, unknown>
+        execution['codeRevision'] = 'e'.repeat(40)
+      },
+      expected: 'executionBinding.codeRevision is freeze-candidate-only'
+    },
+    {
       name: 'anchor hash mismatch',
       mutate: (contract: Record<string, unknown>) => {
         const witness = contract['surfaceEquivalenceWitness'] as Record<string, unknown>

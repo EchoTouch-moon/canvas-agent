@@ -98,13 +98,14 @@
     "model": "step-3.7-flash",
     "endpoint": "https://api.stepfun.com/step_plan/v1/chat/completions",
     "nodeRange": ">=24.0.0 <25.0.0",
-    "codeRevision": "f3c799247aaf80f5fc3794d7ca5b09e5bcad4ef2",
-    "executionSurfaceHash": "8a41669a3b7266b3d396db2b9cbb156003f2e85a9ec4892288edd61572ec1d3f",
+    "executionSurfaceHash": "b298fb34c9dcb035a804c8165fe42aa5a4dcaef6004191f4db78f14e3f9f7be9",
     "credentialEnv": "STEP_PLAN_API_KEY",
     "credentialPersistence": "MEMORY_ONLY",
     "fallback": "NONE",
     "runtimeIntervention": "DISABLED",
-    "providerConfigHash": "bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a"
+    "providerConfigHash": "bdb805044bb9548a79493249a9a5bdea87600e072caf305903079662a128e86a",
+    "checkoutRevision": "a61c34a6a67159841d4dc4d88f6fa037b66ae34e",
+    "executionSurfaceRevision": "a61c34a6a67159841d4dc4d88f6fa037b66ae34e"
   },
   "toolHardening": {
     "moduleId": "C1_F0_TOOL_HARDENING_V1",
@@ -308,7 +309,7 @@
     "credentialFreeE2ERequired": true,
     "providerExecution": "NO_GO_UNTIL_OWNER_AUTHORIZATION"
   },
-  "runContractSha256": "d20fd0f7a231a6d3a810018e9a180545d49730629873ed7c4a3e78f978dffbc8",
+  "runContractSha256": "7ee5a88954fbf60d57447a5f2c2e1a98e64d2d875e0594ded13dad05dde4130c",
   "surfaceEquivalenceWitness": {
     "schemaVersion": 1,
     "mode": "PER_PATH_CLASSIFICATION",
@@ -1757,10 +1758,10 @@
       "emptyDirectory": "FORBIDDEN"
     },
     "targetExecutionBinding": {
-      "codeRevision": "f3c799247aaf80f5fc3794d7ca5b09e5bcad4ef2",
-      "executionSurfaceHash": "8a41669a3b7266b3d396db2b9cbb156003f2e85a9ec4892288edd61572ec1d3f"
+      "executionSurfaceRevision": "a61c34a6a67159841d4dc4d88f6fa037b66ae34e",
+      "executionSurfaceHash": "b298fb34c9dcb035a804c8165fe42aa5a4dcaef6004191f4db78f14e3f9f7be9"
     },
-    "targetInventoryDigest": "8a41669a3b7266b3d396db2b9cbb156003f2e85a9ec4892288edd61572ec1d3f",
+    "targetInventoryDigest": "b298fb34c9dcb035a804c8165fe42aa5a4dcaef6004191f4db78f14e3f9f7be9",
     "targetSurfacePaths": [
       "package.json",
       "packages/codex-context-integration/package.json",
@@ -3982,7 +3983,7 @@
         "path": "research/context-benchmarks/c1/f1/runner/c1-f1-32-execution-runner.ts",
         "anchorPath": null,
         "anchorHash": null,
-        "targetHash": "625d2b37a0b08c2402e93bdcd162c37ce419818ad4715544dc3523c510668927",
+        "targetHash": "ea69d6c3a3286964537301571d2e6b146c01f2f8a378e089dca7ebce9e793d80",
         "classification": "BUDGET_ONLY_PROJECTION"
       },
       {
@@ -4101,8 +4102,8 @@
     "runContractSha256": "4120e8d4c5c029ce224fb1341989cdc208d96799f1c399e736ee77aa36ea0611"
   },
   "freezeCandidateRunContractSha256": "053fa42d540e3955b8228303036191ffd985292ddd9665d87397b232570885da",
-  "finalBoundRunContractSha256": "d20fd0f7a231a6d3a810018e9a180545d49730629873ed7c4a3e78f978dffbc8",
-  "bindingControlSurfaceHash": "ab04d899781c4673ae35b3b10f8025bcd32d2d4c00182ab6bc6b4f0c0c697609",
+  "finalBoundRunContractSha256": "7ee5a88954fbf60d57447a5f2c2e1a98e64d2d875e0594ded13dad05dde4130c",
+  "bindingControlSurfaceHash": "672661b74e4a223434c19269bf2dab8f7b6e136e7b606bcb1d4532e5e3b6de07",
   "bindingControlSurfacePaths": [
     "research/context-benchmarks/c1/f1/contract/c1-f1-native-feasibility-32-anchor-inventory.ts",
     "research/context-benchmarks/c1/f1/contract/c1-f1-native-feasibility-32-contract.ts",
