@@ -48,6 +48,7 @@ Node 24 下的授权 fake-provider regression 已通过：
 - stale surface authorization 在 credential callback、identity claim 和 fetch 前拒绝。
 - 请求模型、endpoint、token ceiling、Provider config、usage provenance、artifact redaction 均有断言；synthetic identity 输出目录在测试清理阶段删除。
 - 原 credential-free runner 与授权入口相关回归：2 个测试文件、9 项测试通过；Context Benchmarks typecheck 通过。
+- Node 24 `pnpm check:core` 全量通过：headless audit、format、lint、typecheck、全部 workspace tests 和 build；Context Benchmarks 为 41 个测试文件、313 项测试通过。
 
 这些结果只证明授权执行路径和 evidence plumbing 可被假 Provider 驱动，不构成真实 Provider feasibility 结果。当前仍为：
 

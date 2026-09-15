@@ -32,11 +32,11 @@
 - [x] 实现 F1-32 authorized execution entrypoint；先验证合同/授权/实际 binding，再读取内存 credential 和 claim identity。
 - [x] 加入 fake Provider end-to-end 回归：完整 32 runs；覆盖 32-call per-run ceiling、无 fallback、授权失败早于 key access/claim/fetch、证据与 terminal 状态。
 - [x] 现场重算 execution/control inventories、checkout revision 与 final-bound contract hash；freeze-candidate hash 保持不变。
-- [ ] Node 24 运行全套 `pnpm check:core`；核对远端 CI。
+- [x] Node 24 运行全套 `pnpm check:core`；headless audit/format/lint/typecheck/test/build 全部通过，Context Benchmarks 41 files / 313 tests。
 - [x] 重新生成 final-binding artifact、verification report 与 current-state 索引。
-- [ ] 提交带标签 PR，确认 CI 后等待独立 binding review。
+- [ ] 提交带标签 PR、确认远端 CI 后等待独立 binding review。
 - [ ] 只有新 binding review 后再创建 fresh identity；owner authorization 与 live Provider execution 仍需单独门禁。
 
 ## 当前状态
 
-`FINAL_BOUND / READY_FOR_PR_CI / ZERO_PROVIDER / NO_IDENTITY / NO_OWNER_AUTHORIZATION`
+`FINAL_BOUND / READY_FOR_INDEPENDENT_BINDING_REVIEW / ZERO_PROVIDER / NO_IDENTITY / NO_OWNER_AUTHORIZATION`
