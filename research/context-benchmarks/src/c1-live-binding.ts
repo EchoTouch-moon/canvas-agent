@@ -1,9 +1,12 @@
+import { c1ToolPairFingerprint, type C1CarriedRemoval } from './c1-carried-removals'
+import type { C1E0DoseObservation } from './c1-e0-dose'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
   ContextWorkingSet,
+  ContextDecision,
   RemovalRecord,
   SourceLifecycleSignal
 } from '@canvas-agent/context-runtime'
@@ -152,6 +155,7 @@ export interface C1LiveToolExecutor {
     readonly previousObservation: C1AgentObservation
     readonly response: C1LiveModelResponse
     readonly observationId: string
+    readonly onToolExecution?: (execution: C1LiveToolExecution) => Promise<void>
   }): Promise<C1LiveToolLoopResult>
 }
 
@@ -506,6 +510,7 @@ export class C1SandboxToolExecutor implements C1LiveToolExecutor {
     readonly previousObservation: C1AgentObservation
     readonly response: C1LiveModelResponse
     readonly observationId: string
+    readonly onToolExecution?: (execution: C1LiveToolExecution) => Promise<void>
   }): Promise<C1LiveToolLoopResult> {
     if (input.response.toolExecutions.length > 0) {
       throw new C1PreflightFailure(
@@ -533,6 +538,8 @@ export class C1SandboxToolExecutor implements C1LiveToolExecutor {
         })
         resultContents.set(request.toolCallId, this.errorContent(error))
       }
+      // Evidence failures must escape the tool-error handler and stop the loop.
+      await input.onToolExecution?.(executions[executions.length - 1]!)
     }
     const responseWithExecutions: C1LiveModelResponse = {
       ...input.response,
@@ -583,7 +590,13 @@ export class C1SandboxToolExecutor implements C1LiveToolExecutor {
           `edit ${path.relativePath} expected one oldText match, received ${String(matches)}`
         )
       }
-      await writeFile(path.absolutePath, existing.replace(oldText, newText), 'utf8')
+      // Use a replacer callback so literal `$` sequences in source text are
+      // not interpreted as String.replace replacement patterns.
+      await writeFile(
+        path.absolutePath,
+        existing.replace(oldText, () => newText),
+        'utf8'
+      )
       return {
         result: 'SUCCESS',
         content: `edited ${path.relativePath}`,
@@ -819,17 +832,29 @@ export interface C1LiveBindingEvidence {
   readonly providerConfigHash: string
   readonly contextStrategy: C1ProviderBoundCapture['contextStrategy']
   readonly providerBoundSourceKeys: readonly string[]
+  readonly prePolicyProviderBoundMessagesHash?: string
+  readonly postPolicyProviderBoundMessagesHash?: string
+  /** Optional E0 metadata-only dose observation for this composition. */
+  readonly dose?: C1E0DoseObservation
   readonly modelVisibleSemanticContextFingerprint: string
   readonly systemDeveloperToolStructuresFingerprint: string
   readonly workingSetId: string
   readonly transitionId: string
   readonly transitionDecisionKinds: readonly string[]
+  readonly decisionDetails?: readonly Pick<
+    ContextDecision,
+    'kind' | 'sourceKey' | 'sourceVersionId' | 'reasonCodes'
+  >[]
+  readonly carriedRemovalEvidence?: readonly C1CarriedRemoval[]
+  readonly carriedRemovedSourceKeys?: readonly string[]
   readonly lifecycleEligible: boolean
   readonly runtimeContextChanged: boolean
   readonly fallbackSent: false
   readonly networkSent: boolean
   readonly replayMismatch: 0
 }
+
+export type C1LiveBindingResponseReceipt = Omit<C1LiveBindingEvidence, 'toolEvents'>
 
 export type C1LiveBindingCheckpoint =
   | {
@@ -842,20 +867,29 @@ export type C1LiveBindingCheckpoint =
     }
   | {
       readonly checkpointOrdinal: number
+      readonly phase: 'RESPONSE_RECEIVED'
+      readonly callOrdinal: number
+      readonly receipt: C1LiveBindingResponseReceipt
+    }
+  | {
+      readonly checkpointOrdinal: number
+      readonly phase: 'TOOL_EXECUTION_RECORDED'
+      readonly callOrdinal: number
+      readonly runId: string
+      readonly execution: C1LiveToolExecution
+    }
+  | {
+      readonly checkpointOrdinal: number
       readonly phase: 'RESPONSE_RECORDED'
       readonly callOrdinal: number
       readonly evidence: C1LiveBindingEvidence
     }
 
-type C1LiveBindingCheckpointInput =
-  | Omit<
-      Extract<C1LiveBindingCheckpoint, { readonly phase: 'OUTBOUND_PERMITTED' }>,
-      'checkpointOrdinal'
-    >
-  | Omit<
-      Extract<C1LiveBindingCheckpoint, { readonly phase: 'RESPONSE_RECORDED' }>,
-      'checkpointOrdinal'
-    >
+type C1LiveBindingCheckpointInput = C1LiveBindingCheckpoint extends infer Checkpoint
+  ? Checkpoint extends C1LiveBindingCheckpoint
+    ? Omit<Checkpoint, 'checkpointOrdinal'>
+    : never
+  : never
 
 /**
  * Metadata-only checkpoint sink. A live implementation can replace this with
@@ -996,6 +1030,14 @@ export interface C1LiveBindingLegInput {
   /** Aborts an in-flight provider request when the study operator stops. */
   readonly responseAbortSignal?: AbortSignal
   readonly killSwitch?: RunKillSwitch
+  /**
+   * Optional pre-existing Runtime Working Set. This is used by harness-seeded
+   * lifecycle probes whose observation represents a later boundary in the
+   * same session. Existing callers start from null as before.
+   */
+  readonly initialWorkingSet?: ContextWorkingSet | null
+  /** Previously committed removals supplied by a harness-seeded boundary. */
+  readonly initialCarriedRemovals?: readonly C1CarriedRemoval[]
 }
 
 export interface C1LiveBindingLegResult {
@@ -1042,6 +1084,8 @@ export class C1LiveBindingDriver {
       readonly providerBinding: C1StrictProviderBinding
       readonly budgetGuard: C1HardBudgetGuard
       readonly evidenceSink: C1LiveBindingEvidenceSink
+      /** Optional outer-study request configuration hash. */
+      readonly providerConfigHashOverride?: string
     }
   ) {
     this.executor = new C1LegExecutor({
@@ -1115,8 +1159,11 @@ export class C1LiveBindingDriver {
       })
     let observation = input.observationSource.initialObservation
     let previousObservation = observation
-    let previousWorkingSet: ContextWorkingSet | null = null
+    let previousWorkingSet: ContextWorkingSet | null = input.initialWorkingSet ?? null
     let previousExecution: C1LegExecutionResult | null = null
+    const carriedRemovals = new Map<string, C1CarriedRemoval>(
+      (input.initialCarriedRemovals ?? []).map((removal) => [removal.toolCallId, removal])
+    )
     const evidence: C1LiveBindingEvidence[] = []
     let finalOutcome: C1LiveTaskOutcome | undefined
     let transportSendAttempts = 0
@@ -1132,7 +1179,9 @@ export class C1LiveBindingDriver {
           provider: C1_PROVIDER_ID,
           model: C1_MODEL_ID,
           endpoint: C1_PROVIDER_ENDPOINT,
-          providerConfigHash: this.options.providerBinding.providerConfigHash
+          providerConfigHash:
+            this.options.providerConfigHashOverride ??
+            this.options.providerBinding.providerConfigHash
         })
         let execution: C1LegExecutionResult
         try {
@@ -1151,8 +1200,12 @@ export class C1LiveBindingDriver {
             providerBinding: this.options.providerBinding,
             transport,
             treatmentReady: true,
+            ...(this.options.providerConfigHashOverride === undefined
+              ? {}
+              : { providerConfigHashOverride: this.options.providerConfigHashOverride }),
             killSwitch,
             previousWorkingSet,
+            carriedRemovals: [...carriedRemovals.values()],
             recompositionSequence: callOrdinal - 1,
             runtimeSessionId: input.runtimeSessionId,
             requireRuntimeDifference: input.requireRuntimeDifferenceForCall?.(callOrdinal) ?? false
@@ -1197,7 +1250,102 @@ export class C1LiveBindingDriver {
         }
         transportSendAttempts += transport.sendAttempts
         blockedProviderCallAttempts += transport.blockedSendAttempts
-        validateModelResponse(response, input.responseSource.kind)
+        const receivedUsage = validateModelResponse(response, input.responseSource.kind)
+        const receipt: C1LiveBindingResponseReceipt = {
+          studyId: execution.capture.studyId,
+          taskId: execution.capture.taskId,
+          stratum: execution.capture.stratum,
+          pairId: execution.capture.pairId,
+          arm: execution.capture.arm,
+          runId: execution.capture.runId,
+          callOrdinal,
+          turnId: execution.capture.turnId,
+          modelCallId: execution.capture.modelCallId,
+          responseId: response.responseId,
+          responseSource: input.responseSource.kind,
+          assistantMessages: response.assistantMessageCount,
+          usage: receivedUsage,
+          toolCalls: response.toolRequests.length,
+          toolRequestEvidence: Object.freeze(
+            response.toolRequests.map((request) => ({
+              ...toolRequestEvidence(request)
+            }))
+          ),
+          taskOutcome: response.outcome,
+          provider: execution.capture.provider,
+          model: execution.capture.model,
+          endpoint: execution.capture.endpoint,
+          providerConfigHash: execution.capture.providerConfigHash,
+          contextStrategy: execution.capture.contextStrategy,
+          providerBoundSourceKeys: execution.capture.providerBoundSourceKeys,
+          ...(execution.capture.prePolicyProviderBoundMessagesHash === undefined
+            ? {}
+            : {
+                prePolicyProviderBoundMessagesHash:
+                  execution.capture.prePolicyProviderBoundMessagesHash
+              }),
+          ...(execution.capture.postPolicyProviderBoundMessagesHash === undefined
+            ? {}
+            : {
+                postPolicyProviderBoundMessagesHash:
+                  execution.capture.postPolicyProviderBoundMessagesHash
+              }),
+          modelVisibleSemanticContextFingerprint:
+            execution.capture.modelVisibleSemanticContextFingerprint,
+          systemDeveloperToolStructuresFingerprint:
+            execution.capture.systemDeveloperToolStructuresFingerprint,
+          workingSetId: execution.capture.workingSetId,
+          transitionId: execution.capture.transitionId,
+          transitionDecisionKinds: Object.freeze(
+            execution.transition?.orderedDecisions.map((decision) => decision.kind) ?? []
+          ),
+          decisionDetails:
+            execution.transition?.orderedDecisions.map((decision) => ({
+              kind: decision.kind,
+              sourceKey: decision.sourceKey,
+              sourceVersionId: decision.sourceVersionId,
+              reasonCodes: [...decision.reasonCodes]
+            })) ?? [],
+          carriedRemovedSourceKeys: execution.carriedRemovedSourceKeys,
+          carriedRemovalEvidence: [...carriedRemovals.values()].filter((removal) =>
+            execution.carriedRemovedSourceKeys.includes(`run/tool-call://${removal.toolCallId}`)
+          ),
+          lifecycleEligible: execution.capture.lifecycleEligible,
+          runtimeContextChanged: execution.capture.runtimeContextChanged,
+          fallbackSent: false,
+          networkSent: input.responseSource.kind === 'AUTHORIZED_PROVIDER',
+          replayMismatch: execution.replayMismatch
+        }
+        await this.appendCheckpoint({
+          phase: 'RESPONSE_RECEIVED',
+          callOrdinal,
+          receipt
+        })
+        const recordedTools = new Map<string, C1LiveToolExecution>()
+        const recordTool = async (tool: C1LiveToolExecution): Promise<void> => {
+          const request = receipt.toolRequestEvidence.find(
+            (item) => item.toolCallId === tool.toolCallId
+          )
+          if (request?.toolName !== tool.toolName || recordedTools.has(tool.toolCallId)) {
+            throw new C1PreflightFailure(
+              'PREFLIGHT_FAILURE',
+              'tool event is duplicate or has no matching request'
+            )
+          }
+          const metadata: C1LiveToolExecution = {
+            toolCallId: tool.toolCallId,
+            toolName: tool.toolName,
+            ...(tool.path === undefined ? {} : { path: tool.path }),
+            result: tool.result
+          }
+          await this.appendCheckpoint({
+            phase: 'TOOL_EXECUTION_RECORDED',
+            callOrdinal,
+            runId: input.runId,
+            execution: metadata
+          })
+          recordedTools.set(tool.toolCallId, metadata)
+        }
         if (
           response.toolRequests.length > 0 &&
           input.responseSource.kind === 'AUTHORIZED_PROVIDER'
@@ -1224,7 +1372,8 @@ export class C1LiveBindingDriver {
           const toolLoop = await input.toolExecutor.execute({
             previousObservation: currentObservation,
             response,
-            observationId: `${input.runId}-observation-after-call-${String(callOrdinal).padStart(2, '0')}`
+            observationId: `${input.runId}-observation-after-call-${String(callOrdinal).padStart(2, '0')}`,
+            onToolExecution: recordTool
           })
           if (toolLoop.executions.length !== response.toolRequests.length) {
             throw new C1PreflightFailure(
@@ -1238,56 +1387,27 @@ export class C1LiveBindingDriver {
           })
           toolObservation = toolLoop.observation
         }
-        const usage = validateModelResponse(effectiveResponse, input.responseSource.kind)
+        validateModelResponse(effectiveResponse, input.responseSource.kind)
+        for (const tool of effectiveResponse.toolExecutions) {
+          const recorded = recordedTools.get(tool.toolCallId)
+          if (recorded === undefined) await recordTool(tool)
+          else if (
+            recorded.toolName !== tool.toolName ||
+            recorded.result !== tool.result ||
+            recorded.path !== tool.path
+          ) {
+            throw new C1PreflightFailure(
+              'PREFLIGHT_FAILURE',
+              'tool return differs from persisted event'
+            )
+          }
+        }
+        if (recordedTools.size !== effectiveResponse.toolExecutions.length) {
+          throw new C1PreflightFailure('PREFLIGHT_FAILURE', 'tool return omits persisted event')
+        }
         const row: C1LiveBindingEvidence = {
-          studyId: execution.capture.studyId,
-          taskId: execution.capture.taskId,
-          stratum: execution.capture.stratum,
-          pairId: execution.capture.pairId,
-          arm: execution.capture.arm,
-          runId: execution.capture.runId,
-          callOrdinal,
-          turnId: execution.capture.turnId,
-          modelCallId: execution.capture.modelCallId,
-          responseId: effectiveResponse.responseId,
-          responseSource: input.responseSource.kind,
-          assistantMessages: effectiveResponse.assistantMessageCount,
-          usage,
-          toolCalls: effectiveResponse.toolRequests.length,
-          toolRequestEvidence: Object.freeze(
-            effectiveResponse.toolRequests.map((request) => ({
-              ...toolRequestEvidence(request)
-            }))
-          ),
-          toolEvents: Object.freeze(
-            effectiveResponse.toolExecutions.map((execution) => ({
-              toolCallId: execution.toolCallId,
-              toolName: execution.toolName,
-              ...(execution.path === undefined ? {} : { path: execution.path }),
-              result: execution.result
-            }))
-          ),
-          taskOutcome: effectiveResponse.outcome,
-          provider: execution.capture.provider,
-          model: execution.capture.model,
-          endpoint: execution.capture.endpoint,
-          providerConfigHash: execution.capture.providerConfigHash,
-          contextStrategy: execution.capture.contextStrategy,
-          providerBoundSourceKeys: execution.capture.providerBoundSourceKeys,
-          modelVisibleSemanticContextFingerprint:
-            execution.capture.modelVisibleSemanticContextFingerprint,
-          systemDeveloperToolStructuresFingerprint:
-            execution.capture.systemDeveloperToolStructuresFingerprint,
-          workingSetId: execution.capture.workingSetId,
-          transitionId: execution.capture.transitionId,
-          transitionDecisionKinds: Object.freeze(
-            execution.transition?.orderedDecisions.map((decision) => decision.kind) ?? []
-          ),
-          lifecycleEligible: execution.capture.lifecycleEligible,
-          runtimeContextChanged: execution.capture.runtimeContextChanged,
-          fallbackSent: false,
-          networkSent: input.responseSource.kind === 'AUTHORIZED_PROVIDER',
-          replayMismatch: execution.replayMismatch
+          ...receipt,
+          toolEvents: Object.freeze([...recordedTools.values()])
         }
         await this.appendCheckpoint({
           phase: 'RESPONSE_RECORDED',
@@ -1295,6 +1415,30 @@ export class C1LiveBindingDriver {
           evidence: row
         })
         evidence.push(row)
+        // Commit carry state only after an acknowledged send/response checkpoint.
+        const removedKeys = new Set(
+          execution.transition?.orderedDecisions
+            .filter((decision) => decision.kind === 'REMOVE')
+            .map((decision) => decision.sourceKey) ?? []
+        )
+        for (const key of removedKeys) {
+          if (!key.startsWith('run/tool-call://')) continue
+          const toolCallId = key.slice('run/tool-call://'.length)
+          if (
+            !removedKeys.has(`run/tool-result://${toolCallId}`) ||
+            execution.capture.providerBoundSourceKeys.includes(key)
+          )
+            continue
+          carriedRemovals.set(toolCallId, {
+            toolCallId,
+            pairFingerprint: c1ToolPairFingerprint(currentObservation.messages, toolCallId),
+            removalTransitionId: execution.capture.transitionId
+          })
+        }
+        for (const [id] of carriedRemovals) {
+          if (execution.capture.providerBoundSourceKeys.includes(`run/tool-call://${id}`))
+            carriedRemovals.delete(id)
+        }
         previousObservation = currentObservation
         previousExecution = execution
         finalOutcome = effectiveResponse.outcome
@@ -1327,7 +1471,8 @@ export class C1LiveBindingDriver {
       validateC1LiveBindingEvidence(evidence, {
         arm: input.arm,
         responseSource: input.responseSource.kind,
-        providerConfigHash: this.options.providerBinding.providerConfigHash
+        providerConfigHash:
+          this.options.providerConfigHashOverride ?? this.options.providerBinding.providerConfigHash
       })
       return {
         status: 'COMPLETED',
@@ -1340,6 +1485,7 @@ export class C1LiveBindingDriver {
         budget: this.options.budgetGuard.ledger
       }
     } catch (error) {
+      this.studyTerminalReason ??= 'live binding leg did not complete; study is terminal'
       this.tripStudyTerminal(error)
       throw error
     } finally {
