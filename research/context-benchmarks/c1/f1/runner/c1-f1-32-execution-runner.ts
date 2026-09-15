@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
-import { mkdir, open, readFile } from 'node:fs/promises'
+import { mkdir, open, readFile, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createRunKillSwitch } from '@canvas-agent/pi-context-integration/experimental'
 import type { ContextWorkingSet } from '@canvas-agent/context-runtime'
 import type { PiMessageView } from '@canvas-agent/pi-context-integration'
@@ -10,6 +11,8 @@ import {
   type C1F1Native32SurfaceInventoryEntry
 } from '../contract/c1-f1-native-feasibility-32-anchor-inventory'
 import {
+  C1_F1_NATIVE32_BUDGET_ONLY_PROJECTION_PATH,
+  C1_F1_NATIVE32_EFFECTIVE_SURFACE_PARITY_POLICY,
   C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256,
   C1_F1_NATIVE32_PENDING_BINDING,
   C1_F1_NATIVE32_PROVIDER_CONFIG_HASH,
@@ -84,6 +87,7 @@ import {
   type C1LiveBindingResponseReceipt,
   type C1LiveBindingEvidenceSink,
   type C1LiveModelResponse,
+  type C1LiveResponseSourceKind,
   type C1LiveResponseSource,
   type C1LiveToolExecution,
   type C1LiveToolRequest,
@@ -97,10 +101,13 @@ import {
   type C1TaskEvaluation
 } from '../../../src/c1-live-study'
 import { buildSanitizedChildEnvironment, runProcess } from '../../../src/fixture-generator'
+import { C1AuthorizedProviderResponseSource } from '../../../src/c1-authorized-provider'
 
 export const C1_F1_NATIVE32_RUNNER_ID = 'C1_F1_NATIVE_FEASIBILITY_RUNNER_32' as const
 export const C1_F1_NATIVE32_RUNNER_SCHEMA_VERSION = 1 as const
 export const C1_F1_NATIVE32_RUNNER_MODE = 'CREDENTIAL_FREE_NATIVE_ONLY' as const
+export const C1_F1_NATIVE32_AUTHORIZED_RUNNER_MODE = 'AUTHORIZED_PROVIDER_NATIVE_ONLY' as const
+export const C1_F1_NATIVE32_FAKE_PROVIDER_RUNNER_MODE = 'CREDENTIAL_FREE_FAKE_PROVIDER' as const
 export const C1_F1_NATIVE32_EXECUTION_SURFACE_PATH =
   'research/context-benchmarks/c1/f1/runner/c1-f1-32-execution-runner.ts' as const
 export const C1_F1_NATIVE32_EXECUTION_SURFACE_PATHS = Object.freeze([
@@ -120,6 +127,47 @@ export type C1F1Native32FakeScenario =
 
 export type C1F1Native32PointLabel =
   'INVALID' | 'INCONCLUSIVE' | 'VALID_INFEASIBLE' | 'VALID_STABLE_FEASIBLE'
+
+export interface C1F1Native32LiveAuthorization {
+  readonly schemaVersion: 1
+  readonly decision: 'AUTHORIZED'
+  readonly scope: 'C1_F1_NATIVE_FEASIBILITY_32_ONLY'
+  readonly owner: string
+  readonly authorizedAt: string
+  readonly studyId: string
+  readonly identityStatus: 'FRESH_NEVER_CLAIMED_SINGLE_USE'
+  readonly executionRevision: string
+  readonly executionSurfaceHash: string
+  readonly bindingControlSurfaceHash: string
+  readonly runContractSha256: string
+  readonly freezeCandidateRunContractSha256: string
+  readonly finalBoundRunContractSha256: string
+  readonly enrollmentManifestSha256: string
+  readonly providerConfigHash: string
+  readonly provider: string
+  readonly model: string
+  readonly endpoint: string
+  readonly budgets: Readonly<Record<string, unknown>>
+  readonly runtimeIntervention: 'DISABLED'
+  readonly fallback: 'NONE'
+  readonly retry: 'FORBIDDEN'
+  readonly resume: 'FORBIDDEN'
+  readonly reuse: 'FORBIDDEN'
+  readonly credentialPersistence: 'MEMORY_ONLY'
+}
+
+export interface C1F1Native32AuthorizedStudyOptions {
+  readonly repoRoot?: string
+  readonly outputRoot?: string
+  readonly authorization: C1F1Native32LiveAuthorization
+  /** Read only after authorization, contract, surface, budget, and identity preflight pass. */
+  readonly readApiKey: () => string | undefined | Promise<string | undefined>
+  /** Test-only fake transport. Production execution must use the provider's real fetch path. */
+  readonly fetchImpl?: typeof fetch
+  readonly signal?: AbortSignal
+  /** Test-only plan limit. Production execution always uses the frozen 32-run plan. */
+  readonly testRunLimit?: number
+}
 
 export interface C1F1Native32ExecutionPlan {
   readonly runOrdinal: number
@@ -149,11 +197,23 @@ export interface C1F1Native32ExecutionRunnerOptions {
   readonly testRunLimit?: number
 }
 
+interface C1F1Native32StudyCoreOptions extends Omit<C1F1Native32ExecutionRunnerOptions, 'studyId'> {
+  readonly mode: 'SCRIPTED_FAKE' | 'AUTHORIZED_PROVIDER'
+  readonly studyId: string
+  readonly authorization?: C1F1Native32LiveAuthorization
+  readonly readApiKey?: C1F1Native32AuthorizedStudyOptions['readApiKey']
+  readonly fetchImpl?: typeof fetch
+  readonly signal?: AbortSignal
+}
+
 export interface C1F1Native32ExecutionReport {
   readonly runnerId: typeof C1_F1_NATIVE32_RUNNER_ID
   readonly schemaVersion: typeof C1_F1_NATIVE32_RUNNER_SCHEMA_VERSION
-  readonly executionMode: typeof C1_F1_NATIVE32_RUNNER_MODE
-  readonly scenario: C1F1Native32FakeScenario
+  readonly executionMode:
+    | typeof C1_F1_NATIVE32_RUNNER_MODE
+    | typeof C1_F1_NATIVE32_AUTHORIZED_RUNNER_MODE
+    | typeof C1_F1_NATIVE32_FAKE_PROVIDER_RUNNER_MODE
+  readonly scenario: C1F1Native32FakeScenario | 'AUTHORIZED_PROVIDER'
   readonly status: C1F1Native32PointLabel | 'NO_GO'
   readonly studyId: string
   readonly reportDir: string | null
@@ -169,9 +229,11 @@ export interface C1F1Native32ExecutionReport {
   readonly model: typeof C1_MODEL_ID
   readonly endpoint: typeof C1_PROVIDER_ENDPOINT
   readonly nodeRange: typeof C1_NODE_RANGE
-  readonly responseSource: 'SCRIPTED_FAKE'
-  readonly providerCalls: 0
-  readonly networkRequests: 0
+  readonly responseSource: 'SCRIPTED_FAKE' | 'AUTHORIZED_PROVIDER'
+  readonly transportMode: 'SCRIPTED_FAKE' | 'NETWORK' | 'INJECTED_FAKE_FETCH'
+  readonly providerCalls: number
+  readonly networkRequests: number
+  readonly providerCallPermits: number
   readonly responseCalls: number
   readonly toolExecutions: number
   readonly runsPlanned: 32
@@ -208,6 +270,27 @@ function assertF1StudyId(studyId: string): void {
   if (!F1_NATIVE32_STUDY_ID_PATTERN.test(studyId)) {
     throw new C1PreflightFailure('IDENTITY_INVALID', 'invalid F1-32 credential-free study identity')
   }
+}
+
+async function assertF1StudyIdentityUnclaimed(outputRoot: string, studyId: string): Promise<void> {
+  assertF1StudyId(studyId)
+  try {
+    await stat(join(outputRoot, studyId))
+  } catch (error) {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { readonly code?: unknown }).code === 'ENOENT'
+    ) {
+      return
+    }
+    throw new C1PreflightFailure(
+      'IDENTITY_INVALID',
+      'unable to verify the F1-32 study identity claim state'
+    )
+  }
+  throw new C1PreflightFailure('IDENTITY_REUSE', 'F1-32 study identity is already claimed')
 }
 
 function studyRunPrefix(studyId: string): string {
@@ -391,7 +474,135 @@ function record(value: unknown, path: string): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-function buildFinalBoundF1Contract(input: {
+function sanitizedF1Failure(
+  error: unknown,
+  apiKey: string | null
+): { readonly code: string; readonly message: string } {
+  const failure = failureOf(error)
+  return {
+    code: failure.code,
+    message:
+      apiKey === null || apiKey.length === 0
+        ? failure.message
+        : failure.message.split(apiKey).join('[REDACTED]')
+  }
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    const encoded = JSON.stringify(value)
+    if (encoded === undefined) throw new C1PreflightFailure('NOT_AUTHORIZED', 'invalid JSON value')
+    return encoded
+  }
+  if (Array.isArray(value)) return '[' + value.map((entry) => canonicalJson(entry)).join(',') + ']'
+  const object = value as Record<string, unknown>
+  const rows = Object.keys(object)
+    .sort()
+    .map((key) => JSON.stringify(key) + ':' + canonicalJson(object[key]))
+  return '{' + rows.join(',') + '}'
+}
+
+function assertC1F1Native32LiveAuthorization(input: {
+  readonly authorization: C1F1Native32LiveAuthorization
+  readonly contract: C1F1Native32Contract
+  readonly binding: C1F1Native32ExecutionBinding
+  readonly finalBoundRunContractSha256: string
+}): void {
+  const authorization = record(input.authorization, 'authorization')
+  const allowedKeys = [
+    'schemaVersion',
+    'decision',
+    'scope',
+    'owner',
+    'authorizedAt',
+    'studyId',
+    'identityStatus',
+    'executionRevision',
+    'executionSurfaceHash',
+    'bindingControlSurfaceHash',
+    'runContractSha256',
+    'finalBoundRunContractSha256',
+    'freezeCandidateRunContractSha256',
+    'enrollmentManifestSha256',
+    'providerConfigHash',
+    'provider',
+    'model',
+    'endpoint',
+    'budgets',
+    'runtimeIntervention',
+    'fallback',
+    'retry',
+    'resume',
+    'reuse',
+    'credentialPersistence'
+  ].sort()
+  const actualKeys = Object.keys(authorization).sort()
+  if (canonicalJson(actualKeys) !== canonicalJson(allowedKeys)) {
+    throw new C1PreflightFailure(
+      'NOT_AUTHORIZED',
+      'F1-32 authorization must contain only the frozen non-credential fields'
+    )
+  }
+  const root = record(input.contract, 'finalBoundContract')
+  const execution = record(root['executionBinding'], 'executionBinding')
+  const enrollment = record(root['enrollmentBinding'], 'enrollmentBinding')
+  const identity = record(root['identityPolicy'], 'identityPolicy')
+  const design = record(root['design'], 'design')
+  const budget = record(root['budgets'], 'budgets')
+  const studyId = authorization['studyId']
+  const owner = authorization['owner']
+  const authorizedAt = authorization['authorizedAt']
+  if (
+    authorization['schemaVersion'] !== 1 ||
+    authorization['decision'] !== 'AUTHORIZED' ||
+    authorization['scope'] !== 'C1_F1_NATIVE_FEASIBILITY_32_ONLY' ||
+    typeof owner !== 'string' ||
+    owner.trim().length === 0 ||
+    typeof authorizedAt !== 'string' ||
+    !Number.isFinite(Date.parse(authorizedAt)) ||
+    new Date(authorizedAt).toISOString() !== authorizedAt ||
+    typeof studyId !== 'string' ||
+    !/^c1-f1-32-\d{8}-[0-9a-f]{8}$/.test(studyId) ||
+    authorization['identityStatus'] !== 'FRESH_NEVER_CLAIMED_SINGLE_USE' ||
+    authorization['executionRevision'] !== input.binding.executionRevision ||
+    authorization['executionRevision'] !== execution['codeRevision'] ||
+    authorization['executionSurfaceHash'] !== input.binding.executionSurfaceHash ||
+    authorization['executionSurfaceHash'] !== execution['executionSurfaceHash'] ||
+    authorization['bindingControlSurfaceHash'] !== input.binding.bindingControlSurfaceHash ||
+    authorization['bindingControlSurfaceHash'] !== root['bindingControlSurfaceHash'] ||
+    authorization['runContractSha256'] !== input.finalBoundRunContractSha256 ||
+    authorization['finalBoundRunContractSha256'] !== input.finalBoundRunContractSha256 ||
+    authorization['finalBoundRunContractSha256'] !== root['runContractSha256'] ||
+    authorization['freezeCandidateRunContractSha256'] !==
+      C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256 ||
+    authorization['enrollmentManifestSha256'] !== enrollment['taskManifestSha256'] ||
+    authorization['providerConfigHash'] !== execution['providerConfigHash'] ||
+    authorization['provider'] !== execution['provider'] ||
+    authorization['model'] !== execution['model'] ||
+    authorization['endpoint'] !== execution['endpoint'] ||
+    canonicalJson(authorization['budgets']) !== canonicalJson(budget) ||
+    authorization['runtimeIntervention'] !== design['runtimeIntervention'] ||
+    authorization['fallback'] !== execution['fallback'] ||
+    authorization['fallback'] !== 'NONE' ||
+    authorization['retry'] !== identity['retry'] ||
+    authorization['retry'] !== 'FORBIDDEN' ||
+    authorization['resume'] !== identity['resume'] ||
+    authorization['resume'] !== 'FORBIDDEN' ||
+    authorization['reuse'] !== identity['reuse'] ||
+    authorization['reuse'] !== 'FORBIDDEN' ||
+    authorization['credentialPersistence'] !== execution['credentialPersistence'] ||
+    authorization['credentialPersistence'] !== 'MEMORY_ONLY' ||
+    root['studyId'] !== undefined ||
+    identity['studyIdStatus'] !== 'NOT_CREATED'
+  ) {
+    throw new C1PreflightFailure(
+      'NOT_AUTHORIZED',
+      'F1-32 owner authorization does not match the final-bound contract and actual checkout'
+    )
+  }
+}
+
+export function buildFinalBoundF1Contract(input: {
   readonly candidate: C1F1Native32Contract
   readonly binding: C1F1Native32ExecutionBinding
 }): {
@@ -425,10 +636,11 @@ function buildFinalBoundF1Contract(input: {
         classification: 'EXACT_UNCHANGED'
       }
     }
-    if (!entry.path.startsWith('research/context-benchmarks/c1/f1/runner/')) {
+    if (entry.path !== C1_F1_NATIVE32_BUDGET_ONLY_PROJECTION_PATH) {
       throw new C1PreflightFailure(
         'CONTRACT_BINDING_MISMATCH',
-        'F1-32 execution surface has an undeclared target-only path: ' + entry.path
+        'F1-32 execution surface has a target-only path outside the exact budget projection: ' +
+          entry.path
       )
     }
     return {
@@ -464,6 +676,9 @@ function buildFinalBoundF1Contract(input: {
   candidate['bindingControlSurfacePaths'] = input.binding.bindingControlInventory.map(
     (entry) => entry.path
   )
+  candidate['effectiveSurfaceParity'] = JSON.parse(
+    JSON.stringify(C1_F1_NATIVE32_EFFECTIVE_SURFACE_PARITY_POLICY)
+  ) as unknown
   candidate['surfaceEquivalenceWitness'] = surfaceWitness
   const finalHash = computeC1F1Native32RunContractSha256(candidate)
   candidate['runContractSha256'] = finalHash
@@ -595,7 +810,10 @@ function toolRequestEvidence(request: C1LiveToolRequest): {
   }
 }
 
-function validateF1ModelResponse(response: C1LiveModelResponse): void {
+function validateF1ModelResponse(
+  response: C1LiveModelResponse,
+  sourceKind: C1LiveResponseSourceKind
+): void {
   if (response.responseId.length === 0)
     throw new C1PreflightFailure(
       'PREFLIGHT_FAILURE',
@@ -616,30 +834,54 @@ function validateF1ModelResponse(response: C1LiveModelResponse): void {
       'F1-32 response assistant content is not normalized'
     )
   }
+  const expectedUsageSource = sourceKind === 'SCRIPTED_FAKE' ? 'SCRIPTED_FAKE' : 'PROVIDER_REPORTED'
   if (
     typeof response.usage !== 'object' ||
     response.usage === null ||
     Array.isArray(response.usage) ||
-    response.usage.usageSource !== 'SCRIPTED_FAKE'
+    response.usage.usageSource !== expectedUsageSource
   ) {
     throw new C1PreflightFailure(
       'USAGE_CONTRACT_MISMATCH',
-      'F1-32 scripted usage has invalid provenance'
+      'F1-32 usage provenance does not match the response source'
     )
   }
-  for (const field of [
-    'inputTokens',
-    'outputTokens',
-    'cacheReadTokens',
-    'cacheWriteTokens',
-    'totalTokens'
-  ] as const) {
+  const numericFields =
+    sourceKind === 'SCRIPTED_FAKE'
+      ? ([
+          'inputTokens',
+          'outputTokens',
+          'cacheReadTokens',
+          'cacheWriteTokens',
+          'totalTokens'
+        ] as const)
+      : (['inputTokens', 'outputTokens', 'totalTokens'] as const)
+  for (const field of numericFields) {
     const value = response.usage[field]
-    if (!Number.isSafeInteger(value) || value < 0) {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
       throw new C1PreflightFailure(
         'USAGE_CONTRACT_MISMATCH',
-        'F1-32 scripted usage has an invalid token field'
+        'F1-32 usage has an invalid token field'
       )
+    }
+  }
+  if (sourceKind === 'AUTHORIZED_PROVIDER') {
+    for (const field of ['cacheReadTokens', 'cacheWriteTokens'] as const) {
+      const metric = response.usage[field]
+      if (
+        typeof metric !== 'object' ||
+        metric === null ||
+        !('status' in metric) ||
+        (metric.status !== 'REPORTED' && metric.status !== 'UNAVAILABLE') ||
+        (metric.status === 'REPORTED' &&
+          (!Number.isSafeInteger(metric.value) || metric.value < 0)) ||
+        (metric.status === 'UNAVAILABLE' && metric.reason !== 'NOT_REPORTED_BY_PROVIDER')
+      ) {
+        throw new C1PreflightFailure(
+          'USAGE_CONTRACT_MISMATCH',
+          'F1-32 provider usage metric has invalid availability evidence'
+        )
+      }
     }
   }
   const requests = new Map<string, C1LiveToolRequest>()
@@ -678,9 +920,14 @@ function validateF1ModelResponse(response: C1LiveModelResponse): void {
 
 function withPreviousWorkingSet(
   observation: C1AgentObservation,
+  arm: 'NATIVE' | 'RUNTIME',
   previousWorkingSet: ContextWorkingSet | null
 ): C1AgentObservation {
-  if (previousWorkingSet !== null && observation.previousWorkingSetId === null) {
+  if (
+    arm === 'RUNTIME' &&
+    previousWorkingSet !== null &&
+    observation.previousWorkingSetId === null
+  ) {
     return { ...observation, previousWorkingSetId: previousWorkingSet.workingSetId }
   }
   return observation
@@ -698,7 +945,7 @@ type C1F1Native32CheckpointInput = C1LiveBindingCheckpoint extends infer Checkpo
  * adapter keeps its evidence and execution semantics while widening only the
  * point budget for F1-32.
  */
-class C1F1Native32BindingDriver {
+export class C1F1Native32BindingDriver {
   private readonly executor: C1LegExecutor
   private checkpointOrdinal = 0
   private studyTerminalReason: string | null = null
@@ -785,7 +1032,11 @@ class C1F1Native32BindingDriver {
     let blockedProviderCallAttempts = 0
     try {
       for (let callOrdinal = 1; callOrdinal <= maxCalls; callOrdinal += 1) {
-        const currentObservation = withPreviousWorkingSet(observation, previousWorkingSet)
+        const currentObservation = withPreviousWorkingSet(
+          observation,
+          input.arm,
+          previousWorkingSet
+        )
         const transport = new C1LiveBindingTransport({
           provider: C1_PROVIDER_ID,
           model: C1_MODEL_ID,
@@ -861,7 +1112,7 @@ class C1F1Native32BindingDriver {
         }
         transportSendAttempts += transport.sendAttempts
         blockedProviderCallAttempts += transport.blockedSendAttempts
-        validateF1ModelResponse(response)
+        validateF1ModelResponse(response, input.responseSource.kind)
         const receipt: C1LiveBindingResponseReceipt = {
           studyId: execution.capture.studyId,
           taskId: execution.capture.taskId,
@@ -922,7 +1173,7 @@ class C1F1Native32BindingDriver {
           lifecycleEligible: execution.capture.lifecycleEligible,
           runtimeContextChanged: execution.capture.runtimeContextChanged,
           fallbackSent: false,
-          networkSent: false,
+          networkSent: input.responseSource.kind === 'AUTHORIZED_PROVIDER',
           replayMismatch: execution.replayMismatch
         }
         await this.appendCheckpoint({ phase: 'RESPONSE_RECEIVED', callOrdinal, receipt })
@@ -950,6 +1201,18 @@ class C1F1Native32BindingDriver {
             execution: metadata
           })
           recordedTools.set(tool.toolCallId, metadata)
+        }
+        if (
+          response.toolRequests.length > 0 &&
+          input.responseSource.kind === 'AUTHORIZED_PROVIDER' &&
+          input.toolExecutor === undefined
+        ) {
+          const error = new C1PreflightFailure(
+            'PREFLIGHT_FAILURE',
+            'authorized provider tool requests require a tool executor'
+          )
+          this.studyTerminalReason ??= error.message
+          throw error
         }
         this.options.budgetGuard.reserveToolCalls(response.toolRequests.length)
         let effectiveResponse = response
@@ -979,7 +1242,7 @@ class C1F1Native32BindingDriver {
           })
           toolObservation = toolLoop.observation
         }
-        validateF1ModelResponse(effectiveResponse)
+        validateF1ModelResponse(effectiveResponse, input.responseSource.kind)
         for (const tool of effectiveResponse.toolExecutions) {
           const recorded = recordedTools.get(tool.toolCallId)
           if (recorded === undefined) await recordTool(tool)
@@ -1125,6 +1388,13 @@ function pointLabel(feasibility: C1F0V2AdjudicationSummary): C1F1Native32PointLa
   return 'VALID_STABLE_FEASIBLE'
 }
 
+function isAuthorizedProviderStudyInvalidator(code: string, message = ''): boolean {
+  if (code === 'PREFLIGHT_FAILURE' && message.includes('maxCalls=')) return false
+  return (
+    isSharedInvalidator(code) || code === 'PREFLIGHT_FAILURE' || code === 'USAGE_CONTRACT_MISMATCH'
+  )
+}
+
 function fallbackContractView(): V2ContractView {
   return {
     contractId: 'C1_F1_NATIVE_FEASIBILITY_32',
@@ -1185,7 +1455,19 @@ async function writeF1Artifacts(input: {
   readonly reportDir: string
   readonly contract: V2ContractView
   readonly studyId: string
-  readonly scenario: C1F1Native32FakeScenario
+  readonly scenario: C1F1Native32FakeScenario | 'AUTHORIZED_PROVIDER'
+  readonly executionMode: C1F1Native32ExecutionReport['executionMode']
+  readonly responseSource: C1F1Native32ExecutionReport['responseSource']
+  readonly transportMode: C1F1Native32ExecutionReport['transportMode']
+  readonly providerCalls: number
+  readonly networkRequests: number
+  readonly providerCallPermits: number
+  readonly authorizationSummary: {
+    readonly owner: string
+    readonly authorizedAt: string
+    readonly sha256: string
+  } | null
+  readonly secretToRedact: string | null
   readonly executionRevision: string
   readonly executionSurfaceRevision: string
   readonly executionSurfaceHash: string
@@ -1223,7 +1505,7 @@ async function writeF1Artifacts(input: {
   const studyManifest = {
     runnerId: C1_F1_NATIVE32_RUNNER_ID,
     schemaVersion: C1_F1_NATIVE32_RUNNER_SCHEMA_VERSION,
-    executionMode: C1_F1_NATIVE32_RUNNER_MODE,
+    executionMode: input.executionMode,
     scenario: input.scenario,
     studyId: input.studyId,
     contractId: input.contract.contractId,
@@ -1237,11 +1519,15 @@ async function writeF1Artifacts(input: {
     model: C1_MODEL_ID,
     endpoint: C1_PROVIDER_ENDPOINT,
     providerConfigHash: input.contract.executionBinding.providerConfigHash,
-    responseSource: 'SCRIPTED_FAKE',
-    providerCalls: 0,
-    networkRequests: 0,
+    responseSource: input.responseSource,
+    transportMode: input.transportMode,
+    providerCalls: input.providerCalls,
+    networkRequests: input.networkRequests,
+    providerCallPermits: input.providerCallPermits,
+    authorization: input.authorizationSummary,
     fallback: 'NONE',
     runtimeIntervention: 'DISABLED',
+    budgets: input.contract.budgets,
     taskPanel: input.contract.taskPanel.map((task) => ({
       taskId: task.taskId,
       stratum: task.stratum
@@ -1256,8 +1542,9 @@ async function writeF1Artifacts(input: {
     runsStarted: input.runs.filter((run) => run.terminationStatus !== 'BLOCKED').length,
     runsCompleted: input.runs.filter((run) => run.terminationStatus !== 'BLOCKED').length,
     blockedRuns: input.runs.filter((run) => run.terminationStatus === 'BLOCKED').length,
-    providerCalls: 0,
-    networkRequests: 0,
+    providerCalls: input.providerCalls,
+    networkRequests: input.networkRequests,
+    providerCallPermits: input.providerCallPermits,
     failures: input.failures,
     runs: input.runs
   }
@@ -1319,6 +1606,15 @@ async function writeF1Artifacts(input: {
     ],
     ['final-bound-contract.json', JSON.stringify(input.finalBoundContract, null, 2) + '\n']
   ]
+  if (
+    input.secretToRedact !== null &&
+    documents.some(([, content]) => content.includes(input.secretToRedact!))
+  ) {
+    throw new C1PreflightFailure(
+      'EVIDENCE_WRITE_FAILURE',
+      'F1-32 artifacts would contain the in-memory Provider credential'
+    )
+  }
   for (const [name, content] of documents) await writeDurable(join(input.reportDir, name), content)
   for (const name of [
     'checkpoints.jsonl',
@@ -1352,20 +1648,62 @@ async function writeF1Artifacts(input: {
 export async function runC1F1Native32CredentialFreeStudy(
   options: C1F1Native32ExecutionRunnerOptions
 ): Promise<C1F1Native32ExecutionReport> {
+  return runC1F1Native32StudyCore({ ...options, mode: 'SCRIPTED_FAKE' })
+}
+
+export async function runC1F1Native32AuthorizedStudy(
+  options: C1F1Native32AuthorizedStudyOptions
+): Promise<C1F1Native32ExecutionReport> {
+  return runC1F1Native32StudyCore({
+    studyId: options.authorization.studyId,
+    mode: 'AUTHORIZED_PROVIDER',
+    authorization: options.authorization,
+    readApiKey: options.readApiKey,
+    ...(options.repoRoot === undefined ? {} : { repoRoot: options.repoRoot }),
+    ...(options.outputRoot === undefined ? {} : { outputRoot: options.outputRoot }),
+    ...(options.testRunLimit === undefined ? {} : { testRunLimit: options.testRunLimit }),
+    ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
+    ...(options.signal === undefined ? {} : { signal: options.signal })
+  })
+}
+
+async function runC1F1Native32StudyCore(
+  options: C1F1Native32StudyCoreOptions
+): Promise<C1F1Native32ExecutionReport> {
   const repoRoot = options.repoRoot ?? process.cwd()
-  const scenario = options.scenario ?? 'TOOL_RECOVERY'
+  const authorizedProvider = options.mode === 'AUTHORIZED_PROVIDER'
+  const scenario: C1F1Native32FakeScenario | 'AUTHORIZED_PROVIDER' = authorizedProvider
+    ? 'AUTHORIZED_PROVIDER'
+    : (options.scenario ?? 'TOOL_RECOVERY')
+  const executionMode = authorizedProvider
+    ? process.env['NODE_ENV'] === 'test'
+      ? C1_F1_NATIVE32_FAKE_PROVIDER_RUNNER_MODE
+      : C1_F1_NATIVE32_AUTHORIZED_RUNNER_MODE
+    : C1_F1_NATIVE32_RUNNER_MODE
+  const responseSourceKind = authorizedProvider ? 'AUTHORIZED_PROVIDER' : 'SCRIPTED_FAKE'
+  const transportMode = authorizedProvider
+    ? options.fetchImpl === undefined
+      ? 'NETWORK'
+      : 'INJECTED_FAKE_FETCH'
+    : 'SCRIPTED_FAKE'
   const studyId = options.studyId
   const failures: { code: string; message: string }[] = []
   const runs: C1F0V2RunRecord[] = []
   let candidate: C1F1Native32Contract | null = null
   let reportDir: string | null = null
   let binding: C1F1Native32ExecutionBinding | null = null
+  let budgetGuard: C1HardBudgetGuard | null = null
   let executionSurfaceRevision: string | null = null
   let finalBoundContract: C1F1Native32Contract | null = null
   let surfaceWitness: Record<string, unknown> | null = null
   let checkpoints: readonly C1LiveBindingCheckpoint[] = []
   let responseCalls = 0
   let toolExecutions = 0
+  let providerCalls = 0
+  let networkRequests = 0
+  let providerCallPermits = 0
+  let apiKey: string | null = null
+  let authorizationSummary: { owner: string; authorizedAt: string; sha256: string } | null = null
   let artifactList: readonly {
     readonly name: string
     readonly sha256: string
@@ -1373,15 +1711,36 @@ export async function runC1F1Native32CredentialFreeStudy(
   }[] = []
   let sharedInvalidator = false
   const invalidatorReasons: string[] = []
+  const operatorStopRequested = () => options.signal?.aborted === true
 
   try {
-    if (process.env['NODE_ENV'] !== 'test') {
+    if (!authorizedProvider && process.env['NODE_ENV'] !== 'test') {
       throw new C1PreflightFailure(
         'IDENTITY_INVALID',
         'F1-32 credential-free runner accepts only a test synthetic study identity'
       )
     }
     assertF1StudyId(studyId)
+    if (authorizedProvider) {
+      if (options.authorization === undefined || options.readApiKey === undefined) {
+        throw new C1PreflightFailure(
+          'NOT_AUTHORIZED',
+          'F1-32 authorized execution requires an owner record and an in-memory credential reader'
+        )
+      }
+      if (process.env['NODE_ENV'] === 'test' && options.fetchImpl === undefined) {
+        throw new C1PreflightFailure(
+          'PROVIDER_PREPARATION_FAILURE',
+          'F1-32 tests must inject a fake fetch transport'
+        )
+      }
+      if (process.env['NODE_ENV'] !== 'test' && options.fetchImpl !== undefined) {
+        throw new C1PreflightFailure(
+          'PROVIDER_PREPARATION_FAILURE',
+          'F1-32 production execution does not accept an injected transport'
+        )
+      }
+    }
     if (!nodeVersionSatisfiesC1Range(process.versions.node)) {
       throw new C1PreflightFailure(
         'NODE_RANGE_MISMATCH',
@@ -1420,10 +1779,24 @@ export async function runC1F1Native32CredentialFreeStudy(
       finalBoundContract,
       binding.bindingControlInventory
     )
+    if (authorizedProvider) {
+      assertC1F1Native32LiveAuthorization({
+        authorization: options.authorization!,
+        contract: finalBoundContract,
+        binding,
+        finalBoundRunContractSha256: finalBoundContract.runContractSha256
+      })
+      authorizationSummary = {
+        owner: options.authorization!.owner,
+        authorizedAt: options.authorization!.authorizedAt,
+        sha256: sha256(canonicalJson(options.authorization))
+      }
+    }
     const allPlans = buildC1F1Native32ExecutionPlans(candidate, studyId)
     if (
       options.testRunLimit !== undefined &&
-      (!Number.isSafeInteger(options.testRunLimit) ||
+      (process.env['NODE_ENV'] !== 'test' ||
+        !Number.isSafeInteger(options.testRunLimit) ||
         options.testRunLimit < 1 ||
         options.testRunLimit > allPlans.length)
     ) {
@@ -1434,21 +1807,48 @@ export async function runC1F1Native32CredentialFreeStudy(
     }
     const plans =
       options.testRunLimit === undefined ? allPlans : allPlans.slice(0, options.testRunLimit)
-    reportDir = await claimStudyDir(
+    const outputRoot =
       options.outputRoot ??
-        join(repoRoot, 'research/context-benchmarks/.live-output/c1-f1-32-runner'),
-      studyId
-    )
+      join(
+        repoRoot,
+        authorizedProvider
+          ? 'research/context-benchmarks/.live-output/c1-f1-32-live'
+          : 'research/context-benchmarks/.live-output/c1-f1-32-runner'
+      )
+    if (authorizedProvider) await assertF1StudyIdentityUnclaimed(outputRoot, studyId)
+    if (operatorStopRequested()) {
+      throw new C1PreflightFailure('KILL_SWITCH_BLOCKED', 'operator stop signal is already active')
+    }
+    if (authorizedProvider) {
+      try {
+        const suppliedApiKey = await options.readApiKey!()
+        apiKey = typeof suppliedApiKey === 'string' ? suppliedApiKey : null
+      } catch {
+        throw new C1PreflightFailure(
+          'PROVIDER_PREPARATION_FAILURE',
+          'F1-32 in-memory credential reader failed'
+        )
+      }
+      if (typeof apiKey !== 'string' || apiKey.length === 0) {
+        throw new C1PreflightFailure(
+          'PROVIDER_PREPARATION_FAILURE',
+          'F1-32 in-memory Step Plan credential is unavailable'
+        )
+      }
+    }
     const providerBinding = await prepareC1StrictProvider({
       runIdentity: studyId,
       primaryProviderId: C1_PROVIDER_ID,
       requestedModelId: C1_MODEL_ID,
       allowFallback: false,
-      env: { STEP_PLAN_API_KEY: F1_NATIVE32_CREDENTIAL_SENTINEL }
+      env: {
+        STEP_PLAN_API_KEY: authorizedProvider ? apiKey! : F1_NATIVE32_CREDENTIAL_SENTINEL
+      }
     })
     try {
+      reportDir = await claimStudyDir(outputRoot, studyId)
       const frozenStudy = await loadC1FrozenStudy(repoRoot)
-      const budgetGuard = new C1HardBudgetGuard({
+      const activeBudgetGuard = new C1HardBudgetGuard({
         perLeg: {
           maxProviderCalls: view.budgets.perRun.maxProviderRequests,
           maxToolCalls: view.budgets.perRun.maxToolRequests,
@@ -1461,13 +1861,29 @@ export async function runC1F1Native32CredentialFreeStudy(
           maxLegs: view.budgets.study.maxRuns
         }
       })
+      budgetGuard = activeBudgetGuard
       const checkpointSink = new C1F0V2CheckpointSink(
         new C1JsonlLiveBindingEvidenceSink(join(reportDir, 'checkpoints.jsonl'))
       )
+      const fetchFunction = options.fetchImpl ?? globalThis.fetch
+      if (authorizedProvider && typeof fetchFunction !== 'function') {
+        throw new C1PreflightFailure(
+          'PROVIDER_PREPARATION_FAILURE',
+          'F1-32 Provider fetch implementation is unavailable'
+        )
+      }
+      const countedFetch: typeof fetch = async (input, init) => {
+        if (options.fetchImpl === undefined) networkRequests += 1
+        return fetchFunction(input, init)
+      }
       const provenancePath = join(reportDir, 'tool-provenance.jsonl')
       const snapshotManifestPath = join(reportDir, 'post-run-snapshot-manifest.jsonl')
       const adjudicationPath = join(reportDir, 'task-adjudication.jsonl')
       for (const plan of plans) {
+        if (operatorStopRequested() && !sharedInvalidator) {
+          sharedInvalidator = true
+          invalidatorReasons.push('operator stop signal stopped the remaining F1-32 runs')
+        }
         if (sharedInvalidator) {
           runs.push(defaultV2RunRecord(plan as never, 'STUDY_INVALIDATED'))
           continue
@@ -1502,6 +1918,9 @@ export async function runC1F1Native32CredentialFreeStudy(
         let terminationStatus: C1F0V2TerminationStatus = 'TERMINAL_FAILED'
         let resultEvidence: readonly C1LiveBindingEvidence[] = []
         let hardeningAdapter: C1F0V2HardeningToolAdapter | null = null
+        let liveResponseSource: C1AuthorizedProviderResponseSource | null = null
+        const networkRequestsAtLegStart = networkRequests
+        let legProviderCalls = 0
         try {
           const fixtureBinding = await verifyC1FixtureBinding(frozenStudy, task)
           fixture = await materializeFreshC1Fixture(fixtureBinding.sourcePath)
@@ -1521,10 +1940,19 @@ export async function runC1F1Native32CredentialFreeStudy(
           }
           if (scenario === 'SINGLE_RUN_FAILURE' && plan.runOrdinal === 1)
             throw new Error('credential-free F1-32 ordinary run failure test')
-          const responseSource = new C1F1Native32ScriptedResponseSource(
-            plan.runId,
-            scenario === 'UNKNOWN_SNAPSHOT' ? 'COMPLETE' : scenario
-          )
+          const responseSource: C1LiveResponseSource = authorizedProvider
+            ? (liveResponseSource = new C1AuthorizedProviderResponseSource({
+                providerBinding,
+                apiKey: apiKey!,
+                providerConfigHashOverride: view.executionBinding.providerConfigHash,
+                fetchImpl: countedFetch
+              }))
+            : new C1F1Native32ScriptedResponseSource(
+                plan.runId,
+                options.scenario === 'UNKNOWN_SNAPSHOT'
+                  ? 'COMPLETE'
+                  : (options.scenario ?? 'TOOL_RECOVERY')
+              )
           const observationSource = await C1LiveTaskObservationSource.fromFixture({
             task,
             runId: plan.runId,
@@ -1538,39 +1966,59 @@ export async function runC1F1Native32CredentialFreeStudy(
           })
           const driver = new C1F1Native32BindingDriver({
             providerBinding,
-            budgetGuard,
+            budgetGuard: activeBudgetGuard,
             evidenceSink: checkpointSink,
             providerConfigHashOverride: view.executionBinding.providerConfigHash
           })
-          const legResult = await driver.runLeg({
-            studyId,
-            task,
-            stratum: plan.stratum,
-            pairId: plan.pairId,
-            arm: 'NATIVE',
-            runId: plan.runId,
-            fixtureContentSha256: before.sha256,
-            fixtureTreeObjectId: task.fixtureRevision.fixtureTreeObjectId,
-            runtimeSessionId: studyId + ':' + plan.runId,
-            observationSource,
-            responseSource,
-            toolExecutor: hardeningAdapter,
-            maxCalls: view.budgets.perRun.maxProviderRequests,
-            killSwitch: createRunKillSwitch(plan.runId, { now: () => new Date().toISOString() })
+          const killSwitch = createRunKillSwitch(plan.runId, {
+            now: () => new Date().toISOString()
           })
+          const tripKillSwitch = () => killSwitch.trip('operator stop signal')
+          options.signal?.addEventListener('abort', tripKillSwitch, { once: true })
+          let legResult: C1LiveBindingLegResult
+          try {
+            legResult = await driver.runLeg({
+              studyId,
+              task,
+              stratum: plan.stratum,
+              pairId: plan.pairId,
+              arm: 'NATIVE',
+              runId: plan.runId,
+              fixtureContentSha256: before.sha256,
+              fixtureTreeObjectId: task.fixtureRevision.fixtureTreeObjectId,
+              runtimeSessionId: studyId + ':' + plan.runId,
+              observationSource,
+              responseSource,
+              toolExecutor: hardeningAdapter,
+              maxCalls: view.budgets.perRun.maxProviderRequests,
+              ...(options.signal === undefined ? {} : { responseAbortSignal: options.signal }),
+              killSwitch
+            })
+          } finally {
+            options.signal?.removeEventListener('abort', tripKillSwitch)
+          }
           resultEvidence = legResult.evidence
           terminationStatus =
             legResult.finalOutcome === 'COMPLETE' ? 'TERMINAL_COMPLETE' : 'TERMINAL_FAILED'
         } catch (error) {
-          const failure = failureOf(error)
+          const failure = sanitizedF1Failure(error, apiKey)
           failureCode = failure.code
           failures.push(failure)
           terminationStatus = classifyTermination(error)
-          if (isSharedInvalidator(failure.code)) {
+          const runInvalidator = authorizedProvider
+            ? isAuthorizedProviderStudyInvalidator(failure.code, failure.message)
+            : isSharedInvalidator(failure.code)
+          if (runInvalidator) {
             sharedInvalidator = true
             invalidatorReasons.push(failure.message)
           }
+          if (operatorStopRequested() && !sharedInvalidator) {
+            sharedInvalidator = true
+            invalidatorReasons.push('operator stop signal interrupted the active F1-32 run')
+          }
         }
+        legProviderCalls = liveResponseSource?.requestCount ?? 0
+        providerCalls += legProviderCalls
         resultEvidence =
           resultEvidence.length > 0
             ? resultEvidence
@@ -1591,7 +2039,7 @@ export async function runC1F1Native32CredentialFreeStudy(
             status: 'UNAVAILABLE',
             cleanup: async () => undefined
           }
-          failures.push(failureOf(error))
+          failures.push(sanitizedF1Failure(error, apiKey))
         }
         if (snapshot.status === 'FROZEN' && snapshot.path !== undefined) {
           writableScopeStatus = writableScopePass(changedPaths, task.expectedWritablePaths)
@@ -1637,7 +2085,11 @@ export async function runC1F1Native32CredentialFreeStudy(
           responseCount
         )
         const evidenceStatus =
-          sharedInvalidator && failureCode !== undefined && isSharedInvalidator(failureCode)
+          sharedInvalidator &&
+          failureCode !== undefined &&
+          (authorizedProvider
+            ? isAuthorizedProviderStudyInvalidator(failureCode, failures.at(-1)?.message ?? '')
+            : isSharedInvalidator(failureCode))
             ? 'INVALID'
             : responseCount > 0 && joinComplete
               ? 'COMPLETE'
@@ -1690,7 +2142,7 @@ export async function runC1F1Native32CredentialFreeStudy(
             await fixture.cleanup()
             fixtureCleaned = true
           } catch (error) {
-            const failure = failureOf(error)
+            const failure = sanitizedF1Failure(error, apiKey)
             failures.push(failure)
             sharedInvalidator = true
             invalidatorReasons.push(failure.message)
@@ -1774,9 +2226,9 @@ export async function runC1F1Native32CredentialFreeStudy(
               pairId: plan.pairId,
               runId: plan.runId,
               arm: 'NATIVE',
-              responseSource: 'SCRIPTED_FAKE',
-              providerCalls: 0,
-              networkRequests: 0,
+              responseSource: responseSourceKind,
+              providerCalls: legProviderCalls,
+              networkRequests: networkRequests - networkRequestsAtLegStart,
               terminationStatus,
               oracleStatus: currentOracleStatus,
               evidenceStatus,
@@ -1799,6 +2251,7 @@ export async function runC1F1Native32CredentialFreeStudy(
         toolExecutions += toolEvents.length
       }
       checkpoints = checkpointSink.checkpoints
+      providerCallPermits = activeBudgetGuard.ledger.providerCalls
       const feasibility = adjudicateV2Study({
         contract: view,
         runs,
@@ -1816,6 +2269,14 @@ export async function runC1F1Native32CredentialFreeStudy(
           contract: view,
           studyId,
           scenario,
+          executionMode,
+          responseSource: responseSourceKind,
+          transportMode,
+          providerCalls,
+          networkRequests,
+          providerCallPermits,
+          authorizationSummary,
+          secretToRedact: apiKey,
           executionRevision: binding.executionRevision,
           executionSurfaceRevision: binding.executionSurfaceRevision,
           executionSurfaceHash: binding.executionSurfaceHash,
@@ -1834,7 +2295,7 @@ export async function runC1F1Native32CredentialFreeStudy(
       return {
         runnerId: C1_F1_NATIVE32_RUNNER_ID,
         schemaVersion: C1_F1_NATIVE32_RUNNER_SCHEMA_VERSION,
-        executionMode: C1_F1_NATIVE32_RUNNER_MODE,
+        executionMode,
         scenario,
         status: label,
         studyId,
@@ -1850,9 +2311,11 @@ export async function runC1F1Native32CredentialFreeStudy(
         model: C1_MODEL_ID,
         endpoint: C1_PROVIDER_ENDPOINT,
         nodeRange: C1_NODE_RANGE,
-        responseSource: 'SCRIPTED_FAKE',
-        providerCalls: 0,
-        networkRequests: 0,
+        responseSource: responseSourceKind,
+        transportMode,
+        providerCalls,
+        networkRequests,
+        providerCallPermits,
         responseCalls,
         toolExecutions,
         runsPlanned: 32,
@@ -1872,9 +2335,11 @@ export async function runC1F1Native32CredentialFreeStudy(
       }
     } finally {
       providerBinding.dispose()
+      apiKey = null
     }
   } catch (error) {
-    const failure = failureOf(error)
+    providerCallPermits = budgetGuard?.ledger.providerCalls ?? providerCallPermits
+    const failure = sanitizedF1Failure(error, apiKey)
     failures.push(failure)
     const feasibility = adjudicateV2Study({
       contract: candidate === null ? fallbackContractView() : asV2Contract(candidate),
@@ -1885,7 +2350,7 @@ export async function runC1F1Native32CredentialFreeStudy(
     return {
       runnerId: C1_F1_NATIVE32_RUNNER_ID,
       schemaVersion: C1_F1_NATIVE32_RUNNER_SCHEMA_VERSION,
-      executionMode: C1_F1_NATIVE32_RUNNER_MODE,
+      executionMode,
       scenario,
       status: 'NO_GO',
       studyId,
@@ -1902,9 +2367,11 @@ export async function runC1F1Native32CredentialFreeStudy(
       model: C1_MODEL_ID,
       endpoint: C1_PROVIDER_ENDPOINT,
       nodeRange: C1_NODE_RANGE,
-      responseSource: 'SCRIPTED_FAKE',
-      providerCalls: 0,
-      networkRequests: 0,
+      responseSource: responseSourceKind,
+      transportMode,
+      providerCalls,
+      networkRequests,
+      providerCallPermits,
       responseCalls,
       toolExecutions,
       runsPlanned: 32,
@@ -1921,4 +2388,129 @@ export async function runC1F1Native32CredentialFreeStudy(
       failures: Object.freeze(failures)
     }
   }
+}
+
+function dotenvValue(raw: string): string | undefined {
+  const trimmed = raw.trim()
+  if (trimmed.length === 0) return undefined
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1)
+  }
+  const commentIndex = trimmed.indexOf(' #')
+  return commentIndex >= 0 ? trimmed.slice(0, commentIndex).trim() : trimmed
+}
+
+async function readF1StepPlanApiKey(repoRoot: string, envFilePath?: string): Promise<string> {
+  const processValue = process.env['STEP_PLAN_API_KEY']
+  if (typeof processValue === 'string' && processValue.length > 0) return processValue
+  let envContents: string
+  try {
+    envContents = await readFile(envFilePath ?? join(repoRoot, '.env'), 'utf8')
+  } catch {
+    throw new C1PreflightFailure(
+      'PROVIDER_PREPARATION_FAILURE',
+      'STEP_PLAN_API_KEY is unavailable in the authorized memory-only environment'
+    )
+  }
+  for (const line of envContents.split(/\r?\n/)) {
+    const match = /^\s*(?:export\s+)?STEP_PLAN_API_KEY\s*=\s*(.*)\s*$/.exec(line)
+    if (match === null) continue
+    const value = dotenvValue(match[1] ?? '')
+    if (value !== undefined && value.length > 0) return value
+  }
+  throw new C1PreflightFailure(
+    'PROVIDER_PREPARATION_FAILURE',
+    'STEP_PLAN_API_KEY is unavailable in the authorized memory-only environment'
+  )
+}
+
+async function runC1F1Native32AuthorizedCli(): Promise<void> {
+  const args = process.argv.slice(2)
+  const options = new Map<string, string>()
+  for (let index = 0; index < args.length; index += 2) {
+    const flag = args[index]
+    const value = args[index + 1]
+    if (
+      (flag !== '--authorization-file' && flag !== '--env-file') ||
+      value === undefined ||
+      options.has(flag)
+    ) {
+      throw new C1PreflightFailure(
+        'NOT_AUTHORIZED',
+        'authorized F1-32 invocation requires --authorization-file <path> and optional --env-file <path>'
+      )
+    }
+    options.set(flag, value)
+  }
+  const authorizationPath = options.get('--authorization-file')
+  if (authorizationPath === undefined) {
+    throw new C1PreflightFailure(
+      'NOT_AUTHORIZED',
+      'authorized F1-32 invocation requires --authorization-file <path>'
+    )
+  }
+  const repoRoot = process.cwd()
+  let authorization: unknown
+  try {
+    authorization = JSON.parse(await readFile(authorizationPath, 'utf8')) as unknown
+  } catch {
+    throw new C1PreflightFailure(
+      'NOT_AUTHORIZED',
+      'F1-32 owner authorization file is unavailable or invalid JSON'
+    )
+  }
+  const controller = new AbortController()
+  const onStop = () => controller.abort()
+  process.once('SIGINT', onStop)
+  process.once('SIGTERM', onStop)
+  try {
+    const report = await runC1F1Native32AuthorizedStudy({
+      repoRoot,
+      authorization: authorization as C1F1Native32LiveAuthorization,
+      readApiKey: () => readF1StepPlanApiKey(repoRoot, options.get('--env-file')),
+      signal: controller.signal
+    })
+    process.stdout.write(
+      JSON.stringify(
+        {
+          runnerId: report.runnerId,
+          executionMode: report.executionMode,
+          status: report.status,
+          studyId: report.studyId,
+          executionRevision: report.executionRevision,
+          finalBoundRunContractSha256: report.finalBoundRunContractSha256,
+          providerCalls: report.providerCalls,
+          networkRequests: report.networkRequests,
+          providerCallPermits: report.providerCallPermits,
+          runsPlanned: report.runsPlanned,
+          runsStarted: report.runsStarted,
+          runsCompleted: report.runsCompleted,
+          blockedRuns: report.blockedRuns,
+          reportDir: report.reportDir,
+          failureCodes: report.failures.map((failure) => failure.code)
+        },
+        null,
+        2
+      ) + '\n'
+    )
+    if (report.status === 'NO_GO') process.exitCode = 1
+  } finally {
+    process.removeListener('SIGINT', onStop)
+    process.removeListener('SIGTERM', onStop)
+  }
+}
+
+if (
+  process.argv[1] !== undefined &&
+  resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))
+) {
+  void runC1F1Native32AuthorizedCli().catch((error: unknown) => {
+    const code = error instanceof C1PreflightFailure ? error.code : 'UNEXPECTED_FAILURE'
+    process.stderr.write('C1_F1_NATIVE32_AUTHORIZED_STATUS=NO_GO\n')
+    process.stderr.write('C1_F1_NATIVE32_AUTHORIZED_FAILURE_CODE=' + code + '\n')
+    process.exitCode = 1
+  })
 }

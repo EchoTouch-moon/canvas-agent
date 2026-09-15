@@ -3,6 +3,8 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   C1_F1_NATIVE32_CONTRACT_RELATIVE_PATH,
+  C1_F1_NATIVE32_BUDGET_ONLY_PROJECTION_PATH,
+  C1_F1_NATIVE32_EFFECTIVE_SURFACE_PARITY_POLICY,
   C1_F1_NATIVE32_FREEZE_CANDIDATE_RUN_CONTRACT_SHA256,
   C1_F1_NATIVE32_HISTORICAL_ANCHOR,
   C1_F1_NATIVE32_PENDING_BINDING,
@@ -39,7 +41,7 @@ function buildFinalBoundContract(candidate: Record<string, unknown>): Record<str
     sha256: string
   }>
   const anchorPaths = anchorInventory.map((entry) => entry.path)
-  const targetOnlyPath = 'research/context-benchmarks/c1/f1/runner/c1-f1-32-budget-projection.ts'
+  const targetOnlyPath = C1_F1_NATIVE32_BUDGET_ONLY_PROJECTION_PATH
   witness['phase'] = 'FINAL_BOUND'
   witness['targetSurfacePaths'] = [...anchorPaths, targetOnlyPath]
   witness['entries'] = [
@@ -78,6 +80,9 @@ function buildFinalBoundContract(candidate: Record<string, unknown>): Record<str
     'research/context-benchmarks/c1/f1/contracts/c1-f1-native-feasibility-32.json',
     'research/context-benchmarks/src/c1-carried-removals.ts'
   ]
+  finalBound['effectiveSurfaceParity'] = JSON.parse(
+    JSON.stringify(C1_F1_NATIVE32_EFFECTIVE_SURFACE_PARITY_POLICY)
+  ) as unknown
 
   const finalHash = computeC1F1Native32RunContractSha256(finalBound)
   finalBound['runContractSha256'] = finalHash
@@ -173,6 +178,17 @@ describe('C1 F1 native feasibility 32-call point contract', () => {
     expect(study['maxProviderRequests']).toBe(1024)
   })
 
+  it('rejects final-only parity evidence in the freeze candidate', async () => {
+    const candidate = await readContract()
+    candidate['effectiveSurfaceParity'] = JSON.parse(
+      JSON.stringify(C1_F1_NATIVE32_EFFECTIVE_SURFACE_PARITY_POLICY)
+    ) as unknown
+    candidate['runContractSha256'] = computeC1F1Native32RunContractSha256(candidate)
+    expect(() => validateC1F1Native32Contract(candidate)).toThrow(
+      'effectiveSurfaceParity is final-bound evidence'
+    )
+  })
+
   it.each([
     {
       name: 'study ceiling drift',
@@ -244,6 +260,28 @@ describe('C1 F1 native feasibility 32-call point contract', () => {
     expect(
       (validated['surfaceEquivalenceWitness'] as Record<string, unknown>)['witnessStatus']
     ).toBe('COMPLETE')
+    expect(validated['effectiveSurfaceParity']).toEqual(
+      C1_F1_NATIVE32_EFFECTIVE_SURFACE_PARITY_POLICY
+    )
+  })
+
+  it('rejects a runner-directory path that is not the exact budget projection file', async () => {
+    const finalBound = buildFinalBoundContract(await readContract())
+    const witness = finalBound['surfaceEquivalenceWitness'] as Record<string, unknown>
+    const targetPath = 'research/context-benchmarks/c1/f1/runner/unauthorized-helper.ts'
+    ;(witness['targetSurfacePaths'] as string[]).push(targetPath)
+    ;(witness['entries'] as Array<Record<string, unknown>>).push({
+      path: targetPath,
+      anchorPath: null,
+      anchorHash: null,
+      targetHash: 'f'.repeat(64),
+      classification: 'BUDGET_ONLY_PROJECTION'
+    })
+    finalBound['runContractSha256'] = computeC1F1Native32RunContractSha256(finalBound)
+    finalBound['finalBoundRunContractSha256'] = finalBound['runContractSha256']
+    expect(() => validateC1F1Native32FinalBoundContract(finalBound)).toThrow(
+      'surfaceEquivalenceWitness.entries[282].path is not the exact frozen F1 budget projection path'
+    )
   })
 
   it('joins final witness paths to an actual executable-surface inventory', async () => {
@@ -318,17 +356,10 @@ describe('C1 F1 native feasibility 32-call point contract', () => {
       name: 'missing anchor path',
       mutate: (contract: Record<string, unknown>) => {
         const witness = contract['surfaceEquivalenceWitness'] as Record<string, unknown>
-        const missingAnchorPath = 'research/context-benchmarks/c1/f1/runner/missing-anchor.ts'
         const targetPaths = witness['targetSurfacePaths'] as string[]
         const entries = witness['entries'] as Array<Record<string, unknown>>
-        targetPaths[0] = missingAnchorPath
-        entries[0] = {
-          path: missingAnchorPath,
-          anchorPath: null,
-          anchorHash: null,
-          targetHash: 'd'.repeat(64),
-          classification: 'BUDGET_ONLY_PROJECTION'
-        }
+        targetPaths.shift()
+        entries.shift()
       },
       expected: 'surfaceEquivalenceWitness.entries must account for every anchor surface path'
     },
@@ -378,6 +409,22 @@ describe('C1 F1 native feasibility 32-call point contract', () => {
       },
       expected:
         'surfaceEquivalenceWitness.entries must account for every target execution-surface path'
+    },
+    {
+      name: 'parity evidence drift after rehash',
+      mutate: (contract: Record<string, unknown>) => {
+        const parity = contract['effectiveSurfaceParity'] as Record<string, unknown>
+        parity['parityEvidenceSha256'] = 'f'.repeat(64)
+      },
+      expected: 'SEMANTIC_FREEZE_MISMATCH: effectiveSurfaceParity'
+    },
+    {
+      name: 'unexpected parity evidence field after rehash',
+      mutate: (contract: Record<string, unknown>) => {
+        const parity = contract['effectiveSurfaceParity'] as Record<string, unknown>
+        parity['unreviewedClaim'] = true
+      },
+      expected: 'SEMANTIC_FREEZE_MISMATCH: effectiveSurfaceParity'
     }
   ])('rejects final-bound $name', async ({ mutate, expected }) => {
     const finalBound = buildFinalBoundContract(await readContract())
