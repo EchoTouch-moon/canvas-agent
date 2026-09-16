@@ -1,14 +1,33 @@
 {
   "contractId": "C1_FEASIBILITY_CONSTRUCT_REPAIR_V1",
   "schemaVersion": 1,
-  "status": "READY_FOR_SYNTHETIC_VALIDATION_FREEZE",
-  "designStatus": "FREEZE_CANDIDATE",
+  "status": "READY_FOR_SYNTHETIC_VALIDATION",
+  "designStatus": "READY_FOR_SYNTHETIC_VALIDATION",
   "executionMode": "ZERO_PROVIDER",
   "historicalOutcomeMutation": "FORBIDDEN",
   "liveExecution": "FORBIDDEN",
   "freshStudyIdentity": "NOT_NEEDED_FOR_SYNTHETIC_VALIDATION",
   "claims": "CONSTRUCT_SEPARABILITY_DETERMINISTIC_ADJUDICATION_HISTORICAL_NON_INTERFERENCE",
   "estimand": "LAYERED_AGENT_EXECUTION_FEASIBILITY_VS_OBSERVABILITY_LINKAGE",
+  "promotion": {
+    "fromStatus": "READY_FOR_SYNTHETIC_VALIDATION_FREEZE",
+    "toStatus": "READY_FOR_SYNTHETIC_VALIDATION",
+    "promotedAt": "2026-09-16T01:25:00+08:00",
+    "exactHead": "cbc7538ba5346b0f33a2c12b266ce961378bda4e",
+    "ci": {
+      "name": "Context Runtime CI",
+      "runNumber": 525,
+      "conclusion": "SUCCESS"
+    },
+    "independentReviewCommentId": "5690600761",
+    "providerCalls": 0,
+    "routeLocksRetained": {
+      "f1_40Live": "NO_GO",
+      "r0t0e1Live": "HOLD",
+      "historicalF0F1": "IMMUTABLE",
+      "providerLive": "NOT_AUTHORIZED"
+    }
+  },
   "predecessor": {
     "anatomyDoc": "docs/verification/cspv-c1-f1-32-failure-anatomy-v1-2026-09-15.zh-CN.md",
     "designDoc": "docs/plan/c1-feasibility-construct-repair-v1-design-2026-09-15.zh-CN.md",

@@ -194,7 +194,7 @@ describe('C1_FEASIBILITY_CONSTRUCT_REPAIR_V1 synthetic validation', () => {
   })
 
   it('freeze-candidate contract declares zero-provider and historical mutation forbidden', () => {
-    expect(contract.status).toBe('READY_FOR_SYNTHETIC_VALIDATION_FREEZE')
+    expect(contract.status).toBe('READY_FOR_SYNTHETIC_VALIDATION')
     expect(contract.contractId).toBe('C1_FEASIBILITY_CONSTRUCT_REPAIR_V1')
     expect(contract.layers.layer2RecoveryTrajectory.explicitLegalState.name).toBe(
       'TRAJECTORY_RECOVERED_WITH_INCOMPLETE_TOOL_LINKAGE'
