@@ -86,13 +86,15 @@ export class ConstructRepairContractError extends Error {
 const CONTRACT_ID = 'C1_FEASIBILITY_CONSTRUCT_REPAIR_V1' as const
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url))
-const PACKAGE_ROOT = resolve(MODULE_DIR, '../..')
-const DEFAULT_CORPUS_PATH = resolve(PACKAGE_ROOT, 'construct-repair/synthetic/corpus.v1.json')
+/** Package root = `research/context-benchmarks` (parent of `construct-repair/`). */
+const PACKAGE_ROOT = resolve(MODULE_DIR, '..')
+/** Fail-closed I/O root: stay inside construct-repair, outside E0 execution surface. */
+const ALLOWED_CORPUS_ROOT = MODULE_DIR
+const DEFAULT_CORPUS_PATH = resolve(MODULE_DIR, 'synthetic/corpus.v1.json')
 const DEFAULT_CONTRACT_PATH = resolve(
-  PACKAGE_ROOT,
-  'construct-repair/c1-feasibility-construct-repair-v1.freeze-candidate.json'
+  MODULE_DIR,
+  'c1-feasibility-construct-repair-v1.freeze-candidate.json'
 )
-const ALLOWED_CORPUS_ROOT = resolve(PACKAGE_ROOT, 'construct-repair')
 
 function derivedReachedTerminalComplete(terminationStatus: TerminationStatus): boolean {
   return terminationStatus === 'TERMINAL_COMPLETE'

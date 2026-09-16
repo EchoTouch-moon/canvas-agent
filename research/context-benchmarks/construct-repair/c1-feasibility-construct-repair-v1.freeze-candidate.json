@@ -203,19 +203,22 @@
       "retrospectiveRelabelOfConsumedStudyPointLabel",
       "retrospectiveRewriteOfGateVectors",
       "thresholdRewritingOnSealedEvidence",
-      "reuseOfConsumedStudyIdentities"
+      "reuseOfConsumedStudyIdentities",
+      "placingConstructRepairCodeUnderE0ExecutionSurfaceSrc"
     ],
     "allowed": [
       "retrospectiveComparisonAnalysisWithoutMutation",
       "isomorphicSyntheticFixturesWithoutOriginalRunIdsOrVerdicts"
-    ]
+    ],
+    "adjudicatorModulePath": "research/context-benchmarks/construct-repair/adjudicate.ts",
+    "staticSurfaceNote": "Construct-repair code must live under construct-repair/, not research/context-benchmarks/src, so E0 executionSurfaceHash remains undisturbed without rebinding."
   },
   "syntheticValidation": {
     "providerCalls": 0,
     "requiredProperties": {
       "constructSeparability": "Four primary quadrants A–D must receive distinct labels per truth table",
       "deterministicAdjudication": "Identical fixture bytes → identical adjudication JSON",
-      "historicalNonInterference": "Adjudicator must not read or write F0/F1 live-output or audit packages"
+      "historicalNonInterference": "Adjudicator must not read or write F0/F1 live-output or audit packages, and must not add tracked files under the E0 execution surface rooted at research/context-benchmarks/src"
     },
     "corpusPath": "research/context-benchmarks/construct-repair/synthetic/corpus.v1.json",
     "ioAllowlistRoot": "research/context-benchmarks/construct-repair",

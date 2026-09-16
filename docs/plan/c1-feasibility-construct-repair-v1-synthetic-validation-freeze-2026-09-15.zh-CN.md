@@ -9,7 +9,7 @@
 | Execution | `ZERO_PROVIDER` / `liveExecution=FORBIDDEN` / `historicalOutcomeMutation=FORBIDDEN` |
 | Machine contract | `research/context-benchmarks/construct-repair/c1-feasibility-construct-repair-v1.freeze-candidate.json` |
 | Synthetic corpus | `research/context-benchmarks/construct-repair/synthetic/corpus.v1.json` |
-| Adjudicator | `research/context-benchmarks/src/feasibility-construct-repair/adjudicate.ts` |
+| Adjudicator | `research/context-benchmarks/construct-repair/adjudicate.ts` |
 | Tests | `research/context-benchmarks/tests/feasibility-construct-repair-v1.test.ts` |
 | Design predecessor | `docs/plan/c1-feasibility-construct-repair-v1-design-2026-09-15.zh-CN.md` |
 
@@ -58,11 +58,11 @@ Synthetic validation 必须证明三个性质，缺一则不得升格为 `READY_
 
 - [x] Truth table 与 adjudicator 实现一致（contract JSON → `fixtureFromTruthTableRow` → adjudicator exact equality）  
 - [x] `SX-REF-LINKAGE-GAP` 证明的是 construct 分解，不是针对历史 run 的 gate 放宽  
-- [x] 历史隔离条款完整（corpus/contract loader fail-closed allowlist；负向测试拒绝 `.live-output` / consumed study ID）  
+- [x] 历史隔离条款完整（runtime I/O allowlist + **静态**不侵入 E0 `research/context-benchmarks/src` execution surface）  
 - [x] Layer-2 composition：`reachedTerminalComplete` 仅从 `terminationStatus` 推导；`L1=PASS + L2=UNRECOVERED` fail-closed  
 - [x] `pnpm exec vitest run tests/feasibility-construct-repair-v1.test.ts` 全绿（本轮 review-fix：11/11）  
 - [x] `format:check:core` 目标文件 Prettier 已对齐  
-- [ ] 独立复审通过后才进入 `READY_FOR_SYNTHETIC_VALIDATION`（仍零 Provider）；其后才谈 Native mechanism / 新 live contract  
+- [ ] 独立复审通过且 exact-head CI 全绿后才进入 `READY_FOR_SYNTHETIC_VALIDATION`（仍零 Provider）；其后才谈 Native mechanism / 新 live contract  
 
 ## Review REQUEST_CHANGES 修复（2026-09-15）
 
@@ -72,12 +72,13 @@ Synthetic validation 必须证明三个性质，缺一则不得升格为 `READY_
 | historical non-interference 仅声明 | loader 固定/allowlist `construct-repair/`；拒绝 `.live-output`、`.audit`、consumed study markers；负向测试 |
 | contract ↔ adjudicator 漂移 | 测试从 `crossLayerTruthTable` 派生 fixture 并 exact-equality 绑定 TT-A–F/U + RECOVERED+INCOMPLETE 合法态 |
 | CI `format:check:core` 红 | 本轮 Prettier 后重推 |
+| 新代码侵入 E0 execution surface | adjudicator 从 `src/` 迁出到 `construct-repair/`；**不** rebind E0 |
 
 当前升格状态仍为：
 
 ```text
 READY_FOR_SYNTHETIC_VALIDATION_FREEZE   KEEP
-READY_FOR_SYNTHETIC_VALIDATION          NOT YET（等独立复审）
+READY_FOR_SYNTHETIC_VALIDATION          HOLD（等 exact-head CI 全绿 + 复审确认）
 ```
 
 ## 路线锁
