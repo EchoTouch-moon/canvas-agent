@@ -113,4 +113,19 @@ Historical F0/F1   IMMUTABLE
 
 ## Closeout handoff
 
-证据已锁定在 exact head `96fe079` + 上表 artifact hashes。等待独立收口裁决是否将合同进一步标记为 `SYNTHETIC_VALIDATION_PASS`（仍为零 Provider，非 live 授权）。
+证据已锁定在 exact head `96fe079` + 上表 artifact hashes。
+
+## Independent closeout（2026-09-16）
+
+```text
+SYNTHETIC_VALIDATION = PASS
+synthetic phase       = CLOSED
+closeout comment      = #143 / 5690678021
+evidence commit       = f430131（纯文档；不改变 executable basis）
+```
+
+科学结论：repaired feasibility construct 在冻结 synthetic corpus 上已证明具备 construct separability、deterministic adjudication 与 historical non-interference。
+
+非结论保留：Runtime effectiveness / real-task feasibility / budget frontier reopening **均未建立**。
+
+下一步仅可讨论 design-only 分叉（Native mechanism study design，或 Prospective construct / R0 design-only）；**仍不得直接进入 live**。

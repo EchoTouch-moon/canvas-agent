@@ -1,14 +1,21 @@
 {
   "contractId": "C1_FEASIBILITY_CONSTRUCT_REPAIR_V1",
   "schemaVersion": 1,
-  "status": "READY_FOR_SYNTHETIC_VALIDATION",
-  "designStatus": "READY_FOR_SYNTHETIC_VALIDATION",
+  "status": "SYNTHETIC_VALIDATION_PASS",
+  "designStatus": "SYNTHETIC_PHASE_CLOSED",
+  "syntheticPhase": "CLOSED",
   "executionMode": "ZERO_PROVIDER",
   "historicalOutcomeMutation": "FORBIDDEN",
   "liveExecution": "FORBIDDEN",
   "freshStudyIdentity": "NOT_NEEDED_FOR_SYNTHETIC_VALIDATION",
   "claims": "CONSTRUCT_SEPARABILITY_DETERMINISTIC_ADJUDICATION_HISTORICAL_NON_INTERFERENCE",
   "estimand": "LAYERED_AGENT_EXECUTION_FEASIBILITY_VS_OBSERVABILITY_LINKAGE",
+  "scientificConclusion": "Repaired feasibility construct demonstrated constructSeparability, deterministicAdjudication, and historicalNonInterference on the frozen synthetic corpus.",
+  "nonClaims": [
+    "Runtime effectiveness NOT ESTABLISHED",
+    "real-task feasibility NOT ESTABLISHED",
+    "budget frontier reopening NOT JUSTIFIED"
+  ],
   "promotion": {
     "fromStatus": "READY_FOR_SYNTHETIC_VALIDATION_FREEZE",
     "toStatus": "READY_FOR_SYNTHETIC_VALIDATION",
@@ -27,6 +34,27 @@
       "historicalF0F1": "IMMUTABLE",
       "providerLive": "NOT_AUTHORIZED"
     }
+  },
+  "syntheticValidationCloseout": {
+    "verdict": "PASS",
+    "syntheticPhase": "CLOSED",
+    "validatedExactHead": "96fe079fdf1dbe3ebdf5902751138702c8b96fcf",
+    "evidenceCommit": "f43013136d1f00f753dbaa2b265b689c44600cd7",
+    "evidenceDoc": "docs/verification/cspv-c1-feasibility-construct-repair-v1-synthetic-validation-2026-09-16.zh-CN.md",
+    "independentCloseoutCommentId": "5690678021",
+    "closedAt": "2026-09-16T09:34:00+08:00",
+    "properties": {
+      "constructSeparability": "PASS",
+      "deterministicAdjudication": "PASS",
+      "historicalNonInterference": "PASS"
+    },
+    "providerCalls": 0,
+    "suite": "11/11 PASS",
+    "nextDesignForksEligible": [
+      "Native execution mechanism study design (design-only)",
+      "Prospective construct validation / R0 design-only"
+    ],
+    "liveStillForbidden": true
   },
   "predecessor": {
     "anatomyDoc": "docs/verification/cspv-c1-f1-32-failure-anatomy-v1-2026-09-15.zh-CN.md",
@@ -252,6 +280,9 @@
   "routeLocks": {
     "f1_40Live": "NO_GO",
     "r0t0e1Live": "HOLD",
-    "nativeMechanismDesign": "HOLD_SECONDARY_UNTIL_SYNTHETIC_PASS"
+    "providerLive": "NOT_AUTHORIZED",
+    "historicalF0F1": "IMMUTABLE",
+    "nativeMechanismDesign": "DESIGN_DISCUSSION_ELIGIBLE_NO_LIVE",
+    "prospectiveConstructOrR0Design": "DESIGN_DISCUSSION_ELIGIBLE_NO_LIVE"
   }
 }

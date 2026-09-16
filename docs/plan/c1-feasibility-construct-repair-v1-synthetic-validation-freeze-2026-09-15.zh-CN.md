@@ -5,16 +5,16 @@
 | Field | Value |
 |---|---|
 | Contract ID | `C1_FEASIBILITY_CONSTRUCT_REPAIR_V1` |
-| Status | `READY_FOR_SYNTHETIC_VALIDATION` |
+| Status | `SYNTHETIC_VALIDATION_PASS` / `syntheticPhase=CLOSED` |
 | Execution | `ZERO_PROVIDER` / `liveExecution=FORBIDDEN` / `historicalOutcomeMutation=FORBIDDEN` |
 | Machine contract | `research/context-benchmarks/construct-repair/c1-feasibility-construct-repair-v1.freeze-candidate.json` |
 | Synthetic corpus | `research/context-benchmarks/construct-repair/synthetic/corpus.v1.json` |
 | Adjudicator | `research/context-benchmarks/construct-repair/adjudicate.ts` |
 | Tests | `research/context-benchmarks/tests/feasibility-construct-repair-v1.test.ts` |
 | Design predecessor | `docs/plan/c1-feasibility-construct-repair-v1-design-2026-09-15.zh-CN.md` |
-| Promotion head | `cbc7538ba5346b0f33a2c12b266ce961378bda4e` |
-| Promotion CI | Context Runtime CI #525 `SUCCESS` |
-| Review comment | `#143` comment `5690600761` |
+| Validation head | `96fe079fdf1dbe3ebdf5902751138702c8b96fcf` |
+| Evidence commit | `f43013136d1f00f753dbaa2b265b689c44600cd7` |
+| Closeout comment | `#143` comment `5690678021` |
 
 ## 目的
 
@@ -22,31 +22,32 @@
 
 本阶段**不**创建 fresh study identity，**不**发起 Provider calls，**不**回写 F0/F1 历史 verdict。
 
-## 正式升格（2026-09-16）
+## 正式升格与收口（2026-09-16）
 
 ```text
-from  READY_FOR_SYNTHETIC_VALIDATION_FREEZE
-to    READY_FOR_SYNTHETIC_VALIDATION
-mode  ZERO_PROVIDER
+READY_FOR_SYNTHETIC_VALIDATION_FREEZE
+  → READY_FOR_SYNTHETIC_VALIDATION   (promotion head cbc7538 / CI #525)
+  → SYNTHETIC_VALIDATION_PASS         (validated head 96fe079)
+synthetic phase = CLOSED
 ```
 
-独立复审 + exact-head CI 依据：
+独立复审 + exact-head CI / validation 依据：
 
 - Construct contract review PASS；prior blockers CLOSED
-- Historical execution-surface static isolation PASS（adjudicator 在 `construct-repair/`，未 rebind E0）
-- Construct-repair suite 11/11 PASS
-- Context Runtime CI #525 SUCCESS
-- Provider calls = 0
+- Historical execution-surface static isolation PASS
+- Construct-repair suite 11/11 PASS on `96fe079`
+- Closeout comment `#143` / `5690678021`
 
-下一阶段：执行 zero-Provider synthetic validation，只验证：
+科学结论：repaired construct 在冻结 synthetic corpus 上具备 separability、determinism、historical non-interference。
+
+非结论：Runtime effectiveness / real-task feasibility / budget frontier **未建立**。
+
+下一设计分叉（仍 design-only，非 live）：
 
 ```text
-constructSeparability
-deterministicAdjudication
-historicalNonInterference
+A. Native execution mechanism study design
+B. Prospective construct validation / R0 design-only
 ```
-
-仍不是 live 实验；不重新打开 F1 frontier。
 
 ## 可证伪主张
 
@@ -92,6 +93,7 @@ Synthetic validation 必须证明三个性质：
 - [x] `pnpm exec vitest run tests/feasibility-construct-repair-v1.test.ts` 全绿（11/11）  
 - [x] `format:check:core` / lint / typecheck / Context Runtime CI #525 全绿  
 - [x] 升格为 `READY_FOR_SYNTHETIC_VALIDATION`（仍零 Provider）  
+- [x] zero-Provider synthetic validation PASS；`synthetic phase = CLOSED`  
 
 ## Review REQUEST_CHANGES 修复（2026-09-15 → 2026-09-16）
 
@@ -106,8 +108,10 @@ Synthetic validation 必须证明三个性质：
 当前状态：
 
 ```text
-READY_FOR_SYNTHETIC_VALIDATION   ACTIVE ✅
+SYNTHETIC_VALIDATION_PASS        ACTIVE ✅
+synthetic phase                  CLOSED
 executionMode                    ZERO_PROVIDER
+next                              design-only fork discussion (A/B); no live
 ```
 
 ## 路线锁

@@ -1,6 +1,6 @@
 {
   "contractId": "C1_FEASIBILITY_CONSTRUCT_REPAIR_V1",
-  "status": "SUPERSEDED_BY_SYNTHETIC_VALIDATION_GATE",
+  "status": "SUPERSEDED_BY_SYNTHETIC_VALIDATION_PASS",
   "freezeCandidateDoc": "docs/plan/c1-feasibility-construct-repair-v1-synthetic-validation-freeze-2026-09-15.zh-CN.md",
   "freezeCandidateContract": "research/context-benchmarks/construct-repair/c1-feasibility-construct-repair-v1.freeze-candidate.json",
   "designDocPath": "docs/plan/c1-feasibility-construct-repair-v1-design-2026-09-15.zh-CN.md",
@@ -15,7 +15,7 @@
   },
   "route": {
     "contractRepairDesign": "GO",
-    "nativeMechanismDesign": "HOLD_SECONDARY",
+    "nativeMechanismDesign": "DESIGN_DISCUSSION_ELIGIBLE_NO_LIVE",
     "f1_40Live": "NO_GO",
     "r0Live": "HOLD",
     "t0e1": "HOLD"
@@ -27,8 +27,11 @@
   },
   "criticalPrinciple": "Layer 3 may gate safety/observability or diagnosis, but must not alone define execution infeasibility without semantic consequence",
   "historicalOutcomes": "IMMUTABLE_UNDER_ORIGINAL_CONTRACT",
-  "nextGate": "EXECUTE_ZERO_PROVIDER_SYNTHETIC_VALIDATION",
-  "currentContractStatus": "READY_FOR_SYNTHETIC_VALIDATION",
+  "nextGate": "CHOOSE_DESIGN_ONLY_FORK_A_OR_B",
+  "currentContractStatus": "SYNTHETIC_VALIDATION_PASS",
+  "syntheticPhase": "CLOSED",
+  "validationExactHead": "96fe079fdf1dbe3ebdf5902751138702c8b96fcf",
+  "closeoutCommentId": "5690678021",
   "promotionExactHead": "cbc7538ba5346b0f33a2c12b266ce961378bda4e",
   "syntheticQuadrants": [
     "semantic_success_linkage_complete",
