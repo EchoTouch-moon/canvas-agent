@@ -50,10 +50,9 @@
     },
     "providerCalls": 0,
     "suite": "11/11 PASS",
-    "nextDesignForksEligible": [
-      "Native execution mechanism study design (design-only)",
-      "Prospective construct validation / R0 design-only"
-    ],
+    "nextDesignForksEligible": ["Native execution mechanism study design (design-only)"],
+    "primaryForkSelected": "C1_NATIVE_EXECUTION_MECHANISM_STUDY_V1",
+    "forkBStatus": "STUB_ONLY_PENDING_A",
     "liveStillForbidden": true
   },
   "predecessor": {
