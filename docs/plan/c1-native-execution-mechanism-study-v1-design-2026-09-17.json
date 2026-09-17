@@ -88,5 +88,10 @@
     "historicalF0F1": "IMMUTABLE",
     "forkB": "STUB_ONLY_PENDING_A"
   },
-  "nextGate": "A_DESIGN_REVIEW_THEN_CODEBOOK_FREEZE_CANDIDATE"
+  "nextGate": "CODEBOOK_FREEZE_CANDIDATE_REVIEW",
+  "codebookFreezeCandidate": {
+    "contractId": "C1_NATIVE_EXECUTION_MECHANISM_CODEBOOK_V1",
+    "status": "FREEZE_CANDIDATE",
+    "path": "docs/plan/c1-native-execution-mechanism-codebook-v1-freeze-2026-09-17.zh-CN.md"
+  }
 }
