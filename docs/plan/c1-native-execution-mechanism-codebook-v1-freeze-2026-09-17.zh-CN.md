@@ -66,8 +66,9 @@ definition / inclusion / exclusion / counterexample / requiredEvidence
 
 - **Event-level**：局部证据；`supportsRunPrimary` 才参与投票。
 - **Run-level**：唯一 primary（或 UNKNOWN/MULTI/OTHER）。
-- 分裂 seed 投票 → `MULTI_MECHANISM`（不因 R0 兴趣拆平）。
+- 分裂 seed 投票 → `MULTI_MECHANISM`（不因 R0 兴趣拆平；**priority 表仅展示顺序，不产生 unique winner**）。
 - Event **永不**自动设置 `runtimeActionable`。
+- **Dual coding**：`adjudicateMechanismCoding(coding, dual?)` 在提供 dual 时走 `refereeDualCoding`，referee 主码覆盖 event-promoted primary。
 
 ## 4. Confounder axes（正交）
 
@@ -81,7 +82,14 @@ CONTEXT_STATE_FAILURE
 
 Axes ≠ mechanism codes；可与任意 mechanism 共存。禁止把 Layer-3 linkage 映射成 `TOOL_FAILURE` 或 mechanism。
 
-## 5. Referee
+## 5. Referee（主路径可选输入）
+
+```text
+adjudicateMechanismCoding(coding, dual?)
+  → event promotion
+  → if dual: refereeDualCoding overrides primary
+  → open-code / actionability checks
+```
 
 ```text
 either UNKNOWN → UNKNOWN
@@ -126,9 +134,17 @@ CODEBOOK_FROZEN_FOR_CALIBRATION_ONLY
 
 ## 10. Review checklist
 
-- [ ] 每码 definition/inclusion/exclusion/counterexample/requiredEvidence 可执行
-- [ ] OTHER/UNKNOWN/MULTI 触发严格
-- [ ] event→run promotion 与 referee 不引入叙事平局
-- [ ] 四要件与 evidence class 分离正确
-- [ ] `pnpm exec vitest run tests/native-execution-mechanism-codebook-v1.test.ts` 全绿
-- [ ] 仍在 `mechanism-study/`（不侵入 E0 `src/` surface）
+- [x] 每码 definition/inclusion/exclusion/counterexample/requiredEvidence 可执行（人工 inclusion；机器查结构）  
+- [x] OTHER/UNKNOWN/MULTI 触发严格  
+- [x] event→run：≥2 distinct supporting seeds ⇒ MULTI；priority 仅 DISPLAY_ORDER  
+- [x] dual referee 接入 `adjudicateMechanismCoding(coding, dual?)`  
+- [x] 四要件与 evidence class 分离正确  
+- [x] `pnpm exec vitest run tests/native-execution-mechanism-codebook-v1.test.ts` 全绿（review-fix：10/10）  
+- [x] 仍在 `mechanism-study/`（不侵入 E0 `src/` surface）
+
+## 11. Explicit residual（non-blocker for freeze）
+
+```text
+machine checks = structural + actionability + open-code triggers + dual referee
+human/coder checks = seed inclusion/exclusion against trajectory evidence
+```

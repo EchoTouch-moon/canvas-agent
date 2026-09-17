@@ -106,13 +106,18 @@ const ALL_AXES: readonly ConfounderAxis[] = [
   'CONTEXT_STATE_FAILURE'
 ]
 
-const PRIORITY: readonly SeedMechanismCode[] = [
+const PRIORITY_DISPLAY_ORDER: readonly SeedMechanismCode[] = [
   'PREMATURE_COMPLETION',
   'EDIT_THRASH',
   'INCORRECT_FILE_TARGETING',
   'INSUFFICIENT_CONVERGENCE',
   'OBJECTIVE_MISS'
 ]
+
+/** Documentation/display order only — never used to break multi-seed ties. */
+export function mechanismPriorityDisplayOrder(): readonly SeedMechanismCode[] {
+  return PRIORITY_DISPLAY_ORDER
+}
 
 export type MechanismCodebookDocument = {
   readonly codebookId: string
@@ -124,6 +129,10 @@ export type MechanismCodebookDocument = {
   }
   readonly promotionRules: {
     readonly priorityTableSeed: readonly SeedMechanismCode[]
+    readonly priorityTableRole?: string
+  }
+  readonly referee?: {
+    readonly integration?: string
   }
   readonly runtimeActionable: {
     readonly ruleId: string
@@ -229,17 +238,8 @@ export function promoteEventsToRunPrimary(
   }
   const unique = [...new Set(votes)]
   if (unique.length === 1) return unique[0]!
-  for (const code of PRIORITY) {
-    if (unique.includes(code) && unique.filter((c) => c === code).length === unique.length) {
-      return code
-    }
-  }
-  // Distinct seeds compete → MULTI unless priority uniquely ranks one present seed alone.
-  const presentByPriority = PRIORITY.filter((c) => unique.includes(c))
-  if (presentByPriority.length === 1) return presentByPriority[0]!
-  // If multiple seeds present, priority picks the earliest only when policy says unique winner.
-  // Freeze rule: competing seeds ⇒ MULTI_MECHANISM (priority is for documentation / future use
-  // when inclusion ties within one cluster; calibration locks MULTI for split votes).
+  // Frozen: any >=2 distinct supporting seed codes ⇒ MULTI_MECHANISM.
+  // priorityTableSeed is documentation/display order only.
   return 'MULTI_MECHANISM'
 }
 
@@ -268,7 +268,10 @@ function validateAxes(axes: RunMechanismCoding['confounderAxes'], violations: st
   }
 }
 
-export function adjudicateMechanismCoding(coding: RunMechanismCoding): MechanismAdjudication {
+export function adjudicateMechanismCoding(
+  coding: RunMechanismCoding,
+  dual?: DualCodingPair
+): MechanismAdjudication {
   const violations: string[] = []
   const notes: string[] = []
 
@@ -288,6 +291,30 @@ export function adjudicateMechanismCoding(coding: RunMechanismCoding): Mechanism
     }
   }
 
+  if (dual) {
+    if (dual.runId !== coding.runId) {
+      violations.push('dual_runId_mismatch')
+    } else {
+      const refereed = refereeDualCoding(dual)
+      if (refereed !== primary) {
+        notes.push(`dual_referee_override:${primary}->${refereed}`)
+        primary = refereed
+      }
+      if (refereed === 'MULTI_MECHANISM') {
+        const competing = new Set<SeedMechanismCode>()
+        if (isSeed(dual.coderA)) competing.add(dual.coderA)
+        if (isSeed(dual.coderB)) competing.add(dual.coderB)
+        for (const code of coding.competingSeedCodes ?? []) competing.add(code)
+        if (
+          competing.size >= 2 &&
+          (!coding.competingSeedCodes || coding.competingSeedCodes.length < 2)
+        ) {
+          notes.push('dual_referee_inferred_competing_seeds')
+        }
+      }
+    }
+  }
+
   if (primary === 'OTHER') {
     if (!coding.otherRationale?.trim()) violations.push('OTHER_requires_freeTextRationale')
     if (!coding.rejectedSeedCodes || coding.rejectedSeedCodes.length === 0) {
@@ -296,7 +323,11 @@ export function adjudicateMechanismCoding(coding: RunMechanismCoding): Mechanism
   }
 
   if (primary === 'MULTI_MECHANISM') {
-    const competing = coding.competingSeedCodes ?? []
+    const competing = [...(coding.competingSeedCodes ?? [])]
+    if (dual) {
+      if (isSeed(dual.coderA) && !competing.includes(dual.coderA)) competing.push(dual.coderA)
+      if (isSeed(dual.coderB) && !competing.includes(dual.coderB)) competing.push(dual.coderB)
+    }
     if (competing.length < 2) violations.push('MULTI_MECHANISM_requires_competingSeedCodes>=2')
   }
 

@@ -216,6 +216,7 @@
         "runId": "sx-cal-dual-01",
         "layer1SemanticFeasibility": "FAIL",
         "primaryMechanismCode": "OBJECTIVE_MISS",
+        "competingSeedCodes": ["OBJECTIVE_MISS", "INSUFFICIENT_CONVERGENCE"],
         "confounderAxes": {
           "MODEL_LIMITATION": "PRESENT",
           "TASK_AMBIGUITY": "ABSENT",
@@ -231,7 +232,7 @@
       },
       "expected": {
         "accepted": true,
-        "primaryMechanismCode": "OBJECTIVE_MISS",
+        "primaryMechanismCode": "MULTI_MECHANISM",
         "runtimeActionable": false,
         "refereePrimary": "MULTI_MECHANISM"
       }

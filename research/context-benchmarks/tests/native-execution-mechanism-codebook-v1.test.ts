@@ -36,7 +36,7 @@ describe('C1_NATIVE_EXECUTION_MECHANISM_CODEBOOK_V1 freeze candidate', () => {
 
   it('adjudicates every calibration case to expected primary and actionability', () => {
     for (const testCase of corpus.cases) {
-      const result = adjudicateMechanismCoding(testCase.coding)
+      const result = adjudicateMechanismCoding(testCase.coding, testCase.dual)
       expect(result.accepted, testCase.caseId).toBe(testCase.expected.accepted)
       expect(result.primaryMechanismCode, testCase.caseId).toBe(
         testCase.expected.primaryMechanismCode
@@ -73,7 +73,7 @@ describe('C1_NATIVE_EXECUTION_MECHANISM_CODEBOOK_V1 freeze candidate', () => {
     expect(sealed.clauseFailures).toContain('C4_NO_UNAVAILABLE_GROUND_TRUTH')
   })
 
-  it('referees dual-coding disagreements to MULTI or UNKNOWN without R0 interest', () => {
+  it('referees dual-coding on the main adjudication path', () => {
     expect(
       refereeDualCoding({
         runId: 'r1',
@@ -93,13 +93,18 @@ describe('C1_NATIVE_EXECUTION_MECHANISM_CODEBOOK_V1 freeze candidate', () => {
     const dualCase = corpus.cases.find((c) => c.caseId === 'CAL-DUAL-DISAGREE-MULTI')!
     expect(dualCase.dual).toBeTruthy()
     expect(refereeDualCoding(dualCase.dual!)).toBe(dualCase.expected.refereePrimary)
+    const integrated = adjudicateMechanismCoding(dualCase.coding, dualCase.dual)
+    expect(integrated.accepted).toBe(true)
+    expect(integrated.primaryMechanismCode).toBe('MULTI_MECHANISM')
+    expect(integrated.notes.some((n) => n.startsWith('dual_referee_override:'))).toBe(true)
   })
 
-  it('promotes split supporting events to MULTI_MECHANISM', () => {
+  it('freezes multi-seed event promotion as MULTI without priority unique-winner', () => {
     const multi = corpus.cases.find((c) => c.caseId === 'CAL-MULTI-FROM-SPLIT-EVENTS')!
     const result = adjudicateMechanismCoding(multi.coding)
     expect(result.primaryMechanismCode).toBe('MULTI_MECHANISM')
     expect(result.accepted).toBe(true)
+    expect(codebook.promotionRules.priorityTableRole).toBe('DOCUMENTATION_AND_DISPLAY_ORDER_ONLY')
   })
 
   it('rejects Layer-1 PASS records for mechanism coding', () => {

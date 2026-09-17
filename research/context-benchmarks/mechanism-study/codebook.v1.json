@@ -125,8 +125,11 @@
     },
     "MULTI_MECHANISM": {
       "definition": "Two or more seed mechanisms each meet inclusion with comparable support; a single primary cannot be chosen without violating exclusion/priority rules.",
-      "trigger": ">=2 seed codes satisfy inclusion on the same run-level evidence set and frozen priority table does not uniquely select one primary.",
-      "requiredEvidence": ["competingSeedCodes[] length >= 2", "per-seed evidencePointers"],
+      "trigger": ">=2 distinct seed codes appear as supporting event votes and/or dual-coder primaries (or explicit competingSeedCodes). Frozen policy never uses priorityTableSeed to force a unique winner.",
+      "requiredEvidence": [
+        "competingSeedCodes[] length >= 2 OR dual seed disagreement",
+        "per-seed evidencePointers when available"
+      ],
       "forbidden": "Collapsing MULTI_MECHANISM into a preferred seed because it would make R0 interesting."
     }
   },
@@ -162,11 +165,12 @@
     "id": "EVENT_TO_RUN_PRIMARY_V1",
     "rules": [
       "Only events with supportsRunPrimary=true may vote for run primary.",
-      "If zero supporting events and run-level direct evidence insufficient → primary=UNKNOWN.",
-      "If supporting events unanimously share one seed code and run-level exclusions OK → that seed is primary.",
-      "If supporting events split across >=2 seeds with no unique frozen priority winner → primary=MULTI_MECHANISM.",
+      "If zero supporting seed events → keep run-level primary if OTHER, else UNKNOWN when fallback is not a seed.",
+      "If supporting events unanimously share one seed code → that seed is primary.",
+      "If supporting events contain >=2 distinct seed codes → primary=MULTI_MECHANISM (no unique-winner shortcut).",
       "OTHER requires run-level rationale fields; cannot be promoted from events alone without run rationale.",
-      "Event codes never auto-set runtimeActionable; actionability is adjudicated separately."
+      "Event codes never auto-set runtimeActionable; actionability is adjudicated separately.",
+      "When dualCoding is supplied to the main adjudicator, refereeDualCoding overrides primary after event promotion."
     ],
     "priorityTableSeed": [
       "PREMATURE_COMPLETION",
@@ -175,10 +179,13 @@
       "INSUFFICIENT_CONVERGENCE",
       "OBJECTIVE_MISS"
     ],
-    "priorityTableNote": "Priority applies only when multiple seeds meet inclusion AND a unique primary is allowed; if still tied after priority, use MULTI_MECHANISM."
+    "priorityTableRole": "DOCUMENTATION_AND_DISPLAY_ORDER_ONLY",
+    "priorityTableNote": "Frozen policy: any >=2 distinct supporting seed codes ⇒ MULTI_MECHANISM. priorityTableSeed does NOT select a unique winner among competing seeds."
   },
   "referee": {
     "id": "MECHANISM_DUAL_CODE_REFEREE_V1",
+    "integration": "MAIN_PATH_OPTIONAL_INPUT",
+    "integrationNote": "adjudicateMechanismCoding(coding, dual?) applies refereeDualCoding when dual is provided; referee primary overrides event-promoted primary.",
     "order": [
       "If either coder yields UNKNOWN for insufficient evidence → UNKNOWN",
       "If primaries differ and both are seed codes → MULTI_MECHANISM",
