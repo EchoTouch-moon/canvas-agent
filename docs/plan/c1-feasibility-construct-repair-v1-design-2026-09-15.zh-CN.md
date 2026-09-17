@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Contract ID | `C1_FEASIBILITY_CONSTRUCT_REPAIR_V1` |
-| Status | `DESIGN_ONLY → SYNTHETIC_VALIDATION_PASS`（synthetic phase CLOSED；validation head `96fe079`） |
+| Status | `DESIGN_ONLY → SYNTHETIC_VALIDATION_PASS`（CLOSED）；下一主线 `C1_NATIVE_EXECUTION_MECHANISM_STUDY_V1` DESIGN_ONLY |
 | Freeze candidate | `docs/plan/c1-feasibility-construct-repair-v1-synthetic-validation-freeze-2026-09-15.zh-CN.md` |
 | Predecessor | F1-32 Failure Anatomy v1（LOCKED） |
 | Anatomy doc | `docs/verification/cspv-c1-f1-32-failure-anatomy-v1-2026-09-15.zh-CN.md` |

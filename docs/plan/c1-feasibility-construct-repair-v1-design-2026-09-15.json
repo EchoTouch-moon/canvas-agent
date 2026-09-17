@@ -14,8 +14,9 @@
     }
   },
   "route": {
-    "contractRepairDesign": "GO",
-    "nativeMechanismDesign": "DESIGN_DISCUSSION_ELIGIBLE_NO_LIVE",
+    "contractRepairDesign": "CLOSED_SYNTHETIC_PASS",
+    "nativeMechanismDesign": "PRIMARY_DESIGN_ONLY",
+    "prospectiveConstructR0": "STUB_ONLY_PENDING_A",
     "f1_40Live": "NO_GO",
     "r0Live": "HOLD",
     "t0e1": "HOLD"
@@ -27,9 +28,12 @@
   },
   "criticalPrinciple": "Layer 3 may gate safety/observability or diagnosis, but must not alone define execution infeasibility without semantic consequence",
   "historicalOutcomes": "IMMUTABLE_UNDER_ORIGINAL_CONTRACT",
-  "nextGate": "CHOOSE_DESIGN_ONLY_FORK_A_OR_B",
+  "nextGate": "A_NATIVE_MECHANISM_DESIGN_REVIEW",
   "currentContractStatus": "SYNTHETIC_VALIDATION_PASS",
   "syntheticPhase": "CLOSED",
+  "primaryFork": "C1_NATIVE_EXECUTION_MECHANISM_STUDY_V1",
+  "primaryForkDesignDoc": "docs/plan/c1-native-execution-mechanism-study-v1-design-2026-09-17.zh-CN.md",
+  "forkBStub": "docs/plan/c1-prospective-construct-r0-stub-2026-09-17.zh-CN.md",
   "validationExactHead": "96fe079fdf1dbe3ebdf5902751138702c8b96fcf",
   "closeoutCommentId": "5690678021",
   "promotionExactHead": "cbc7538ba5346b0f33a2c12b266ce961378bda4e",

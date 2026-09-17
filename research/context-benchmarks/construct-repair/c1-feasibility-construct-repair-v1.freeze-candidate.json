@@ -282,7 +282,7 @@
     "r0t0e1Live": "HOLD",
     "providerLive": "NOT_AUTHORIZED",
     "historicalF0F1": "IMMUTABLE",
-    "nativeMechanismDesign": "DESIGN_DISCUSSION_ELIGIBLE_NO_LIVE",
-    "prospectiveConstructOrR0Design": "DESIGN_DISCUSSION_ELIGIBLE_NO_LIVE"
+    "nativeMechanismDesign": "PRIMARY_DESIGN_ONLY",
+    "prospectiveConstructOrR0Design": "STUB_ONLY_PENDING_A"
   }
 }

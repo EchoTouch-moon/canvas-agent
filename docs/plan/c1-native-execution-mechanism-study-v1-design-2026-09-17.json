@@ -1,0 +1,92 @@
+{
+  "contractId": "C1_NATIVE_EXECUTION_MECHANISM_STUDY_V1",
+  "schemaVersion": 1,
+  "status": "DESIGN_ONLY",
+  "executionMode": "NO_PROVIDER",
+  "liveExecution": "FORBIDDEN",
+  "historicalInput": "READ_ONLY",
+  "historicalVerdict": "IMMUTABLE",
+  "primaryQuestion": "MECHANISM_ATTRIBUTION",
+  "forkRole": "PRIMARY",
+  "designDocPath": "docs/plan/c1-native-execution-mechanism-study-v1-design-2026-09-17.zh-CN.md",
+  "companionStubPath": "docs/plan/c1-prospective-construct-r0-stub-2026-09-17.zh-CN.md",
+  "predecessor": {
+    "constructRepair": {
+      "contractId": "C1_FEASIBILITY_CONSTRUCT_REPAIR_V1",
+      "status": "SYNTHETIC_VALIDATION_PASS",
+      "syntheticPhase": "CLOSED",
+      "validationExactHead": "96fe079fdf1dbe3ebdf5902751138702c8b96fcf"
+    },
+    "anatomy": {
+      "path": "docs/verification/cspv-c1-f1-32-failure-anatomy-v1-2026-09-15.zh-CN.md",
+      "M": "PARTIAL_MECHANISM_CANDIDATES_IDENTIFIED",
+      "C": "ADDRESSED_AT_SYNTHETIC_LAYER_BY_CONSTRUCT_REPAIR"
+    }
+  },
+  "estimand": {
+    "primary": "mechanism_distribution_and_attribution_among_layer1_fail_runs",
+    "notEstimand": [
+      "runtime_rescue_effect",
+      "r0_treatment_effect",
+      "budget_frontier_reopening",
+      "retrospective_historical_relabel"
+    ]
+  },
+  "unitsOfAnalysis": ["run_level_primary_mechanism", "trajectory_event_level_mechanism_evidence"],
+  "mechanismCodebookSeed": {
+    "studyGrade": false,
+    "codes": [
+      "EDIT_THRASH",
+      "INCORRECT_FILE_TARGETING",
+      "INSUFFICIENT_CONVERGENCE",
+      "PREMATURE_COMPLETION",
+      "OBJECTIVE_MISS",
+      "OTHER",
+      "UNKNOWN",
+      "MULTI_MECHANISM"
+    ],
+    "note": "Seeds are not yet study-grade; freeze requires coding rules + adjudication PASS."
+  },
+  "confounderAxes": [
+    "MODEL_LIMITATION",
+    "TASK_AMBIGUITY",
+    "TOOL_FAILURE",
+    "BUDGET_EXPOSURE",
+    "CONTEXT_STATE_FAILURE"
+  ],
+  "runtimeActionable": {
+    "ruleId": "RUNTIME_ACTIONABLE_V1",
+    "conjunction": [
+      "observable_runtime_state",
+      "runtime_can_intervene_on_that_state",
+      "intervention_before_semantic_failure_irreversible",
+      "attribution_does_not_depend_on_runtime_unavailable_ground_truth"
+    ],
+    "allRequired": true,
+    "requiredRecordFieldsIfTrue": [
+      "observableStateId",
+      "interventionId",
+      "decisionPointId",
+      "attributionEvidenceClass"
+    ],
+    "forbiddenSoftLeap": "model_cannot_complete_task => context_should_help => runtime_actionable"
+  },
+  "adjudication": {
+    "minimum": "dual_coding_or_deterministic_referee",
+    "failClosedCodes": ["UNKNOWN", "MULTI_MECHANISM"],
+    "forbiddenTieBreak": "what_would_make_r0_interesting"
+  },
+  "promotionGate": {
+    "onDesignPass": "R0_DESIGN_ELIGIBILITY_REVIEW_ONLY",
+    "doesNotUnlock": ["R0_LIVE", "PROVIDER_LIVE", "F1_40_LIVE", "AUTOMATIC_B_FULL_CONTRACT"],
+    "r0DesignEligibleIf": ">=1 study-grade RUNTIME_ACTIONABLE mechanism under frozen rules"
+  },
+  "routeLocks": {
+    "f1_40Live": "NO_GO",
+    "r0t0e1Live": "HOLD",
+    "providerLive": "NOT_AUTHORIZED",
+    "historicalF0F1": "IMMUTABLE",
+    "forkB": "STUB_ONLY_PENDING_A"
+  },
+  "nextGate": "A_DESIGN_REVIEW_THEN_CODEBOOK_FREEZE_CANDIDATE"
+}

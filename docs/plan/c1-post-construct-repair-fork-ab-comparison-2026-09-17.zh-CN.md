@@ -10,7 +10,22 @@
 | Closeout head | `e8dac1555687466592f53b921b916e3def1b6155` |
 | Closeout comment | `#143` / `5690678021` |
 | Mode | **DESIGN-ONLY** — no Provider, no live, no historical rewrite |
-| Decision status | `COMPARISON_OPEN` — choose one primary fork before drafting full study design |
+| Decision status | `PRIMARY_LOCKED = A`（2026-09-17）— B remains dependency stub only |
+
+## 0. Decision lock (2026-09-17)
+
+```text
+Primary fork     = A — Native execution mechanism study design
+Secondary        = B stub only
+R0               = not a standalone primary line
+Live             = NO_GO
+
+Formal A design  = docs/plan/c1-native-execution-mechanism-study-v1-design-2026-09-17.zh-CN.md
+A machine index  = docs/plan/c1-native-execution-mechanism-study-v1-design-2026-09-17.json
+B stub           = docs/plan/c1-prospective-construct-r0-stub-2026-09-17.zh-CN.md
+```
+
+Rationale: construct-repair closed **C** at synthetic layer; blocking unknown is **M** / Runtime-actionability. A unblocks R0 eligibility; B consumes A.
 
 ## 0. Shared locks (both forks)
 
@@ -163,13 +178,15 @@ Fork-specific bar:
 - **Secondary note:** the other fork gets a 1-page dependency stub only.
 - **R0:** remains an eligibility appendix under B, fed by A — never a live sneak path.
 
-## 6. Decision checklist (fill when choosing)
+## 6. Decision checklist (filled 2026-09-17)
 
-- [ ] Primary fork selected: `A` / `B`
-- [ ] Secondary stub only for the other fork
-- [ ] Confirm no Provider / F1-40 / R0-T0-E1 live in the next authoring sprint
-- [ ] Confirm synthetic corpus/adjudicator remain immutable unless integrity defect
-- [ ] Name the next design doc path + owner review gate
+- [x] Primary fork selected: `A`
+- [x] Secondary stub only for the other fork (`docs/plan/c1-prospective-construct-r0-stub-2026-09-17.zh-CN.md`)
+- [x] Confirm no Provider / F1-40 / R0-T0-E1 live in the next authoring sprint
+- [x] Confirm synthetic corpus/adjudicator remain immutable unless integrity defect
+- [x] Name the next design doc path + owner review gate  
+      → `docs/plan/c1-native-execution-mechanism-study-v1-design-2026-09-17.zh-CN.md`  
+      → next gate: `A_DESIGN_REVIEW_THEN_CODEBOOK_FREEZE_CANDIDATE`
 
 ## 7. One-line contrast
 
