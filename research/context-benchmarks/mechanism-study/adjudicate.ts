@@ -257,9 +257,51 @@ export function refereeDualCoding(pair: DualCodingPair): MechanismCode {
     (pair.coderA === 'OTHER' && isSeed(pair.coderB)) ||
     (pair.coderB === 'OTHER' && isSeed(pair.coderA))
   ) {
-    return 'MULTI_MECHANISM'
+    const otherRationale = pair.coderA === 'OTHER' ? pair.otherRationaleA : pair.otherRationaleB
+    return otherRationale?.trim() ? 'MULTI_MECHANISM' : 'UNKNOWN'
   }
   return 'UNKNOWN'
+}
+
+function isValidDualMultiEvidence(pair: DualCodingPair): boolean {
+  if (isSeed(pair.coderA) && isSeed(pair.coderB)) {
+    return pair.coderA !== pair.coderB
+  }
+  const mixedSeedOther =
+    (isSeed(pair.coderA) && pair.coderB === 'OTHER') ||
+    (pair.coderA === 'OTHER' && isSeed(pair.coderB))
+  if (!mixedSeedOther) return false
+  const otherRationale = pair.coderA === 'OTHER' ? pair.otherRationaleA : pair.otherRationaleB
+  return Boolean(otherRationale?.trim())
+}
+
+function collectCompetingSeedCodes(
+  coding: RunMechanismCoding,
+  dual: DualCodingPair | undefined,
+  violations: string[]
+): Set<SeedMechanismCode> {
+  const competing = new Set<SeedMechanismCode>()
+
+  for (const event of coding.events ?? []) {
+    if (event.supportsRunPrimary && isSeed(event.eventMechanismCode)) {
+      competing.add(event.eventMechanismCode)
+    }
+  }
+
+  for (const code of coding.competingSeedCodes ?? []) {
+    if (!isSeed(code)) {
+      violations.push(`invalid_competingSeedCode:${String(code)}`)
+      continue
+    }
+    competing.add(code)
+  }
+
+  if (dual) {
+    if (isSeed(dual.coderA)) competing.add(dual.coderA)
+    if (isSeed(dual.coderB)) competing.add(dual.coderB)
+  }
+
+  return competing
 }
 
 function validateAxes(axes: RunMechanismCoding['confounderAxes'], violations: string[]): void {
@@ -282,6 +324,7 @@ export function adjudicateMechanismCoding(
   validateAxes(coding.confounderAxes, violations)
 
   let primary = coding.primaryMechanismCode
+  let dualProvidesValidMultiEvidence = false
 
   if (coding.events && coding.events.length > 0) {
     const promoted = promoteEventsToRunPrimary(coding.events, coding.primaryMechanismCode)
@@ -301,14 +344,8 @@ export function adjudicateMechanismCoding(
         primary = refereed
       }
       if (refereed === 'MULTI_MECHANISM') {
-        const competing = new Set<SeedMechanismCode>()
-        if (isSeed(dual.coderA)) competing.add(dual.coderA)
-        if (isSeed(dual.coderB)) competing.add(dual.coderB)
-        for (const code of coding.competingSeedCodes ?? []) competing.add(code)
-        if (
-          competing.size >= 2 &&
-          (!coding.competingSeedCodes || coding.competingSeedCodes.length < 2)
-        ) {
+        dualProvidesValidMultiEvidence = isValidDualMultiEvidence(dual)
+        if (dualProvidesValidMultiEvidence && !coding.competingSeedCodes) {
           notes.push('dual_referee_inferred_competing_seeds')
         }
       }
@@ -323,12 +360,13 @@ export function adjudicateMechanismCoding(
   }
 
   if (primary === 'MULTI_MECHANISM') {
-    const competing = [...(coding.competingSeedCodes ?? [])]
-    if (dual) {
-      if (isSeed(dual.coderA) && !competing.includes(dual.coderA)) competing.push(dual.coderA)
-      if (isSeed(dual.coderB) && !competing.includes(dual.coderB)) competing.push(dual.coderB)
+    const evidenceDual = dual && dual.runId === coding.runId ? dual : undefined
+    const competing = collectCompetingSeedCodes(coding, evidenceDual, violations)
+    if (competing.size < 2 && !dualProvidesValidMultiEvidence) {
+      violations.push(
+        'MULTI_MECHANISM_requires_two_distinct_competing_seeds_or_valid_dual_disagreement'
+      )
     }
-    if (competing.length < 2) violations.push('MULTI_MECHANISM_requires_competingSeedCodes>=2')
   }
 
   // Hard separation: mechanism code never implies actionability.

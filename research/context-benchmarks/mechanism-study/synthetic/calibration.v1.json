@@ -133,7 +133,6 @@
         "runId": "sx-cal-multi-01",
         "layer1SemanticFeasibility": "FAIL",
         "primaryMechanismCode": "EDIT_THRASH",
-        "competingSeedCodes": ["EDIT_THRASH", "INCORRECT_FILE_TARGETING"],
         "confounderAxes": {
           "MODEL_LIMITATION": "ABSENT",
           "TASK_AMBIGUITY": "ABSENT",
@@ -235,6 +234,80 @@
         "primaryMechanismCode": "MULTI_MECHANISM",
         "runtimeActionable": false,
         "refereePrimary": "MULTI_MECHANISM"
+      }
+    },
+    {
+      "caseId": "CAL-DUAL-SEED-OTHER-VALID",
+      "coding": {
+        "runId": "sx-cal-dual-seed-other-valid-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "OBJECTIVE_MISS",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "PRESENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        }
+      },
+      "dual": {
+        "runId": "sx-cal-dual-seed-other-valid-01",
+        "coderA": "OBJECTIVE_MISS",
+        "coderB": "OTHER",
+        "otherRationaleB": "The observed failure is outside every frozen seed definition."
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "MULTI_MECHANISM",
+        "runtimeActionable": false,
+        "refereePrimary": "MULTI_MECHANISM"
+      }
+    },
+    {
+      "caseId": "CAL-DUAL-SEED-OTHER-MISSING-RATIONALE",
+      "coding": {
+        "runId": "sx-cal-dual-seed-other-missing-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "OBJECTIVE_MISS",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "PRESENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        }
+      },
+      "dual": {
+        "runId": "sx-cal-dual-seed-other-missing-01",
+        "coderA": "OBJECTIVE_MISS",
+        "coderB": "OTHER"
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false,
+        "refereePrimary": "UNKNOWN"
+      }
+    },
+    {
+      "caseId": "CAL-MULTI-DUPLICATE-SEEDS-REJECTED",
+      "coding": {
+        "runId": "sx-cal-multi-duplicate-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "MULTI_MECHANISM",
+        "competingSeedCodes": ["OBJECTIVE_MISS", "OBJECTIVE_MISS"],
+        "confounderAxes": {
+          "MODEL_LIMITATION": "ABSENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
       }
     },
     {

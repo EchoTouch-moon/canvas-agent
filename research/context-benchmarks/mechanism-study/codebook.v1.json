@@ -124,10 +124,10 @@
       "forbidden": "Using UNKNOWN when a seed's inclusion is clearly met to soften claims."
     },
     "MULTI_MECHANISM": {
-      "definition": "Two or more seed mechanisms each meet inclusion with comparable support; a single primary cannot be chosen without violating exclusion/priority rules.",
-      "trigger": ">=2 distinct seed codes appear as supporting event votes and/or dual-coder primaries (or explicit competingSeedCodes). Frozen policy never uses priorityTableSeed to force a unique winner.",
+      "definition": "Two or more distinct seed mechanisms are supported by the run evidence, or a valid dual-coder seed-versus-OTHER disagreement prevents a single primary without violating the frozen rules.",
+      "trigger": ">=2 distinct seed codes appear in supporting event votes, dual-coder primaries, or explicit competingSeedCodes; a seed-versus-OTHER dual disagreement also requires non-empty OTHER rationale. Frozen policy never uses priorityTableSeed to force a unique winner.",
       "requiredEvidence": [
-        "competingSeedCodes[] length >= 2 OR dual seed disagreement",
+        "at least 2 distinct supporting seed codes OR a valid dual seed-versus-OTHER disagreement",
         "per-seed evidencePointers when available"
       ],
       "forbidden": "Collapsing MULTI_MECHANISM into a preferred seed because it would make R0 interesting."
@@ -170,7 +170,8 @@
       "If supporting events contain >=2 distinct seed codes → primary=MULTI_MECHANISM (no unique-winner shortcut).",
       "OTHER requires run-level rationale fields; cannot be promoted from events alone without run rationale.",
       "Event codes never auto-set runtimeActionable; actionability is adjudicated separately.",
-      "When dualCoding is supplied to the main adjudicator, refereeDualCoding overrides primary after event promotion."
+      "When dualCoding is supplied to the main adjudicator, refereeDualCoding overrides primary after event promotion.",
+      "A seed-versus-OTHER dual disagreement requires non-empty OTHER rationale; otherwise referee output is UNKNOWN."
     ],
     "priorityTableSeed": [
       "PREMATURE_COMPLETION",
@@ -185,7 +186,7 @@
   "referee": {
     "id": "MECHANISM_DUAL_CODE_REFEREE_V1",
     "integration": "MAIN_PATH_OPTIONAL_INPUT",
-    "integrationNote": "adjudicateMechanismCoding(coding, dual?) applies refereeDualCoding when dual is provided; referee primary overrides event-promoted primary.",
+    "integrationNote": "adjudicateMechanismCoding(coding, dual?) applies refereeDualCoding when dual is provided; referee primary overrides event-promoted primary. A mixed seed/OTHER pair is MULTI only when the OTHER coder supplies rationale.",
     "order": [
       "If either coder yields UNKNOWN for insufficient evidence → UNKNOWN",
       "If primaries differ and both are seed codes → MULTI_MECHANISM",

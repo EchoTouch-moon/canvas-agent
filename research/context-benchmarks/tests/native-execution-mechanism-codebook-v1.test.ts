@@ -19,11 +19,11 @@ describe('C1_NATIVE_EXECUTION_MECHANISM_CODEBOOK_V1 freeze candidate', () => {
     assertHardSeparations(codebook)
     expect(codebook.runtimeActionable.ruleId).toBe('RUNTIME_ACTIONABLE_V1')
     expect(
-      codebook.runtimeActionable.evidenceClasses.SEALED_OFFLINE_ONLY.maySupportActionability
+      codebook.runtimeActionable.evidenceClasses['SEALED_OFFLINE_ONLY']!.maySupportActionability
     ).toBe(false)
-    expect(codebook.runtimeActionable.evidenceClasses.RUNTIME_VISIBLE.maySupportActionability).toBe(
-      true
-    )
+    expect(
+      codebook.runtimeActionable.evidenceClasses['RUNTIME_VISIBLE']!.maySupportActionability
+    ).toBe(true)
   })
 
   it('keeps calibration synthetic and free of historical markers', () => {
@@ -105,6 +105,16 @@ describe('C1_NATIVE_EXECUTION_MECHANISM_CODEBOOK_V1 freeze candidate', () => {
     expect(result.primaryMechanismCode).toBe('MULTI_MECHANISM')
     expect(result.accepted).toBe(true)
     expect(codebook.promotionRules.priorityTableRole).toBe('DOCUMENTATION_AND_DISPLAY_ORDER_ONLY')
+
+    const duplicateCoding = {
+      ...multi.coding,
+      primaryMechanismCode: 'MULTI_MECHANISM' as const,
+      competingSeedCodes: ['EDIT_THRASH', 'EDIT_THRASH'] as const
+    }
+    delete duplicateCoding.events
+    const duplicate = adjudicateMechanismCoding(duplicateCoding)
+    expect(duplicate.accepted).toBe(false)
+    expect(duplicate.primaryMechanismCode).toBe('UNKNOWN')
   })
 
   it('rejects Layer-1 PASS records for mechanism coding', () => {

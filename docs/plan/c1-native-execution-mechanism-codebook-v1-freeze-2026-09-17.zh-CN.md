@@ -2,19 +2,19 @@
 
 日期：2026-09-17（Asia/Shanghai）
 
-| Field | Value |
-|---|---|
-| Contract ID | `C1_NATIVE_EXECUTION_MECHANISM_CODEBOOK_V1` |
-| Status | `FREEZE_CANDIDATE` / `READY_FOR_REVIEW` |
-| Execution | `NO_PROVIDER` / `live=FORBIDDEN` |
-| Historical coding | `NOT_STARTED` |
-| R0 design eligible | `NOT_YET` |
-| Machine codebook | `research/context-benchmarks/mechanism-study/codebook.v1.json` |
-| Adjudicator | `research/context-benchmarks/mechanism-study/adjudicate.ts` |
-| Calibration | `research/context-benchmarks/mechanism-study/synthetic/calibration.v1.json` |
-| Tests | `research/context-benchmarks/tests/native-execution-mechanism-codebook-v1.test.ts` |
-| Machine index | `docs/plan/c1-native-execution-mechanism-codebook-v1-freeze-2026-09-17.json` |
-| Predecessor | `C1_NATIVE_EXECUTION_MECHANISM_STUDY_V1`（A design PASS / merged via #143） |
+| Field              | Value                                                                              |
+| ------------------ | ---------------------------------------------------------------------------------- |
+| Contract ID        | `C1_NATIVE_EXECUTION_MECHANISM_CODEBOOK_V1`                                        |
+| Status             | `FREEZE_CANDIDATE` / `READY_FOR_REVIEW`                                            |
+| Execution          | `NO_PROVIDER` / `live=FORBIDDEN`                                                   |
+| Historical coding  | `NOT_STARTED`                                                                      |
+| R0 design eligible | `NOT_YET`                                                                          |
+| Machine codebook   | `research/context-benchmarks/mechanism-study/codebook.v1.json`                     |
+| Adjudicator        | `research/context-benchmarks/mechanism-study/adjudicate.ts`                        |
+| Calibration        | `research/context-benchmarks/mechanism-study/synthetic/calibration.v1.json`        |
+| Tests              | `research/context-benchmarks/tests/native-execution-mechanism-codebook-v1.test.ts` |
+| Machine index      | `docs/plan/c1-native-execution-mechanism-codebook-v1-freeze-2026-09-17.json`       |
+| Predecessor        | `C1_NATIVE_EXECUTION_MECHANISM_STUDY_V1`（A design PASS / merged via #143）        |
 
 ## 0. Scope of this freeze
 
@@ -54,11 +54,11 @@ definition / inclusion / exclusion / counterexample / requiredEvidence
 
 开放码：
 
-| Code | 严格触发 |
-|---|---|
-| `OTHER` | 无 seed inclusion 成立 + 非空 rationale + `rejectedSeedCodes[]` |
-| `UNKNOWN` | 证据不足 / 校验失败 fail-closed / referee 指向 UNKNOWN |
-| `MULTI_MECHANISM` | ≥2 seed 竞争且不能唯一定主码；需 `competingSeedCodes[]` |
+| Code              | 严格触发                                                        |
+| ----------------- | --------------------------------------------------------------- |
+| `OTHER`           | 无 seed inclusion 成立 + 非空 rationale + `rejectedSeedCodes[]` |
+| `UNKNOWN`         | 证据不足 / 校验失败 fail-closed / referee 指向 UNKNOWN          |
+| `MULTI_MECHANISM` | ≥2 seed 竞争且不能唯一定主码；需 `competingSeedCodes[]`         |
 
 `studyGrade=false` 直至 freeze review PASS。
 
@@ -95,6 +95,7 @@ adjudicateMechanismCoding(coding, dual?)
 either UNKNOWN → UNKNOWN
 same OTHER without dual rationale → UNKNOWN
 differing seeds → MULTI_MECHANISM
+seed + OTHER → MULTI_MECHANISM only with non-empty OTHER rationale; otherwise UNKNOWN
 never tie-break by R0 interest
 ```
 
@@ -134,12 +135,12 @@ CODEBOOK_FROZEN_FOR_CALIBRATION_ONLY
 
 ## 10. Review checklist
 
-- [x] 每码 definition/inclusion/exclusion/counterexample/requiredEvidence 可执行（人工 inclusion；机器查结构）  
-- [x] OTHER/UNKNOWN/MULTI 触发严格  
-- [x] event→run：≥2 distinct supporting seeds ⇒ MULTI；priority 仅 DISPLAY_ORDER  
-- [x] dual referee 接入 `adjudicateMechanismCoding(coding, dual?)`  
-- [x] 四要件与 evidence class 分离正确  
-- [x] `pnpm exec vitest run tests/native-execution-mechanism-codebook-v1.test.ts` 全绿（review-fix：10/10）  
+- [x] 每码 definition/inclusion/exclusion/counterexample/requiredEvidence 可执行（人工 inclusion；机器查结构）
+- [x] OTHER/UNKNOWN/MULTI 触发严格
+- [x] event→run：≥2 distinct supporting seeds ⇒ MULTI；priority 仅 DISPLAY_ORDER
+- [x] dual referee 接入 `adjudicateMechanismCoding(coding, dual?)`
+- [x] 四要件与 evidence class 分离正确
+- [x] `pnpm exec vitest run tests/native-execution-mechanism-codebook-v1.test.ts` 全绿（review-fix：10/10）
 - [x] 仍在 `mechanism-study/`（不侵入 E0 `src/` surface）
 
 ## 11. Explicit residual（non-blocker for freeze）
