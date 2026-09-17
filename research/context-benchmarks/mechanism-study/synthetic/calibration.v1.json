@@ -77,6 +77,7 @@
         "runId": "sx-cal-actionable-01",
         "layer1SemanticFeasibility": "FAIL",
         "primaryMechanismCode": "INCORRECT_FILE_TARGETING",
+        "evidencePointers": ["synthetic://offtarget-proof"],
         "confounderAxes": {
           "MODEL_LIMITATION": "ABSENT",
           "TASK_AMBIGUITY": "ABSENT",
@@ -97,6 +98,102 @@
         "accepted": true,
         "primaryMechanismCode": "INCORRECT_FILE_TARGETING",
         "runtimeActionable": true
+      }
+    },
+    {
+      "caseId": "CAL-ACTIONABLE-OTHER-BLOCKED",
+      "coding": {
+        "runId": "sx-cal-actionable-other-blocked-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "OTHER",
+        "evidencePointers": ["synthetic://other-mechanism"],
+        "otherRationale": "A non-seed mechanism is supported by the synthetic evidence.",
+        "rejectedSeedCodes": [
+          "EDIT_THRASH",
+          "INCORRECT_FILE_TARGETING",
+          "INSUFFICIENT_CONVERGENCE",
+          "PREMATURE_COMPLETION",
+          "OBJECTIVE_MISS"
+        ],
+        "confounderAxes": {
+          "MODEL_LIMITATION": "ABSENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        },
+        "claimedRuntimeActionable": true,
+        "runtimeActionableClaim": {
+          "observableStateId": "other-state",
+          "interventionId": "other-intervention",
+          "decisionPointId": "other-decision",
+          "irreversibilityNotYetReached": true,
+          "attributionEvidenceClass": "RUNTIME_VISIBLE"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-ACTIONABLE-UNKNOWN-BLOCKED",
+      "coding": {
+        "runId": "sx-cal-actionable-unknown-blocked-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "UNKNOWN",
+        "unknownReason": "The trajectory lacks enough evidence to distinguish a seed mechanism.",
+        "missingEvidence": ["trajectory evidence", "oracle disposition"],
+        "confounderAxes": {
+          "MODEL_LIMITATION": "UNKNOWN",
+          "TASK_AMBIGUITY": "UNKNOWN",
+          "TOOL_FAILURE": "UNKNOWN",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "UNKNOWN"
+        },
+        "claimedRuntimeActionable": true,
+        "runtimeActionableClaim": {
+          "observableStateId": "unknown-state",
+          "interventionId": "unknown-intervention",
+          "decisionPointId": "unknown-decision",
+          "irreversibilityNotYetReached": true,
+          "attributionEvidenceClass": "RUNTIME_VISIBLE"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-ACTIONABLE-MULTI-BLOCKED",
+      "coding": {
+        "runId": "sx-cal-actionable-multi-blocked-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "MULTI_MECHANISM",
+        "competingSeedCodes": ["EDIT_THRASH", "OBJECTIVE_MISS"],
+        "confounderAxes": {
+          "MODEL_LIMITATION": "PRESENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        },
+        "claimedRuntimeActionable": true,
+        "runtimeActionableClaim": {
+          "observableStateId": "multi-state",
+          "interventionId": "multi-intervention",
+          "decisionPointId": "multi-decision",
+          "irreversibilityNotYetReached": true,
+          "attributionEvidenceClass": "RUNTIME_VISIBLE"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
       }
     },
     {
@@ -187,6 +284,7 @@
         "runId": "sx-cal-other-ok-01",
         "layer1SemanticFeasibility": "FAIL",
         "primaryMechanismCode": "OTHER",
+        "evidencePointers": ["synthetic://other-tool-policy"],
         "otherRationale": "Tool sandbox policy denied all writes after step 2; distinct from seed patterns.",
         "rejectedSeedCodes": [
           "EDIT_THRASH",
@@ -206,6 +304,26 @@
       "expected": {
         "accepted": true,
         "primaryMechanismCode": "OTHER",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-UNKNOWN-REQUIRES-EVIDENCE-GAP",
+      "coding": {
+        "runId": "sx-cal-unknown-missing-gap-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "UNKNOWN",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "UNKNOWN",
+          "TASK_AMBIGUITY": "UNKNOWN",
+          "TOOL_FAILURE": "UNKNOWN",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "UNKNOWN"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
         "runtimeActionable": false
       }
     },
@@ -269,6 +387,8 @@
         "runId": "sx-cal-dual-seed-other-missing-01",
         "layer1SemanticFeasibility": "FAIL",
         "primaryMechanismCode": "OBJECTIVE_MISS",
+        "unknownReason": "Dual referee cannot validate the OTHER coder without required rationale.",
+        "missingEvidence": ["dual.otherRationaleB"],
         "confounderAxes": {
           "MODEL_LIMITATION": "PRESENT",
           "TASK_AMBIGUITY": "ABSENT",

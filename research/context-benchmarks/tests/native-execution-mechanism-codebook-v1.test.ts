@@ -3,6 +3,7 @@ import {
   adjudicateMechanismCoding,
   adjudicateRuntimeActionableV1,
   assertHardSeparations,
+  assertCodebookStructure,
   loadMechanismCalibrationCorpus,
   loadMechanismCodebook,
   refereeDualCoding,
@@ -24,6 +25,26 @@ describe('C1_NATIVE_EXECUTION_MECHANISM_CODEBOOK_V1 freeze candidate', () => {
     expect(
       codebook.runtimeActionable.evidenceClasses['RUNTIME_VISIBLE']!.maySupportActionability
     ).toBe(true)
+    expect(codebook.failClosed.actionabilityWithoutMechanismSeed).toBe(false)
+  })
+
+  it('fails closed on malformed codebook structure', () => {
+    const missingCode = JSON.parse(JSON.stringify(codebook)) as Record<string, unknown>
+    delete (missingCode['mechanismCodes'] as Record<string, unknown>)['EDIT_THRASH']
+    expect(() => assertCodebookStructure(missingCode)).toThrow(
+      'codebook_structure_invalid:mechanismCodes.keys'
+    )
+
+    const missingEvidence = JSON.parse(JSON.stringify(codebook)) as Record<string, unknown>
+    delete (
+      (missingEvidence['mechanismCodes'] as Record<string, unknown>)['OTHER'] as Record<
+        string,
+        unknown
+      >
+    )['requiredEvidence']
+    expect(() => assertCodebookStructure(missingEvidence)).toThrow(
+      'codebook_structure_invalid:mechanismCodes.OTHER.requiredEvidence'
+    )
   })
 
   it('keeps calibration synthetic and free of historical markers', () => {

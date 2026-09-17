@@ -49,9 +49,12 @@ export type RunMechanismCoding = {
   readonly confidence?: 'HIGH' | 'MEDIUM' | 'LOW'
   readonly confounderAxes: Readonly<Record<ConfounderAxis, AxisPresence>>
   readonly events?: readonly EventMechanismEvidence[]
+  readonly evidencePointers?: readonly string[]
   readonly otherRationale?: string
   readonly rejectedSeedCodes?: readonly SeedMechanismCode[]
   readonly competingSeedCodes?: readonly SeedMechanismCode[]
+  readonly unknownReason?: string
+  readonly missingEvidence?: readonly string[]
   readonly runtimeActionableClaim?: RuntimeActionableClaim
   /** Explicit claim; adjudicator recomputes and may override to false fail-closed. */
   readonly claimedRuntimeActionable?: boolean
@@ -81,6 +84,17 @@ export class MechanismCodebookError extends Error {
     super(message)
     this.name = 'MechanismCodebookError'
   }
+}
+
+export type MechanismCodeDefinition = {
+  readonly definition: string
+  readonly inclusion?: readonly string[]
+  readonly exclusion?: readonly string[]
+  readonly counterexample?: string
+  readonly requiredEvidence?: readonly string[]
+  readonly trigger?: string
+  readonly triggerAnyOf?: readonly string[]
+  readonly forbidden?: string
 }
 
 const CONTRACT_ID = 'C1_NATIVE_EXECUTION_MECHANISM_CODEBOOK_V1' as const
@@ -121,7 +135,10 @@ export function mechanismPriorityDisplayOrder(): readonly SeedMechanismCode[] {
 
 export type MechanismCodebookDocument = {
   readonly codebookId: string
+  readonly schemaVersion: number
   readonly status: string
+  readonly studyGrade: boolean
+  readonly mechanismCodes: Record<MechanismCode, MechanismCodeDefinition>
   readonly hardSeparations: {
     readonly mechanismAttributionIsNotCausalAttribution: boolean
     readonly mechanismAttributionIsNotRuntimeActionability: boolean
@@ -137,6 +154,11 @@ export type MechanismCodebookDocument = {
   readonly runtimeActionable: {
     readonly ruleId: string
     readonly evidenceClasses: Record<string, { readonly maySupportActionability: boolean }>
+  }
+  readonly failClosed: {
+    readonly invalidRecord: string
+    readonly actionabilityWithoutMechanismSeed: boolean
+    readonly mechanismCodeDoesNotImplyActionability: boolean
   }
 }
 
@@ -175,6 +197,186 @@ function assertPathInsideAllowlist(candidatePath: string, allowRoot: string): st
   return resolvedPath
 }
 
+const EXPECTED_MECHANISM_CODES: readonly MechanismCode[] = [
+  ...SEED_CODES,
+  'OTHER',
+  'UNKNOWN',
+  'MULTI_MECHANISM'
+]
+
+const EXPECTED_ACTIONABILITY_EVIDENCE_CLASSES = [
+  'RUNTIME_VISIBLE',
+  'RUNTIME_DERIVABLE',
+  'SEALED_OFFLINE_ONLY',
+  'POST_HOC_NARRATIVE'
+] as const
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function requireRecord(value: unknown, path: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new MechanismCodebookError(`codebook_structure_invalid:${path}`)
+  return value
+}
+
+function requireNonEmptyString(value: unknown, path: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new MechanismCodebookError(`codebook_structure_invalid:${path}`)
+  }
+  return value
+}
+
+function requireNonEmptyStringArray(value: unknown, path: string): readonly string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.some((item) => typeof item !== 'string' || item.trim().length === 0)
+  ) {
+    throw new MechanismCodebookError(`codebook_structure_invalid:${path}`)
+  }
+  return value
+}
+
+function assertExactKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+  path: string
+): void {
+  const actual = Object.keys(value).sort()
+  const wanted = [...expected].sort()
+  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
+    throw new MechanismCodebookError(`codebook_structure_invalid:${path}`)
+  }
+}
+
+function assertMechanismDefinition(code: MechanismCode, value: unknown): void {
+  const definition = requireRecord(value, `mechanismCodes.${code}`)
+  requireNonEmptyString(definition['definition'], `mechanismCodes.${code}.definition`)
+
+  if (isSeed(code)) {
+    requireNonEmptyStringArray(definition['inclusion'], `mechanismCodes.${code}.inclusion`)
+    requireNonEmptyStringArray(definition['exclusion'], `mechanismCodes.${code}.exclusion`)
+    requireNonEmptyString(definition['counterexample'], `mechanismCodes.${code}.counterexample`)
+    requireNonEmptyStringArray(
+      definition['requiredEvidence'],
+      `mechanismCodes.${code}.requiredEvidence`
+    )
+    return
+  }
+
+  if (code === 'OTHER') {
+    requireNonEmptyString(definition['trigger'], 'mechanismCodes.OTHER.trigger')
+    requireNonEmptyStringArray(
+      definition['requiredEvidence'],
+      'mechanismCodes.OTHER.requiredEvidence'
+    )
+    requireNonEmptyString(definition['forbidden'], 'mechanismCodes.OTHER.forbidden')
+    return
+  }
+
+  if (code === 'UNKNOWN') {
+    requireNonEmptyStringArray(definition['triggerAnyOf'], 'mechanismCodes.UNKNOWN.triggerAnyOf')
+    requireNonEmptyString(definition['forbidden'], 'mechanismCodes.UNKNOWN.forbidden')
+    return
+  }
+
+  requireNonEmptyString(definition['trigger'], 'mechanismCodes.MULTI_MECHANISM.trigger')
+  requireNonEmptyStringArray(
+    definition['requiredEvidence'],
+    'mechanismCodes.MULTI_MECHANISM.requiredEvidence'
+  )
+  requireNonEmptyString(definition['forbidden'], 'mechanismCodes.MULTI_MECHANISM.forbidden')
+}
+
+export function assertCodebookStructure(
+  candidate: unknown
+): asserts candidate is MechanismCodebookDocument {
+  const codebook = requireRecord(candidate, 'root')
+  if (codebook['codebookId'] !== CONTRACT_ID) {
+    throw new MechanismCodebookError('codebook_structure_invalid:codebookId')
+  }
+  if (codebook['schemaVersion'] !== 1) {
+    throw new MechanismCodebookError('codebook_structure_invalid:schemaVersion')
+  }
+  requireNonEmptyString(codebook['status'], 'status')
+  if (codebook['studyGrade'] !== false) {
+    throw new MechanismCodebookError('codebook_structure_invalid:studyGrade')
+  }
+
+  const mechanisms = requireRecord(codebook['mechanismCodes'], 'mechanismCodes')
+  assertExactKeys(mechanisms, EXPECTED_MECHANISM_CODES, 'mechanismCodes.keys')
+  for (const code of EXPECTED_MECHANISM_CODES) {
+    assertMechanismDefinition(code, mechanisms[code])
+  }
+
+  const hardSeparations = requireRecord(codebook['hardSeparations'], 'hardSeparations')
+  for (const key of [
+    'mechanismAttributionIsNotCausalAttribution',
+    'mechanismAttributionIsNotRuntimeActionability',
+    'layer3LinkageIncompleteIsNotLayer1Mechanism'
+  ]) {
+    if (hardSeparations[key] !== true) {
+      throw new MechanismCodebookError(`codebook_structure_invalid:hardSeparations.${key}`)
+    }
+  }
+
+  const promotionRules = requireRecord(codebook['promotionRules'], 'promotionRules')
+  const priorityTableSeed = requireNonEmptyStringArray(
+    promotionRules['priorityTableSeed'],
+    'promotionRules.priorityTableSeed'
+  )
+  if (
+    priorityTableSeed.length !== PRIORITY_DISPLAY_ORDER.length ||
+    priorityTableSeed.some((code, index) => code !== PRIORITY_DISPLAY_ORDER[index])
+  ) {
+    throw new MechanismCodebookError('codebook_structure_invalid:promotionRules.priorityTableSeed')
+  }
+  if (promotionRules['priorityTableRole'] !== 'DOCUMENTATION_AND_DISPLAY_ORDER_ONLY') {
+    throw new MechanismCodebookError('codebook_structure_invalid:promotionRules.priorityTableRole')
+  }
+
+  const runtimeActionable = requireRecord(codebook['runtimeActionable'], 'runtimeActionable')
+  if (runtimeActionable['ruleId'] !== 'RUNTIME_ACTIONABLE_V1') {
+    throw new MechanismCodebookError('codebook_structure_invalid:runtimeActionable.ruleId')
+  }
+  const evidenceClasses = requireRecord(
+    runtimeActionable['evidenceClasses'],
+    'runtimeActionable.evidenceClasses'
+  )
+  assertExactKeys(
+    evidenceClasses,
+    EXPECTED_ACTIONABILITY_EVIDENCE_CLASSES,
+    'runtimeActionable.evidenceClasses.keys'
+  )
+  for (const evidenceClass of EXPECTED_ACTIONABILITY_EVIDENCE_CLASSES) {
+    const entry = requireRecord(
+      evidenceClasses[evidenceClass],
+      `runtimeActionable.evidenceClasses.${evidenceClass}`
+    )
+    const expectedMaySupportActionability =
+      evidenceClass === 'RUNTIME_VISIBLE' || evidenceClass === 'RUNTIME_DERIVABLE'
+    if (entry['maySupportActionability'] !== expectedMaySupportActionability) {
+      throw new MechanismCodebookError(
+        `codebook_structure_invalid:runtimeActionable.evidenceClasses.${evidenceClass}.maySupportActionability`
+      )
+    }
+  }
+
+  const failClosed = requireRecord(codebook['failClosed'], 'failClosed')
+  requireNonEmptyString(failClosed['invalidRecord'], 'failClosed.invalidRecord')
+  if (failClosed['actionabilityWithoutMechanismSeed'] !== false) {
+    throw new MechanismCodebookError(
+      'codebook_structure_invalid:failClosed.actionabilityWithoutMechanismSeed'
+    )
+  }
+  if (failClosed['mechanismCodeDoesNotImplyActionability'] !== true) {
+    throw new MechanismCodebookError(
+      'codebook_structure_invalid:failClosed.mechanismCodeDoesNotImplyActionability'
+    )
+  }
+}
+
 export function loadMechanismCodebook(path?: string): MechanismCodebookDocument {
   const requested = path
     ? isAbsolute(path)
@@ -182,7 +384,9 @@ export function loadMechanismCodebook(path?: string): MechanismCodebookDocument 
       : resolve(PACKAGE_ROOT, path)
     : DEFAULT_CODEBOOK_PATH
   const file = assertPathInsideAllowlist(requested, ALLOWED_ROOT)
-  return JSON.parse(readFileSync(file, 'utf8')) as MechanismCodebookDocument
+  const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'))
+  assertCodebookStructure(parsed)
+  return parsed
 }
 
 export function loadMechanismCalibrationCorpus(path?: string): CalibrationCorpus {
@@ -202,6 +406,14 @@ export function loadMechanismCalibrationCorpus(path?: string): CalibrationCorpus
 
 function isSeed(code: MechanismCode): code is SeedMechanismCode {
   return (SEED_CODES as readonly string[]).includes(code)
+}
+
+function hasNonEmptyStringArray(value: unknown): value is readonly string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((item) => typeof item === 'string' && item.trim().length > 0)
+  )
 }
 
 export function adjudicateRuntimeActionableV1(claim?: RuntimeActionableClaim): {
@@ -357,6 +569,16 @@ export function adjudicateMechanismCoding(
     if (!coding.rejectedSeedCodes || coding.rejectedSeedCodes.length === 0) {
       violations.push('OTHER_requires_rejectedSeedCodes')
     }
+    if (!hasNonEmptyStringArray(coding.evidencePointers)) {
+      violations.push('OTHER_requires_evidencePointers')
+    }
+  }
+
+  if (primary === 'UNKNOWN') {
+    if (!coding.unknownReason?.trim()) violations.push('UNKNOWN_requires_unknownReason')
+    if (!hasNonEmptyStringArray(coding.missingEvidence)) {
+      violations.push('UNKNOWN_requires_missingEvidence')
+    }
   }
 
   if (primary === 'MULTI_MECHANISM') {
@@ -371,14 +593,15 @@ export function adjudicateMechanismCoding(
 
   // Hard separation: mechanism code never implies actionability.
   const actionable = adjudicateRuntimeActionableV1(coding.runtimeActionableClaim)
+  let runtimeActionable = actionable.runtimeActionable
+  if (runtimeActionable && !isSeed(primary)) {
+    violations.push('actionability_requires_seed_mechanism')
+    runtimeActionable = false
+  }
   if (coding.claimedRuntimeActionable === true && !actionable.runtimeActionable) {
     violations.push('claimed_runtime_actionable_without_four_clauses')
   }
-  if (
-    coding.claimedRuntimeActionable === true &&
-    coding.primaryMechanismCode !== 'UNKNOWN' &&
-    !coding.runtimeActionableClaim
-  ) {
+  if (coding.claimedRuntimeActionable === true && !coding.runtimeActionableClaim) {
     violations.push('mechanism_code_must_not_imply_runtime_actionable')
   }
 
@@ -390,7 +613,7 @@ export function adjudicateMechanismCoding(
     runId: coding.runId,
     accepted,
     primaryMechanismCode: failClosedPrimary,
-    runtimeActionable: accepted ? actionable.runtimeActionable : false,
+    runtimeActionable: accepted ? runtimeActionable : false,
     runtimeActionableClauseFailures: actionable.clauseFailures,
     violations,
     notes

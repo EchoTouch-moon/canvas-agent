@@ -157,6 +157,14 @@
         "secondaryMechanismCodes",
         "confidence",
         "confounderAxes",
+        "evidencePointers",
+        "otherRationale",
+        "rejectedSeedCodes",
+        "competingSeedCodes",
+        "unknownReason",
+        "missingEvidence",
+        "runtimeActionableClaim",
+        "claimedRuntimeActionable",
         "runtimeActionable"
       ]
     }

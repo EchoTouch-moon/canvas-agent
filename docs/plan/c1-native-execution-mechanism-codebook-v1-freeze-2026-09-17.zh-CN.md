@@ -44,21 +44,23 @@ mechanism attribution
 
 ## 2. Codebook contents（见 JSON）
 
-每个 mechanism 锁定：
+每个 seed mechanism 锁定：
 
 ```text
 definition / inclusion / exclusion / counterexample / requiredEvidence
 ```
 
+开放码另行锁定 `trigger` / `triggerAnyOf` / `requiredEvidence` / `forbidden`，并由 `assertCodebookStructure()` 在加载时 fail-closed 校验。
+
 种子：`EDIT_THRASH`, `INCORRECT_FILE_TARGETING`, `INSUFFICIENT_CONVERGENCE`, `PREMATURE_COMPLETION`, `OBJECTIVE_MISS`
 
 开放码：
 
-| Code              | 严格触发                                                        |
-| ----------------- | --------------------------------------------------------------- |
-| `OTHER`           | 无 seed inclusion 成立 + 非空 rationale + `rejectedSeedCodes[]` |
-| `UNKNOWN`         | 证据不足 / 校验失败 fail-closed / referee 指向 UNKNOWN          |
-| `MULTI_MECHANISM` | ≥2 seed 竞争且不能唯一定主码；需 `competingSeedCodes[]`         |
+| Code              | 严格触发                                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------------------ |
+| `OTHER`           | 无 seed inclusion 成立 + rationale + `rejectedSeedCodes[]` + 非空 `evidencePointers[]`           |
+| `UNKNOWN`         | 证据不足 / 校验失败 fail-closed / referee 指向 UNKNOWN；需 `unknownReason` + `missingEvidence[]` |
+| `MULTI_MECHANISM` | ≥2 distinct seed 竞争或有效 seed/OTHER dual；禁止 priority 唯一胜出                              |
 
 `studyGrade=false` 直至 freeze review PASS。
 
@@ -110,15 +112,19 @@ never tie-break by R0 interest
 
 `SEALED_OFFLINE_ONLY` / `POST_HOC_NARRATIVE` → 可支持离线 mechanism 讨论，**不可**支持 actionability。
 
+只有 adjudicated primary 为 seed mechanism 时，四要件通过才可令 `runtimeActionable=true`；`UNKNOWN` / `OTHER` / `MULTI_MECHANISM` 一律 fail-closed 为 false。
+
 ## 7. Fail-closed
 
 - 非法 coding record → `accepted=false`, primary 强制 `UNKNOWN`, `runtimeActionable=false`
+- `OTHER` 必须提供非空 `evidencePointers[]`；`UNKNOWN` 必须提供 `unknownReason` 与 `missingEvidence[]`
 - `claimedRuntimeActionable=true` 但四要件失败 → violation
+- 非 seed primary 即使四要件完整也不得 actionability；记录进入 fail-closed violation
 - mechanism code 本身永不蕴含 actionability
 
 ## 8. Calibration / synthetic
 
-`calibration.v1.json` 覆盖：thrash 无 actionable、soft-leap 拒绝、四要件 PASS、sealed-offline 阻断、split→MULTI、OTHER 校验、dual referee、Layer-1 PASS 拒绝、premature completion。
+`calibration.v1.json` 覆盖：codebook 结构校验、thrash 无 actionable、soft-leap 拒绝、四要件 PASS、非 seed actionability 阻断、sealed-offline 阻断、split→MULTI、OTHER evidence、UNKNOWN evidence gap、dual referee、Layer-1 PASS 拒绝、premature completion。
 
 **不含**历史 run ID。
 
@@ -140,7 +146,7 @@ CODEBOOK_FROZEN_FOR_CALIBRATION_ONLY
 - [x] event→run：≥2 distinct supporting seeds ⇒ MULTI；priority 仅 DISPLAY_ORDER
 - [x] dual referee 接入 `adjudicateMechanismCoding(coding, dual?)`
 - [x] 四要件与 evidence class 分离正确
-- [x] `pnpm exec vitest run tests/native-execution-mechanism-codebook-v1.test.ts` 全绿（review-fix：10/10）
+- [x] `pnpm exec vitest run tests/native-execution-mechanism-codebook-v1.test.ts` 全绿（含正反例）
 - [x] 仍在 `mechanism-study/`（不侵入 E0 `src/` surface）
 
 ## 11. Explicit residual（non-blocker for freeze）
