@@ -1,0 +1,288 @@
+{
+  "corpusId": "C1_NATIVE_EXECUTION_MECHANISM_CODEBOOK_V1_CALIBRATION",
+  "schemaVersion": 1,
+  "executionMode": "NO_PROVIDER",
+  "providerCalls": 0,
+  "notes": [
+    "Synthetic calibration only. No historical run IDs or sealed verdicts.",
+    "mechanism attribution != causal attribution != runtime actionability."
+  ],
+  "cases": [
+    {
+      "caseId": "CAL-EDIT-THRASH-NO-ACTIONABLE",
+      "coding": {
+        "runId": "sx-cal-edit-thrash-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "EDIT_THRASH",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "UNKNOWN",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "PRESENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        },
+        "events": [
+          {
+            "eventId": "e1",
+            "eventMechanismCode": "EDIT_THRASH",
+            "evidencePointers": ["synthetic://edit-loop"],
+            "supportsRunPrimary": true
+          },
+          {
+            "eventId": "e2",
+            "eventMechanismCode": "EDIT_THRASH",
+            "evidencePointers": ["synthetic://edit-loop-2"],
+            "supportsRunPrimary": true
+          }
+        ],
+        "claimedRuntimeActionable": false
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "EDIT_THRASH",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-SOFT-LEAP-REJECTED",
+      "coding": {
+        "runId": "sx-cal-soft-leap-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "OBJECTIVE_MISS",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "PRESENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "UNKNOWN"
+        },
+        "claimedRuntimeActionable": true,
+        "runtimeActionableClaim": {
+          "observableStateId": "",
+          "interventionId": "maybe-add-context",
+          "decisionPointId": "after-failure",
+          "irreversibilityNotYetReached": false,
+          "attributionEvidenceClass": "POST_HOC_NARRATIVE"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-ACTIONABLE-FOUR-CLAUSE-PASS",
+      "coding": {
+        "runId": "sx-cal-actionable-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "INCORRECT_FILE_TARGETING",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "ABSENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "PRESENT"
+        },
+        "claimedRuntimeActionable": true,
+        "runtimeActionableClaim": {
+          "observableStateId": "writable-scope-drift",
+          "interventionId": "reanchor-working-set",
+          "decisionPointId": "pre-first-offtarget-write",
+          "irreversibilityNotYetReached": true,
+          "attributionEvidenceClass": "RUNTIME_VISIBLE"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "INCORRECT_FILE_TARGETING",
+        "runtimeActionable": true
+      }
+    },
+    {
+      "caseId": "CAL-SEALED-OFFLINE-BLOCKS-ACTIONABLE",
+      "coding": {
+        "runId": "sx-cal-sealed-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "INSUFFICIENT_CONVERGENCE",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "UNKNOWN",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "PRESENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        },
+        "claimedRuntimeActionable": true,
+        "runtimeActionableClaim": {
+          "observableStateId": "partial-diff",
+          "interventionId": "nudge-remaining-checks",
+          "decisionPointId": "mid-trajectory",
+          "irreversibilityNotYetReached": true,
+          "attributionEvidenceClass": "SEALED_OFFLINE_ONLY"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-MULTI-FROM-SPLIT-EVENTS",
+      "coding": {
+        "runId": "sx-cal-multi-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "EDIT_THRASH",
+        "competingSeedCodes": ["EDIT_THRASH", "INCORRECT_FILE_TARGETING"],
+        "confounderAxes": {
+          "MODEL_LIMITATION": "ABSENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "PRESENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        },
+        "events": [
+          {
+            "eventId": "e1",
+            "eventMechanismCode": "EDIT_THRASH",
+            "evidencePointers": ["synthetic://thrash"],
+            "supportsRunPrimary": true
+          },
+          {
+            "eventId": "e2",
+            "eventMechanismCode": "INCORRECT_FILE_TARGETING",
+            "evidencePointers": ["synthetic://offtarget"],
+            "supportsRunPrimary": true
+          }
+        ]
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "MULTI_MECHANISM",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-OTHER-REQUIRES-RATIONALE",
+      "coding": {
+        "runId": "sx-cal-other-bad-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "OTHER",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "UNKNOWN",
+          "TASK_AMBIGUITY": "UNKNOWN",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-OTHER-VALID",
+      "coding": {
+        "runId": "sx-cal-other-ok-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "OTHER",
+        "otherRationale": "Tool sandbox policy denied all writes after step 2; distinct from seed patterns.",
+        "rejectedSeedCodes": [
+          "EDIT_THRASH",
+          "INCORRECT_FILE_TARGETING",
+          "INSUFFICIENT_CONVERGENCE",
+          "PREMATURE_COMPLETION",
+          "OBJECTIVE_MISS"
+        ],
+        "confounderAxes": {
+          "MODEL_LIMITATION": "ABSENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "PRESENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "OTHER",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-DUAL-DISAGREE-MULTI",
+      "coding": {
+        "runId": "sx-cal-dual-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "OBJECTIVE_MISS",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "PRESENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        }
+      },
+      "dual": {
+        "runId": "sx-cal-dual-01",
+        "coderA": "OBJECTIVE_MISS",
+        "coderB": "INSUFFICIENT_CONVERGENCE"
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "OBJECTIVE_MISS",
+        "runtimeActionable": false,
+        "refereePrimary": "MULTI_MECHANISM"
+      }
+    },
+    {
+      "caseId": "CAL-LAYER1-PASS-REJECTED",
+      "coding": {
+        "runId": "sx-cal-l1pass-01",
+        "layer1SemanticFeasibility": "PASS",
+        "primaryMechanismCode": "OBJECTIVE_MISS",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "ABSENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-PREMATURE-COMPLETION",
+      "coding": {
+        "runId": "sx-cal-premature-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "PREMATURE_COMPLETION",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "UNKNOWN",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        },
+        "events": [
+          {
+            "eventId": "e-done",
+            "eventMechanismCode": "PREMATURE_COMPLETION",
+            "evidencePointers": ["synthetic://done-while-oracle-fail"],
+            "supportsRunPrimary": true
+          }
+        ]
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "PREMATURE_COMPLETION",
+        "runtimeActionable": false
+      }
+    }
+  ]
+}

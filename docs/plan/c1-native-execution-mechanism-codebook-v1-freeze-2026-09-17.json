@@ -1,0 +1,43 @@
+{
+  "contractId": "C1_NATIVE_EXECUTION_MECHANISM_CODEBOOK_V1",
+  "schemaVersion": 1,
+  "status": "FREEZE_CANDIDATE",
+  "designStatus": "READY_FOR_REVIEW",
+  "executionMode": "NO_PROVIDER",
+  "liveExecution": "FORBIDDEN",
+  "historicalCoding": "NOT_STARTED",
+  "r0DesignEligible": "NOT_YET",
+  "predecessor": {
+    "studyDesign": "C1_NATIVE_EXECUTION_MECHANISM_STUDY_V1",
+    "studyDesignPath": "docs/plan/c1-native-execution-mechanism-study-v1-design-2026-09-17.zh-CN.md",
+    "constructRepair": "C1_FEASIBILITY_CONSTRUCT_REPAIR_V1",
+    "constructRepairStatus": "SYNTHETIC_VALIDATION_PASS"
+  },
+  "hardSeparations": [
+    "mechanism_attribution != causal_attribution",
+    "mechanism_attribution != runtime_actionability",
+    "layer3_linkage_incompleteness != layer1_failure_mechanism"
+  ],
+  "codebookPath": "research/context-benchmarks/mechanism-study/codebook.v1.json",
+  "calibrationPath": "research/context-benchmarks/mechanism-study/synthetic/calibration.v1.json",
+  "adjudicatorPath": "research/context-benchmarks/mechanism-study/adjudicate.ts",
+  "testsPath": "research/context-benchmarks/tests/native-execution-mechanism-codebook-v1.test.ts",
+  "designDocPath": "docs/plan/c1-native-execution-mechanism-codebook-v1-freeze-2026-09-17.zh-CN.md",
+  "promotionGate": {
+    "onFreezePass": "CODEBOOK_FROZEN_FOR_CALIBRATION_ONLY",
+    "doesNotUnlock": [
+      "HISTORICAL_ATTRIBUTION_CAMPAIGN",
+      "R0_DESIGN_ELIGIBLE",
+      "PROVIDER_LIVE",
+      "F1_40_LIVE"
+    ],
+    "nextAfterFreeze": "OPTIONAL_CALIBRATION_CODING_ON_SYNTHETIC_THEN_READ_ONLY_HISTORICAL_PILOT"
+  },
+  "routeLocks": {
+    "f1_40Live": "NO_GO",
+    "r0t0e1Live": "HOLD",
+    "providerLive": "NOT_AUTHORIZED",
+    "historicalF0F1": "IMMUTABLE",
+    "historicalCoding": "NOT_STARTED"
+  }
+}
