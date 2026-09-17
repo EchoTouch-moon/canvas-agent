@@ -1,0 +1,255 @@
+{
+  "codebookId": "C1_NATIVE_EXECUTION_MECHANISM_CODEBOOK_V1",
+  "schemaVersion": 1,
+  "status": "FREEZE_CANDIDATE",
+  "studyGrade": false,
+  "note": "Freeze candidate for coding construct only. Seeds are not study-grade until freeze review PASS + calibration suite PASS.",
+  "hardSeparations": {
+    "mechanismAttributionIsNotCausalAttribution": true,
+    "mechanismAttributionIsNotRuntimeActionability": true,
+    "layer3LinkageIncompleteIsNotLayer1Mechanism": true
+  },
+  "mechanismCodes": {
+    "EDIT_THRASH": {
+      "definition": "Repeated low-yield edit or rewrite cycles that consume trajectory steps without durable progress toward the objective oracle.",
+      "inclusion": [
+        ">=3 edit-like tool spans in a short window with oscillating or reverting content",
+        "edit retries on the same locus without net oracle-relevant change",
+        "churn indicators (match-count thrash, undo/redo-like rewrite loops) dominate the failing segment"
+      ],
+      "exclusion": [
+        "single corrective edit that then converges",
+        "many edits that are each on distinct required targets and monotonically progress",
+        "budget exhaustion alone without edit churn pattern"
+      ],
+      "counterexample": "Two targeted edits that fix distinct failing assertions and then terminal PASS path would have continued — not thrash.",
+      "requiredEvidence": [
+        "ordered edit/tool spans with path or locus identifiers",
+        "indication of non-progress (revert, oscillation, repeated failed match)"
+      ]
+    },
+    "INCORRECT_FILE_TARGETING": {
+      "definition": "Material tool activity is aimed at files or regions outside the task's required writable/semantic target set, and this mis-targeting is central to the Layer-1 failure segment.",
+      "inclusion": [
+        "edits or writes outside expected writable scope for the task",
+        "probes/edits concentrated on distractor paths while required targets remain untouched",
+        "oracle-relevant files never receive the necessary change while off-target files do"
+      ],
+      "exclusion": [
+        "read-only exploration of off-target files without writes",
+        "on-target edits that are merely wrong content (prefer OBJECTIVE_MISS or INSUFFICIENT_CONVERGENCE)",
+        "scope ambiguity where expected writable set is itself UNKNOWN"
+      ],
+      "counterexample": "Agent reads distractors then correctly edits the required file but fails oracle due to logic error — targeting OK; code OBJECTIVE_MISS or INSUFFICIENT_CONVERGENCE.",
+      "requiredEvidence": [
+        "expectedWritableScope or equivalent task constraint",
+        "off-target write/edit events",
+        "absence or insufficiency of on-target necessary edits"
+      ]
+    },
+    "INSUFFICIENT_CONVERGENCE": {
+      "definition": "Trajectory shows partial, directionally relevant progress but never reaches an oracle-satisfying state before terminal/fail disposition.",
+      "inclusion": [
+        "on-target partial fixes that leave residual oracle failures",
+        "monotonic but incomplete progress without thrash signature",
+        "stops short while remaining work is still identifiable from runtime-visible task state"
+      ],
+      "exclusion": [
+        "no meaningful on-target progress (prefer OBJECTIVE_MISS)",
+        "dominant thrash signature (prefer EDIT_THRASH)",
+        "premature terminal-complete while objective unmet (prefer PREMATURE_COMPLETION)"
+      ],
+      "counterexample": "Zero successful on-target edits and oracle still at baseline — not convergence failure; OBJECTIVE_MISS.",
+      "requiredEvidence": [
+        "evidence of partial on-target progress",
+        "residual failing oracle checks at end",
+        "lack of thrash-dominant pattern"
+      ]
+    },
+    "PREMATURE_COMPLETION": {
+      "definition": "Agent signals or reaches a completion-like terminal disposition while objective oracle remains unmet, without a dominant competing process pathology explaining the stop.",
+      "inclusion": [
+        "terminationStatus suggests complete/success path while objectiveOracleStatus is FAIL",
+        "explicit done/complete style action while required checks still fail",
+        "stops after superficial pass markers without addressing failing oracle"
+      ],
+      "exclusion": [
+        "TERMINAL_FAILED / BLOCKED / BUDGET_EXHAUSTED as honest non-completion",
+        "completion after thrash where thrash is the primary story (prefer EDIT_THRASH as primary)",
+        "completion with UNKNOWN oracle (use UNKNOWN mechanism if oracle unavailable)"
+      ],
+      "counterexample": "BUDGET_EXHAUSTED with unmet oracle — budget axis PRESENT; primary mechanism may be INSUFFICIENT_CONVERGENCE or OBJECTIVE_MISS, not PREMATURE_COMPLETION.",
+      "requiredEvidence": [
+        "completion-like terminal or done act",
+        "objectiveOracleStatus FAIL (or equivalent unmet objective)",
+        "temporal order: completion act before/without oracle satisfaction"
+      ]
+    },
+    "OBJECTIVE_MISS": {
+      "definition": "Layer-1 FAIL is primarily a pure task/oracle miss: required outcome not achieved, without a dominant edit-thrash, mis-targeting, premature-completion, or partial-convergence signature.",
+      "inclusion": [
+        "oracle FAIL with sparse or absent process pathology",
+        "wrong final content on the correct target without thrash/mis-target/premature-complete pattern",
+        "task attempted on-target but solution is simply incorrect"
+      ],
+      "exclusion": [
+        "clear thrash / mis-targeting / premature completion / partial convergence primary",
+        "insufficient evidence to distinguish among seeds (use UNKNOWN)",
+        "two seeds compete equally (use MULTI_MECHANISM)"
+      ],
+      "counterexample": "On-target file never touched; only distractor edits — INCORRECT_FILE_TARGETING, not OBJECTIVE_MISS.",
+      "requiredEvidence": [
+        "objectiveOracleStatus FAIL",
+        "documentation that competing seed inclusion criteria are not met"
+      ]
+    },
+    "OTHER": {
+      "definition": "A coherent Layer-1 failure mechanism that fits none of the seed codes after inclusion/exclusion checks.",
+      "trigger": "Coder asserts none of EDIT_THRASH|INCORRECT_FILE_TARGETING|INSUFFICIENT_CONVERGENCE|PREMATURE_COMPLETION|OBJECTIVE_MISS inclusion sets are satisfied, yet a positive mechanism narrative exists.",
+      "requiredEvidence": [
+        "freeTextRationale (non-empty)",
+        "explicit rejectedSeedCodes[] listing considered seeds",
+        "evidencePointers supporting the alternative mechanism"
+      ],
+      "forbidden": "Using OTHER to avoid UNKNOWN when evidence is merely insufficient."
+    },
+    "UNKNOWN": {
+      "definition": "Evidence is insufficient under codebook rules to assign a positive mechanism code.",
+      "triggerAnyOf": [
+        "requiredEvidence for every candidate seed missing",
+        "oracle or trajectory fields required for adjudication unavailable",
+        "coders disagree and referee rule resolves to UNKNOWN",
+        "fail-closed default when validation of a coding record fails"
+      ],
+      "forbidden": "Using UNKNOWN when a seed's inclusion is clearly met to soften claims."
+    },
+    "MULTI_MECHANISM": {
+      "definition": "Two or more distinct seed mechanisms are supported by the run evidence, or a valid dual-coder seed-versus-OTHER disagreement prevents a single primary without violating the frozen rules.",
+      "trigger": ">=2 distinct seed codes appear in supporting event votes, dual-coder primaries, or explicit competingSeedCodes; a seed-versus-OTHER dual disagreement also requires non-empty OTHER rationale. Frozen policy never uses priorityTableSeed to force a unique winner.",
+      "requiredEvidence": [
+        "at least 2 distinct supporting seed codes OR a valid dual seed-versus-OTHER disagreement",
+        "per-seed evidencePointers when available"
+      ],
+      "forbidden": "Collapsing MULTI_MECHANISM into a preferred seed because it would make R0 interesting."
+    }
+  },
+  "confounderAxes": {
+    "orthogonalityRule": "Confounder axes are NOT mechanism codes. Any axis may be PRESENT alongside any mechanism code. Axes must be scored independently.",
+    "axes": {
+      "MODEL_LIMITATION": "Failure plausible from model competence alone given task difficulty.",
+      "TASK_AMBIGUITY": "Spec/oracle/writable scope underspecified or contradictory.",
+      "TOOL_FAILURE": "Tool error observed in trajectory (distinct from Layer-3 linkage completeness).",
+      "BUDGET_EXPOSURE": "Budget exhaustion or hard call-cap binding present.",
+      "CONTEXT_STATE_FAILURE": "Failure tied to missing/wrong/stale context state that was or could be runtime-visible."
+    },
+    "forbiddenMapping": "Do not encode Layer-3 linkage incompleteness as TOOL_FAILURE or as a mechanism code."
+  },
+  "units": {
+    "eventLevel": {
+      "purpose": "Local mechanism evidence spans; may support multiple codes across a run.",
+      "fields": ["eventId", "eventMechanismCode", "evidencePointers", "supportsRunPrimary"]
+    },
+    "runLevel": {
+      "purpose": "Single primary mechanism attribution for a Layer-1 FAIL run, with optional secondaries.",
+      "fields": [
+        "runId",
+        "primaryMechanismCode",
+        "secondaryMechanismCodes",
+        "confidence",
+        "confounderAxes",
+        "evidencePointers",
+        "otherRationale",
+        "rejectedSeedCodes",
+        "competingSeedCodes",
+        "unknownReason",
+        "missingEvidence",
+        "runtimeActionableClaim",
+        "claimedRuntimeActionable",
+        "runtimeActionable"
+      ]
+    }
+  },
+  "promotionRules": {
+    "id": "EVENT_TO_RUN_PRIMARY_V1",
+    "rules": [
+      "Only events with supportsRunPrimary=true may vote for run primary.",
+      "If zero supporting seed events → keep run-level primary if OTHER, else UNKNOWN when fallback is not a seed.",
+      "If supporting events unanimously share one seed code → that seed is primary.",
+      "If supporting events contain >=2 distinct seed codes → primary=MULTI_MECHANISM (no unique-winner shortcut).",
+      "OTHER requires run-level rationale fields; cannot be promoted from events alone without run rationale.",
+      "Event codes never auto-set runtimeActionable; actionability is adjudicated separately.",
+      "When dualCoding is supplied to the main adjudicator, refereeDualCoding overrides primary after event promotion.",
+      "A seed-versus-OTHER dual disagreement requires non-empty OTHER rationale; otherwise referee output is UNKNOWN."
+    ],
+    "priorityTableSeed": [
+      "PREMATURE_COMPLETION",
+      "EDIT_THRASH",
+      "INCORRECT_FILE_TARGETING",
+      "INSUFFICIENT_CONVERGENCE",
+      "OBJECTIVE_MISS"
+    ],
+    "priorityTableRole": "DOCUMENTATION_AND_DISPLAY_ORDER_ONLY",
+    "priorityTableNote": "Frozen policy: any >=2 distinct supporting seed codes ⇒ MULTI_MECHANISM. priorityTableSeed does NOT select a unique winner among competing seeds."
+  },
+  "referee": {
+    "id": "MECHANISM_DUAL_CODE_REFEREE_V1",
+    "integration": "MAIN_PATH_OPTIONAL_INPUT",
+    "integrationNote": "adjudicateMechanismCoding(coding, dual?) applies refereeDualCoding when dual is provided; referee primary overrides event-promoted primary. A mixed seed/OTHER pair is MULTI only when the OTHER coder supplies rationale.",
+    "order": [
+      "If either coder yields UNKNOWN for insufficient evidence → UNKNOWN",
+      "If primaries differ and both are seed codes → MULTI_MECHANISM",
+      "If one seed and one OTHER → MULTI_MECHANISM unless OTHER lacks required rationale (then fail-closed UNKNOWN)",
+      "Never break ties by R0 interest, narrative preference, or historical pointLabel"
+    ]
+  },
+  "runtimeActionable": {
+    "ruleId": "RUNTIME_ACTIONABLE_V1",
+    "allRequired": true,
+    "clauses": [
+      {
+        "id": "C1_OBSERVABLE_RUNTIME_STATE",
+        "requirement": "mechanism has an observable runtime state",
+        "passRequires": ["observableStateId"]
+      },
+      {
+        "id": "C2_RUNTIME_CAN_INTERVENE",
+        "requirement": "Runtime can intervene on that state",
+        "passRequires": ["interventionId"]
+      },
+      {
+        "id": "C3_BEFORE_IRREVERSIBILITY",
+        "requirement": "intervention occurs before semantic failure becomes irreversible",
+        "passRequires": ["decisionPointId", "irreversibilityNotYetReached=true"]
+      },
+      {
+        "id": "C4_NO_UNAVAILABLE_GROUND_TRUTH",
+        "requirement": "mechanism attribution does not depend on ground truth unavailable at runtime",
+        "passRequires": ["attributionEvidenceClass in {RUNTIME_VISIBLE, RUNTIME_DERIVABLE}"]
+      }
+    ],
+    "evidenceClasses": {
+      "RUNTIME_VISIBLE": {
+        "maySupportActionability": true,
+        "meaning": "State/features available to Runtime at decision time"
+      },
+      "RUNTIME_DERIVABLE": {
+        "maySupportActionability": true,
+        "meaning": "Deterministically computable from runtime-visible state without sealed labels"
+      },
+      "SEALED_OFFLINE_ONLY": {
+        "maySupportActionability": false,
+        "meaning": "Requires sealed oracle/human labels unavailable online; OK for offline mechanism attribution only"
+      },
+      "POST_HOC_NARRATIVE": {
+        "maySupportActionability": false,
+        "meaning": "Story fit after the fact; invalid for actionability and weak for mechanism attribution"
+      }
+    },
+    "failClosed": "Any missing clause field or SEALED_OFFLINE_ONLY/POST_HOC_NARRATIVE under C4 → runtimeActionable=false"
+  },
+  "failClosed": {
+    "invalidRecord": "UNKNOWN primary + runtimeActionable=false",
+    "actionabilityWithoutMechanismSeed": false,
+    "mechanismCodeDoesNotImplyActionability": true
+  }
+}
