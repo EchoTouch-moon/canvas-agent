@@ -1,0 +1,287 @@
+{
+  "contractId": "C1_FEASIBILITY_CONSTRUCT_REPAIR_V1",
+  "schemaVersion": 1,
+  "status": "SYNTHETIC_VALIDATION_PASS",
+  "designStatus": "SYNTHETIC_PHASE_CLOSED",
+  "syntheticPhase": "CLOSED",
+  "executionMode": "ZERO_PROVIDER",
+  "historicalOutcomeMutation": "FORBIDDEN",
+  "liveExecution": "FORBIDDEN",
+  "freshStudyIdentity": "NOT_NEEDED_FOR_SYNTHETIC_VALIDATION",
+  "claims": "CONSTRUCT_SEPARABILITY_DETERMINISTIC_ADJUDICATION_HISTORICAL_NON_INTERFERENCE",
+  "estimand": "LAYERED_AGENT_EXECUTION_FEASIBILITY_VS_OBSERVABILITY_LINKAGE",
+  "scientificConclusion": "Repaired feasibility construct demonstrated constructSeparability, deterministicAdjudication, and historicalNonInterference on the frozen synthetic corpus.",
+  "nonClaims": [
+    "Runtime effectiveness NOT ESTABLISHED",
+    "real-task feasibility NOT ESTABLISHED",
+    "budget frontier reopening NOT JUSTIFIED"
+  ],
+  "promotion": {
+    "fromStatus": "READY_FOR_SYNTHETIC_VALIDATION_FREEZE",
+    "toStatus": "READY_FOR_SYNTHETIC_VALIDATION",
+    "promotedAt": "2026-09-16T01:25:00+08:00",
+    "exactHead": "cbc7538ba5346b0f33a2c12b266ce961378bda4e",
+    "ci": {
+      "name": "Context Runtime CI",
+      "runNumber": 525,
+      "conclusion": "SUCCESS"
+    },
+    "independentReviewCommentId": "5690600761",
+    "providerCalls": 0,
+    "routeLocksRetained": {
+      "f1_40Live": "NO_GO",
+      "r0t0e1Live": "HOLD",
+      "historicalF0F1": "IMMUTABLE",
+      "providerLive": "NOT_AUTHORIZED"
+    }
+  },
+  "syntheticValidationCloseout": {
+    "verdict": "PASS",
+    "syntheticPhase": "CLOSED",
+    "validatedExactHead": "96fe079fdf1dbe3ebdf5902751138702c8b96fcf",
+    "evidenceCommit": "f43013136d1f00f753dbaa2b265b689c44600cd7",
+    "evidenceDoc": "docs/verification/cspv-c1-feasibility-construct-repair-v1-synthetic-validation-2026-09-16.zh-CN.md",
+    "independentCloseoutCommentId": "5690678021",
+    "closedAt": "2026-09-16T09:34:00+08:00",
+    "properties": {
+      "constructSeparability": "PASS",
+      "deterministicAdjudication": "PASS",
+      "historicalNonInterference": "PASS"
+    },
+    "providerCalls": 0,
+    "suite": "11/11 PASS",
+    "nextDesignForksEligible": ["Native execution mechanism study design (design-only)"],
+    "primaryForkSelected": "C1_NATIVE_EXECUTION_MECHANISM_STUDY_V1",
+    "forkBStatus": "STUB_ONLY_PENDING_A",
+    "liveStillForbidden": true
+  },
+  "predecessor": {
+    "anatomyDoc": "docs/verification/cspv-c1-f1-32-failure-anatomy-v1-2026-09-15.zh-CN.md",
+    "designDoc": "docs/plan/c1-feasibility-construct-repair-v1-design-2026-09-15.zh-CN.md",
+    "consumedStudyIdImmutable": "c1-f1-32-20260915-11df369c"
+  },
+  "criticalPrinciple": "Layer 3 may form a safety/observability gate or diagnosis, but must not alone define execution infeasibility without semantic consequence.",
+  "falsifiableClaim": "Linkage quality and execution feasibility are related but non-equivalent constructs.",
+  "validationProperties": [
+    "constructSeparability",
+    "deterministicAdjudication",
+    "historicalNonInterference"
+  ],
+  "layers": {
+    "layer1SemanticFeasibility": {
+      "id": "L1",
+      "role": "PRIMARY_FEASIBILITY_CONSTRUCT",
+      "inputs": {
+        "terminationStatus": {
+          "enum": ["TERMINAL_COMPLETE", "TERMINAL_FAILED", "BUDGET_EXHAUSTED", "BLOCKED", "UNKNOWN"]
+        },
+        "objectiveOracleStatus": { "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "regressionOracleStatus": {
+          "enum": ["PASS", "FAIL", "UNKNOWN", "NOT_APPLICABLE"]
+        },
+        "evidenceStatus": { "enum": ["COMPLETE", "PARTIAL", "UNAVAILABLE"] },
+        "provenanceStatus": { "enum": ["COMPLETE", "PARTIAL", "UNAVAILABLE"] }
+      },
+      "rules": {
+        "unknownIf": [
+          "evidenceStatus != COMPLETE",
+          "provenanceStatus != COMPLETE",
+          "objectiveOracleStatus == UNKNOWN",
+          "terminationStatus == UNKNOWN"
+        ],
+        "passIf": [
+          "terminationStatus == TERMINAL_COMPLETE",
+          "objectiveOracleStatus == PASS",
+          "regressionOracleStatus in {PASS, NOT_APPLICABLE}",
+          "evidenceStatus == COMPLETE",
+          "provenanceStatus == COMPLETE"
+        ],
+        "failOtherwise": true
+      },
+      "outputs": {
+        "semanticFeasibility": { "enum": ["PASS", "FAIL", "UNKNOWN"] }
+      }
+    },
+    "layer2RecoveryTrajectory": {
+      "id": "L2",
+      "role": "TRAJECTORY_RECOVERY_CONSTRUCT",
+      "inputs": {
+        "toolFailureObserved": { "type": "boolean" },
+        "semanticFeasibility": { "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "reachedTerminalComplete": {
+          "derivation": "terminationStatus == TERMINAL_COMPLETE",
+          "independentFixtureField": "FORBIDDEN"
+        }
+      },
+      "rules": {
+        "NOT_APPLICABLE_if": "toolFailureObserved == false",
+        "UNKNOWN_if": "semanticFeasibility == UNKNOWN",
+        "RECOVERED_if": [
+          "toolFailureObserved == true",
+          "reachedTerminalCompleteDerived == true",
+          "semanticFeasibility == PASS"
+        ],
+        "UNRECOVERED_if": [
+          "toolFailureObserved == true",
+          "NOT (reachedTerminalCompleteDerived == true AND semanticFeasibility == PASS)"
+        ]
+      },
+      "illegalState": {
+        "name": "L1_PASS_AND_L2_UNRECOVERED",
+        "policy": "FAIL_CLOSED",
+        "reason": "L1 PASS requires TERMINAL_COMPLETE, which derives reachedTerminalComplete=true; with toolFailureObserved this forces L2 RECOVERED. Contradictory independent inputs are forbidden."
+      },
+      "explicitLegalState": {
+        "name": "TRAJECTORY_RECOVERED_WITH_INCOMPLETE_TOOL_LINKAGE",
+        "when": ["layer2 == RECOVERED", "layer3.linkageCompleteness == INCOMPLETE"],
+        "meaning": "Task/oracle converged after tool failure, but strict per-tool recovery linkage metadata is incomplete. Legal under this contract; does not force Layer-1 FAIL."
+      },
+      "outputs": {
+        "trajectoryRecoveryOutcome": {
+          "enum": ["RECOVERED", "UNRECOVERED", "NOT_APPLICABLE", "UNKNOWN"]
+        }
+      }
+    },
+    "layer3ObservabilityLinkage": {
+      "id": "L3",
+      "role": "SAFETY_OR_OBSERVABILITY_DIAGNOSTIC",
+      "inputs": {
+        "toolFailureObserved": { "type": "boolean" },
+        "strictPerToolRecoveryLinkageComplete": { "type": "boolean" },
+        "missingRecoveryOfToolCallId": { "type": "boolean" },
+        "recoveryAttemptOrdinalIntegrity": { "type": "boolean" }
+      },
+      "rules": {
+        "NOT_APPLICABLE_if": "toolFailureObserved == false",
+        "COMPLETE_if": [
+          "toolFailureObserved == true",
+          "strictPerToolRecoveryLinkageComplete == true",
+          "missingRecoveryOfToolCallId == false",
+          "recoveryAttemptOrdinalIntegrity == true"
+        ],
+        "INCOMPLETE_otherwise_when_toolFailureObserved": true
+      },
+      "outputs": {
+        "linkageCompleteness": {
+          "enum": ["COMPLETE", "INCOMPLETE", "NOT_APPLICABLE"]
+        },
+        "observabilityQuality": { "enum": ["PASS", "FAIL", "NOT_APPLICABLE"] }
+      },
+      "mapping": {
+        "COMPLETE": { "observabilityQuality": "PASS" },
+        "INCOMPLETE": { "observabilityQuality": "FAIL" },
+        "NOT_APPLICABLE": { "observabilityQuality": "NOT_APPLICABLE" }
+      },
+      "forbiddenMapping": "INCOMPLETE must never alone set overallExecutionFeasibility=FAIL when semanticFeasibility=PASS and trajectoryRecoveryOutcome in {RECOVERED, NOT_APPLICABLE}"
+    }
+  },
+  "composition": {
+    "overallExecutionFeasibility": {
+      "PASS_if": "semanticFeasibility == PASS AND trajectoryRecoveryOutcome in {RECOVERED, NOT_APPLICABLE}",
+      "FAIL_if": "semanticFeasibility == FAIL",
+      "UNKNOWN_if": "semanticFeasibility == UNKNOWN",
+      "illegalState": "semanticFeasibility == PASS AND trajectoryRecoveryOutcome == UNRECOVERED",
+      "illegalStatePolicy": "FAIL_CLOSED",
+      "notes": "Overall feasibility uses L1 and L2. Layer 3 never alone sets overall FAIL when L1 PASS."
+    }
+  },
+  "crossLayerTruthTable": [
+    {
+      "id": "TT-A",
+      "semanticFeasibility": "PASS",
+      "linkageCompleteness": "COMPLETE",
+      "overallExecutionFeasibility": "PASS",
+      "observabilityQuality": "PASS",
+      "label": "FEASIBLE"
+    },
+    {
+      "id": "TT-B",
+      "semanticFeasibility": "PASS",
+      "linkageCompleteness": "INCOMPLETE",
+      "overallExecutionFeasibility": "PASS",
+      "observabilityQuality": "FAIL",
+      "label": "FEASIBLE_PLUS_OBSERVABILITY_DEFECT"
+    },
+    {
+      "id": "TT-C",
+      "semanticFeasibility": "FAIL",
+      "linkageCompleteness": "COMPLETE",
+      "overallExecutionFeasibility": "FAIL",
+      "observabilityQuality": "PASS",
+      "label": "INFEASIBLE"
+    },
+    {
+      "id": "TT-D",
+      "semanticFeasibility": "FAIL",
+      "linkageCompleteness": "INCOMPLETE",
+      "overallExecutionFeasibility": "FAIL",
+      "observabilityQuality": "FAIL",
+      "label": "INFEASIBLE_PLUS_OBSERVABILITY_DEFECT"
+    },
+    {
+      "id": "TT-E",
+      "semanticFeasibility": "PASS",
+      "linkageCompleteness": "NOT_APPLICABLE",
+      "overallExecutionFeasibility": "PASS",
+      "observabilityQuality": "NOT_APPLICABLE",
+      "label": "FEASIBLE_NO_TOOL_FAILURE"
+    },
+    {
+      "id": "TT-F",
+      "semanticFeasibility": "FAIL",
+      "linkageCompleteness": "NOT_APPLICABLE",
+      "overallExecutionFeasibility": "FAIL",
+      "observabilityQuality": "NOT_APPLICABLE",
+      "label": "INFEASIBLE_NO_TOOL_FAILURE"
+    },
+    {
+      "id": "TT-U",
+      "semanticFeasibility": "UNKNOWN",
+      "linkageCompleteness": "ANY",
+      "overallExecutionFeasibility": "UNKNOWN",
+      "observabilityQuality": "DERIVE_FROM_LINKAGE_OR_UNKNOWN",
+      "label": "FEASIBILITY_UNKNOWN"
+    }
+  ],
+  "historicalIsolation": {
+    "policy": "IMMUTABLE_UNDER_ORIGINAL_CONTRACT",
+    "forbidden": [
+      "retrospectiveRelabelOfConsumedStudyPointLabel",
+      "retrospectiveRewriteOfGateVectors",
+      "thresholdRewritingOnSealedEvidence",
+      "reuseOfConsumedStudyIdentities",
+      "placingConstructRepairCodeUnderE0ExecutionSurfaceSrc"
+    ],
+    "allowed": [
+      "retrospectiveComparisonAnalysisWithoutMutation",
+      "isomorphicSyntheticFixturesWithoutOriginalRunIdsOrVerdicts"
+    ],
+    "adjudicatorModulePath": "research/context-benchmarks/construct-repair/adjudicate.ts",
+    "staticSurfaceNote": "Construct-repair code must live under construct-repair/, not research/context-benchmarks/src, so E0 executionSurfaceHash remains undisturbed without rebinding."
+  },
+  "syntheticValidation": {
+    "providerCalls": 0,
+    "requiredProperties": {
+      "constructSeparability": "Four primary quadrants A–D must receive distinct labels per truth table",
+      "deterministicAdjudication": "Identical fixture bytes → identical adjudication JSON",
+      "historicalNonInterference": "Adjudicator must not read or write F0/F1 live-output or audit packages, and must not add tracked files under the E0 execution surface rooted at research/context-benchmarks/src"
+    },
+    "corpusPath": "research/context-benchmarks/construct-repair/synthetic/corpus.v1.json",
+    "ioAllowlistRoot": "research/context-benchmarks/construct-repair",
+    "ioForbiddenPathMarkers": [
+      ".live-output",
+      ".audit",
+      "c1-f1-32-20260915-11df369c",
+      "c1-f0-v2-20260913-341fbab9"
+    ],
+    "failClosed": "If any required property fails, status must remain below READY_FOR_SYNTHETIC_VALIDATION"
+  },
+  "routeLocks": {
+    "f1_40Live": "NO_GO",
+    "r0t0e1Live": "HOLD",
+    "providerLive": "NOT_AUTHORIZED",
+    "historicalF0F1": "IMMUTABLE",
+    "nativeMechanismDesign": "PRIMARY_DESIGN_ONLY",
+    "prospectiveConstructOrR0Design": "STUB_ONLY_PENDING_A"
+  }
+}
