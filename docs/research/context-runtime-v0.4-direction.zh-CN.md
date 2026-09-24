@@ -178,7 +178,7 @@ Durable State → Compaction Awareness → Deterministic Rehydration
 | PR #144（Native Mechanism Codebook） | **不作为 v0.4 blocker**。可轻量 review 后归档或留 research branch |
 | Native execution feasibility | 不再是主线 |
 | 更严格的实验治理 / 更细的失败分类 | 不再是主线。**属于 Lab，不属于 Runtime Core** |
-| Q5 | `STUDY_CLOSED / MEASUREMENT_ASSETS_EXTRACTED / EFFECTIVENESS_UNPROVEN`。仪器层毕业进主线，治理层留研究侧 |
+| Q5 | `STUDY_CLOSED / MEASUREMENT_ASSETS_IDENTIFIED / EFFECTIVENESS_UNPROVEN`。测量层已识别、**尚未合入 main**（PR B 才会合入），治理层留研究侧 |
 
 ---
 
