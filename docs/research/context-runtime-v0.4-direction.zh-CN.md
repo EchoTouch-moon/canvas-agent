@@ -217,9 +217,17 @@ North Star、项目边界、旧研究线状态与研究优先级由 owner 决定
 
 ---
 
-## 11. 待决策（本文不授权）
+## 11. 决策状态（本文不授权任何执行）
 
-1. 本地 57 个提交中 PR A / PR B 的具体切分与推送时机（需明确是否/何时开 GitHub PR）。
-2. R2 的 harness 落点（新建 `research/studies/compaction-retention/harness/` 还是 `research/context-lab/measurement/`）。
-3. R3 探针的任务形态（约束声明式/问答式/错误覆盖检测式）与主终点定义细节。
-4. R6 的统计设计（重复数、配对/分层、预注册终点与停止规则）。
+已裁决并已实施：
+
+| # | 事项 | 状态 |
+|---|---|---|
+| 1 | 57 个本地提交如何进远端 | **RESOLVED**：PR A [#145](https://github.com/EchoTouch-moon/canvas-agent/pull/145) 从 `origin/main` 开干净分支，只带 4 份文档；PR B 在 R2 资格通过后才开 |
+| 2 | R2 harness 落点 | **RESOLVED**：独立轻量 harness，落在 `research/studies/compaction-retention/r2/`；不改 Q5 frozen harness，不迁治理栈 |
+| 3 | R1 测量模块落点 | **RESOLVED**：`research/context-lab/measurement/`，不建 runtime 包 |
+
+仍待决策：
+
+1. R3 探针的任务形态（约束声明式 / 问答式 / 错误覆盖检测式）与主终点定义细节。
+2. R6 的统计设计（重复数、配对/分层、预注册终点与停止规则）。

@@ -20,7 +20,7 @@
 | **研究方向（2026-09-23 起）** | **Context Runtime v0.4：Durable Context Runtime**。核心问题从“Runtime 能不能可靠删一段上下文”转变为“**上下文被压缩、截断、替换之后，Agent 能不能持续保有完成长期任务所需的关键状态**”。见 [v0.4 方向](context-runtime-v0.4-direction.zh-CN.md) |
 | 主终点                | **Critical Fact Retention Rate after context transition**（+ task correctness + context/cost delta）。task success 不再单独作为主终点 |
 | 主机制                | **Durable State**（★☆☆☆☆，新建）+ Rehydration + Working Set；Planner 明确后置 |
-| 版本断点              | v0.3 = Observation/Lifecycle/Intervention（C1·CR-004·CR-005·E0·F0·F1·Q5·SV2），**整体封存为历史研究线**；v0.4 = R0–R5 |
+| 版本断点              | v0.3 = Observation/Lifecycle/Intervention（C1·CR-004·CR-005·E0·F0·F1·Q5·SV2），**整体封存为历史研究线**；v0.4 = R0–R6 |
 | 任务序列              | **R0 Reset → R1 Measurement Extraction → R2 Compaction Observation → R3 Fact-Loss Qualification（gate）→ R4 Durable State → R5 Rehydration → R6 Comparative Study**。R1 计划见[R1 实施计划](context-runtime-r1-measurement-extraction-plan.zh-CN.md)（未合入） |
 | 方法刚性              | `Exploration → Qualification → Formal Study`；**禁止**一上来就重治理 |
 | 项目边界              | Canvas Agent（产品）/ Context Runtime（基础设施）/ Context Lab（研究平台）三项目；**硬规则：Runtime 绝不 import research/***。见[边界与依赖规则](context-runtime-layout-and-dependency-rules.zh-CN.md) |
@@ -35,6 +35,7 @@
 | 新工作准入            | 每个新 PR 必须能回答“**它和长任务中的 Critical State Preservation 是什么关系**”；答不了不当当前优先级 |
 | 身份状态              | 三代执行身份全部 `CONSUMED`（`fbb758da`/`6dcf4faa`/`41a50847`/`3412aa51`/`c56781ae`）+ 2026-09-19 两个历史身份。**无未消耗的执行身份**；下一轮必须新合同+新身份+新资格链+新授权 |
 | 环境事实              | ChatGPT（Luna）与 Grok 4.6 额度耗尽；Cursor `grok-4.7-high` 可用但 MCP 启动连续挂起已停用。v0.3 全部执行/审查由 `stepfun-plan/step-5-preview` 完成 |
+| 本地未合入进展        | **main 的实现状态仍未前移**：R1 = `LOCAL_EXTRACTION_COMPLETE` @ `b42eab5`（未合入）；R2 = `R2_NO_TRIGGER`，pressure generator 需重构；R2 诊断观测 @ `4dbf7d7`（未合入）；**PR B = `BLOCKED_BY_R2_QUALIFICATION`** |
 
 本轮证据见 [观测资格报告](../verification/cspv-c1-observation-qualify-zero-provider-2026-09-18.zh-CN.md)（未合入） 及第一至 [第五轮独立复核](../verification/cspv-c1-observation-qualify-round5-review-2026-09-18.zh-CN.md)（未合入）。只读pilot与条件化三臂设计见 [离线pilot报告](../verification/cspv-c1-offline-mechanism-opportunity-pilot-2026-09-18.zh-CN.md)（未合入）。完整方向与任务表见 [2026-09-18规划](context-runtime-direction-review-and-next-plan-2026-09-18.zh-CN.md)（未合入）。
 
@@ -58,7 +59,7 @@ Q5-A/B 审查修复见 [Q5-A/B 报告](../verification/cspv-c1-q5-ab-fixtures-ma
 
  三份方向文档已落定，研究主线正式切换：
 
-- [v0.4 方向（R0 Research Reset）](context-runtime-v0.4-direction.zh-CN.md)：North Star / Primary Failure Mode / Primary Mechanisms / Primary Evidence 四件定名的事 + R0–R5 任务序列 + 手臂设计 + Planner 后置 + v0.3 历史线处置 + 新工作准入规则
+- [v0.4 方向（R0 Research Reset）](context-runtime-v0.4-direction.zh-CN.md)：North Star / Primary Failure Mode / Primary Mechanisms / Primary Evidence 四件定名的事 + R0–R6 任务序列 + 手臂设计 + Planner 后置 + v0.3 历史线处置 + 新工作准入规则
 - [项目边界与依赖规则](context-runtime-layout-and-dependency-rules.zh-CN.md)：Canvas Agent / Context Runtime / Context Lab 三项目 + “Runtime 绝不 import research/*”硬规则 + `context-benchmarks` 拆 Lab/Studies + 什么进 Runtime Core 什么留 Lab + 拆仓库的四个触发条件
 - [仪器与标尺价值评估](context-runtime-instrument-and-ruler-value-2026-09-23.zh-CN.md)（未合入）：Q5 沉淀的两层资产在 v0.4 中的应用面、机制无关的 action record 结构、诚实清单与仪器自身成本
 
@@ -72,9 +73,14 @@ Q5-A/B 审查修复见 [Q5-A/B 报告](../verification/cspv-c1-q5-ab-fixtures-ma
 
 **R3 是硬 gate**：若 Native compaction 在任务设计下未产生可观测信息丢失，R4–R6 不启动，转为重设计任务或重估问题。**这是允许的结论。**
 
-下一步实施计划见 [R1 Measurement Asset Extraction](context-runtime-r1-measurement-extraction-plan.zh-CN.md)（未合入）（含通用/专用切分表、两个 PR 的验收标准、4 个待决策）。
+下一步实施计划见 [R1 Measurement Asset Extraction](context-runtime-r1-measurement-extraction-plan.zh-CN.md)（未合入）（含通用/专用切分表、两个 PR 的验收标准）。
 
-**待决策**（见 v0.4 方向 §10）：① 本地 57 个未推提交（含 Q5 仪器资产）如何进远端；② R1/R2 harness 方案；③ 目录/依赖重组范围与时机；④ R5 统计设计。
+R1 与 R2 已在本地推进但**尚未合入 main**，因此 main 的实现状态仍未前移：
+
+- **R1** `LOCAL_EXTRACTION_COMPLETE` @ `b42eab5`：6 个机制中立测量模块 + 16/16 测试，Q5 frozen 实现 byte-for-byte 未动。PR B 未开。
+- **R2** `R2_NO_TRIGGER`：真实 native compaction 曾在 R2 首次运行中被确认触发（`reason=threshold`，`CompactionResult` 含 summary / firstKeptEntryId / tokensBefore=19447），但 harness 未能捕获 compaction 之后的外发上下文。
+- **R2 诊断** @ `4dbf7d7`：连续第二次 NO_TRIGGER 后诊断为 **pressure generator 必须重构**——harness 把"上下文长起来"依赖在模型行为上，而它应是实验输入。方案待批准。
+- **PR B** = `BLOCKED_BY_R2_QUALIFICATION`：只有在真正观察到可归因、可 replay 的 native compaction 之后才开。
 
 ---
 
