@@ -115,7 +115,9 @@ describe('F0 prospective provenance and tool recovery hardening', () => {
       await writeFile(join(root, 'README.md'), 'fixture\n', 'utf8')
       const executor = new C1F0ProspectiveToolExecutor(root, {
         provenanceEnabled: true,
-        commandTimeoutMs: 100
+        // This case asserts non-zero exit classification, not timeout behavior.
+        // Leave process startup headroom on shared CI runners.
+        commandTimeoutMs: 1_000
       })
       const result = await executor.execute([bashRequest('exit 7', 'bash-failed')])
       expect(result.executions[0]?.result).toBe('ERROR')

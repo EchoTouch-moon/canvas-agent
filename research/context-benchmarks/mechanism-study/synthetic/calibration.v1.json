@@ -1,0 +1,482 @@
+{
+  "corpusId": "C1_NATIVE_EXECUTION_MECHANISM_CODEBOOK_V1_CALIBRATION",
+  "schemaVersion": 1,
+  "executionMode": "NO_PROVIDER",
+  "providerCalls": 0,
+  "notes": [
+    "Synthetic calibration only. No historical run IDs or sealed verdicts.",
+    "mechanism attribution != causal attribution != runtime actionability."
+  ],
+  "cases": [
+    {
+      "caseId": "CAL-EDIT-THRASH-NO-ACTIONABLE",
+      "coding": {
+        "runId": "sx-cal-edit-thrash-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "EDIT_THRASH",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "UNKNOWN",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "PRESENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        },
+        "events": [
+          {
+            "eventId": "e1",
+            "eventMechanismCode": "EDIT_THRASH",
+            "evidencePointers": ["synthetic://edit-loop"],
+            "supportsRunPrimary": true
+          },
+          {
+            "eventId": "e2",
+            "eventMechanismCode": "EDIT_THRASH",
+            "evidencePointers": ["synthetic://edit-loop-2"],
+            "supportsRunPrimary": true
+          }
+        ],
+        "claimedRuntimeActionable": false
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "EDIT_THRASH",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-SOFT-LEAP-REJECTED",
+      "coding": {
+        "runId": "sx-cal-soft-leap-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "OBJECTIVE_MISS",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "PRESENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "UNKNOWN"
+        },
+        "claimedRuntimeActionable": true,
+        "runtimeActionableClaim": {
+          "observableStateId": "",
+          "interventionId": "maybe-add-context",
+          "decisionPointId": "after-failure",
+          "irreversibilityNotYetReached": false,
+          "attributionEvidenceClass": "POST_HOC_NARRATIVE"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-ACTIONABLE-FOUR-CLAUSE-PASS",
+      "coding": {
+        "runId": "sx-cal-actionable-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "INCORRECT_FILE_TARGETING",
+        "evidencePointers": ["synthetic://offtarget-proof"],
+        "confounderAxes": {
+          "MODEL_LIMITATION": "ABSENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "PRESENT"
+        },
+        "claimedRuntimeActionable": true,
+        "runtimeActionableClaim": {
+          "observableStateId": "writable-scope-drift",
+          "interventionId": "reanchor-working-set",
+          "decisionPointId": "pre-first-offtarget-write",
+          "irreversibilityNotYetReached": true,
+          "attributionEvidenceClass": "RUNTIME_VISIBLE"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "INCORRECT_FILE_TARGETING",
+        "runtimeActionable": true
+      }
+    },
+    {
+      "caseId": "CAL-ACTIONABLE-OTHER-BLOCKED",
+      "coding": {
+        "runId": "sx-cal-actionable-other-blocked-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "OTHER",
+        "evidencePointers": ["synthetic://other-mechanism"],
+        "otherRationale": "A non-seed mechanism is supported by the synthetic evidence.",
+        "rejectedSeedCodes": [
+          "EDIT_THRASH",
+          "INCORRECT_FILE_TARGETING",
+          "INSUFFICIENT_CONVERGENCE",
+          "PREMATURE_COMPLETION",
+          "OBJECTIVE_MISS"
+        ],
+        "confounderAxes": {
+          "MODEL_LIMITATION": "ABSENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        },
+        "claimedRuntimeActionable": true,
+        "runtimeActionableClaim": {
+          "observableStateId": "other-state",
+          "interventionId": "other-intervention",
+          "decisionPointId": "other-decision",
+          "irreversibilityNotYetReached": true,
+          "attributionEvidenceClass": "RUNTIME_VISIBLE"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-ACTIONABLE-UNKNOWN-BLOCKED",
+      "coding": {
+        "runId": "sx-cal-actionable-unknown-blocked-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "UNKNOWN",
+        "unknownReason": "The trajectory lacks enough evidence to distinguish a seed mechanism.",
+        "missingEvidence": ["trajectory evidence", "oracle disposition"],
+        "confounderAxes": {
+          "MODEL_LIMITATION": "UNKNOWN",
+          "TASK_AMBIGUITY": "UNKNOWN",
+          "TOOL_FAILURE": "UNKNOWN",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "UNKNOWN"
+        },
+        "claimedRuntimeActionable": true,
+        "runtimeActionableClaim": {
+          "observableStateId": "unknown-state",
+          "interventionId": "unknown-intervention",
+          "decisionPointId": "unknown-decision",
+          "irreversibilityNotYetReached": true,
+          "attributionEvidenceClass": "RUNTIME_VISIBLE"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-ACTIONABLE-MULTI-BLOCKED",
+      "coding": {
+        "runId": "sx-cal-actionable-multi-blocked-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "MULTI_MECHANISM",
+        "competingSeedCodes": ["EDIT_THRASH", "OBJECTIVE_MISS"],
+        "confounderAxes": {
+          "MODEL_LIMITATION": "PRESENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        },
+        "claimedRuntimeActionable": true,
+        "runtimeActionableClaim": {
+          "observableStateId": "multi-state",
+          "interventionId": "multi-intervention",
+          "decisionPointId": "multi-decision",
+          "irreversibilityNotYetReached": true,
+          "attributionEvidenceClass": "RUNTIME_VISIBLE"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-SEALED-OFFLINE-BLOCKS-ACTIONABLE",
+      "coding": {
+        "runId": "sx-cal-sealed-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "INSUFFICIENT_CONVERGENCE",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "UNKNOWN",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "PRESENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        },
+        "claimedRuntimeActionable": true,
+        "runtimeActionableClaim": {
+          "observableStateId": "partial-diff",
+          "interventionId": "nudge-remaining-checks",
+          "decisionPointId": "mid-trajectory",
+          "irreversibilityNotYetReached": true,
+          "attributionEvidenceClass": "SEALED_OFFLINE_ONLY"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-MULTI-FROM-SPLIT-EVENTS",
+      "coding": {
+        "runId": "sx-cal-multi-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "EDIT_THRASH",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "ABSENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "PRESENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        },
+        "events": [
+          {
+            "eventId": "e1",
+            "eventMechanismCode": "EDIT_THRASH",
+            "evidencePointers": ["synthetic://thrash"],
+            "supportsRunPrimary": true
+          },
+          {
+            "eventId": "e2",
+            "eventMechanismCode": "INCORRECT_FILE_TARGETING",
+            "evidencePointers": ["synthetic://offtarget"],
+            "supportsRunPrimary": true
+          }
+        ]
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "MULTI_MECHANISM",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-OTHER-REQUIRES-RATIONALE",
+      "coding": {
+        "runId": "sx-cal-other-bad-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "OTHER",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "UNKNOWN",
+          "TASK_AMBIGUITY": "UNKNOWN",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-OTHER-VALID",
+      "coding": {
+        "runId": "sx-cal-other-ok-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "OTHER",
+        "evidencePointers": ["synthetic://other-tool-policy"],
+        "otherRationale": "Tool sandbox policy denied all writes after step 2; distinct from seed patterns.",
+        "rejectedSeedCodes": [
+          "EDIT_THRASH",
+          "INCORRECT_FILE_TARGETING",
+          "INSUFFICIENT_CONVERGENCE",
+          "PREMATURE_COMPLETION",
+          "OBJECTIVE_MISS"
+        ],
+        "confounderAxes": {
+          "MODEL_LIMITATION": "ABSENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "PRESENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "OTHER",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-UNKNOWN-REQUIRES-EVIDENCE-GAP",
+      "coding": {
+        "runId": "sx-cal-unknown-missing-gap-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "UNKNOWN",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "UNKNOWN",
+          "TASK_AMBIGUITY": "UNKNOWN",
+          "TOOL_FAILURE": "UNKNOWN",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "UNKNOWN"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-DUAL-DISAGREE-MULTI",
+      "coding": {
+        "runId": "sx-cal-dual-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "OBJECTIVE_MISS",
+        "competingSeedCodes": ["OBJECTIVE_MISS", "INSUFFICIENT_CONVERGENCE"],
+        "confounderAxes": {
+          "MODEL_LIMITATION": "PRESENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        }
+      },
+      "dual": {
+        "runId": "sx-cal-dual-01",
+        "coderA": "OBJECTIVE_MISS",
+        "coderB": "INSUFFICIENT_CONVERGENCE"
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "MULTI_MECHANISM",
+        "runtimeActionable": false,
+        "refereePrimary": "MULTI_MECHANISM"
+      }
+    },
+    {
+      "caseId": "CAL-DUAL-SEED-OTHER-VALID",
+      "coding": {
+        "runId": "sx-cal-dual-seed-other-valid-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "OBJECTIVE_MISS",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "PRESENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        }
+      },
+      "dual": {
+        "runId": "sx-cal-dual-seed-other-valid-01",
+        "coderA": "OBJECTIVE_MISS",
+        "coderB": "OTHER",
+        "otherRationaleB": "The observed failure is outside every frozen seed definition."
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "MULTI_MECHANISM",
+        "runtimeActionable": false,
+        "refereePrimary": "MULTI_MECHANISM"
+      }
+    },
+    {
+      "caseId": "CAL-DUAL-SEED-OTHER-MISSING-RATIONALE",
+      "coding": {
+        "runId": "sx-cal-dual-seed-other-missing-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "OBJECTIVE_MISS",
+        "unknownReason": "Dual referee cannot validate the OTHER coder without required rationale.",
+        "missingEvidence": ["dual.otherRationaleB"],
+        "confounderAxes": {
+          "MODEL_LIMITATION": "PRESENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        }
+      },
+      "dual": {
+        "runId": "sx-cal-dual-seed-other-missing-01",
+        "coderA": "OBJECTIVE_MISS",
+        "coderB": "OTHER"
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false,
+        "refereePrimary": "UNKNOWN"
+      }
+    },
+    {
+      "caseId": "CAL-MULTI-DUPLICATE-SEEDS-REJECTED",
+      "coding": {
+        "runId": "sx-cal-multi-duplicate-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "MULTI_MECHANISM",
+        "competingSeedCodes": ["OBJECTIVE_MISS", "OBJECTIVE_MISS"],
+        "confounderAxes": {
+          "MODEL_LIMITATION": "ABSENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-LAYER1-PASS-REJECTED",
+      "coding": {
+        "runId": "sx-cal-l1pass-01",
+        "layer1SemanticFeasibility": "PASS",
+        "primaryMechanismCode": "OBJECTIVE_MISS",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "ABSENT",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "primaryMechanismCode": "UNKNOWN",
+        "runtimeActionable": false
+      }
+    },
+    {
+      "caseId": "CAL-PREMATURE-COMPLETION",
+      "coding": {
+        "runId": "sx-cal-premature-01",
+        "layer1SemanticFeasibility": "FAIL",
+        "primaryMechanismCode": "PREMATURE_COMPLETION",
+        "confounderAxes": {
+          "MODEL_LIMITATION": "UNKNOWN",
+          "TASK_AMBIGUITY": "ABSENT",
+          "TOOL_FAILURE": "ABSENT",
+          "BUDGET_EXPOSURE": "ABSENT",
+          "CONTEXT_STATE_FAILURE": "ABSENT"
+        },
+        "events": [
+          {
+            "eventId": "e-done",
+            "eventMechanismCode": "PREMATURE_COMPLETION",
+            "evidencePointers": ["synthetic://done-while-oracle-fail"],
+            "supportsRunPrimary": true
+          }
+        ]
+      },
+      "expected": {
+        "accepted": true,
+        "primaryMechanismCode": "PREMATURE_COMPLETION",
+        "runtimeActionable": false
+      }
+    }
+  ]
+}
