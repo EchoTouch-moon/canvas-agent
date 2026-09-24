@@ -1,11 +1,159 @@
 # Context Runtime 当前状态索引
 
+更新时间：2026-09-24（Asia/Shanghai）。本次更新随 PR A（分支 `research/v0.4-truth-source-reset`，基线为远端 `main`
+`16a5a53b109e6aebbb59eb082d5bcd82fe89b74d`）提交，主要内容：**研究方向正式切换为 Context Runtime v0.4（Durable Context Runtime）**，Q5 第三代执行结果与范围界定归位为 v0.3 历史线的收尾，并修订项目边界与依赖规则。以下“当前”表优先于底部历史快照；历史合同与原始裁决不变。
+
+> **阅读指引**：只想看"现在该做什么"→ 读本表 + [v0.4 方向](context-runtime-v0.4-direction.zh-CN.md)。
+> 想看 Q5 三代到底证明/没证明什么 → 读本页“2026-09-23 第三代执行与实验线范围界定”。
+> 想看仪器与标尺的后续价值 → 读[仪器与标尺价值评估](context-runtime-instrument-and-ruler-value-2026-09-23.zh-CN.md)（未合入）。
+> 想看项目怎么拆 → 读[边界与依赖规则](context-runtime-layout-and-dependency-rules.zh-CN.md)。
+
+> **引用位置约定**：本文标 `（未合入）` 的资产尚未进入 `main`，目前只存在于未推送的研究工作副本
+> `codex/c1-offline-mechanism-opportunity-pilot`（本地分支领先 `origin/main` 57 个提交）。PR A 只修事实源，
+> 不搬运这些资产；未标注的链接在 `main` 上均可解析。Q5 归档位置见
+> [Q5 历史收口](context-runtime-q5-historical-closure-2026-09-24.zh-CN.md)。
+
+## 当前事实与唯一近端任务
+
+| 项                    | 当前状态及证据                                                                                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **研究方向（2026-09-23 起）** | **Context Runtime v0.4：Durable Context Runtime**。核心问题从“Runtime 能不能可靠删一段上下文”转变为“**上下文被压缩、截断、替换之后，Agent 能不能持续保有完成长期任务所需的关键状态**”。见 [v0.4 方向](context-runtime-v0.4-direction.zh-CN.md) |
+| 主终点                | **Critical Fact Retention Rate after context transition**（+ task correctness + context/cost delta）。task success 不再单独作为主终点 |
+| 主机制                | **Durable State**（★☆☆☆☆，新建）+ Rehydration + Working Set；Planner 明确后置 |
+| 版本断点              | v0.3 = Observation/Lifecycle/Intervention（C1·CR-004·CR-005·E0·F0·F1·Q5·SV2），**整体封存为历史研究线**；v0.4 = R0–R5 |
+| 任务序列              | **R0 Reset → R1 Measurement Extraction → R2 Compaction Observation → R3 Fact-Loss Qualification（gate）→ R4 Durable State → R5 Rehydration → R6 Comparative Study**。R1 计划见[R1 实施计划](context-runtime-r1-measurement-extraction-plan.zh-CN.md)（未合入） |
+| 方法刚性              | `Exploration → Qualification → Formal Study`；**禁止**一上来就重治理 |
+| 项目边界              | Canvas Agent（产品）/ Context Runtime（基础设施）/ Context Lab（研究平台）三项目；**硬规则：Runtime 绝不 import research/***。见[边界与依赖规则](context-runtime-layout-and-dependency-rules.zh-CN.md) |
+| 事实源状态            | ✅ **已随 PR A 修正**：本页现为 `main` 上的当前状态。本地研究副本仍领先远端 57 个提交，Q5 仪器资产（`c1-q5-three-arm.ts` / `c1-q5-action-replay.ts` 等）仍未推送；**测量资产以 `MEASUREMENT_ASSETS_IDENTIFIED` 计，未合入**（PR B 才会合入）|
+| Q5 归位              | **测量资产**：仪器层（ActionRecord/Fingerprint/Metering/RequestBinding/Replay）供 v0.4 复用；实验治理层留在研究侧。**不是 v0.4 的研究对象** |
+| Q5 第三代执行        | `12d17e0`：probe 6/6 oracle PASS、40/72 请求；pilot **36/36 oracle PASS**、268/864 请求、0 终止。identity 均已 `CONSUMED` |
+| 本研究最硬结论        | **公开契约修订使任务可判定**：v0.3 第一/二代 pilot 中 H1/H2/L1 共 6 腿全 FAIL（11 处隐藏字面答案集），推广“公开穷尽词表 + 语义要素”后同类任务 36 腿全过 |
+| 实验线范围边界        | **v0.3 这条线不能回答“压缩场景下上下文机制是否有价值”**：`live-runner.ts:805` `compaction:{enabled:false}`；每腿最高 66,190 tokens 未跨阈值；`project.md` 从未实现测试。详见下方范围界定节 |
+| 已证明（窄）          | ① 上下文机制可按请求注入、可观测、可投递、可审计；② 任务判定可做到公开可判定；③ 证据链与身份生命周期可靠 |
+| 未证明                | 压缩下的信息保持、短窗口模型长任务价值、`project.md` 有效性、任何效果（每 task×arm n=2、三臂通过率相同） |
+| 历史线处置            | C1 superseded-version = `RESEARCH_COMPLETE / VALUE_UNPROVEN`；F1-40/F1-48 **HOLD**；R0 rescue **HOLD**；PR #144 不作为 v0.4 blocker |
+| 新工作准入            | 每个新 PR 必须能回答“**它和长任务中的 Critical State Preservation 是什么关系**”；答不了不当当前优先级 |
+| 身份状态              | 三代执行身份全部 `CONSUMED`（`fbb758da`/`6dcf4faa`/`41a50847`/`3412aa51`/`c56781ae`）+ 2026-09-19 两个历史身份。**无未消耗的执行身份**；下一轮必须新合同+新身份+新资格链+新授权 |
+| 环境事实              | ChatGPT（Luna）与 Grok 4.6 额度耗尽；Cursor `grok-4.7-high` 可用但 MCP 启动连续挂起已停用。v0.3 全部执行/审查由 `stepfun-plan/step-5-preview` 完成 |
+
+本轮证据见 [观测资格报告](../verification/cspv-c1-observation-qualify-zero-provider-2026-09-18.zh-CN.md)（未合入） 及第一至 [第五轮独立复核](../verification/cspv-c1-observation-qualify-round5-review-2026-09-18.zh-CN.md)（未合入）。只读pilot与条件化三臂设计见 [离线pilot报告](../verification/cspv-c1-offline-mechanism-opportunity-pilot-2026-09-18.zh-CN.md)（未合入）。完整方向与任务表见 [2026-09-18规划](context-runtime-direction-review-and-next-plan-2026-09-18.zh-CN.md)（未合入）。
+
+Q5-A/B 审查修复见 [Q5-A/B 报告](../verification/cspv-c1-q5-ab-fixtures-masking-2026-09-18.zh-CN.md)（未合入）；独立复核原文未改。Q5-A/B/C/D 已完成限定范围的本地交付，READY_FOR_AUTHORIZATION，不等于获得真实执行授权。实施顺序见 [规划 §21](context-runtime-direction-review-and-next-plan-2026-09-18.zh-CN.md#21-q5-离线设计包-v12026-09-18)（未合入）。
+
+## 验证边界
+
+第三代 `12d17e0`（Node 24.15.0、固定本地 tokenizer、deny-network）：
+- 实现回归：16 files / 30 suites / **141/141 tests**、0 failed、0 skipped，typecheck exit 0（本地，非 CI）。
+- V2 fake qualification：probe 6/6 + pilot 36/36 = **42/42**，oracle **42/42**，fake fetch **336**，真实 Provider **0**；
+  合同 canonical `49172d83357485ad86f492e38d21f93f9643d4e63293aa1e899b02079c80964f`、文件 `3a9ebfba2634a16f544ac45bd304c760873c57aeca4a73f5bbf6bdc60cd1e881`，403/403 source/task hash 绑定 `12d17e0`。
+- 真实 probe：6/6 腿、oracle 6/6、40/72 请求、usage 103,664 tokens；**有 fresh 独立审计（`judged`）**。
+- 真实 pilot：36/36 腿、oracle 36/36、268/864 请求、usage 620,089 tokens；**按用户决定未派独立审计**，数字为父级从 claim root 原始文件直读的初核。
+- `budget.pilot.calls=24`，每腿实测请求 4–13、无一腿 ≥15。
+- Provider 计费/credits、`cacheWriteTokens`、wire 精确字节、服务端 model id 漂移均 **UNKNOWN**。
+- 归档（未合入 `main`）：`docs/verification/c1-q5-cd-2026-09-23/`（资格链 408 文件 + probe 60 + pilot 346），7 个档案目录 manifest 共 864 项全部校验通过。位置与引用纪律见 [Q5 历史收口](context-runtime-q5-historical-closure-2026-09-24.zh-CN.md)。
+
+---
+
+## 2026-09-23 Context Runtime v0.4 方向切换（当前）
+
+ 三份方向文档已落定，研究主线正式切换：
+
+- [v0.4 方向（R0 Research Reset）](context-runtime-v0.4-direction.zh-CN.md)：North Star / Primary Failure Mode / Primary Mechanisms / Primary Evidence 四件定名的事 + R0–R5 任务序列 + 手臂设计 + Planner 后置 + v0.3 历史线处置 + 新工作准入规则
+- [项目边界与依赖规则](context-runtime-layout-and-dependency-rules.zh-CN.md)：Canvas Agent / Context Runtime / Context Lab 三项目 + “Runtime 绝不 import research/*”硬规则 + `context-benchmarks` 拆 Lab/Studies + 什么进 Runtime Core 什么留 Lab + 拆仓库的四个触发条件
+- [仪器与标尺价值评估](context-runtime-instrument-and-ruler-value-2026-09-23.zh-CN.md)（未合入）：Q5 沉淀的两层资产在 v0.4 中的应用面、机制无关的 action record 结构、诚实清单与仪器自身成本
+
+**owner 三项裁决已记录**（2026-09-23，详见 [v0.4 方向 §9](context-runtime-v0.4-direction.zh-CN.md)）：
+1. **Q5 integration**：不推 57 个原始提交；先修事实源，再抽取 measurement primitives，以 clean integration PR 进 main；Q5 治理/身份/oracle/归档留研究侧。**测量资产必须先于 v0.4 compaction 实现进主线。** 拆为 PR A（historical closure，纯文档）+ PR B（measurement core extraction，去 `c1-q5-*` 化）。
+2. **R0 authorship**：North Star / 边界 / 旧线状态 / 优先级由 owner 定，文档据此整理；实现 Agent 不得自主改方向；R0 保持短。
+3. **Compaction harness**：新建独立 lightweight **Compaction Exploration Harness**；不改 Q5 frozen harness、不迁全套治理；第一阶段只用 5 个通用件。
+
+**路线图已重排为 R0–R6**（新增 R1 抽取与 **R3 Fact-Loss Qualification 硬 gate**）：
+`R0 Reset → R1 Measurement Extraction → R2 Compaction Observation → R3 Fact-Loss Qualification → R4 Durable State → R5 Rehydration → R6 Comparative Study`
+
+**R3 是硬 gate**：若 Native compaction 在任务设计下未产生可观测信息丢失，R4–R6 不启动，转为重设计任务或重估问题。**这是允许的结论。**
+
+下一步实施计划见 [R1 Measurement Asset Extraction](context-runtime-r1-measurement-extraction-plan.zh-CN.md)（未合入）（含通用/专用切分表、两个 PR 的验收标准、4 个待决策）。
+
+**待决策**（见 v0.4 方向 §10）：① 本地 57 个未推提交（含 Q5 仪器资产）如何进远端；② R1/R2 harness 方案；③ 目录/依赖重组范围与时机；④ R5 统计设计。
+
+---
+
+## 2026-09-23 第三代执行与实验线范围界定（v0.3 收尾）
+
+### 三代真实执行对比（统计分开，不合并）
+
+| 代 | 版本 | probe | pilot | 主要发现 |
+|---|---|---|---|---|
+| 1 | `0c05387` | 6/6 oracle PASS | 30/36，oracle 17，6 终止 | P2 三臂 FAIL → 查出隐藏字面答案集 |
+| 2 | `aae6156` | 6/6 PASS，33 请求 | 30/36，oracle 17，6 终止 | P2 已修；H1/H2/L1 全 FAIL → 11 处规范缺口 |
+| 3 | `12d17e0` | 6/6 PASS，40 请求 | **36/36，oracle 36，0 终止**，268 请求 | 同类任务全过，修订有效 |
+
+累计真实 Provider 请求约 740 次；usage tokens 约 140 万（计费 UNKNOWN）。
+
+### 范围界定：本实验线不能证明什么（任何后续引用必须带）
+
+1. **压缩被主动关闭**：`src/live-runner.ts:805` `compaction: { enabled: false }`。三个被测机制（NATIVE / MASK_RECENT_READ / VERSION_AWARE）都是在“永不压缩”前提下的上下文卫生操作。
+2. **任务从未跨过压缩阈值**：每腿 4–13 次请求、累计 usage 最高 66,190 tokens，对 128K 级模型连警戒线都没到；harness 也没有任何 compaction 事件的埋点或计数。
+3. **`project.md` 前置状态注入从未实现、从未测试**：Q5 的 prompt 只含任务说明，bootstrap 只读 `package.json`。因此“前置加载项目关键运行信息能否抵消压缩损失”这一构想**无任何证据支持或反对**。
+4. **机制方向与初衷不完全对齐**：MASK 是“隐藏较早读取结果”，VERSION_AWARE 是“驱逐旧版本”——两者都是**减少**上下文；而“防止压缩丢失关键信息”需要的是**保留/恢复**能力。二者不是同一个问题的正反两面。
+5. **干预有效性未建立**：只证明通路运行 + VERSION_AWARE 移除已投递。每 (task,arm) n=2、三臂 oracle 通过率完全相同、控制臂同形机会按设计不处置（`NOT_EVALUATED`/`SHADOW`）→ 跨臂机会率不可比。
+6. 2026-09-18 方向复核已预先标记过这一边界：“#110 SV2 受控真实调用 = harness-seeded pure eviction 的机制可达性；不是自然触发率和任务有效性”。
+
+### 这两件事的价值体现在哪里
+
+（详细版另见 [仪器与标尺：后续 Context 机制研究的价值与应用面](context-runtime-instrument-and-ruler-value-2026-09-23.zh-CN.md)（未合入）：含仪器能力清单、机制无关的 action record 结构与新机制映射表、六个应用面、诚实清单、三代量化数据、仪器自身成本与可伸缩用法、以及回到初衷的三臂设计与统计设计必要改动。）
+
+**(a) 机制可投递性与可观测性（VERSION_AWARE 每轮都真的移除了内容）**
+- 价值：证明了“在每次模型调用前改写上下文”这件事在真实 Provider 链路上**工程上能做到**——有结构化决策、有 reason code、有 recordHash、可独立重放。没有这个，任何关于上下文机制的讨论都只是设想。
+- 局限：可达性 ≠ 自然触发率 ≠ 任务有效性。它是必要条件，不是充分条件。
+
+**(b) 任务判定的公开可判定性（36/36 PASS 是靠修订公开契约换来的）**
+- 价值：这是**方法论资产**，可迁移到任何后续实验。它把“模型失败”从“oracle 说不过就不过”变成“公开要求 → 判定 → 产物”三方可核对；顺带发现并修掉了一个真缺陷（reference 在 `require` 时写输出文件，使资格链覆盖率虚高）。
+- 局限：判定可解释不等于机制有效。它只保证“没过就是真没过”，不保证“过了就是机制起了作用”。
+
+### 若要回到初衷，最小改动清单
+
+| 现状 | 需要 |
+|---|---|
+| `compaction: { enabled: false }` | 打开，并设定低于模型窗口的触发阈值，使压缩真实发生且**可计数** |
+| 4–13 请求/腿、≤66K tokens | 设计跨压缩阈值的长任务：多文件、多轮次、累计远超阈值 |
+| 无前置状态注入 | 实现 `project.md`（用户+LLM 维护）作为**一个臂**：NATIVE / COMPACT-ONLY / COMPACT+project.md |
+| oracle 判“代码对不对” | 增加“**压缩后是否仍知道关键事实**”的探针（问答式，或任务依赖早期读取的信息） |
+| 三臂 = 遮罩/驱逐 | 三臂应改为**压缩管理策略**的对比——遮罩和驱逐在压缩场景下语义完全不同 |
+
+关键设计难点：压缩一旦发生，被压缩掉的内容就不可观测——除非保留 pinned 原文做对照，这正是项目已有的 `SourceVersion` / pinned Git blob 物化能力，可能是最自然的抓手。
+
+## 2026-09-22 Q5 V2 离线收口（历史快照）
+
+离线收口阶段状态曾为 **`PARENT_REVIEW_PENDING / NOT_AUTHORIZED`**；随后同一批准 tuple 的 probe 已恢复并完成，详见下方恢复执行记录。准确执行 SHA `0c0538705b55f2e8cbec23eee6e301af84e3da99` 的实现已完成V2 identity分离、Node24固定tokenizer下16 files/30 suites/130/130 tests、0 skip、typecheck exit 0；新V2 fake qualification与独立重放仍与 live probe 分开归档。
+
+合同 canonical SHA `f6b82f0beab962c6eaf4e13617a8eb8b43f02e56fdc4e0795d1e22b3aabb1504`，合同文件 SHA `60a8127726bc57acce64c1c118f764b7359025a981042975623b576d101a806f`。V2四identity状态：qualification probe/pilot 已CONSUMED；execution probe `c1-q5-probe-20260922-fbb758da` 与 execution pilot `c1-q5-pilot-20260922-640c5cd9` 未claim。fake qualification实际42/42完成、0终止、0未执行，oracle42、audit42、336 fake、real0；403/403 source/task hash一致，独立replay原始SHA `386ca719f243199d3d95e713a6a7bae68385ed71cea8cf7b0c467be5e1a73db1`。
+
+probe批准请求及其完整tuple见[Q5 V2 probe批准请求](../verification/c1-q5-cd-2026-09-22-v2/q5-probe-authorization-request-0c05387.md)（未合入），授权文件和原始预检/入口记录已归档于[real-probe目录](../verification/c1-q5-cd-2026-09-22-v2/real-probe-20260922/c1-q5-probe-20260922-fbb758da/)（未合入）。参数为Stepfun Plan/`step-3.7-flash`、6腿、最多72请求、并发1、0重试；实际正式入口仅启动一次，因 `tsx` `ERR_MODULE_NOT_FOUND` 在 adapter 初始化前退出，完成0、终止0、未执行6、请求0、real Provider 0、oracle `NOT_RUN`。这不是自然机会、干预、损害或效果结论；usage 保持未知。独立审计为 `AUDITED`，仅建议未来另行请求 pilot，不构成批准；pilot identity 仍未claim。V2完整收口及历史边界见[Q5 V2收口报告](../verification/c1-q5-cd-2026-09-22-v2/q5-v2-closure-0c05387.md)（未合入）。旧80574b2e目录和报告仅保留历史阻断，不覆写、不重评分、不与V2合并。
+
+### 2026-09-22 Q5 V2 probe 恢复执行与独立审计（历史快照）
+
+用户批准覆盖 canonical contract `f6b82f0beab962c6eaf4e13617a8eb8b43f02e56fdc4e0795d1e22b3aabb1504` 的 `phase=probe` tuple：Stepfun Plan/`step-3.7-flash`、6 legs、每腿最多12 requests、总最多72、并发1、0 retry、无 fallback、`UNBOUNDED_BY_USER`；pilot 不在范围。授权 provenance 是对话批准记录，不是加密签名。先前 `ERR_MODULE_NOT_FOUND` 的 setup-failure 原件保持独立且不可变；恢复证据、raw 机器结果、脚本、日志、secret scan、来源 hash 与独立报告均在 [real-probe recovery archive](../verification/c1-q5-cd-2026-09-22-v2/real-probe-20260922/c1-q5-probe-20260922-fbb758da/recovery-preflight-20260922/)（未合入），完整文件路径见 [recovery archive manifest](../verification/c1-q5-cd-2026-09-22-v2/real-probe-20260922/c1-q5-probe-20260922-fbb758da/recovery-archive-manifest-0c05387.json)（未合入）。
+
+| 口径 | 计划 | 已开始 | 已完成 | 已终止 | 未执行 | requests | real Provider | oracle |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| authorized probe | 6 legs | 6 | 6 | 0 | 0 | 33 | 33 | `3 PASS / 3 FAIL` |
+| pilot | 未授权 | 0 | 0 | 0 | — | 0 | 0 | `NOT_RUN` |
+
+恢复仅修复 exact execution checkout 中 ignored 的 `node_modules/tsx` 链接，指向锁定的 `tsx@4.23.7`；未改源码、任务、测试、package、lockfile、冻结合同、身份或预算，也未安装网络依赖。重新预检确认403/403 source files匹配、0 mismatch；正式入口只启动一次。原正式入口记录仍准确表示当时 `NOT_STARTED`、未claim、0 Provider 请求；恢复入口随后 claim 同一 execution identity，6/6 legs `COMPLETE`，terminal `CONSUMED`，33次真实 Provider 请求，adapter receipt total tokens 为44,782。3个Q5-P2腿 oracle FAIL（01 `originalWindowField` allowed set；02–03 `failureReason` hidden equivalence set）保留在原始 `result.jsonl`，纳入分母；Q5-P1三腿 PASS。retry=0、fallback未执行；Provider billing/cost/credits 保持 `UNKNOWN`，不可写为0。
+
+独立离线审计 verdict 为 **`AUDITED`**，确认授权绑定、来源 hash、身份边界、恢复 provenance 与 raw report 可核对；它不是成功效果结论，也不是独立 live rerun。自然机会、harm rate、机会质量、Runtime效果和Provider成本均不宣称。审计观察到8个已发送 `REMOVED_PAIR`（VERSION_AWARE 实验动作），不把它们转为自然机会或政策效果；sample为单次6腿，3个 oracle FAIL 要求 reviewer 按冻结合同解释。execution identity 已 `CONSUMED`，不得重试、换身份、补跑或修复；pilot 仍未claim、未运行，任何后续 pilot 需另行明确授权。
+
+## 历史快照（保留，不代表当前状态或授权）
+
+以下保留2026-09-13及更早记录。旧main SHA、F1 `NO_IDENTITY/NO_PROVIDER`、当时的下一步均已由上方当前表取代，不可用于判断最新进度。
+
 更新时间：2026-09-13（Asia/Shanghai）。前次更新在 `codex/qwen-sv1-response-evidence`（基于 `0120932`），
 记录机制 Canary V1–V3 与生命周期 Canary SV1 的**真实执行结果**和一项本地证据闭环修复；本次增补在
 `codex/sv2-harness-seeded-implementation`（PR #110，head `52abc10`），记录 SV2 harness-seeded 真实执行结果。
 本次进一步在 `codex/c1-effectiveness-e0-design` 起草 E0 合同；SV1/V1–V4 历史数字与结论保留原貌，不改写既有报告。
 
-## 当前结论
+## 历史结论（下列为2026-09-13快照）
 
 C1 V4 已真实尝试并终止。近端主线改为失败证据与干预可达性收口，不能继续使用此前“等待 V3 签署”的状态。
 系统通路已有工程证据；SV2 已证明一次受控的 Runtime pure-evict 机制路径可达，但仍没有 Native-vs-Runtime
@@ -69,7 +217,7 @@ V4 study：`c1-20260906-c1-feasibility-v1-5a4b5d58`，执行 SHA：`cf4b7ea61be7
 此结果和分层样本不足共同限制解释：不能声称干预有效、节省 token，或从任务成功推断 Runtime 优势。
 M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较。
 
-## 本轮已执行与下一步
+## 历史已执行与当时下一步
 
 - 已完成：26 文件哈希校验、本机持久副本、可重复的 checkpoint 对账、13 项合成回归测试，以及绑定执行 SHA 的干预路径定位。
 - 已完成核心修复：响应及逐工具事件独立持久化，manifest 明确区分全程与完成子集，异常尾部保留未知。
@@ -181,7 +329,7 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 
 以下保留已有工程与合同绑定；历史 CI 结果是既有记录，本轮只核验最新 Git 基线和离线证据。
 
-## 当前事实与绑定
+## 历史事实与绑定
 
 | 项目                             | 当前状态                                                                                             | 绑定或解释                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -258,3 +406,60 @@ M5 未支持效率优势；M6–M9 的机制曝光不能替代完整任务比较
 当前贡献是可观察、可追溯、可受控改变的上下文执行基础；策略效用仍未知。
 UI、第二模型、更多策略与扩样属于候选方向，不能替代失败路径和干预输入的核心验收。
 历史 CR-005、M 系列、readiness 与 V4 是不同证据层级，不混用计数或授权。
+
+
+### 2026-09-19 Q5 日志修复补记
+
+第三轮指出的全局顺序与整调用缺失已本地修复：schema v2 绑定 runId，原序连续性校验；完整 PASS 要求外部独立运行清单，否则为 PARTIAL。增加整块删除、尾块删除、倒序与跨运行拼接回归。未提交，Q5-A/B 仍待完整验收，Q5-C/D 未执行，LIVE_NO_GO。细节见 Q5-A/B 验证报告末节。
+
+
+### 2026-09-19 Q5 收口当前进度（优先于上方早期补记）
+
+A/B 已提交 `0543152` 并在干净版本复验19/19；C 离线调度、独立清单和停止规则已实现，连同 Q5 测试28/28及类型检查通过。D 仍缺 Step Plan 研究 Credits/付费约束及实际输入上限等执行绑定条件，尚未 READY_FOR_AUTHORIZATION。进度证据见 [C/D报告](../verification/cspv-c1-q5-cd-progress-2026-09-19.zh-CN.md)（未合入）。Provider=0，LIVE_NO_GO。
+
+
+### 2026-09-19 Credits 阻塞解除
+
+用户允许本研究现有 Stepfun Plan Credits 不设上限。Q5-D 不再等待账户额度数值；剩余为输入/在途时长执行边界与最终三臂版本/身份绑定。真实运行尚未启动，旧 identity/HOLD 不变。
+
+
+### 2026-09-19 Q5 输入限制与整链准确提交复验
+
+`afff01b81dffa7e08a280e14016b67de22fba0cf` 干净工作树：55/55（无跳过），tsc通过；探针计划6、完成6、终止0、未执行0；pilot计划36、完成36、终止0、未执行0。42个本地oracle PASS与42个文件重放PASS仅为已知参考答案脚本的协议验收。336条固定本地模板token计量已落盘；并非Provider计费token。新probe/pilot字符串仅为PROPOSED_UNCLAIMED，不构成身份登记或授权。证据与剩余事项见 [C/D报告](../verification/cspv-c1-q5-cd-progress-2026-09-19.zh-CN.md)（未合入）。
+
+
+### 2026-09-20 Q5最终收口（当前结论）
+
+Q5-A/B/C/D的请求范围已完成。最终候选执行提交 `f51055a8fe949aade9f3e1e9a9f9db762022da14`，合同hash `f6a19835256ab172f751538acca9fd8f767ad78430e1c9de100440ccc14565ec`。116/116与类型检查通过；6+36注入HTTP资格腿、42腿/336请求独立重放通过；重复资格identity拒绝。真实Provider=0，真实probe/pilot身份UNCLAIMED。完整候选预算、身份、授权范围和证据见 [最终待批准包](../verification/cspv-c1-q5-cd-progress-2026-09-19.zh-CN.md#最终待批准包2026-09-20)（未合入）。READY_FOR_AUTHORIZATION仅指Q5准备完成，Q6尚未批准；下一步优先单独决定probe，pilot另批。
+
+
+### 2026-09-21 异常落盘、离线复现与 restore-then-compose 修复
+
+PROPOSED 截断判 FAIL 合理，不放宽审计。`failure.jsonl` 只补追查性。用归档工具序离线复现到 `RUNTIME_CONTEXT_UNCHANGED`（文件恢复后下一轮无 context change）；live 原异常文本仍未知。L1 公开材料未点名 `diagnosis.json`，缺口只留在复核文档，公开 prompt 未改。执行修复已提交 `75863bee0be0a90b4ccd13ff0e7c820ed8d14d4d`。详见 [复核与修复记录](../verification/cspv-c1-q5-pilot-exception-review-2026-09-21.zh-CN.md)（未合入）。该提交上的候选合同已被任务规范修订取代。当前候选见 [q5-run-contract.03f9db3.proposed.json](../verification/c1-q5-cd-2026-09-21/q5-run-contract.03f9db3.proposed.json)（未合入）。
+
+### 2026-09-21 探索 pilot 已执行（身份已消耗，证据不完整）
+
+单独批准后在 `f51055a` 执行 `c1-q5-pilot-20260919-70a10531`。完成 8、终止 1、未执行 27；真实 Provider 38 次。`Q5-L2/1/VERSION_AWARE` 第 5 次调用只留下 PROPOSED，独立重放 FAIL，全局停止。账本该腿 usage=null。不作机制或效果判断。报告：[pilot 执行报告](../verification/cspv-c1-q5-pilot-live-2026-09-21.zh-CN.md)（未合入）。身份 CONSUMED。
+
+### 2026-09-21 自然探针已执行（身份已消耗）
+
+已获覆盖 `f51055a` / 合同 `f6a19835256ab172f751538acca9fd8f767ad78430e1c9de100440ccc14565ec` / `c1-q5-probe-20260919-a32ff7a4` / probe 6腿72请求的明确授权，并在独立 checkout `.pr-worktrees/c1-q5-probe-f51055a` 一次性执行。完成 6、终止 0、未执行 0；真实 Provider 41 次。独立落盘重放 PASS。Q5-P1 与 Q5-P2 的 VERSION_AWARE 均有收到响应的实际 `REMOVED_PAIR`；MASK 因干净 read 未超过 K=4 而 sent mask=0。六腿任务 oracle 均 FAIL，不作为效果或损害结论。probe 身份 CONSUMED。完整表与计量见 [探针报告](../verification/cspv-c1-q5-probe-live-2026-09-21.zh-CN.md)（未合入）。未启动 pilot。
+
+### 2026-09-21 自然探针本地准备（授权前记录）
+
+已核对交付包未漂移：文档 HEAD `60464d0`，执行源码仍为干净 `f51055a`；二者之间仅文档与资格证据，执行面文件哈希与合同一致。因 `verifyQ5RunContract` 绑定 `HEAD==executionRevision`，已另建独立 checkout `.pr-worktrees/c1-q5-probe-f51055a`，在该树上合同 SHA `f6a19835256ab172f751538acca9fd8f767ad78430e1c9de100440ccc14565ec` 核验通过；在文档 HEAD 上核验失败，符合“报告提交不能替代执行提交”。
+
+真实身份目录当时不存在，probe/pilot 均 UNCLAIMED。`STEP_PLAN_API_KEY` 可从仓库 `.env` 加载（未输出）。tokenizer 固定资产哈希与 `tokenizer-manifest.json` 一致。未重复 116 项测试。此段是授权前核对；随后 probe 已执行并消耗身份，见上一节。
+
+
+### 2026-09-21 pilot异常落盘本地修复
+
+保留pilot原终态与身份。runner已本地补异常阶段/name/message/stack落盘，并覆盖首请求及第5请求compose前失败；19/19与类型检查通过，未提交，本轮新增真实调用0。审计仍拒绝无终止证据的PROPOSED截断；历史具体异常根因仍未知。见[复核与修复记录](../verification/cspv-c1-q5-pilot-exception-review-2026-09-21.zh-CN.md)（未合入）。下一步先离线复现根因和核对公开任务要求，不能直接重跑pilot。
+
+### 2026-09-22 Q5 步骤 1-3 收口更正
+
+**当前状态：`BLOCKED_PENDING_IDENTITY_REBIND / PARENT_REVIEW_PENDING`；真实执行 `NOT_AUTHORIZED`。** 准确执行 SHA `80574b2ae9f67d74602d2dad549d077f6fdc2caf`、合同 canonical SHA `dfdc5b73bc7cbfe47deb742672c754b5a7fe84ab51502539bf28eeba503e07c7`、合同文件 SHA `84cdc2afcfff7bffd668675a0e3ad105b996042b6e38459b3b7f9b3f19c83249` 和既有证据归档 SHA `98991fecf8f93e31b953edc40f30f18be2678c0badb11b64290cffd4942fa032` 保持绑定事实；归档资格实际仍为42腿、336 fake fetch、真实Provider 0。
+
+更正原因及后续证据：早先59项 JSON的 `numTotalTestSuites=9` 不是9个文件，`testResults`仅5个文件。随后已在准确80574b2e、Node24、固定tokenizer、拒绝网络通路下完成计划16文件及新增适用回归：30 suites、128/128 tests、0 skip、typecheck exit 0（非CI）。原始 JSON/log、准确16文件清单见[父级更正说明](../verification/c1-q5-cd-2026-09-22/q5-parent-correction.80574b2e.md)（未合入）。
+
+另已核对 identity 绑定：`verifyQ5RunContract` 将 `stages.probe.studyId` 纳入 canonical contract hash，`assertQ5Authorization` 要求 authorization studyId 与合同内 identity 完全相等。当前合同内 identity `c1-q5-probe-20260921-91ccc8cd` 已作为 fake qualification CONSUMED；先前草案 `c1-q5-probe-20260922-80574b2e` 被正式校验拒绝，不能仅改批准文案。批准请求仍不可执行；须由父级审核后决定是否在最终版本上重新生成全新 identity/合同/hash，再另行请求批准。pilot 不自动启动，旧身份不补跑，新旧版本不合并效果。
