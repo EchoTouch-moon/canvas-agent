@@ -35,7 +35,7 @@
 | 新工作准入            | 每个新 PR 必须能回答“**它和长任务中的 Critical State Preservation 是什么关系**”；答不了不当当前优先级 |
 | 身份状态              | 三代执行身份全部 `CONSUMED`（`fbb758da`/`6dcf4faa`/`41a50847`/`3412aa51`/`c56781ae`）+ 2026-09-19 两个历史身份。**无未消耗的执行身份**；下一轮必须新合同+新身份+新资格链+新授权 |
 | 环境事实              | ChatGPT（Luna）与 Grok 4.6 额度耗尽；Cursor `grok-4.7-high` 可用但 MCP 启动连续挂起已停用。v0.3 全部执行/审查由 `stepfun-plan/step-5-preview` 完成 |
-| 本地未合入进展        | **main 的实现状态仍未前移**：R1 = `LOCAL_EXTRACTION_COMPLETE` @ `b42eab5`（未合入）；R2 = `R2_NO_TRIGGER`，pressure generator 需重构；R2 诊断观测 @ `4dbf7d7`（未合入）；**PR B = `BLOCKED_BY_R2_QUALIFICATION`** |
+| 本地未合入进展        | **main 的实现状态仍未前移**：R1 = `LOCAL_EXTRACTION_COMPLETE` @ `b42eab5`（未合入）；**R2 = `NOT_QUALIFIED`**（首次 live = `R2_OBSERVATION_GAP`，诊断 = `R2_NO_TRIGGER`）；**PR B = `BLOCKED_BY_R2_QUALIFICATION`** |
 
 本轮证据见 [观测资格报告](../verification/cspv-c1-observation-qualify-zero-provider-2026-09-18.zh-CN.md)（未合入） 及第一至 [第五轮独立复核](../verification/cspv-c1-observation-qualify-round5-review-2026-09-18.zh-CN.md)（未合入）。只读pilot与条件化三臂设计见 [离线pilot报告](../verification/cspv-c1-offline-mechanism-opportunity-pilot-2026-09-18.zh-CN.md)（未合入）。完整方向与任务表见 [2026-09-18规划](context-runtime-direction-review-and-next-plan-2026-09-18.zh-CN.md)（未合入）。
 
@@ -78,9 +78,11 @@ Q5-A/B 审查修复见 [Q5-A/B 报告](../verification/cspv-c1-q5-ab-fixtures-ma
 R1 与 R2 已在本地推进但**尚未合入 main**，因此 main 的实现状态仍未前移：
 
 - **R1** `LOCAL_EXTRACTION_COMPLETE` @ `b42eab5`：6 个机制中立测量模块 + 16/16 测试，Q5 frozen 实现 byte-for-byte 未动。PR B 未开。
-- **R2** `R2_NO_TRIGGER`：真实 native compaction 曾在 R2 首次运行中被确认触发（`reason=threshold`，`CompactionResult` 含 summary / firstKeptEntryId / tokensBefore=19447），但 harness 未能捕获 compaction 之后的外发上下文。
-- **R2 诊断** @ `4dbf7d7`：连续第二次 NO_TRIGGER 后诊断为 **pressure generator 必须重构**——harness 把"上下文长起来"依赖在模型行为上，而它应是实验输入。方案待批准。
-- **PR B** = `BLOCKED_BY_R2_QUALIFICATION`：只有在真正观察到可归因、可 replay 的 native compaction 之后才开。
+**R2 qualification = `NOT_QUALIFIED`**（两次 live 运行，结果不同，不可互相压扁）：
+
+- **initial live run → `R2_OBSERVATION_GAP`**：native compaction **真实发生了**（`reason=threshold`，`CompactionResult` 给出 `summary` / `firstKeptEntryId` / `tokensBefore=19447`），压缩前的外发上下文也抓到了；但 harness 未能捕获 compaction **之后**的外发上下文，因此 attribution/replay 的验收条件 3 与 6 不满足。Fail-closed 正确工作：未伪造 `SUMMARIZED`。
+- **diagnostic run @ `4dbf7d7` → `R2_NO_TRIGGER`**：session 在 2 次 Provider 请求后自行结束，无错误。诊断为 **pressure generator 必须重构**——harness 把"上下文长起来"依赖在模型行为上，而它应是实验输入。
+- **PR B = `BLOCKED_BY_R2_QUALIFICATION`**：只有在真正观察到可归因、可 replay 的 native compaction 之后才开。
 
 ---
 
